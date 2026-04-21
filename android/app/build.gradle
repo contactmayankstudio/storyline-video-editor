@@ -1,0 +1,245 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android' version '1.9.21'
+    id 'com.google.gms.google-services'
+    id 'com.google.firebase.crashlytics'
+    id 'com.google.firebase.firebase-perf'
+}
+
+def runtimeAbis = ["armeabi-v7a", "arm64-v8a"]
+def bundledRuntimeLibNames = [
+    "libavcodec.so",
+    "libavformat.so",
+    "libavutil.so",
+    "libswresample.so",
+    "libswscale.so",
+]
+android {
+    namespace = "com.video.engine"
+    compileSdk = 34
+    ndkVersion "26.3.11579264"
+
+    buildFeatures {
+        viewBinding true
+        buildConfig false
+    }
+
+    defaultConfig {
+        applicationId = "com.storyline.app"
+        minSdk = 21
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0.0"
+        
+        externalNativeBuild {
+            cmake {
+                cppFlags "-std=c++17"
+            }
+        }
+
+        ndk {
+            abiFilters "armeabi-v7a", "arm64-v8a"
+        }
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
+    signingConfigs {
+        release {
+            storeFile file(System.getenv('KEYSTORE_PATH') ?: "${System.properties['user.home']}/.keystores/video_engine.keystore")
+            storePassword System.getenv('KEYSTORE_PASSWORD') ?: ""
+            keyAlias System.getenv('KEY_ALIAS') ?: "video_engine"
+            keyPassword System.getenv('KEY_PASSWORD') ?: ""
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled = false
+            shrinkResources = false
+            debuggable = false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            debuggable = true
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    kotlinOptions {
+        jvmTarget = "11"
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+            version "3.22.1"
+        }
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
+    }
+}
+
+tasks.register("copyBundledRuntimeLibs") {
+    def outputFiles = runtimeAbis.collectMany { abi ->
+        bundledRuntimeLibNames.collect { file("src/main/jniLibs/${abi}/${it}") } + [
+            file("src/main/jniLibs/${abi}/libc++_shared.so"),
+        ]
+    }
+
+    inputs.files(
+        files(
+            runtimeAbis.collect { abi ->
+                fileTree("${rootProject.projectDir}/third_party/ffmpeg/${abi}/lib") {
+                    include bundledRuntimeLibNames
+                }
+            }
+        )
+    )
+    inputs.property("runtimeAbis", runtimeAbis)
+    inputs.property("ndkVersion", providers.provider { android.ndkVersion })
+    outputs.files(outputFiles)
+
+    doLast {
+        def ndkRoot = android.ndkDirectory
+        runtimeAbis.each { abi ->
+            def destDir = file("src/main/jniLibs/${abi}")
+            destDir.mkdirs()
+
+            def ffmpegLibDir = file("${rootProject.projectDir}/third_party/ffmpeg/${abi}/lib")
+            if (ffmpegLibDir.exists()) {
+                copy {
+                    from ffmpegLibDir
+                    include bundledRuntimeLibNames
+                    into destDir
+                }
+                println "Synced FFmpeg shared libs ${ffmpegLibDir} -> ${destDir}"
+            } else {
+                println "FFmpeg lib dir not found: ${ffmpegLibDir}"
+            }
+
+            def stlSubdir = abi == "arm64-v8a" ? "aarch64-linux-android" : "arm-linux-androideabi"
+            def cxxShared = file("${ndkRoot}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${stlSubdir}/libc++_shared.so")
+            if (cxxShared.exists()) {
+                copy {
+                    from cxxShared
+                    into destDir
+                }
+                println "Synced C++ runtime ${cxxShared} -> ${destDir}"
+            } else {
+                println "C++ runtime not found: ${cxxShared}"
+            }
+        }
+    }
+}
+
+preBuild.dependsOn(tasks.named("copyBundledRuntimeLibs"))
+
+dependencies {
+
+    // Kotlin
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.21"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+    implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.6.2"
+
+    // AndroidX
+    implementation "androidx.appcompat:appcompat:1.6.1"
+    implementation "androidx.core:core:1.12.0"
+    implementation "androidx.constraintlayout:constraintlayout:2.1.4"
+    implementation "androidx.recyclerview:recyclerview:1.3.0"
+    implementation "com.google.android.material:material:1.11.0"
+
+    // Firebase
+    implementation platform('com.google.firebase:firebase-bom:32.7.0')
+    implementation 'com.google.firebase:firebase-analytics-ktx'
+    implementation 'com.google.firebase:firebase-crashlytics-ktx'
+    implementation 'com.google.firebase:firebase-perf-ktx'
+    implementation 'com.google.firebase:firebase-config-ktx'
+    implementation 'com.google.firebase:firebase-messaging-ktx'
+    implementation 'com.google.android.gms:play-services-ads:23.6.0'
+
+    // Testing
+    testImplementation "junit:junit:4.13.2"
+    androidTestImplementation "androidx.test.ext:junit:1.1.5"
+    androidTestImplementation "androidx.test.espresso:espresso-core:3.5.1"
+}
+
+task verifyNativeLibs {
+    doLast {
+        println "\n" + "="*70
+        println "CHECKING NATIVE LIBRARIES INSIDE APK"
+        println "="*70
+        
+        def debugApkPath = file("build/outputs/apk/debug/app-debug.apk")
+        def releaseApkPath = file("build/outputs/apk/release/app-release.apk")
+        
+        // Check build intermediates (CMake outputs)
+        println "\n📦 BUILD INTERMEDIATES (CMake obj outputs):"
+        def abiDirs = ["armeabi-v7a", "arm64-v8a"]
+        def foundCount = 0
+        
+        abiDirs.each { abi ->
+            def soPath = file("build/intermediates/cmake/debug/obj/${abi}/libvideo_engine.so")
+            if (soPath.exists()) {
+                println "Found ${soPath}"
+                foundCount++
+            } else {
+                println "Not found: ${soPath}"
+            }
+        }
+        
+        if (foundCount == 0) {
+            println "\n⚠️  WARNING: No compiled .so files found in CMake outputs!"
+            println "    Run './gradlew :app:assembleDebug' to build native libraries."
+            return
+        }
+        
+        // Check APK contents
+        println "\n📱 APK CONTENTS:"
+        
+        if (debugApkPath.exists()) {
+            println "  Debug APK: ${debugApkPath}"
+            def foundInApk = ["armeabi-v7a": false, "arm64-v8a": false]
+            
+            "unzip -l ${debugApkPath.absolutePath}".execute().text.split('\n').each { line ->
+                if (line.contains("libvideo_engine.so")) {
+                    println "    ✓ Found in APK: ${line.trim()}"
+                    if (line.contains("armeabi-v7a")) foundInApk["armeabi-v7a"] = true
+                    if (line.contains("arm64-v8a")) foundInApk["arm64-v8a"] = true
+                }
+            }
+            
+            if (!foundInApk.containsValue(true)) {
+                println "    ✗ libvideo_engine.so NOT found in APK!"
+            }
+        } else {
+            println "  Debug APK not found: ${debugApkPath}"
+        }
+        
+        if (releaseApkPath.exists()) {
+            println "  Release APK: ${releaseApkPath}"
+            "unzip -l ${releaseApkPath.absolutePath}".execute().text.split('\n').each { line ->
+                if (line.contains("libvideo_engine.so")) {
+                    println "    ✓ Found in APK: ${line.trim()}"
+                }
+            }
+        }
+        
+        println "\n" + "="*70
+        println "Verification complete. Library should be packaged in APK."
+        println "="*70 + "\n"
+    }
+}

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.storyline.app">
+
+    <!-- Permissions for storage access -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+
+    <!-- Require OpenGL ES 3.0 -->
+    <uses-feature
+        android:name="android.hardware.opengles.version"
+        android:required="true"
+        android:glEsVersion="0x00030000" />
+
+    <application
+        android:allowBackup="true"
+        android:debuggable="true"
+        android:icon="@drawable/ic_storyline_logo"
+        android:label="@string/app_name"
+        android:roundIcon="@drawable/ic_storyline_logo"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Storyline">
+
+        <!-- Main Activity - Basic example -->
+        <activity
+            android:name="com.video.engine.MainActivity"
+            android:exported="true"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Preview Activity - With Timeline Scrubbing (SeekBar) -->
+        <activity
+            android:name="com.video.engine.PreviewActivity"
+            android:exported="true"
+            android:label="@string/activity_preview_label"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+    </application>
+
+</manifest>

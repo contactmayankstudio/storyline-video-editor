@@ -1,0 +1,14 @@
+{
+  "name": "crash-autofix-functions",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "main": "index.js",
+  "engines": { "node": "20" },
+  "dependencies": {
+    "@genkit-ai/googleai": "latest",
+    "@octokit/rest": "latest",
+    "firebase-admin": "latest",
+    "firebase-functions": "latest",
+    "genkit": "latest"
+  }
+}

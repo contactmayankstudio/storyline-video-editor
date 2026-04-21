@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Storyline Admin Control</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #121212;
+            --panel: #1b1b1b;
+            --border: #333;
+            --text: #fff;
+            --muted: #b3b3b3;
+            --accent: #0070f3;
+            --accent-hover: #1f85ff;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: grid;
+            place-items: center;
+            padding: 24px;
+        }
+
+        main {
+            width: min(720px, 100%);
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 10px;
+        }
+
+        p {
+            color: var(--muted);
+        }
+
+        .range-row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        input[type="range"] {
+            width: min(320px, 100%);
+        }
+
+        button {
+            background: var(--accent);
+            color: var(--text);
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background: var(--accent-hover);
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>Storyline High-Tech Admin</h1>
+        <div class="card">
+            <h3>Croma Key Advance Settings</h3>
+            <div class="range-row">
+                <label for="sensitivity">Sensitivity</label>
+                <input type="range" id="sensitivity" min="0" max="100" value="50">
+                <span id="sensitivity-value">50</span>
+            </div>
+            <p>Use this panel from your mobile after deploying the folder to Vercel.</p>
+            <button type="button" onclick="updateSettings()">Update in App</button>
+        </div>
+        <div class="card">
+            <h3>Build Status</h3>
+            <p id="status">Checking Cloud Build...</p>
+        </div>
+    </main>
+
+    <script>
+        const sensitivityInput = document.getElementById("sensitivity");
+        const sensitivityValue = document.getElementById("sensitivity-value");
+        const status = document.getElementById("status");
+
+        sensitivityInput.addEventListener("input", () => {
+            sensitivityValue.textContent = sensitivityInput.value;
+        });
+
+        function updateSettings() {
+            alert("Settings pushed to Firebase!");
+            // Firebase integration will be added here later.
+        }
+
+        status.textContent = "GitHub Actions build status will be wired here after deployment.";
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,29 @@
+Privacy Policy for Storyline
+
+Last updated: 2026-02-07
+
+What we collect
+- Anonymous analytics: event names and simple parameters (feature usage, timestamps).
+- Crash reports: stack traces and device info to diagnose crashes (may include OS version and device model).
+
+What we do NOT collect
+- We do NOT collect your name, email, contacts, photos, videos, or other personal data for upload.
+- We do NOT access your microphone or camera unless you explicitly use a feature that requires them.
+
+Local processing
+- Video editing, rendering and export are performed locally on your device. Your video files are not uploaded by the app.
+
+How data is used
+- Analytics help us improve the app and understand feature usage.
+- Crash logs help us fix stability issues.
+- Data is stored and processed by Firebase (Analytics & Crashlytics) under their terms.
+
+Sharing and selling
+- We do NOT sell your data. We do not share personal data with third parties for advertising.
+
+GDPR and privacy rights
+- We only collect minimal anonymous analytics and crash logs. If you are in the EU and want data removed, contact the developer and we will assist.
+- Firebase may collect identifiers; review Firebase privacy docs for details.
+
+Contact
+Developer contact: replace-with-developer-email@example.com

@@ -1,0 +1,34 @@
+# Editor and local state
+.vscode/
+.idea/
+.gemini_project_memory.json
+
+# Android / Gradle
+android/.gradle/
+android/.idea/
+android/local.properties
+android/**/build/
+android/**/.cxx/
+android/**/.externalNativeBuild/
+android/app/google-services.json
+*.apk
+*.aab
+
+# Native / CMake build output
+build/
+build_*/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Logs
+*.log
+
+# Node / Vercel
+**/node_modules/
+**/.vercel/
+**/.env
+**/.env.*
+crash-fix-server/.env

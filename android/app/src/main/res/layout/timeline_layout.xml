@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Storyline Timeline Layout
+  
+  This layout provides a professional timeline UI with:
+  - Horizontal RecyclerView for video clips
+  - Center fixed playhead (vertical white line)
+  - Smooth horizontal scrolling
+  - Dark theme matching video editor aesthetic
+  
+  Architecture:
+  - FrameLayout root: Allows playhead overlay
+  - RecyclerView: Clips scroll left/right
+  - View (playhead): Fixed at center, clips scroll beneath it
+  - Time display: Shows current time based on scroll position
+-->
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/timelineLayout"
+    android:layout_width="match_parent"
+    android:layout_height="@dimen/timeline_height"
+    android:background="#1a1a1a">
+
+    <!-- RecyclerView: Horizontal timeline clips (scrollable) -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/timelineRecyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:paddingStart="@dimen/timeline_padding"
+        android:paddingEnd="@dimen/timeline_padding"
+        android:clipToPadding="false"
+        android:overScrollMode="never"
+        android:scrollbars="none" />
+
+    <!-- Playhead: Fixed vertical white line at center of screen -->
+    <View
+        android:id="@+id/playhead"
+        android:layout_width="2dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="center"
+        android:background="#ffffff"
+        android:alpha="0.8" />
+
+    <!-- Time display: Shows current time based on scroll -->
+    <TextView
+        android:id="@+id/currentTimeText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:text="00:00"
+        android:textColor="#4db8ff"
+        android:textSize="12sp"
+        android:layout_marginTop="2dp"
+        android:fontFamily="monospace"
+        android:typeface="monospace" />
+
+</FrameLayout>

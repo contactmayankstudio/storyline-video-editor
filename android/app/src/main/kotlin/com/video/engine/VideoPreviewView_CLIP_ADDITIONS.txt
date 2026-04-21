@@ -1,0 +1,50 @@
+// Temporary file to hold clip API additions - will be merged into VideoPreviewView.kt
+// Add these methods to VideoPreviewView class before the getDuration() external fun
+
+    /**
+     * Add a clip to the timeline.
+     */
+    fun addClip(videoPath: String): Int {
+        return nativeAddClip(videoPath)
+    }
+
+    /**
+     * Remove a clip from the timeline.
+     */
+    fun removeClip(clipId: Int) {
+        nativeRemoveClip(clipId)
+    }
+
+    /**
+     * Get array of clip IDs in timeline order.
+     */
+    fun getClipIds(): IntArray {
+        return nativeGetClipIds()
+    }
+
+    /**
+     * Get clip duration in milliseconds.
+     */
+    fun getClipDuration(clipId: Int): Long {
+        return nativeGetClipDuration(clipId)
+    }
+
+    /**
+     * Native: Add clip to timeline, returns clip ID.
+     */
+    private external fun nativeAddClip(videoPath: String): Int
+
+    /**
+     * Native: Remove clip from timeline.
+     */
+    private external fun nativeRemoveClip(clipId: Int)
+
+    /**
+     * Native: Get array of clip IDs in timeline order.
+     */
+    private external fun nativeGetClipIds(): IntArray
+
+    /**
+     * Native: Get clip duration in milliseconds.
+     */
+    private external fun nativeGetClipDuration(clipId: Int): Long

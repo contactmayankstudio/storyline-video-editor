@@ -1,0 +1,651 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0D0D0D">
+
+    <!-- ── TOP BAR ── -->
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/topBar"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:background="#161616"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <ImageView
+            android:id="@+id/loadProjectButton"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/back_label"
+            android:padding="8dp"
+            android:src="@android:drawable/ic_menu_revert"
+            android:tint="#FFFFFF"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent" />
+
+        <TextView
+            android:id="@+id/timelineCurrentTimeText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp"
+            android:fontFamily="monospace"
+            android:gravity="center"
+            android:text="00:00"
+            android:textColor="#4db8ff"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            app:layout_constraintStart_toEndOf="@id/loadProjectButton"
+            app:layout_constraintEnd_toStartOf="@id/saveProjectButton"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintHorizontal_bias="0.35" />
+
+        <ImageView
+            android:id="@+id/saveProjectButton"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginEnd="6dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/save_label"
+            android:padding="8dp"
+            android:src="@android:drawable/ic_menu_save"
+            android:tint="#7A9BB5"
+            app:layout_constraintEnd_toStartOf="@id/exportButton"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent" />
+
+        <ImageView
+            android:id="@+id/aspectRatioButton"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/aspect_ratio_label"
+            android:padding="8dp"
+            android:src="@android:drawable/ic_menu_crop"
+            android:tint="#FFFFFF"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent" />
+
+        <ImageView
+            android:id="@+id/exportButton"
+            android:layout_width="40dp"
+            android:layout_height="32dp"
+            android:layout_marginEnd="4dp"
+            android:background="#E53935"
+            android:contentDescription="@string/export_button"
+            android:padding="6dp"
+            android:src="@drawable/ic_export"
+            android:scaleType="centerInside"
+            android:tint="#FFFFFF"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <FrameLayout
+        android:id="@+id/editorTopBannerContainer"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:layout_marginEnd="10dp"
+        android:layout_marginTop="8dp"
+        android:contentDescription="@string/editor_top_ad_desc"
+        android:visibility="gone"
+        app:layout_constraintTop_toBottomOf="@id/topBar"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- ── PREVIEW ── -->
+    <FrameLayout
+        android:id="@+id/previewContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:background="#000000"
+        app:layout_constraintTop_toBottomOf="@id/editorTopBannerContainer"
+        app:layout_constraintBottom_toTopOf="@id/bottomContainer"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!-- HW telemetry (hidden by default) -->
+        <LinearLayout
+            android:id="@+id/hardwareBufferTelemetryPanel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|end"
+            android:layout_margin="8dp"
+            android:background="#88000000"
+            android:orientation="vertical"
+            android:padding="6dp"
+            android:visibility="gone">
+            <TextView android:id="@+id/hardwareBufferTelemetryTitle"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="HB" android:textColor="#DFF9FF" android:textSize="9sp" android:textStyle="bold"/>
+            <TextView android:id="@+id/hardwareBufferTelemetrySummary"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:fontFamily="monospace" android:text="A:0" android:textColor="#AEEBFF" android:textSize="9sp"/>
+            <TextView android:id="@+id/hardwareBufferTelemetryReason"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:fontFamily="monospace" android:text="top: none" android:textColor="#8EC2D3" android:textSize="8sp"/>
+        </LinearLayout>
+
+        <!-- Preview HUD -->
+        <LinearLayout
+            android:id="@+id/previewHud"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|start"
+            android:layout_margin="8dp"
+            android:background="#66000000"
+            android:orientation="horizontal"
+            android:padding="4dp"
+            android:visibility="gone">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="@string/realtime_preview_label"
+                android:textColor="#D6F3FF" android:textSize="10sp" android:textStyle="bold"/>
+        </LinearLayout>
+
+        <!-- Play/Pause — center bottom of preview -->
+        <ImageButton
+            android:id="@+id/previewPlayPauseButton"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/button_play_pause_background"
+            android:contentDescription="@string/play_button"
+            android:padding="12dp"
+            android:src="@android:drawable/ic_media_play"
+            android:tint="#FFFFFF" />
+
+        <!-- Undo/Redo — bottom right of preview -->
+        <LinearLayout
+            android:id="@+id/playbackUndoRedoRow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="12dp"
+            android:layout_marginBottom="16dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/undoButton"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="@drawable/toolbar_item_background"
+                android:contentDescription="@string/undo_label"
+                android:padding="6dp"
+                android:src="@android:drawable/ic_menu_revert"
+                android:tint="#7A9BB5" />
+
+            <ImageView
+                android:id="@+id/redoButton"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/toolbar_item_background"
+                android:contentDescription="@string/redo_label"
+                android:padding="6dp"
+                android:rotation="180"
+                android:src="@android:drawable/ic_menu_revert"
+                android:tint="#7A9BB5" />
+        </LinearLayout>
+
+    </FrameLayout>
+
+    <!-- ── BOTTOM: Timeline + Toolbar ── -->
+    <LinearLayout
+        android:id="@+id/bottomContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="#0D0D0D"
+        app:layout_constraintTop_toBottomOf="@id/previewContainer"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!-- TIMELINE -->
+        <FrameLayout
+            android:id="@+id/timelineLayout"
+            android:layout_width="match_parent"
+            android:layout_height="210dp"
+            android:background="#141414">
+
+            <com.video.engine.pro.timeline.TimelineCanvasView
+                android:id="@+id/timelineCanvasView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <com.video.engine.pro.timeline.MultiTrackTimelineView
+                android:id="@+id/multiTrackTimelineView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone" />
+
+            <!-- hidden, kept for ID reference -->
+            <TextView android:id="@+id/timelineHint"
+                android:layout_width="0dp" android:layout_height="0dp"
+                android:visibility="gone" />
+
+        </FrameLayout>
+
+        <!-- EFFECT SLIDERS (hidden by default) -->
+        <LinearLayout
+            android:id="@+id/effectSlidersContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#1a1a1a"
+            android:padding="12dp"
+            android:visibility="gone">
+
+            <TextView android:id="@+id/brightnessLabel"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="@string/brightness_label" android:textColor="#ffffff" android:textSize="11sp"/>
+            <SeekBar android:id="@+id/brightnessSeekBar"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:max="200" android:progress="100"
+                android:progressTint="#4db8ff" android:thumbTint="#4db8ff"
+                android:layout_marginBottom="8dp"/>
+            <TextView android:id="@+id/contrastLabel"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="@string/contrast_label" android:textColor="#ffffff" android:textSize="11sp"/>
+            <SeekBar android:id="@+id/contrastSeekBar"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:max="200" android:progress="100"
+                android:progressTint="#4db8ff" android:thumbTint="#4db8ff"/>
+        </LinearLayout>
+
+        <!-- MAIN TOOLBAR -->
+        <HorizontalScrollView
+            android:id="@+id/normalToolbarScroll"
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:background="#1A1A1A"
+            android:scrollbars="none"
+            android:clipToPadding="false">
+
+            <LinearLayout
+                android:id="@+id/mainToolbar"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp">
+
+                <LinearLayout android:id="@+id/transitionButton"
+                    style="@style/ToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_transition"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Transition"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/voiceoverButton"
+                    style="@style/ToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@android:drawable/ic_btn_speak_now"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Voiceover"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/colorGradingButton"
+                    style="@style/ToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_filter"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Color"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/cutButton"
+                    style="@style/ToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_import"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Media"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/overlayImportButton"
+                    style="@style/ToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_add_layer"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Overlay"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/audioButton"
+                    style="@style/ToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_audio"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Audio"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/textButton"
+                    style="@style/ToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_text"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Text"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/effectsButton"
+                    style="@style/ToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_effects"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Effects"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/stickersButton"
+                    style="@style/ToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_stickers"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Sticker"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/layersButton"
+                    style="@style/ToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_layers"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Layers"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/exportButtonContainer"
+                    style="@style/ToolbarItem"
+                    android:visibility="gone">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_export" android:tint="#FF6B35"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Export" android:textColor="#FF6B35"/>
+                </LinearLayout>
+
+            </LinearLayout>
+        </HorizontalScrollView>
+
+        <!-- CLIP TOOLBAR (shown when clip selected) -->
+        <HorizontalScrollView
+            android:id="@+id/audioEditToolbarScroll"
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:background="#1E1E1E"
+            android:scrollbars="none"
+            android:elevation="8dp"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/audioEditToolbar"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp">
+
+                <TextView android:id="@+id/audioEditLabel"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text=""
+                    android:textColor="#FFD08A"
+                    android:textSize="11sp" android:textStyle="bold"
+                    android:paddingStart="8dp" android:paddingEnd="8dp"
+                    android:ellipsize="end"
+                    android:maxWidth="220dp"
+                    android:singleLine="true"
+                    android:visibility="gone"/>
+
+                <LinearLayout android:id="@+id/clipDeleteButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_delete"/>
+                    <TextView android:id="@+id/clipDeleteLabel" style="@style/ClipToolbarLabel" android:text="Delete"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipSplitButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_split"/>
+                    <TextView android:id="@+id/clipSplitLabel" style="@style/ClipToolbarLabel" android:text="Split"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipTrimButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_trim"/>
+                    <TextView android:id="@+id/clipTrimLabel" style="@style/ClipToolbarLabel" android:text="Trim" android:textColor="#44FF88"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipVolumeButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_volume"/>
+                    <TextView android:id="@+id/clipVolumeLabel" style="@style/ClipToolbarLabel" android:text="Volume"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipSpeedButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_speed"/>
+                    <TextView android:id="@+id/clipSpeedLabel" style="@style/ClipToolbarLabel" android:text="Speed"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipBrightnessButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_brightness"/>
+                    <TextView android:id="@+id/clipBrightnessLabel" style="@style/ClipToolbarLabel" android:text="Adjust"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipFilterButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_filter"/>
+                    <TextView android:id="@+id/clipFilterLabel" style="@style/ClipToolbarLabel" android:text="Filter"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipPanZoomButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_panzoom"/>
+                    <TextView android:id="@+id/clipPanZoomLabel" style="@style/ClipToolbarLabel" android:text="Pan/Zoom"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipRotateMirrorButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_rotate_mirror"/>
+                    <TextView android:id="@+id/clipRotateMirrorLabel" style="@style/ClipToolbarLabel" android:text="Rotate"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipReverseButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_reverse"/>
+                    <TextView android:id="@+id/clipReverseLabel" style="@style/ClipToolbarLabel" android:text="Reverse"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipFreezeFrameButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_freeze"/>
+                    <TextView android:id="@+id/clipFreezeFrameLabel" style="@style/ClipToolbarLabel" android:text="Freeze"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipDuplicateButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_duplicate"/>
+                    <TextView android:id="@+id/clipDuplicateLabel" style="@style/ClipToolbarLabel" android:text="Duplicate"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipReplaceButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_replace"/>
+                    <TextView android:id="@+id/clipReplaceLabel" style="@style/ClipToolbarLabel" android:text="Replace"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipExtractAudioButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_extract_audio"/>
+                    <TextView android:id="@+id/clipExtractAudioLabel" style="@style/ClipToolbarLabel" android:text="ExtAudio"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipAddLayerButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_add_layer"/>
+                    <TextView android:id="@+id/clipAddLayerLabel" style="@style/ClipToolbarLabel" android:text="AddLayer"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipKeyframeButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_keyframe"/>
+                    <TextView android:id="@+id/clipKeyframeLabel" style="@style/ClipToolbarLabel" android:text="Keyframe"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipDuckingButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_ducking"/>
+                    <TextView android:id="@+id/clipDuckingLabel" style="@style/ClipToolbarLabel" android:text="Ducking"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipCurveSpeedButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_curve_speed"/>
+                    <TextView android:id="@+id/clipCurveSpeedLabel" style="@style/ClipToolbarLabel" android:text="CurveSpd"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipChromaKeyButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@android:drawable/ic_menu_camera"/>
+                    <TextView android:id="@+id/clipChromaKeyLabel" style="@style/ClipToolbarLabel" android:text="Chroma"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipCutoutButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_cutout"/>
+                    <TextView android:id="@+id/clipCutoutLabel" style="@style/ClipToolbarLabel" android:text="Cutout"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipGraphicsButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_graphics"/>
+                    <TextView android:id="@+id/clipGraphicsLabel" style="@style/ClipToolbarLabel" android:text="Graphics"/>
+                </LinearLayout>
+
+            </LinearLayout>
+        </HorizontalScrollView>
+
+    </LinearLayout>
+
+    <!-- ── START SCREEN OVERLAY (Converted from Flutter home_screen.dart) ── -->
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/startScreenOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#0D0D0D"
+        android:elevation="100dp"
+        android:visibility="visible">
+
+        <ImageView
+            android:id="@+id/startLogo"
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:layout_marginTop="48dp"
+            android:contentDescription="@string/app_name"
+            android:src="@drawable/ic_storyline_logo"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <TextView
+            android:id="@+id/startTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/start_title"
+            android:textColor="#FFFFFF"
+            android:textSize="32sp"
+            android:textStyle="bold"
+            android:layout_marginTop="20dp"
+            app:layout_constraintTop_toBottomOf="@id/startLogo"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <FrameLayout
+            android:id="@+id/startTopBannerContainer"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:contentDescription="@string/start_top_ad_desc"
+            android:visibility="gone"
+            app:layout_constraintTop_toBottomOf="@id/startTitle"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <LinearLayout
+            android:id="@+id/startActionsContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="24dp"
+            app:layout_constraintTop_toBottomOf="@id/startTopBannerContainer"
+            app:layout_constraintBottom_toBottomOf="parent">
+
+            <!-- New Project Button (Glass effect style) -->
+            <LinearLayout
+                android:id="@+id/startNewProjectButton"
+                android:layout_width="match_parent"
+                android:layout_height="100dp"
+                android:background="@drawable/toolbar_item_background"
+                android:gravity="center"
+                android:orientation="horizontal"
+                android:padding="16dp"
+                android:layout_marginBottom="16dp"
+                android:clickable="true"
+                android:focusable="true">
+                <ImageView
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:src="@android:drawable/ic_input_add"
+                    android:tint="#4db8ff" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="New Project"
+                    android:textColor="#4db8ff"
+                    android:textSize="20sp"
+                    android:layout_marginStart="16dp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:weightSum="2">
+
+                <!-- Open Project -->
+                <LinearLayout
+                    android:id="@+id/startOpenProjectButton"
+                    android:layout_width="0dp"
+                    android:layout_height="80dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/toolbar_item_background"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:layout_marginEnd="8dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <ImageView
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:src="@android:drawable/ic_menu_upload"
+                        android:tint="#FFFFFF" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Open"
+                        android:textColor="#FFFFFF"
+                        android:textSize="14sp" />
+                </LinearLayout>
+
+                <!-- Import Media -->
+                <LinearLayout
+                    android:id="@+id/startImportMediaButton"
+                    android:layout_width="0dp"
+                    android:layout_height="80dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/toolbar_item_background"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:layout_marginStart="8dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <ImageView
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:src="@android:drawable/ic_menu_gallery"
+                        android:tint="#FFFFFF" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Import"
+                        android:textColor="#FFFFFF"
+                        android:textSize="14sp" />
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Recent Projects"
+                android:textColor="#888888"
+                android:textSize="14sp"
+                android:layout_marginTop="32dp"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:id="@+id/startRecentProjectsEmptyText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:paddingTop="32dp"
+                android:paddingBottom="32dp"
+                android:text="No saved projects yet"
+                android:textColor="#666666"
+                android:textSize="14sp"
+                android:visibility="gone" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/startRecentProjectsList"
+                android:layout_width="match_parent"
+                android:layout_height="200dp" />
+
+        </LinearLayout>
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

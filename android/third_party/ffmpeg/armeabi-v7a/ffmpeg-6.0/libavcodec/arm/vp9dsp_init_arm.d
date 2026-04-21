@@ -1,0 +1,11 @@
+libavcodec/arm/vp9dsp_init_arm.o: libavcodec/arm/vp9dsp_init_arm.c \
+  libavutil/attributes.h libavutil/internal.h config.h libavutil/timer.h \
+  libavutil/common.h libavutil/macros.h libavutil/avconfig.h \
+  libavutil/intmath.h libavutil/arm/intmath.h libavutil/mem.h \
+  libavutil/avutil.h libavutil/error.h libavutil/rational.h \
+  libavutil/version.h libavutil/mathematics.h libavutil/intfloat.h \
+  libavutil/log.h libavutil/pixfmt.h libavutil/arm/timer.h \
+  libavutil/libm.h libavutil/mem_internal.h libavutil/arm/cpu.h \
+  libavutil/cpu.h libavutil/cpu_internal.h libavcodec/vp9dsp.h \
+  libavcodec/vp9.h libavutil/attributes_internal.h \
+  libavcodec/arm/vp9dsp_init.h

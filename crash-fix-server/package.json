@@ -1,0 +1,12 @@
+{
+  "name": "crash-fix-server",
+  "version": "1.0.0",
+  "engines": {
+    "node": "20"
+  },
+  "dependencies": {
+    "@genkit-ai/googleai": "latest",
+    "@google/generative-ai": "^0.24.1",
+    "genkit": "latest"
+  }
+}

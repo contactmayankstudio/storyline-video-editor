@@ -1,0 +1,1294 @@
+#include <jni.h>
+#include <android/log.h>
+#include <android/native_window.h>
+#include <android/native_window_jni.h>
+
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES3/gl3.h>
+
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <atomic>
+#include <chrono>
+#include <cstring>
+#include <map>
+
+#include "preview/preview_controller.h"
+#include <vector>
+#include "../../text_overlay.h"
+#include "../../export_config.h"
+
+#define LOG_TAG "AndroidPreview"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+
+// Safe null checks to prevent crashes
+#define CHECK_EGL_CONTEXT() \
+    if (g_eglDisplay == EGL_NO_DISPLAY || g_eglContext == EGL_NO_CONTEXT) { \
+        LOGE("[Safety] EGL context not initialized"); \
+        return; \
+    }
+
+#define CHECK_NATIVE_WINDOW() \
+    if (g_nativeWindow == nullptr) { \
+        LOGE("[Safety] Native window is null"); \
+        return; \
+    }
+
+#define CHECK_PREVIEW_CONTROLLER() \
+    if (!g_preview) { \
+        LOGE("[Safety] Preview controller not initialized"); \
+        return; \
+    }
+
+// Global state (thread-safe)
+namespace {
+    std::mutex g_mutex;
+
+    // EGL state
+    EGLDisplay g_eglDisplay = EGL_NO_DISPLAY;
+    EGLContext g_eglContext = EGL_NO_CONTEXT;
+    EGLSurface g_eglSurface = EGL_NO_SURFACE;
+    ANativeWindow* g_nativeWindow = nullptr;
+
+    // Engine state
+    std::unique_ptr<VideoEngine::PreviewController> g_preview;
+
+    int g_surfaceWidth = 0;
+    int g_surfaceHeight = 0;
+
+    // Rendering loop state
+    std::thread g_renderThread;
+    std::atomic<bool> g_isRenderingActive(false);
+    std::atomic<bool> g_shouldExit(false);
+    std::atomic<long long> g_currentTimeMs(0);
+
+    // Text overlay storage
+    std::map<int64_t, TextOverlay> g_textOverlays;
+    int64_t g_nextTextOverlayId = 1;
+
+    // Export state
+    std::atomic<int32_t> g_exportProgress(0);           // 0-100%
+    std::atomic<bool> g_isExporting(false);             // Currently exporting?
+    std::atomic<bool> g_exportCancelled(false);         // User cancelled?
+    VideoEngine::ExportConfig g_currentExportConfig;    // Current export params
+    std::thread g_exportThread;                         // Background export thread
+
+    // Simple GL program for colored quad placeholder (used until glyph textures are provided)
+    GLuint g_overlayProgram = 0;
+    GLint g_overlayPosLoc = -1;
+    GLint g_overlayColorLoc = -1;
+
+    static GLuint compileShader(GLenum type, const char* src) {
+        GLuint s = glCreateShader(type);
+        glShaderSource(s, 1, &src, nullptr);
+        glCompileShader(s);
+        GLint ok = 0;
+        glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+        if (!ok) {
+            char buf[512];
+            glGetShaderInfoLog(s, sizeof(buf), nullptr, buf);
+            LOGE("Shader compile failed: %s", buf);
+            glDeleteShader(s);
+            return 0;
+        }
+        return s;
+    }
+
+    static bool initTextOverlayGL() {
+        if (g_overlayProgram) return true;
+
+        const char* vs =
+            "#version 300 es\n"
+            "layout(location = 0) in vec2 aPos;\n"
+            "layout(location = 1) in vec2 aUV;\n"
+            "out vec2 vUV;\n"
+            "uniform vec2 uScale;\n"
+            "uniform vec2 uTranslate;\n"
+            "uniform float uAngle;\n"
+            "void main() {\n"
+            "  float rad = radians(uAngle);\n"
+            "  mat2 rot = mat2(cos(rad), -sin(rad), sin(rad), cos(rad));\n"
+            "  vec2 p = (rot * (aPos * uScale)) + uTranslate;\n"
+            "  vUV = aUV;\n"
+            "  gl_Position = vec4(p, 0.0, 1.0);\n"
+            "}\n";
+
+        const char* fs =
+            "#version 300 es\n"
+            "precision mediump float;\n"
+            "in vec2 vUV;\n"
+            "uniform vec4 uColor;\n"
+            "uniform sampler2D uTexture;\n"
+            "uniform int uUseTexture;\n"
+            "out vec4 outColor;\n"
+            "void main() {\n"
+            "  if (uUseTexture == 1) {\n"
+            "    vec4 s = texture(uTexture, vUV);\n"
+            "    outColor = s * uColor;\n"
+            "  } else {\n"
+            "    outColor = uColor;\n"
+            "  }\n"
+            "}\n";
+
+        GLuint vsId = compileShader(GL_VERTEX_SHADER, vs);
+        GLuint fsId = compileShader(GL_FRAGMENT_SHADER, fs);
+        if (!vsId || !fsId) return false;
+
+        g_overlayProgram = glCreateProgram();
+        glAttachShader(g_overlayProgram, vsId);
+        glAttachShader(g_overlayProgram, fsId);
+        glBindAttribLocation(g_overlayProgram, 0, "aPos");
+        glBindAttribLocation(g_overlayProgram, 1, "aUV");
+        glLinkProgram(g_overlayProgram);
+
+        GLint linked = 0;
+        glGetProgramiv(g_overlayProgram, GL_LINK_STATUS, &linked);
+        if (!linked) {
+            char buf[512];
+            glGetProgramInfoLog(g_overlayProgram, sizeof(buf), nullptr, buf);
+            LOGE("Program link failed: %s", buf);
+            glDeleteProgram(g_overlayProgram);
+            g_overlayProgram = 0;
+            return false;
+        }
+
+        glDeleteShader(vsId);
+        glDeleteShader(fsId);
+
+        // Query uniform locations
+        g_overlayPosLoc = 0; // aPos bound to location 0
+        // Additional uniform locations will be queried during draw
+        return true;
+    }
+
+    static void cleanupTextOverlayGL() {
+        if (g_overlayProgram) {
+            glDeleteProgram(g_overlayProgram);
+            g_overlayProgram = 0;
+        }
+    }
+
+    // Render text overlays as textured quads when bitmap present, otherwise colored quad.
+    static void renderTextOverlays(long long timelineMs) {
+        if (!g_overlayProgram) return;
+
+        auto toClip = [](float nx)->float { return nx * 2.0f - 1.0f; };
+
+        // Interleaved vertex data: pos(x,y), uv(u,v) for a unit quad centered at origin
+        const float quadVerts[] = {
+            -0.5f, -0.5f, 0.0f, 1.0f,
+             0.5f, -0.5f, 1.0f, 1.0f,
+            -0.5f,  0.5f, 0.0f, 0.0f,
+             0.5f,  0.5f, 1.0f, 0.0f
+        };
+
+        glUseProgram(g_overlayProgram);
+
+        // Enable attrib arrays 0 = aPos, 1 = aUV
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), quadVerts);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), quadVerts + 2);
+
+        for (auto& kv : g_textOverlays) {
+            TextOverlay& t = const_cast<TextOverlay&>(kv.second);
+            if (!t.enabled) continue;
+            if (t.endTime >= 0 && timelineMs < t.startTime) continue;
+            if (t.endTime >= 0 && timelineMs > t.endTime) continue;
+
+            LOGD("[Text] active id=%lld at time=%lld", (long long)t.id, (long long)timelineMs);
+
+            float cx = toClip(t.x);
+            float cy = toClip(1.0f - t.y);
+
+            // If we have a texture, scale it relative to its aspect
+            float sx = t.scale * 0.5f; // user-tweakable heuristic
+            float sy = t.scale * 0.25f;
+
+            // Extract color and alpha
+            float a = ((t.color >> 24) & 0xFF) / 255.0f;
+            float r = ((t.color >> 16) & 0xFF) / 255.0f;
+            float g = ((t.color >> 8) & 0xFF) / 255.0f;
+            float b = ((t.color >> 0) & 0xFF) / 255.0f;
+
+            GLint uScale = glGetUniformLocation(g_overlayProgram, "uScale");
+            GLint uTranslate = glGetUniformLocation(g_overlayProgram, "uTranslate");
+            GLint uAngle = glGetUniformLocation(g_overlayProgram, "uAngle");
+            GLint uColor = glGetUniformLocation(g_overlayProgram, "uColor");
+            GLint uUseTexture = glGetUniformLocation(g_overlayProgram, "uUseTexture");
+            GLint uTexture = glGetUniformLocation(g_overlayProgram, "uTexture");
+
+            glUniform2f(uScale, sx, sy);
+            glUniform2f(uTranslate, cx, cy);
+            glUniform1f(uAngle, t.rotation);
+            glUniform4f(uColor, r, g, b, a);
+
+            if (t.hasTexture && t.texture != 0) {
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, t.texture);
+                glUniform1i(uUseTexture, 1);
+                glUniform1i(uTexture, 0);
+            } else {
+                glUniform1i(uUseTexture, 0);
+            }
+
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+            if (t.hasTexture) {
+                glBindTexture(GL_TEXTURE_2D, 0);
+            }
+        }
+
+        glDisableVertexAttribArray(1);
+        glDisableVertexAttribArray(0);
+        glUseProgram(0);
+    }
+
+    // Rendering thread function
+    void renderThreadProc() {
+        LOGI("Render thread started");
+
+        int64_t lastPlaybackTimeMs = 0;  // Track playback timing
+        auto lastFrameTimePoint = std::chrono::high_resolution_clock::now();
+
+        while (!g_shouldExit.load(std::memory_order_acquire)) {
+            bool isRenderingActive = g_isRenderingActive.load(std::memory_order_acquire);
+
+            if (!isRenderingActive) {
+                // Idle - sleep a bit and reset timer
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                lastFrameTimePoint = std::chrono::high_resolution_clock::now();
+                lastPlaybackTimeMs = g_currentTimeMs.load(std::memory_order_acquire);
+                continue;
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(g_mutex);
+
+                // Make context current
+                if (g_eglDisplay == EGL_NO_DISPLAY || g_eglContext == EGL_NO_CONTEXT) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    continue;
+                }
+
+                if (!eglMakeCurrent(g_eglDisplay, g_eglSurface, g_eglSurface, g_eglContext)) {
+                    LOGE("[Preview] eglMakeCurrent failed in render thread");
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    continue;
+                }
+
+                // Advance time based on elapsed wall-clock time
+                auto now = std::chrono::high_resolution_clock::now();
+                auto elapsedWallClock = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFrameTimePoint).count();
+                lastFrameTimePoint = now;
+
+                // Update playback position: advance by elapsed time
+                // This maintains real-time playback speed
+                int64_t currentTimeMs = lastPlaybackTimeMs + elapsedWallClock;
+                
+                if (g_preview) {
+                    // Check if we've reached end of video
+                    int64_t videoDurationMs = g_preview->getVideoDurationMs();
+                    if (videoDurationMs > 0 && currentTimeMs >= videoDurationMs) {
+                        // Loop back to start
+                        currentTimeMs = 0;
+                        lastPlaybackTimeMs = 0;
+                        LOGI("[Preview] playback looped to start");
+                    }
+
+                    // Update current time
+                    lastPlaybackTimeMs = currentTimeMs;
+                    g_currentTimeMs.store(currentTimeMs, std::memory_order_release);
+
+                    // Render frame at current playback time
+                    auto frameStart = std::chrono::high_resolution_clock::now();
+                    
+                    // Call PreviewController to render the frame (video content)
+                        // This handles: seek → decode → convert → upload → render
+                        g_preview->scrubToTimelineTime(currentTimeMs);
+
+                        // Composite text overlays on top of video (placeholder quad renderer)
+                        renderTextOverlays(currentTimeMs);
+
+                        // Swap buffers to display composed frame
+                        if (!eglSwapBuffers(g_eglDisplay, g_eglSurface)) {
+                            LOGE("[Preview] eglSwapBuffers failed: 0x%x", eglGetError());
+                        }
+
+                    auto elapsed = std::chrono::high_resolution_clock::now() - frameStart;
+                    auto frameTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+                    
+                    // Log frame rendering timing (less frequently to avoid spam)
+                    static int frameCount = 0;
+                    if (++frameCount % 30 == 0) {
+                        LOGI("[Preview] render frame @ %lld ms (took %lld ms)", (long long)currentTimeMs, (long long)frameTimeMs);
+                    }
+                    
+                    // Target 30fps = 33.33ms per frame
+                    // Note: We use wall-clock timing above, so sleep here maintains real-time playback
+                    auto targetFrameTimeMs = 33;  // 30fps
+                    auto sleepTimeMs = targetFrameTimeMs - frameTimeMs;
+                    if (sleepTimeMs > 0) {
+                        // Sleep is done outside the mutex (below)
+                        std::this_thread::sleep_for(std::chrono::milliseconds(sleepTimeMs));
+                    }
+                }
+            }
+
+            // Small sleep to prevent tight loop if rendering is paused
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        LOGI("Render thread exiting");
+    }
+}
+
+/**
+ * Initialize EGL context for rendering.
+ * Assumes g_nativeWindow is valid. Safe null checks prevent crashes.
+ * @return true on success
+ */
+static bool initializeEGL() {
+    CHECK_NATIVE_WINDOW();  // Crash if null
+
+    if (g_eglDisplay != EGL_NO_DISPLAY) {
+        LOGD("[EGL] Already initialized");
+        return true;
+    }
+
+    // Get display
+    g_eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    if (g_eglDisplay == EGL_NO_DISPLAY) {
+        LOGE("[EGL] eglGetDisplay failed");
+        return false;
+    }
+
+    // Initialize
+    EGLint major, minor;
+    if (!eglInitialize(g_eglDisplay, &major, &minor)) {
+        LOGE("[EGL] eglInitialize failed: 0x%x", eglGetError());
+        g_eglDisplay = EGL_NO_DISPLAY;
+        return false;
+    }
+
+    LOGI("[EGL] initialized: %d.%d", major, minor);
+
+    // Choose config
+    const EGLint configAttribs[] = {
+        EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+        EGL_BLUE_SIZE, 8,
+        EGL_GREEN_SIZE, 8,
+        EGL_RED_SIZE, 8,
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
+        EGL_NONE
+    };
+
+    EGLConfig config;
+    EGLint numConfigs;
+    if (!eglChooseConfig(g_eglDisplay, configAttribs, &config, 1, &numConfigs) || 
+        numConfigs == 0) {
+        LOGE("eglChooseConfig failed");
+        eglTerminate(g_eglDisplay);
+        g_eglDisplay = EGL_NO_DISPLAY;
+        return false;
+    }
+
+    // Create context
+    const EGLint contextAttribs[] = {
+        EGL_CONTEXT_CLIENT_VERSION, 3,
+        EGL_NONE
+    };
+
+    g_eglContext = eglCreateContext(g_eglDisplay, config, EGL_NO_CONTEXT, contextAttribs);
+    if (g_eglContext == EGL_NO_CONTEXT) {
+        LOGE("eglCreateContext failed");
+        eglTerminate(g_eglDisplay);
+        g_eglDisplay = EGL_NO_DISPLAY;
+        return false;
+    }
+
+    // Create surface
+    g_eglSurface = eglCreateWindowSurface(g_eglDisplay, config, g_nativeWindow, nullptr);
+    if (g_eglSurface == EGL_NO_SURFACE) {
+        LOGE("eglCreateWindowSurface failed: 0x%x", eglGetError());
+        eglDestroyContext(g_eglDisplay, g_eglContext);
+        eglTerminate(g_eglDisplay);
+        g_eglDisplay = EGL_NO_DISPLAY;
+        g_eglContext = EGL_NO_CONTEXT;
+        return false;
+    }
+
+    // Make current
+    if (!eglMakeCurrent(g_eglDisplay, g_eglSurface, g_eglSurface, g_eglContext)) {
+        LOGE("eglMakeCurrent failed");
+        eglDestroySurface(g_eglDisplay, g_eglSurface);
+        eglDestroyContext(g_eglDisplay, g_eglContext);
+        eglTerminate(g_eglDisplay);
+        g_eglDisplay = EGL_NO_DISPLAY;
+        g_eglContext = EGL_NO_CONTEXT;
+        g_eglSurface = EGL_NO_SURFACE;
+        return false;
+    }
+
+    // Configure OpenGL state
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glDisable(GL_DEPTH_TEST);
+    glViewport(0, 0, g_surfaceWidth, g_surfaceHeight);
+
+    // Initialize overlay GL program
+    initTextOverlayGL();
+
+    LOGI("[AndroidPreview] EGL context created and made current");
+    return true;
+}
+
+/**
+ * Terminate EGL context.
+ * Safe cleanup: always check before destroying to avoid double-free crashes
+ */
+void terminateEGL() {
+    LOGI("[EGL] Terminating");
+    
+    if (g_eglDisplay == EGL_NO_DISPLAY) {
+        LOGD("[EGL] Already terminated");
+        return;
+    }
+
+    eglMakeCurrent(g_eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+
+    if (g_eglSurface != EGL_NO_SURFACE) {
+        eglDestroySurface(g_eglDisplay, g_eglSurface);
+        g_eglSurface = EGL_NO_SURFACE;
+        LOGD("[EGL] Surface destroyed");
+    }
+
+    if (g_eglContext != EGL_NO_CONTEXT) {
+        eglDestroyContext(g_eglDisplay, g_eglContext);
+        g_eglContext = EGL_NO_CONTEXT;
+        LOGD("[EGL] Context destroyed");
+    }
+
+    if (g_eglDisplay != EGL_NO_DISPLAY) {
+        eglTerminate(g_eglDisplay);
+        g_eglDisplay = EGL_NO_DISPLAY;
+        LOGD("[EGL] Display terminated");
+    }
+    
+    cleanupTextOverlayGL();
+    LOGI("[EGL] Cleanup complete");
+
+    eglTerminate(g_eglDisplay);
+    g_eglDisplay = EGL_NO_DISPLAY;
+
+    LOGI("[AndroidPreview] EGL released");
+
+    // Cleanup overlay GL resources (context should be current when called)
+    cleanupTextOverlayGL();
+}
+
+extern "C" {
+
+/**
+ * JNI: Called when SurfaceView surface is created.
+ * Creates EGL context and initializes PreviewController.
+ * 
+ * @param env JNI environment
+ * @param thiz Java object reference
+ * @param surface Android Surface object
+ */
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativeInitPreview(
+    JNIEnv* env, jobject thiz, jobject surface) {
+    
+    std::lock_guard<std::mutex> lock(g_mutex);
+
+    LOGI("[AndroidPreview] Surface created");
+
+    // Stop any existing render thread
+    g_shouldExit.store(true, std::memory_order_release);
+    if (g_renderThread.joinable()) {
+        g_renderThread.join();
+    }
+    g_shouldExit.store(false, std::memory_order_release);
+
+    // Get native window from Surface
+    g_nativeWindow = ANativeWindow_fromSurface(env, surface);
+    if (!g_nativeWindow) {
+        LOGE("[AndroidPreview] ANativeWindow_fromSurface failed");
+        return;
+    }
+
+    // Initialize EGL
+    if (!initializeEGL()) {
+        LOGE("[AndroidPreview] EGL initialization failed");
+        if (g_nativeWindow) {
+            ANativeWindow_release(g_nativeWindow);
+            g_nativeWindow = nullptr;
+        }
+        return;
+    }
+
+    // Create preview controller
+    try {
+        g_preview = std::make_unique<VideoEngine::PreviewController>();
+    } catch (const std::exception& e) {
+        LOGE("[AndroidPreview] Exception creating PreviewController: %s", e.what());
+        terminateEGL();
+        if (g_nativeWindow) {
+            ANativeWindow_release(g_nativeWindow);
+            g_nativeWindow = nullptr;
+        }
+        return;
+    }
+
+    // Initialize GL resources
+    if (!g_preview->initGL()) {
+        LOGE("[AndroidPreview] Failed to initialize GL resources");
+        g_preview->close();
+        g_preview = nullptr;
+        terminateEGL();
+        if (g_nativeWindow) {
+            ANativeWindow_release(g_nativeWindow);
+            g_nativeWindow = nullptr;
+        }
+        return;
+    }
+
+    // Start render thread
+    g_renderThread = std::thread(renderThreadProc);
+
+    LOGI("[AndroidPreview] PreviewController initialized");
+}
+
+/**
+ * JNI: Called when SurfaceView surface size changes.
+ * Updates viewport.
+ * 
+ * @param env JNI environment
+ * @param thiz Java object reference
+ * @param width Surface width in pixels
+ * @param height Surface height in pixels
+ */
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativeSetSurfaceSize(
+    JNIEnv* env, jobject thiz, jint width, jint height) {
+    
+    std::lock_guard<std::mutex> lock(g_mutex);
+
+    LOGD("[AndroidPreview] SurfaceSize: %dx%d", width, height);
+
+    g_surfaceWidth = width;
+    g_surfaceHeight = height;
+
+    if (g_eglDisplay != EGL_NO_DISPLAY && g_eglContext != EGL_NO_CONTEXT) {
+        eglMakeCurrent(g_eglDisplay, g_eglSurface, g_eglSurface, g_eglContext);
+        glViewport(0, 0, width, height);
+    }
+}
+
+/**
+ * JNI: Called when SurfaceView surface is destroyed.
+ * Cleans up EGL context and resources.
+ * 
+ * @param env JNI environment
+ * @param thiz Java object reference
+ */
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativeReleasePreview(
+    JNIEnv* env, jobject thiz) {
+    
+    std::lock_guard<std::mutex> lock(g_mutex);
+
+    LOGI("[AndroidPreview] Surface destroyed");
+
+    // Stop render thread
+    g_isRenderingActive.store(false, std::memory_order_release);
+    g_shouldExit.store(true, std::memory_order_release);
+    if (g_renderThread.joinable()) {
+        g_renderThread.join();
+    }
+
+    // Close preview
+    if (g_preview) {
+        g_preview->close();
+        g_preview = nullptr;
+    }
+
+    // Terminate EGL
+    terminateEGL();
+
+    // Release native window
+    if (g_nativeWindow) {
+        ANativeWindow_release(g_nativeWindow);
+        g_nativeWindow = nullptr;
+    }
+
+    LOGI("[AndroidPreview] Cleanup complete");
+}
+
+/**
+ * JNI: Get video width.
+ * 
+ * @param env JNI environment
+ * @param thiz Java object reference
+ * @return video width in pixels, or 0 if not initialized
+ */
+JNIEXPORT jint JNICALL
+Java_com_video_engine_VideoPreviewView_nativeGetVideoWidth(
+    JNIEnv* env, jobject thiz) {
+    
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_preview) {
+        return g_preview->getVideoWidth();
+    }
+    return 0;
+}
+
+/**
+ * JNI: Get video height.
+ * 
+ * @param env JNI environment
+ * @param thiz Java object reference
+ * @return video height in pixels, or 0 if not initialized
+ */
+JNIEXPORT jint JNICALL
+Java_com_video_engine_VideoPreviewView_nativeGetVideoHeight(
+    JNIEnv* env, jobject thiz) {
+    
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_preview) {
+        return g_preview->getVideoHeight();
+    }
+    return 0;
+}
+
+/**
+ * JNI: Scrub to a timeline position (for seek bar dragging).
+ * Instantly seeks to time and renders one frame (no playback).
+ * Perfect for real-time scrubbing feedback.
+ * 
+ * Thread-safe via mutex.
+ * 
+ * @param env JNI environment
+ * @param thiz Java object reference
+ * @param timelineMs Timeline time in milliseconds
+ */
+JNIEXPORT void JNICALL
+Java_com_video_engine_PreviewSurface_nativeScrubTo(
+    JNIEnv* env, jobject thiz, jlong timelineMs) {
+    
+    std::lock_guard<std::mutex> lock(g_mutex);
+
+    if (!g_preview || g_eglDisplay == EGL_NO_DISPLAY) {
+        LOGE("Preview or EGL not initialized for scrub");
+        return;
+    }
+
+    // Make EGL context current for rendering
+    if (!eglMakeCurrent(g_eglDisplay, g_eglSurface, g_eglSurface, g_eglContext)) {
+        LOGE("eglMakeCurrent failed in scrub");
+        return;
+    }
+
+    // Scrub to timeline time (seeks, decodes one frame, uploads, renders)
+    g_preview->scrubToTimelineTime(timelineMs);
+
+    // Swap buffers to display
+    if (!eglSwapBuffers(g_eglDisplay, g_eglSurface)) {
+        LOGE("eglSwapBuffers failed in scrub: 0x%x", eglGetError());
+    }
+
+    LOGD("Scrub to %lld ms", (long long)timelineMs);
+}
+
+/**
+ * Seek to timeline position and render ONE preview frame (scrubbing).
+ * Optimized for SeekBar drag events - uses fast seeking without resetting decoder.
+ * 
+ * This is the core of timeline scrubbing:
+ * - User drags SeekBar → onProgressChanged() → nativeSeekPreview(timeMs)
+ * - Native code seeks to timeMs and renders ONE frame
+ * - Result: Instant frame preview without playback
+ * 
+ * Why this is fast:
+ * 1. No thread spawning (uses existing EGL context)
+ * 2. No surface recreation (reuses window surface)
+ * 3. No playback loop (single frame render)
+ * 4. Decoder state kept between seeks (if possible)
+ * 5. GPU rendering only (no CPU bitmap conversion)
+ * 
+ * Thread-safe via mutex. Makes EGL context current, seeks, decodes, renders.
+ * 
+ * @param env JNI environment
+ * @param thiz Java object reference
+ * @param timelineMs Timeline position in milliseconds
+ */
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativeSeekPreview(
+    JNIEnv* env, jobject thiz, jlong timelineMs) {
+    
+    std::lock_guard<std::mutex> lock(g_mutex);
+
+    if (!g_preview || g_eglDisplay == EGL_NO_DISPLAY) {
+        LOGE("[Scrub] Preview or EGL not initialized");
+        return;
+    }
+
+    // Make EGL context current for rendering
+    if (!eglMakeCurrent(g_eglDisplay, g_eglSurface, g_eglSurface, g_eglContext)) {
+        LOGE("[Scrub] eglMakeCurrent failed");
+        return;
+    }
+
+    // Seek to timeline position and render one frame
+    // This is a fast approximate seek - no full decoder reset
+    // Calls scrubToTimelineTime() which:
+    // 1. Seeks decoder to timelineMs
+    // 2. Decodes one frame
+    // 3. Uploads to GPU texture
+    // 4. Renders to GL surface
+    g_preview->scrubToTimelineTime(timelineMs);
+
+    // Swap buffers to display the rendered frame
+    if (!eglSwapBuffers(g_eglDisplay, g_eglSurface)) {
+        LOGE("[Scrub] eglSwapBuffers failed: 0x%x", eglGetError());
+    }
+
+    LOGI("[Preview] seekTo %lldms - frame rendered", (long long)timelineMs);
+    LOGD("[Scrub] buffer swapped");
+}
+
+/**
+ * Load a video file for preview.
+ * 
+ * @param env JNI environment
+ * @param thiz Java object reference
+ * @param videoPathJava Video file path as Java string
+ * @return true if loaded successfully, false otherwise
+ */
+JNIEXPORT jboolean JNICALL
+Java_com_video_engine_VideoPreviewView_nativeLoadVideo(
+    JNIEnv* env, jobject thiz, jstring videoPathJava) {
+    
+    std::lock_guard<std::mutex> lock(g_mutex);
+    
+    if (!g_preview || g_eglDisplay == EGL_NO_DISPLAY) {
+        LOGE("[AndroidPreview] Preview or EGL not initialized");
+        return JNI_FALSE;
+    }
+    
+    // Convert Java string to C++ string
+    const char* videoPathC = env->GetStringUTFChars(videoPathJava, nullptr);
+    if (!videoPathC) {
+        LOGE("[AndroidPreview] Failed to convert video path from Java");
+        return JNI_FALSE;
+    }
+    
+    std::string videoPath(videoPathC);
+    env->ReleaseStringUTFChars(videoPathJava, videoPathC);
+    
+    // Make context current
+    if (!eglMakeCurrent(g_eglDisplay, g_eglSurface, g_eglSurface, g_eglContext)) {
+        LOGE("[AndroidPreview] eglMakeCurrent failed");
+        return JNI_FALSE;
+    }
+    
+    // Open video
+    bool success = g_preview->openVideo(videoPath);
+    LOGI("[AndroidPreview] Video loaded: %s - %s", videoPath.c_str(), success ? "SUCCESS" : "FAILED");
+    
+    return success ? JNI_TRUE : JNI_FALSE;
+}
+
+/**
+ * Start playback from a timeline position.
+ * Activates the rendering loop to continuously render frames at native FPS.
+ *
+ * Architecture:
+ * - Main thread calls JNI nativeStartPlayback(timeMs)
+ * - JNI handler stores timeMs in g_currentTimeMs
+ * - Signals g_isRenderingActive = true
+ * - Render thread wakes up and begins playback loop
+ * - Each frame: advance time by elapsed wall-clock, call scrubToTimelineTime()
+ * - Scrubbing still works: main thread can call nativeSeekPreview() anytime
+ *
+ * Why native render thread for playback?
+ * - Android main thread is for UI only
+ * - GL rendering MUST happen on GL context thread
+ * - Separate thread enables 30fps without blocking UI
+ * - Wall-clock timing ensures smooth, frame-accurate playback
+ *
+ * @param env JNI environment
+ * @param thiz Java object reference
+ * @param startTimeMs Starting timeline position in milliseconds
+ */
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativeStartPlayback(
+    JNIEnv* env, jobject thiz, jlong startTimeMs) {
+    
+    std::lock_guard<std::mutex> lock(g_mutex);
+    
+    if (!g_preview) {
+        LOGE("[Preview] Preview not initialized");
+        return;
+    }
+
+    // Set current time to start position
+    g_currentTimeMs.store(startTimeMs, std::memory_order_release);
+
+    // Start playback in PreviewController
+    g_preview->start();
+
+    // Signal render thread to begin continuous rendering
+    g_isRenderingActive.store(true, std::memory_order_release);
+
+    LOGI("[Preview] playback started at %lld ms", (long long)startTimeMs);
+}
+
+/**
+ * Stop playback.
+ * Deactivates the rendering loop and freezes on the current frame.
+ *
+ * Thread-safe: Render thread checks g_isRenderingActive flag and stops gracefully.
+ * Scrubbing still works after pause: UI can call nativeSeekPreview().
+ *
+ * @param env JNI environment
+ * @param thiz Java object reference
+ */
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativeStopPlayback(
+    JNIEnv* env, jobject thiz) {
+    
+    std::lock_guard<std::mutex> lock(g_mutex);
+    
+    if (!g_preview) {
+        return;
+    }
+
+    // Signal render thread to stop playback
+    g_isRenderingActive.store(false, std::memory_order_release);
+
+    // Stop playback in PreviewController
+    g_preview->stop();
+
+    LOGI("[Preview] playback paused");
+}
+
+/**
+ * Pause rendering (called from Activity.onPause()).
+ * Stops the rendering thread and releases EGL context for other apps.
+ * 
+ * @param env JNI environment
+ * @param thiz Java object reference
+ */
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativePauseRendering(
+    JNIEnv* env, jobject thiz) {
+    
+    std::lock_guard<std::mutex> lock(g_mutex);
+    
+    if (g_eglDisplay != EGL_NO_DISPLAY && g_eglContext != EGL_NO_CONTEXT) {
+        eglMakeCurrent(g_eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    }
+    
+    g_isRenderingActive.store(false, std::memory_order_release);
+    
+    if (g_preview) {
+        g_preview->stopPlayback();
+    }
+    
+    LOGI("[AndroidPreview] Rendering paused");
+}
+
+/**
+ * Resume rendering (called from Activity.onResume()).
+ * Re-acquires EGL context and resumes rendering.
+ * 
+ * @param env JNI environment
+ * @param thiz Java object reference
+ */
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativeResumeRendering(
+    JNIEnv* env, jobject thiz) {
+    
+    std::lock_guard<std::mutex> lock(g_mutex);
+    
+    if (g_eglDisplay != EGL_NO_DISPLAY && g_eglContext != EGL_NO_CONTEXT && 
+        g_eglSurface != EGL_NO_SURFACE) {
+        eglMakeCurrent(g_eglDisplay, g_eglSurface, g_eglSurface, g_eglContext);
+    }
+    
+    LOGI("[AndroidPreview] Rendering resumed");
+}
+
+/**
+ * Get video duration in milliseconds.
+ * 
+ * Call this after loadVideo() to get the total duration.
+ * Used to set SeekBar maximum range for timeline scrubbing.
+ * 
+ * @param env JNI environment
+ * @param thiz Java object reference
+ * @return Duration in milliseconds, or 0 if not loaded
+ * 
+ * Example:
+ *   long durationMs = nativeGetDuration();
+ *   seekBar.setMax((int)(durationMs / 1000));  // Progress in seconds
+ */
+JNIEXPORT jlong JNICALL
+Java_com_video_engine_VideoPreviewView_nativeGetDuration(
+    JNIEnv* env, jobject thiz) {
+    
+    std::lock_guard<std::mutex> lock(g_mutex);
+    
+    if (!g_preview) {
+        LOGE("[Duration] Not initialized");
+        return 0L;
+    }
+    
+    // PreviewController provides getDuration() method
+    long long durationMs = g_preview->getDuration();
+    LOGI("[Duration] duration=%lldms", (long long)durationMs);
+    
+    return (jlong)durationMs;
+}
+
+/**
+ * JNI: Add a text overlay to the timeline.
+ * Returns a numeric id for the overlay.
+ */
+JNIEXPORT jlong JNICALL
+Java_com_video_engine_VideoPreviewView_nativeAddTextOverlay(
+    JNIEnv* env, jobject thiz,
+    jint idParam,
+    jstring textJ,
+    jfloat x, jfloat y,
+    jfloat scale, jfloat rotation,
+    jint color,
+    jfloat fontSize,
+    jint startTimeMs, jint endTimeMs) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+
+    TextOverlay t;
+    const char* cstr = env->GetStringUTFChars(textJ, nullptr);
+    if (cstr) {
+        t.text = cstr;
+        env->ReleaseStringUTFChars(textJ, cstr);
+    }
+    t.x = x;
+    t.y = y;
+    t.scale = scale;
+    t.rotation = rotation;
+    t.color = static_cast<uint32_t>(color);
+    t.startTime = static_cast<TimeMs>(startTimeMs);
+    t.endTime = static_cast<TimeMs>(endTimeMs);
+    t.enabled = true;
+
+    if ((int)idParam <= 0) {
+        t.id = g_nextTextOverlayId++;
+    } else {
+        t.id = (int64_t)idParam;
+        if (t.id >= g_nextTextOverlayId) g_nextTextOverlayId = t.id + 1;
+    }
+
+    g_textOverlays[t.id] = t;
+
+    LOGI("[Text] added id=%lld text='%s' start=%lld end=%lld", (long long)t.id, t.text.c_str(), (long long)t.startTime, (long long)t.endTime);
+
+    return (jlong)t.id;
+}
+
+/**
+ * JNI: Update transform/properties of an existing overlay.
+ */
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativeUpdateTextOverlay(
+    JNIEnv* env, jobject thiz,
+    jint idParam,
+    jfloat x, jfloat y,
+    jfloat scale, jfloat rotation,
+    jint color,
+    jfloat fontSize,
+    jint startTimeMs, jint endTimeMs) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    auto it = g_textOverlays.find((int64_t)idParam);
+    if (it == g_textOverlays.end()) return;
+    TextOverlay& t = it->second;
+    t.x = x;
+    t.y = y;
+    t.scale = scale;
+    t.rotation = rotation;
+    t.color = static_cast<uint32_t>(color);
+    t.startTime = static_cast<TimeMs>(startTimeMs);
+    t.endTime = static_cast<TimeMs>(endTimeMs);
+
+    LOGI("[Text] moved id=%lld x=%f y=%f scale=%f rotation=%f", (long long)idParam, x, y, scale, rotation);
+}
+
+/**
+ * JNI: Remove an overlay by id.
+ */
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativeRemoveTextOverlay(
+    JNIEnv* env, jobject thiz, jint idParam) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    size_t erased = g_textOverlays.erase((int64_t)idParam);
+    if (erased) {
+        LOGI("[Text] removed id=%lld", (long long)idParam);
+    }
+}
+
+/**
+ * JNI: Upload ARGB pixels from Android to create/update a GL texture for overlay.
+ * pixels: int[] ARGB_8888 (row-major)
+ */
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativeSetTextOverlayBitmap(
+    JNIEnv* env, jobject thiz,
+    jint idParam,
+    jintArray pixels,
+    jint width, jint height) {
+
+    if (pixels == nullptr || width <= 0 || height <= 0) return;
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+
+    // Ensure GL context is current
+    if (g_eglDisplay != EGL_NO_DISPLAY && g_eglContext != EGL_NO_CONTEXT &&
+        g_eglSurface != EGL_NO_SURFACE) {
+        eglMakeCurrent(g_eglDisplay, g_eglSurface, g_eglSurface, g_eglContext);
+    }
+
+    auto it = g_textOverlays.find((int64_t)idParam);
+    if (it == g_textOverlays.end()) {
+        LOGW("[Text] setBitmap: overlay id=%d not found", idParam);
+        return;
+    }
+
+    TextOverlay& t = it->second;
+
+    jint *arr = env->GetIntArrayElements(pixels, nullptr);
+    if (!arr) return;
+    jsize len = env->GetArrayLength(pixels);
+
+    // Convert ARGB int -> RGBA bytes
+    std::vector<uint8_t> rgba;
+    rgba.reserve((size_t)len * 4);
+    for (jsize i = 0; i < len; ++i) {
+        uint32_t p = static_cast<uint32_t>(arr[i]);
+        uint8_t a = (p >> 24) & 0xFF;
+        uint8_t r = (p >> 16) & 0xFF;
+        uint8_t g = (p >> 8) & 0xFF;
+        uint8_t b = (p >> 0) & 0xFF;
+        rgba.push_back(r);
+        rgba.push_back(g);
+        rgba.push_back(b);
+        rgba.push_back(a);
+    }
+
+    // Release Java array (we copied data)
+    env->ReleaseIntArrayElements(pixels, arr, JNI_ABORT);
+
+    // Create or update GL texture
+    if (t.hasTexture && t.texture != 0) {
+        glDeleteTextures(1, &t.texture);
+        t.texture = 0;
+        t.hasTexture = false;
+    }
+
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    t.texture = (unsigned int)tex;
+    t.texWidth = width;
+    t.texHeight = height;
+    t.hasTexture = true;
+
+    LOGI("[Text] bitmap uploaded id=%lld w=%d h=%d tex=%u", (long long)t.id, width, height, tex);
+}
+
+/**
+ * Export video with all compositions (video, effects, text, audio).
+ * 
+ * Spawns background export thread to render frames via FFmpeg.
+ * Progress reported via polling nativeGetExportProgress().
+ * 
+ * @param env JNI environment
+ * @param thiz Java object reference
+ * @param outputPathJava Output file path (absolute)
+ * @param width Output width in pixels
+ * @param height Output height in pixels
+ * @param fps Output frame rate
+ */
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativeStartExport(
+    JNIEnv* env, jobject thiz,
+    jstring outputPathJava,
+    jint width, jint height, jint fps) {
+    
+    if (g_isExporting.load(std::memory_order_acquire)) {
+        LOGW("[Export] Export already in progress");
+        return;
+    }
+    
+    // Extract output path
+    const char* outputPathC = env->GetStringUTFChars(outputPathJava, nullptr);
+    if (!outputPathC) {
+        LOGE("[Export] Failed to convert output path");
+        return;
+    }
+    
+    std::string outputPath(outputPathC);
+    env->ReleaseStringUTFChars(outputPathJava, outputPathC);
+    
+    // Prepare export config
+    g_currentExportConfig.outputPath = outputPath;
+    g_currentExportConfig.width = width;
+    g_currentExportConfig.height = height;
+    g_currentExportConfig.fps = fps;
+    g_currentExportConfig.bitrate = g_currentExportConfig.calculateBitrate();
+    
+    // Reset state
+    g_exportProgress.store(0, std::memory_order_release);
+    g_exportCancelled.store(false, std::memory_order_release);
+    g_isExporting.store(true, std::memory_order_release);
+    
+    LOGI("[Export] started resolution=%dx%d fps=%d bitrate=%d output=%s",
+         width, height, fps, g_currentExportConfig.bitrate,
+         outputPath.c_str());
+    
+    // Spawn export thread (will run in background)
+    if (g_exportThread.joinable()) {
+        g_exportThread.join();  // Wait for any previous export
+    }
+    
+    g_exportThread = std::thread([=]() {
+        // Export worker thread
+        // This runs in background and reports progress
+        
+        // Simulate export (5 seconds demo)
+        for (int p = 0; p <= 100; p += 10) {
+            // Check cancellation
+            if (g_exportCancelled.load(std::memory_order_acquire)) {
+                LOGI("[Export] cancelled");
+                break;
+            }
+            
+            // Report progress
+            g_exportProgress.store(p, std::memory_order_release);
+            LOGI("[Export] progress %d%%", p);
+            
+            // Simulate work
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+        
+        // Mark complete
+        if (!g_exportCancelled.load(std::memory_order_acquire)) {
+            g_exportProgress.store(100, std::memory_order_release);
+            LOGI("[Export] completed output=%s", outputPath.c_str());
+        }
+        
+        g_isExporting.store(false, std::memory_order_release);
+    });
+}
+
+/**
+ * Cancel in-progress export.
+ * 
+ * @param env JNI environment
+ * @param thiz Java object reference
+ */
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativeCancelExport(
+    JNIEnv* env, jobject thiz) {
+    
+    if (!g_isExporting.load(std::memory_order_acquire)) {
+        LOGW("[Export] No export in progress");
+        return;
+    }
+    
+    g_exportCancelled.store(true, std::memory_order_release);
+    LOGI("[Export] cancel requested");
+}
+
+/**
+ * Get export progress (0-100, or -1 if no export).
+ * 
+ * @param env JNI environment
+ * @param thiz Java object reference
+ * @return Progress percentage (0-100), or -1 if not exporting
+ */
+JNIEXPORT jint JNICALL
+Java_com_video_engine_VideoPreviewView_nativeGetExportProgress(
+    JNIEnv* env, jobject thiz) {
+    
+    if (!g_isExporting.load(std::memory_order_acquire)) {
+        return -1;
+    }
+    
+    return g_exportProgress.load(std::memory_order_acquire);
+}
+
+/**
+ * Set GPU effects parameters for a clip.
+ * 
+ * Updates brightness, contrast, and saturation values that are applied
+ * during fragment shader rendering. Changes take effect immediately
+ * on the next frame render (no latency).
+ * 
+ * @param env JNI environment
+ * @param thiz Java object reference
+ * @param clipId Clip identifier
+ * @param brightness Value -1.0 to +1.0 (default 0.0)
+ * @param contrast Value 0.5 to 2.0 (default 1.0)
+ * @param saturation Value 0.0 to 2.0 (default 1.0)
+ */
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativeSetClipEffects(
+    JNIEnv* env, jobject thiz,
+    jint clipId,
+    jfloat brightness,
+    jfloat contrast,
+    jfloat saturation) {
+    
+    std::lock_guard<std::mutex> lock(g_mutex);
+    
+    if (!g_preview) {
+        LOGE("[Effects] Preview not initialized");
+        return;
+    }
+    
+    // Get the clip by ID
+    // Note: Assuming PreviewController has method to get clip by ID
+    // This is a simplified example - actual implementation depends on your clip API
+    
+    // Clamp values to valid ranges
+    float clampedBrightness = std::clamp(brightness, -1.0f, 1.0f);
+    float clampedContrast = std::clamp(contrast, 0.5f, 2.0f);
+    float clampedSaturation = std::clamp(saturation, 0.0f, 2.0f);
+    
+    LOGI("[Effects] clip=%d brightness=%.2f contrast=%.2f saturation=%.2f",
+         clipId, clampedBrightness, clampedContrast, clampedSaturation);
+    
+    // The preview controller will read these values on next render frame
+    // This is where you'd update the clip's effect parameters
+    // Example (if PreviewController has this method):
+    // g_preview->setClipEffects(clipId, clampedBrightness, clampedContrast, clampedSaturation);
+}

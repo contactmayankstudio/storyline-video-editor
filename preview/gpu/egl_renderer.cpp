@@ -1,0 +1,680 @@
+#include "egl_renderer.h"
+#include "gl_texture.h"
+
+#include <iostream>
+#include <cstdarg>
+#include <cstring>
+#include <cmath>
+#include <algorithm>
+
+// Android EGL/GL headers
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES3/gl3.h>
+#include <android/native_window.h>
+#include <android/window.h>
+
+namespace VideoEngine::GPU {
+
+// Embedded GLSL shaders (GLSL 300 es for OpenGL ES 3.0)
+
+static const char* VERTEX_SHADER_SRC = R"(
+#version 300 es
+precision highp float;
+
+layout(location = 0) in vec2 position;
+layout(location = 1) in vec2 texCoord;
+
+out vec2 fragTexCoord;
+
+void main() {
+    gl_Position = vec4(position, 0.0, 1.0);
+    fragTexCoord = vec2(texCoord.x, 1.0 - texCoord.y);
+}
+)";
+
+static const char* FRAGMENT_SHADER_SRC = R"(
+#version 300 es
+precision mediump float;
+
+in vec2 fragTexCoord;
+out vec4 outColor;
+
+uniform sampler2D textureSampler;
+uniform float uOpacity;
+uniform bool uChromaEnabled;
+uniform vec3 uChromaKeyColor;
+uniform float uChromaSimilarity;
+uniform float uChromaSmoothness;
+uniform float uChromaSpill;
+uniform float uBrightness;
+uniform float uContrast;
+uniform float uSaturation;
+
+void main() {
+    vec4 color = texture(textureSampler, fragTexCoord);
+    if (uChromaEnabled) {
+        float d = distance(color.rgb, uChromaKeyColor);
+        float alpha = smoothstep(uChromaSimilarity, uChromaSimilarity + uChromaSmoothness, d);
+        if (uChromaKeyColor.g > 0.5) {
+            color.g = mix(color.g, (color.r + color.b) * 0.5, uChromaSpill);
+        } else if (uChromaKeyColor.b > 0.5) {
+            color.b = mix(color.b, (color.r + color.g) * 0.5, uChromaSpill);
+        }
+        color.a *= alpha;
+        color.rgb *= alpha;
+    }
+    // Brightness
+    color.rgb += uBrightness;
+    // Contrast
+    color.rgb = (color.rgb - 0.5) * uContrast + 0.5;
+    // Saturation
+    float luma = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+    color.rgb = mix(vec3(luma), color.rgb, uSaturation);
+    color.rgb = clamp(color.rgb, 0.0, 1.0);
+    color.a *= uOpacity;
+    color.rgb *= uOpacity;
+    outColor = color;
+}
+)";
+
+// Quad geometry: full-screen textured quad in NDC coordinates
+// Position: (-1, -1) to (1, 1), TexCoord: (0, 0) to (1, 1)
+static const float QUAD_VERTICES[] = {
+    // position  |  texCoord
+    -1.0f, -1.0f,   0.0f, 0.0f,   // Bottom-left
+     1.0f, -1.0f,   1.0f, 0.0f,   // Bottom-right
+     1.0f,  1.0f,   1.0f, 1.0f,   // Top-right
+    -1.0f,  1.0f,   0.0f, 1.0f    // Top-left
+};
+
+static const uint16_t QUAD_INDICES[] = {
+    0, 1, 2,   // First triangle
+    0, 2, 3    // Second triangle
+};
+
+EGLRenderer::EGLRenderer()
+    : m_eglDisplay(nullptr)
+    , m_eglContext(nullptr)
+    , m_eglSurface(nullptr)
+    , m_nativeWindow(nullptr)
+    , m_programId(0)
+    , m_vao(0)
+    , m_vbo(0)
+    , m_ebo(0)
+    , m_viewportWidth(0)
+    , m_viewportHeight(0)
+    , m_initialized(false)
+{
+}
+
+EGLRenderer::~EGLRenderer() {
+    shutdown();
+}
+
+bool EGLRenderer::initialize(ANativeWindow* nativeWindow) {
+    if (m_initialized) {
+        setError("Renderer already initialized");
+        return false;
+    }
+
+    if (!nativeWindow) {
+        setError("ANativeWindow is null");
+        return false;
+    }
+
+    m_nativeWindow = nativeWindow;
+    ANativeWindow_setBuffersGeometry(nativeWindow, 0, 0, WINDOW_FORMAT_RGBA_8888);
+    m_viewportWidth = ANativeWindow_getWidth(nativeWindow);
+    m_viewportHeight = ANativeWindow_getHeight(nativeWindow);
+
+    // ========== EGL Setup ==========
+
+    // Get EGL display
+    m_eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    if (m_eglDisplay == EGL_NO_DISPLAY) {
+        setError("eglGetDisplay failed");
+        return false;
+    }
+
+    // Initialize EGL
+    EGLint majorVersion, minorVersion;
+    if (!eglInitialize(m_eglDisplay, &majorVersion, &minorVersion)) {
+        setError("eglInitialize failed: 0x%x", eglGetError());
+        m_eglDisplay = nullptr;
+        return false;
+    }
+
+    std::cout << "[EGLRenderer] EGL initialized: " << majorVersion << "." 
+              << minorVersion << "\n";
+
+    // Choose EGL config
+    const EGLint configAttribs[] = {
+        EGL_SURFACE_TYPE,        EGL_WINDOW_BIT,
+        EGL_RENDERABLE_TYPE,     EGL_OPENGL_ES3_BIT,
+        EGL_RED_SIZE,            8,
+        EGL_GREEN_SIZE,          8,
+        EGL_BLUE_SIZE,           8,
+        EGL_ALPHA_SIZE,          8,
+        EGL_DEPTH_SIZE,          0,
+        EGL_NONE
+    };
+
+    EGLConfig config;
+    EGLint numConfigs;
+    if (!eglChooseConfig(m_eglDisplay, configAttribs, &config, 1, &numConfigs) || 
+        numConfigs == 0) {
+        setError("eglChooseConfig failed: 0x%x", eglGetError());
+        eglTerminate(m_eglDisplay);
+        m_eglDisplay = nullptr;
+        return false;
+    }
+
+    // Create EGL context
+    const EGLint contextAttribs[] = {
+        EGL_CONTEXT_CLIENT_VERSION, 3,
+        EGL_NONE
+    };
+
+    m_eglContext = eglCreateContext(m_eglDisplay, config, EGL_NO_CONTEXT, contextAttribs);
+    if (m_eglContext == EGL_NO_CONTEXT) {
+        setError("eglCreateContext failed: 0x%x", eglGetError());
+        eglTerminate(m_eglDisplay);
+        m_eglDisplay = nullptr;
+        return false;
+    }
+
+    // Create EGL surface from ANativeWindow
+    m_eglSurface = eglCreateWindowSurface(m_eglDisplay, config, m_nativeWindow, nullptr);
+    if (m_eglSurface == EGL_NO_SURFACE) {
+        setError("eglCreateWindowSurface failed: 0x%x", eglGetError());
+        eglDestroyContext(m_eglDisplay, m_eglContext);
+        eglTerminate(m_eglDisplay);
+        m_eglDisplay = nullptr;
+        m_eglContext = nullptr;
+        return false;
+    }
+
+    // Make context current
+    if (!makeCurrent()) {
+        setError("eglMakeCurrent failed");
+        eglDestroySurface(m_eglDisplay, m_eglSurface);
+        eglDestroyContext(m_eglDisplay, m_eglContext);
+        eglTerminate(m_eglDisplay);
+        m_eglDisplay = nullptr;
+        m_eglContext = nullptr;
+        m_eglSurface = nullptr;
+        return false;
+    }
+
+    // ========== OpenGL Setup ==========
+
+    // Create shader program
+    m_programId = createShaderProgram();
+    if (m_programId == 0) {
+        setError("Failed to create shader program");
+        releaseResources();
+        return false;
+    }
+
+    m_uOpacityLoc = glGetUniformLocation(m_programId, "uOpacity");
+    m_uChromaEnabledLoc = glGetUniformLocation(m_programId, "uChromaEnabled");
+    m_uChromaKeyColorLoc = glGetUniformLocation(m_programId, "uChromaKeyColor");
+    m_uChromaSimilarityLoc = glGetUniformLocation(m_programId, "uChromaSimilarity");
+    m_uChromaSmoothnessLoc = glGetUniformLocation(m_programId, "uChromaSmoothness");
+    m_uChromaSpillLoc = glGetUniformLocation(m_programId, "uChromaSpill");
+    m_uBrightnessLoc = glGetUniformLocation(m_programId, "uBrightness");
+    m_uContrastLoc = glGetUniformLocation(m_programId, "uContrast");
+    m_uSaturationLoc = glGetUniformLocation(m_programId, "uSaturation");
+
+    // Create quad mesh
+    if (!createQuadMesh()) {
+        setError("Failed to create quad mesh");
+        releaseResources();
+        return false;
+    }
+
+    // Configure OpenGL state
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+
+    if (!checkGLError("GL initialization")) {
+        releaseResources();
+        return false;
+    }
+
+    m_initialized = true;
+    std::cout << "[EGLRenderer] Initialization successful\n";
+    return true;
+}
+
+void EGLRenderer::resizeViewport(int width, int height) {
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+
+    m_viewportWidth = width;
+    m_viewportHeight = height;
+}
+
+bool EGLRenderer::renderFrame(const GLTexture& texture) {
+    return renderFrameRegion(texture, 0, 0, m_viewportWidth, m_viewportHeight);
+}
+
+bool EGLRenderer::renderFrameRegion(
+    const GLTexture& texture,
+    int dirtyX,
+    int dirtyY,
+    int dirtyWidth,
+    int dirtyHeight) {
+    if (!m_initialized) {
+        setError("Renderer not initialized");
+        return false;
+    }
+
+    if (!texture.isValid()) {
+        setError("Texture is not valid");
+        return false;
+    }
+
+    if (!makeCurrent()) {
+        setError("eglMakeCurrent failed");
+        return false;
+    }
+
+    if (m_viewportWidth > 0 && m_viewportHeight > 0) {
+        glViewport(0, 0, m_viewportWidth, m_viewportHeight);
+    }
+
+    const bool useDirtyRegion =
+        dirtyWidth > 0 &&
+        dirtyHeight > 0 &&
+        dirtyWidth < m_viewportWidth &&
+        dirtyHeight < m_viewportHeight;
+    if (useDirtyRegion) {
+        const int clampedX = std::max(0, std::min(dirtyX, m_viewportWidth - 1));
+        const int clampedYTop = std::max(0, std::min(dirtyY, m_viewportHeight - 1));
+        const int clampedW = std::max(1, std::min(dirtyWidth, m_viewportWidth - clampedX));
+        const int clampedH = std::max(1, std::min(dirtyHeight, m_viewportHeight - clampedYTop));
+        // Android/UI uses top-left origin, OpenGL scissor uses bottom-left.
+        const int scissorY = std::max(0, m_viewportHeight - (clampedYTop + clampedH));
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(clampedX, scissorY, clampedW, clampedH);
+    } else {
+        glDisable(GL_SCISSOR_TEST);
+    }
+
+    // Clear framebuffer (full or scissored dirty region)
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Use shader program
+    glUseProgram(m_programId);
+    if (m_uOpacityLoc >= 0) {
+        glUniform1f(m_uOpacityLoc, 1.0f);
+    }
+    if (m_uChromaEnabledLoc >= 0) {
+        glUniform1i(m_uChromaEnabledLoc, m_chromaEnabled ? 1 : 0);
+    }
+    if (m_uChromaKeyColorLoc >= 0) {
+        glUniform3f(
+            m_uChromaKeyColorLoc,
+            m_chromaColor[0],
+            m_chromaColor[1],
+            m_chromaColor[2]
+        );
+    }
+    if (m_uChromaSimilarityLoc >= 0) {
+        glUniform1f(m_uChromaSimilarityLoc, m_chromaSimilarity);
+    }
+    if (m_uChromaSmoothnessLoc >= 0) {
+        glUniform1f(m_uChromaSmoothnessLoc, m_chromaSmoothness);
+    }
+    if (m_uChromaSpillLoc >= 0) {
+        glUniform1f(m_uChromaSpillLoc, m_chromaSpill);
+    }
+    if (m_uBrightnessLoc >= 0)
+        glUniform1f(m_uBrightnessLoc, 0.0f);
+    if (m_uContrastLoc >= 0)
+        glUniform1f(m_uContrastLoc, 1.0f);
+    if (m_uSaturationLoc >= 0)
+        glUniform1f(m_uSaturationLoc, 1.0f);
+
+    // Bind texture to unit 0
+    texture.bind(0);
+
+    // Set texture uniform
+    GLint texLoc = glGetUniformLocation(m_programId, "textureSampler");
+    glUniform1i(texLoc, 0);
+
+    // Bind and draw quad
+    glBindVertexArray(m_vao);
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
+
+    // Unbind
+    glBindVertexArray(0);
+    glUseProgram(0);
+
+    if (!checkGLError("renderFrame")) {
+        glDisable(GL_SCISSOR_TEST);
+        return false;
+    }
+
+    // Swap buffers to display
+    if (!eglSwapBuffers(m_eglDisplay, m_eglSurface)) {
+        setError("eglSwapBuffers failed: 0x%x", eglGetError());
+        glDisable(GL_SCISSOR_TEST);
+        return false;
+    }
+
+    if (useDirtyRegion) {
+        glDisable(GL_SCISSOR_TEST);
+    }
+
+    return true;
+}
+
+bool EGLRenderer::renderLayers(const std::vector<Layer>& layers) {
+    if (!m_initialized) {
+        setError("Renderer not initialized");
+        return false;
+    }
+    if (!makeCurrent()) {
+        setError("eglMakeCurrent failed");
+        return false;
+    }
+
+    glViewport(0, 0, m_viewportWidth, m_viewportHeight);
+    glDisable(GL_SCISSOR_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glUseProgram(m_programId);
+
+    GLint texLoc = glGetUniformLocation(m_programId, "textureSampler");
+    glUniform1i(texLoc, 0);
+
+    for (const auto& layer : layers) {
+        if (!layer.texture || !layer.texture->isValid()) continue;
+
+        if (m_uOpacityLoc >= 0)
+            glUniform1f(m_uOpacityLoc, layer.opacity);
+        if (m_uChromaEnabledLoc >= 0)
+            glUniform1i(m_uChromaEnabledLoc, layer.chromaEnabled ? 1 : 0);
+        if (layer.chromaEnabled) {
+            if (m_uChromaKeyColorLoc >= 0)
+                glUniform3f(m_uChromaKeyColorLoc,
+                    layer.blueKey ? 0.0f : 0.0f,
+                    layer.blueKey ? 0.0f : 1.0f,
+                    layer.blueKey ? 1.0f : 0.0f);
+            if (m_uChromaSimilarityLoc >= 0)
+                glUniform1f(m_uChromaSimilarityLoc, layer.chromaSimilarity);
+            if (m_uChromaSmoothnessLoc >= 0)
+                glUniform1f(m_uChromaSmoothnessLoc, layer.chromaSmoothness);
+            if (m_uChromaSpillLoc >= 0)
+                glUniform1f(m_uChromaSpillLoc, layer.chromaSpill);
+        }
+        if (m_uBrightnessLoc >= 0)
+            glUniform1f(m_uBrightnessLoc, layer.brightness);
+        if (m_uContrastLoc >= 0)
+            glUniform1f(m_uContrastLoc, layer.contrast);
+        if (m_uSaturationLoc >= 0)
+            glUniform1f(m_uSaturationLoc, layer.saturation);
+
+        layer.texture->bind(0);
+        glBindVertexArray(m_vao);
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
+    }
+
+    glBindVertexArray(0);
+    glUseProgram(0);
+    glDisable(GL_BLEND);
+
+    if (!checkGLError("renderLayers")) return false;
+    if (!eglSwapBuffers(m_eglDisplay, m_eglSurface)) {
+        setError("eglSwapBuffers failed: 0x%x", eglGetError());
+        return false;
+    }
+    return true;
+}
+
+bool EGLRenderer::acquireContext() {
+    if (!m_initialized) {
+        setError("Renderer not initialized");
+        return false;
+    }
+    if (!makeCurrent()) {
+        setError("eglMakeCurrent failed");
+        return false;
+    }
+    return true;
+}
+
+void EGLRenderer::releaseContext() {
+    if (m_eglDisplay == EGL_NO_DISPLAY || m_eglDisplay == nullptr) {
+        return;
+    }
+    eglMakeCurrent(
+        m_eglDisplay,
+        EGL_NO_SURFACE,
+        EGL_NO_SURFACE,
+        EGL_NO_CONTEXT);
+}
+
+void EGLRenderer::setChromaKey(bool enabled, bool blueKey, float similarity, float smoothness, float spill) {
+    m_chromaEnabled = enabled;
+    m_chromaSimilarity = similarity;
+    m_chromaSmoothness = smoothness;
+    m_chromaSpill = spill;
+    if (blueKey) {
+        m_chromaColor[0] = 0.0f;
+        m_chromaColor[1] = 0.0f;
+        m_chromaColor[2] = 1.0f;
+    } else {
+        m_chromaColor[0] = 0.0f;
+        m_chromaColor[1] = 1.0f;
+        m_chromaColor[2] = 0.0f;
+    }
+}
+
+void EGLRenderer::shutdown() {
+    if (!m_initialized) {
+        return;
+    }
+
+    if (makeCurrent()) {
+        releaseResources();
+    }
+
+    // Destroy EGL resources
+    if (m_eglSurface != EGL_NO_SURFACE) {
+        eglDestroySurface(m_eglDisplay, m_eglSurface);
+        m_eglSurface = nullptr;
+    }
+
+    if (m_eglContext != EGL_NO_CONTEXT) {
+        eglDestroyContext(m_eglDisplay, m_eglContext);
+        m_eglContext = nullptr;
+    }
+
+    if (m_eglDisplay != EGL_NO_DISPLAY) {
+        eglTerminate(m_eglDisplay);
+        m_eglDisplay = nullptr;
+    }
+    eglReleaseThread(); // Release EGL state for this thread
+
+    m_nativeWindow = nullptr;
+    m_initialized = false;
+    std::cout << "[EGLRenderer] Shutdown complete\n";
+}
+
+uint32_t EGLRenderer::compileShader(const char* source, uint32_t type) {
+    uint32_t shader = glCreateShader(type);
+    if (shader == 0) {
+        setError("glCreateShader failed");
+        return 0;
+    }
+
+    glShaderSource(shader, 1, &source, nullptr);
+    glCompileShader(shader);
+
+    // Check compilation status
+    GLint compiled;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+    if (!compiled) {
+        GLint logLength = 0;
+        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLength);
+        if (logLength > 0) {
+            char* log = new char[logLength];
+            glGetShaderInfoLog(shader, logLength, nullptr, log);
+            setError("Shader compilation failed: %s", log);
+            delete[] log;
+        } else {
+            setError("Shader compilation failed (no log)");
+        }
+        glDeleteShader(shader);
+        return 0;
+    }
+
+    return shader;
+}
+
+uint32_t EGLRenderer::createShaderProgram() {
+    uint32_t vertexShader = compileShader(VERTEX_SHADER_SRC, GL_VERTEX_SHADER);
+    if (vertexShader == 0) {
+        return 0;
+    }
+
+    uint32_t fragmentShader = compileShader(FRAGMENT_SHADER_SRC, GL_FRAGMENT_SHADER);
+    if (fragmentShader == 0) {
+        glDeleteShader(vertexShader);
+        return 0;
+    }
+
+    // Create program and link
+    uint32_t program = glCreateProgram();
+    glAttachShader(program, vertexShader);
+    glAttachShader(program, fragmentShader);
+    glLinkProgram(program);
+
+    // Check link status
+    GLint linked;
+    glGetProgramiv(program, GL_LINK_STATUS, &linked);
+    if (!linked) {
+        GLint logLength = 0;
+        glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logLength);
+        if (logLength > 0) {
+            char* log = new char[logLength];
+            glGetProgramInfoLog(program, logLength, nullptr, log);
+            setError("Program link failed: %s", log);
+            delete[] log;
+        } else {
+            setError("Program link failed (no log)");
+        }
+        glDeleteProgram(program);
+        glDeleteShader(vertexShader);
+        glDeleteShader(fragmentShader);
+        return 0;
+    }
+
+    // Clean up shaders (no longer needed after linking)
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    return program;
+}
+
+bool EGLRenderer::createQuadMesh() {
+    // Create VAO
+    glGenVertexArrays(1, &m_vao);
+    if (m_vao == 0) {
+        setError("glGenVertexArrays failed");
+        return false;
+    }
+
+    glBindVertexArray(m_vao);
+
+    // Create VBO
+    glGenBuffers(1, &m_vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(QUAD_VERTICES), QUAD_VERTICES, GL_STATIC_DRAW);
+
+    // Create EBO
+    glGenBuffers(1, &m_ebo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(QUAD_INDICES), QUAD_INDICES, GL_STATIC_DRAW);
+
+    // Configure vertex attributes
+    // Position (location 0)
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+
+    // TexCoord (location 1)
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+
+    glBindVertexArray(0);
+
+    if (!checkGLError("createQuadMesh")) {
+        glDeleteBuffers(1, &m_vbo);
+        glDeleteBuffers(1, &m_ebo);
+        glDeleteVertexArrays(1, &m_vao);
+        m_vbo = 0;
+        m_ebo = 0;
+        m_vao = 0;
+        return false;
+    }
+
+    return true;
+}
+
+bool EGLRenderer::makeCurrent() {
+    if (m_eglDisplay == nullptr || m_eglContext == nullptr || m_eglSurface == nullptr) {
+        return false;
+    }
+
+    return eglMakeCurrent(m_eglDisplay, m_eglSurface, m_eglSurface, m_eglContext) == EGL_TRUE;
+}
+
+void EGLRenderer::releaseResources() {
+    if (m_programId != 0) {
+        glDeleteProgram(m_programId);
+        m_programId = 0;
+    }
+
+    if (m_vao != 0) {
+        glDeleteVertexArrays(1, &m_vao);
+        m_vao = 0;
+    }
+
+    if (m_vbo != 0) {
+        glDeleteBuffers(1, &m_vbo);
+        m_vbo = 0;
+    }
+
+    if (m_ebo != 0) {
+        glDeleteBuffers(1, &m_ebo);
+        m_ebo = 0;
+    }
+}
+
+bool EGLRenderer::checkGLError(const char* operation) {
+    GLenum error = glGetError();
+    if (error != GL_NO_ERROR) {
+        setError("GL error in %s: 0x%x", operation, error);
+        return false;
+    }
+    return true;
+}
+
+void EGLRenderer::setError(const char* fmt, ...) {
+    char buffer[512];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, args);
+    va_end(args);
+    m_lastError = buffer;
+}
+
+}  // namespace VideoEngine::GPU
