@@ -2,26 +2,40 @@
 .vscode/
 .idea/
 .gemini_project_memory.json
+*.iml
+misc.xml
+deploymentTargetDropDown.xml
+render.experimental.xml
 
 # Android / Gradle
+.gradle/
+captures/
 android/.gradle/
 android/.idea/
+local.properties
 android/local.properties
+build/
 android/**/build/
+.cxx/
 android/**/.cxx/
+.externalNativeBuild/
 android/**/.externalNativeBuild/
+output-metadata.json
+google-services.json
 android/app/google-services.json
 *.apk
 *.aab
+*.hprof
 
 # Native / CMake build output
-build/
 build_*/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 Makefile
+*.jks
+*.keystore
 
 # Logs
 *.log
