@@ -616,9 +616,13 @@
 
                 const badge = document.createElement("span");
                 badge.className = `pill ${provider.configured ? "pill-success" : "pill-warning"}`;
-                badge.textContent = provider.configured
-                    ? `Ready • ${provider.model}`
-                    : `Missing • ${provider.model}`;
+                if (provider.configured) {
+                    badge.textContent = provider.id === "github-models"
+                        ? `Token ready • ${provider.model}`
+                        : `Ready • ${provider.model}`;
+                } else {
+                    badge.textContent = `Missing • ${provider.model}`;
+                }
 
                 row.appendChild(copy);
                 row.appendChild(badge);
