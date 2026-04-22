@@ -67,7 +67,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-    echo "GITHUB_TOKEN is required." >&2
+    if command -v gh >/dev/null 2>&1; then
+        GITHUB_TOKEN="$(gh auth token 2>/dev/null || true)"
+    fi
+fi
+
+if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+    echo "GITHUB_TOKEN is required. Export it or authenticate gh." >&2
     exit 1
 fi
 
