@@ -3,8 +3,8 @@ const DEFAULT_GITHUB_MODELS_MODEL = process.env.GITHUB_MODELS_MODEL || "xai/grok
 
 function getGitHubModelsConfig() {
     return {
-        token: process.env.GITHUB_MODELS_TOKEN || process.env.GITHUB_TOKEN || "",
-        model: DEFAULT_GITHUB_MODELS_MODEL,
+        token: (process.env.GITHUB_MODELS_TOKEN || process.env.GITHUB_TOKEN || "").trim(),
+        model: DEFAULT_GITHUB_MODELS_MODEL.trim(),
     };
 }
 
