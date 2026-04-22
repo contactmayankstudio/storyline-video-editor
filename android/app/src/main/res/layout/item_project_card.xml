@@ -2,16 +2,16 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="12dp"
+    android:layout_marginBottom="10dp"
     android:background="@drawable/recent_project_card_background"
     android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:padding="16dp">
+    android:padding="15dp">
 
     <LinearLayout
         android:layout_width="48dp"
         android:layout_height="48dp"
-        android:background="@drawable/toolbar_item_background"
+        android:background="@drawable/launch_secondary_icon_chip"
         android:gravity="center">
 
         <ImageView
@@ -20,13 +20,13 @@
             android:layout_height="22dp"
             android:contentDescription="@string/app_name"
             android:src="@drawable/ic_video_clip"
-            android:tint="@color/accent_cyan" />
+            android:tint="@color/accent_blue" />
     </LinearLayout>
 
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="14dp"
+        android:layout_marginStart="12dp"
         android:layout_weight="1"
         android:orientation="vertical">
 
@@ -41,27 +41,27 @@
             android:paddingBottom="3dp"
             android:text="@string/project_card_tag"
             android:textColor="@color/accent_blue"
-            android:textSize="10sp"
+            android:textSize="9sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/projectCardName"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="7dp"
             android:ellipsize="end"
             android:maxLines="1"
             android:textColor="@color/text_primary"
-            android:textSize="17sp"
+            android:textSize="16sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/projectCardDate"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="3dp"
             android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
+            android:textSize="11sp" />
     </LinearLayout>
 
     <TextView
@@ -75,7 +75,7 @@
         android:paddingBottom="6dp"
         android:text="@string/project_card_status"
         android:textColor="@color/text_primary"
-        android:textSize="10sp"
+        android:textSize="9sp"
         android:textStyle="bold" />
 
 </LinearLayout>
