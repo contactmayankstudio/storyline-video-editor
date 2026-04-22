@@ -317,6 +317,7 @@ private:
      * Internal: Set error message with formatted string.
      */
     void setError(const char* fmt, ...);
+    void clearError();
 
     /**
      * Internal: Decode next frame, convert to RGBA, upload to texture, render.
@@ -364,7 +365,7 @@ private:
         bool allowPredictiveCache,
         bool updatePredictiveCache,
         int64_t* renderedTimelineMs);
-    bool switchDecoderSourceLocked(const std::string& videoPath);
+    bool switchDecoderSourceLocked(const std::shared_ptr<Clip>& clip);
     int64_t clampTimelineTimeMsLocked(int64_t timeMs) const;
     int64_t mapClipTimelineToSourceMs(
         const std::shared_ptr<Clip>& clip,

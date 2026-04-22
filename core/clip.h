@@ -103,8 +103,12 @@ public:
 
     // ============ Identification & Metadata ============
     [[nodiscard]] const std::string& getMediaPath() const { return mediaPath_; }
+    [[nodiscard]] const std::string& getPreviewProxyPath() const { return previewProxyPath_; }
     [[nodiscard]] MediaType getMediaType() const { return mediaType_; }
     [[nodiscard]] uint32_t getId() const { return id_; }
+
+    void setPreviewProxyPath(std::string path) { previewProxyPath_ = std::move(path); }
+    void clearPreviewProxyPath() { previewProxyPath_.clear(); }
 
     // ============ Timing & Position ============
     /**
@@ -251,6 +255,7 @@ public:
 private:
     // Core properties
     std::string mediaPath_;
+    std::string previewProxyPath_;
     uint32_t id_;
     MediaType mediaType_;
 

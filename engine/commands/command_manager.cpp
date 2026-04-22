@@ -373,9 +373,9 @@ bool buildProxyVideo(
         return false;
     }
 
-    int64_t nextPts = 0;
-    int64_t lastEncodedPtsUs = -1;
-    const int64_t minFrameDeltaUs = static_cast<int64_t>(1000000.0 / fps);
+    int64_t lastSourcePtsUs = -1;
+    int64_t firstSourcePtsUs = -1;
+    int64_t lastOutputPts = AV_NOPTS_VALUE;
     const int64_t totalDurationUs = inFmt->duration > 0 ? inFmt->duration : 0;
     int lastProgress = -1;
 
@@ -407,6 +407,53 @@ bool buildProxyVideo(
         return true;
     };
 
+    auto relativeFramePtsUs = [&](const AVFrame* frame) -> int64_t {
+        int64_t ptsUs = framePtsUs(frame, inStream->time_base);
+        if (ptsUs < 0) {
+            ptsUs = 0;
+        }
+        if (firstSourcePtsUs < 0) {
+            firstSourcePtsUs = ptsUs;
+        }
+        return std::max<int64_t>(0, ptsUs - firstSourcePtsUs);
+    };
+
+    auto encodeDecodedFrame = [&](int64_t relativePtsUs, bool allowCoerceForward) -> bool {
+        int64_t outputPts = av_rescale_q_rnd(
+            relativePtsUs,
+            AVRational{1, AV_TIME_BASE},
+            encCtx->time_base,
+            static_cast<AVRounding>(AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
+        if (lastOutputPts != AV_NOPTS_VALUE && outputPts <= lastOutputPts) {
+            if (!allowCoerceForward) {
+                return true;
+            }
+            outputPts = lastOutputPts + 1;
+        }
+        if (av_frame_make_writable(yuv) < 0) {
+            errorOut = "Output frame not writable";
+            return false;
+        }
+        sws_scale(
+            sws,
+            decoded->data,
+            decoded->linesize,
+            0,
+            decoded->height,
+            yuv->data,
+            yuv->linesize);
+        yuv->pts = outputPts;
+        if (avcodec_send_frame(encCtx, yuv) < 0) {
+            errorOut = "Failed to send frame to encoder";
+            return false;
+        }
+        if (!writeEncodedPackets(false)) {
+            return false;
+        }
+        lastOutputPts = outputPts;
+        return true;
+    };
+
     while (av_read_frame(inFmt, inputPacket) >= 0) {
         if (inputPacket->stream_index != videoStreamIndex) {
             av_packet_unref(inputPacket);
@@ -421,39 +468,17 @@ bool buildProxyVideo(
         av_packet_unref(inputPacket);
 
         while (avcodec_receive_frame(decCtx, decoded) == 0) {
-            const int64_t ptsUs = framePtsUs(decoded, inStream->time_base);
-            if (lastEncodedPtsUs >= 0 && ptsUs > 0 && (ptsUs - lastEncodedPtsUs) < minFrameDeltaUs) {
+            const int64_t relativePtsUs = relativeFramePtsUs(decoded);
+            if (lastSourcePtsUs >= 0 && relativePtsUs <= lastSourcePtsUs) {
                 continue;
             }
-            if (av_frame_make_writable(yuv) < 0) {
-                errorOut = "Output frame not writable";
+            if (!encodeDecodedFrame(relativePtsUs, false)) {
                 cleanup();
                 return false;
             }
-            sws_scale(
-                sws,
-                decoded->data,
-                decoded->linesize,
-                0,
-                decoded->height,
-                yuv->data,
-                yuv->linesize);
-            yuv->pts = nextPts++;
-            if (avcodec_send_frame(encCtx, yuv) < 0) {
-                errorOut = "Failed to send frame to encoder";
-                cleanup();
-                return false;
-            }
-            if (!writeEncodedPackets(false)) {
-                cleanup();
-                return false;
-            }
-
-            if (ptsUs > 0) {
-                lastEncodedPtsUs = ptsUs;
-            }
+            lastSourcePtsUs = relativePtsUs;
             if (totalDurationUs > 0) {
-                int progress = static_cast<int>((std::max<int64_t>(0, ptsUs) * 100) / totalDurationUs);
+                int progress = static_cast<int>((relativePtsUs * 100) / totalDurationUs);
                 progress = std::clamp(progress, 0, 99);
                 if (progress != lastProgress) {
                     onProgress(progress);
@@ -466,21 +491,15 @@ bool buildProxyVideo(
     // Drain decoder.
     avcodec_send_packet(decCtx, nullptr);
     while (avcodec_receive_frame(decCtx, decoded) == 0) {
-        if (av_frame_make_writable(yuv) < 0) break;
-        sws_scale(
-            sws,
-            decoded->data,
-            decoded->linesize,
-            0,
-            decoded->height,
-            yuv->data,
-            yuv->linesize);
-        yuv->pts = nextPts++;
-        if (avcodec_send_frame(encCtx, yuv) < 0) break;
-        if (!writeEncodedPackets(false)) {
+        const int64_t relativePtsUs = relativeFramePtsUs(decoded);
+        if (lastSourcePtsUs >= 0 && relativePtsUs <= lastSourcePtsUs) {
+            continue;
+        }
+        if (!encodeDecodedFrame(relativePtsUs, true)) {
             cleanup();
             return false;
         }
+        lastSourcePtsUs = std::max(lastSourcePtsUs, relativePtsUs);
     }
 
     if (!writeEncodedPackets(true)) {
@@ -922,6 +941,12 @@ void scheduleClipWarmupAsync(
     int clipId,
     const std::string& sourcePath,
     VideoEngine::Clip::TrackRole trackRole) {
+#if defined(__ANDROID__)
+    (void)clipId;
+    (void)sourcePath;
+    (void)trackRole;
+    return;
+#else
     if (clipId < 0 || sourcePath.empty()) {
         return;
     }
@@ -934,6 +959,7 @@ void scheduleClipWarmupAsync(
         ",\"sourcePath\":" + quote(sourcePath) +
         ",\"maxLongEdgePx\":360,\"targetFps\":24}";
     CommandManager::instance().executeAsync("BUILD_CLIP_PROXY", payload);
+#endif
 }
 
 std::string extractStringValue(const std::string& json, const std::string& key) {
@@ -1281,6 +1307,13 @@ public:
         clip->setTrackLane(m_trackLane);
         clip->setTrackZOrder(m_trackZOrder);
         timeline->addClip(clip);
+        const bool proxyWarmupScheduled =
+#if defined(__ANDROID__)
+            false;
+#else
+            (m_trackRole == VideoEngine::Clip::TrackRole::MainVideo ||
+                m_trackRole == VideoEngine::Clip::TrackRole::Overlay);
+#endif
         if (m_trackRole == VideoEngine::Clip::TrackRole::MainVideo) {
             normalizePrimaryTrack(timeline.get());
             // Always render first frame after adding a video clip (fixes black preview)
@@ -1299,11 +1332,7 @@ public:
             ",\"trackType\":" + quote(trackRoleToString(clip->getTrackRole())) +
             ",\"lane\":" + std::to_string(clip->getTrackLane()) +
             ",\"zOrder\":" + std::to_string(clip->getTrackZOrder()) +
-            ",\"proxyWarmupScheduled\":" + std::string(
-                (m_trackRole == VideoEngine::Clip::TrackRole::MainVideo ||
-                    m_trackRole == VideoEngine::Clip::TrackRole::Overlay)
-                    ? "true"
-                    : "false") +
+            ",\"proxyWarmupScheduled\":" + std::string(proxyWarmupScheduled ? "true" : "false") +
             "}");
     }
 
@@ -1890,16 +1919,21 @@ public:
           m_targetFps(std::max(10, targetFps)) {}
 
     CommandResult execute(CommandContext& context) override {
+        std::weak_ptr<VideoEngine::Timeline> timelineRef;
+        std::mutex* previewMutex = context.previewMutex;
         std::string sourcePath = m_sourcePath;
-        if (sourcePath.empty()) {
+        {
             std::lock_guard<std::mutex> lock(*context.previewMutex);
             if (!context.preview || !(*context.preview)) {
                 return CommandResult::fail(action(), "Preview not initialized");
             }
             auto timeline = (*context.preview)->getTimeline();
-            auto clip = findClipShared(timeline.get(), m_clipId);
-            if (clip) {
-                sourcePath = clip->getMediaPath();
+            timelineRef = timeline;
+            if (sourcePath.empty()) {
+                auto clip = findClipShared(timeline.get(), m_clipId);
+                if (clip) {
+                    sourcePath = clip->getMediaPath();
+                }
             }
         }
         if (sourcePath.empty()) {
@@ -1934,7 +1968,7 @@ public:
         const int clipId = m_clipId;
         const int maxLongEdgePx = m_maxLongEdgePx;
         const int targetFps = m_targetFps;
-        std::thread([clipId, sourcePath, outputPath, maxLongEdgePx, targetFps]() {
+        std::thread([clipId, sourcePath, outputPath, maxLongEdgePx, targetFps, timelineRef, previewMutex]() {
             std::string error;
             const bool ok = buildProxyVideo(
                 sourcePath,
@@ -1947,6 +1981,18 @@ public:
                     });
                 },
                 error);
+            if (previewMutex) {
+                std::lock_guard<std::mutex> lock(*previewMutex);
+                if (auto timeline = timelineRef.lock()) {
+                    if (auto clip = findClipShared(timeline.get(), clipId)) {
+                        if (ok && !outputPath.empty() && outputPath != sourcePath) {
+                            clip->setPreviewProxyPath(outputPath);
+                        } else {
+                            clip->clearPreviewProxyPath();
+                        }
+                    }
+                }
+            }
             updateProxyState(clipId, [&](ClipProxyState& state) {
                 state.building = false;
                 if (ok) {

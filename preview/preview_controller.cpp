@@ -44,12 +44,15 @@ bool fileExists(const std::string& path) {
     return !path.empty() && access(path.c_str(), F_OK) == 0;
 }
 
-std::string resolvePreviewDecoderPath(const std::string& mediaPath) {
-    const std::string proxyPath = mediaPath + ".proxy_360.mp4";
+std::string resolvePreviewDecoderPath(const VideoEngine::Clip* clip) {
+    if (!clip) {
+        return {};
+    }
+    const std::string& proxyPath = clip->getPreviewProxyPath();
     if (fileExists(proxyPath)) {
         return proxyPath;
     }
-    return mediaPath;
+    return clip->getMediaPath();
 }
 
 bool decodeStillImageFrame(
@@ -208,6 +211,7 @@ bool PreviewController::open(const std::string& videoPath) {
               << m_videoHeight << " @ " << m_videoFps << " fps\n";
 
     requestPredictivePrefetchLocked(0);
+    clearError();
 
     return true;
 }
@@ -266,6 +270,7 @@ bool PreviewController::attachSurface(ANativeWindow* window) {
     m_renderer->releaseContext();
 
     std::cout << "[PreviewController] Surface attached, texture allocated\n";
+    clearError();
     return true;
 }
 
@@ -322,6 +327,7 @@ void PreviewController::start() {
     stopDecodeWorkerLocked();
     clearQueuedFramesLocked();
     std::cout << "[PreviewController] Playback started\n";
+    clearError();
 }
 
 void PreviewController::stop() {
@@ -354,6 +360,7 @@ void PreviewController::seekTo(int64_t timeMs) {
             &renderedTimelineMs)) {
         return;
     }
+    clearError();
     m_currentTimeMs.store(renderedTimelineMs);
     m_playbackAnchorTimeMs = renderedTimelineMs;
     m_playbackAnchorWallClock = std::chrono::steady_clock::now();
@@ -386,6 +393,7 @@ bool PreviewController::playFrom(int64_t timeMs) {
             &renderedTimelineMs)) {
         return false;
     }
+    clearError();
     m_isPlaying.store(true);
     m_currentTimeMs.store(renderedTimelineMs);
     m_playbackAnchorTimeMs = renderedTimelineMs;
@@ -416,6 +424,7 @@ bool PreviewController::processFrame() {
     if (timelineDurationMs > 0 && targetTimelineMs >= timelineDurationMs) {
         m_currentTimeMs.store(clampTimelineTimeMsLocked(targetTimelineMs));
         m_isPlaying.store(false);
+        clearError();
         std::cout << "[PreviewController] End of timeline\n";
         return false;
     }
@@ -435,6 +444,7 @@ bool PreviewController::processFrame() {
         return false;
     }
 
+    clearError();
     m_currentTimeMs.store(renderedTimelineMs);
     m_lastRenderTimeMs = renderedTimelineMs;
     return true;
@@ -526,6 +536,10 @@ void PreviewController::setError(const char* fmt, ...) {
     m_lastError = buffer;
 }
 
+void PreviewController::clearError() {
+    m_lastError.clear();
+}
+
 void PreviewController::scrubToTimelineTime(int64_t timelineMs) {
     std::lock_guard<std::mutex> lock(m_playbackMutex);
     if (!m_renderer || !m_texture || !m_converter) {
@@ -551,6 +565,7 @@ void PreviewController::scrubToTimelineTime(int64_t timelineMs) {
         return;
     }
 
+    clearError();
     m_currentTimeMs.store(renderedTimelineMs);
     m_playbackAnchorTimeMs = renderedTimelineMs;
     m_playbackAnchorWallClock = std::chrono::steady_clock::now();
@@ -716,12 +731,21 @@ int64_t PreviewController::mapClipTimelineToSourceMs(
     return mapWithoutFreeze(localTimelineMs);
 }
 
-bool PreviewController::switchDecoderSourceLocked(const std::string& videoPath) {
-    if (videoPath.empty()) {
+bool PreviewController::switchDecoderSourceLocked(const std::shared_ptr<Clip>& clip) {
+    if (!clip) {
+        setError("Clip is unavailable");
+        return false;
+    }
+    if (clip->getMediaPath().empty()) {
         setError("Clip source path is empty");
         return false;
     }
-    if (m_decoder && m_openVideoPath == videoPath) {
+    const std::string decoderPath = resolvePreviewDecoderPath(clip.get());
+    if (decoderPath.empty()) {
+        setError("Clip decoder path is empty");
+        return false;
+    }
+    if (m_decoder && m_openVideoPath == decoderPath) {
         return true;
     }
 
@@ -734,7 +758,6 @@ bool PreviewController::switchDecoderSourceLocked(const std::string& videoPath) 
     }
     m_converter = std::make_unique<FrameConverter>();
     m_decoder = std::make_unique<VideoDecoder>();
-    const std::string decoderPath = resolvePreviewDecoderPath(videoPath);
     if (!m_decoder->open(decoderPath)) {
         setError("Failed to open video: %s", m_decoder->getLastError());
         m_decoder.reset();
@@ -742,7 +765,7 @@ bool PreviewController::switchDecoderSourceLocked(const std::string& videoPath) 
     }
 
     m_decoder->setPreviewScaleLimit(m_ghostPreviewEnabled ? m_ghostPreviewLongEdgePx : 0);
-    m_openVideoPath = videoPath;
+    m_openVideoPath = decoderPath;
     clearPredictiveCacheLocked();
     m_hasLastScrubRequestSample = false;
     m_hasDecodedFrame = false;
@@ -853,7 +876,7 @@ bool PreviewController::renderTimelineFrameLocked(
         predictiveAllowed = false;
     }
     if (activeClip) {
-        if (!switchDecoderSourceLocked(activeClip->getMediaPath())) {
+        if (!switchDecoderSourceLocked(activeClip)) {
             return false;
         }
         activeClipId = static_cast<int>(activeClip->getId());
@@ -924,7 +947,7 @@ bool PreviewController::renderTimelineFrameLocked(
         std::string decodeError;
         if (!decodeStillImageFrame(
                 m_decoder.get(),
-                resolvePreviewDecoderPath(activeClip->getMediaPath()),
+                resolvePreviewDecoderPath(activeClip.get()),
                 m_ghostPreviewEnabled ? m_ghostPreviewLongEdgePx : 0,
                 &decodedFrame,
                 &decodeError)) {
@@ -1276,7 +1299,7 @@ bool PreviewController::decodeClipFrameLocked(
     }
 
     const std::string& mediaPath = clip->getMediaPath();
-    const std::string decoderPath = resolvePreviewDecoderPath(mediaPath);
+    const std::string decoderPath = resolvePreviewDecoderPath(clip.get());
     if (!state.decoder || state.openPath != decoderPath) {
         state.decoder = std::make_unique<Backend::VideoDecoder>();
         if (!state.decoder->open(decoderPath)) {
