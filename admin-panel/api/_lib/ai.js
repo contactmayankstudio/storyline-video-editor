@@ -1,12 +1,13 @@
-const { generateJson: generateGeminiJson, getGeminiConfig } = require("./gemini");
-const { generateJson: generateGitHubModelsJson, getGitHubModelsConfig } = require("./github-models");
-const { generateJson: generateOpenAIJson, getOpenAIConfig } = require("./openai");
+const { generateJson: generateGeminiJson, generateText: generateGeminiText, getGeminiConfig } = require("./gemini");
+const { generateJson: generateGitHubModelsJson, generateText: generateGitHubModelsText, getGitHubModelsConfig } = require("./github-models");
+const { generateJson: generateOpenAIJson, generateText: generateOpenAIText, getOpenAIConfig } = require("./openai");
 
 const PROVIDERS = {
     gemini: {
         id: "gemini",
         label: "Gemini",
         getConfig: getGeminiConfig,
+        generateText: generateGeminiText,
         generateJson: generateGeminiJson,
         note: "Primary Google AI path for fast build diagnosis.",
     },
@@ -14,6 +15,7 @@ const PROVIDERS = {
         id: "github-models",
         label: "GitHub AI",
         getConfig: getGitHubModelsConfig,
+        generateText: generateGitHubModelsText,
         generateJson: generateGitHubModelsJson,
         note: "Uses GitHub Models. Token must have model access.",
     },
@@ -21,6 +23,7 @@ const PROVIDERS = {
         id: "openai",
         label: "OpenAI",
         getConfig: getOpenAIConfig,
+        generateText: generateOpenAIText,
         generateJson: generateOpenAIJson,
         note: "Optional paid fallback for advanced coding analysis.",
     },
@@ -81,6 +84,15 @@ function resolveAttemptOrder(preferredProvider) {
 
 async function generateJsonWithFallback(prompt, options = {}) {
     const { preferredProvider } = options;
+    return generateWithFallback("generateJson", prompt, preferredProvider);
+}
+
+async function generateTextWithFallback(prompt, options = {}) {
+    const { preferredProvider } = options;
+    return generateWithFallback("generateText", prompt, preferredProvider);
+}
+
+async function generateWithFallback(method, prompt, preferredProvider) {
     const aiConfig = getAiConfig();
     const providerState = new Map(aiConfig.providers.map((provider) => [provider.id, provider]));
     const attempts = [];
@@ -101,7 +113,7 @@ async function generateJsonWithFallback(prompt, options = {}) {
         }
 
         try {
-            const result = await provider.generateJson(prompt);
+            const result = await provider[method](prompt);
             attempts.push({
                 provider: providerId,
                 label: provider.label,
@@ -136,5 +148,6 @@ async function generateJsonWithFallback(prompt, options = {}) {
 
 module.exports = {
     generateJsonWithFallback,
+    generateTextWithFallback,
     getAiConfig,
 };

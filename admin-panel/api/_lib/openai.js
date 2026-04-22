@@ -21,7 +21,7 @@ function extractJson(text) {
     return JSON.parse(match[0]);
 }
 
-async function generateJson(prompt) {
+async function generateText(prompt) {
     const { apiKey, model } = getOpenAIConfig();
     if (!apiKey) {
         throw new Error("OPENAI_API_KEY is not configured");
@@ -55,10 +55,21 @@ async function generateJson(prompt) {
     }
 
     const payload = await response.json();
-    return extractJson(extractText(payload));
+    const text = extractText(payload);
+
+    if (!text) {
+        throw new Error("OpenAI returned empty output");
+    }
+
+    return text;
+}
+
+async function generateJson(prompt) {
+    return extractJson(await generateText(prompt));
 }
 
 module.exports = {
+    generateText,
     generateJson,
     getOpenAIConfig,
 };

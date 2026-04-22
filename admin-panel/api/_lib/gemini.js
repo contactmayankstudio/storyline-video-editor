@@ -32,7 +32,7 @@ function extractJson(text) {
     return JSON.parse(match[0]);
 }
 
-async function generateJson(prompt) {
+async function generateText(prompt) {
     const { apiKey, model } = getGeminiConfig();
     if (!apiKey) {
         throw new Error("GEMINI_API_KEY is not configured");
@@ -67,10 +67,20 @@ async function generateJson(prompt) {
 
     const payload = await response.json();
     const text = extractText(payload);
-    return extractJson(text);
+
+    if (!text) {
+        throw new Error("Gemini returned empty output");
+    }
+
+    return text;
+}
+
+async function generateJson(prompt) {
+    return extractJson(await generateText(prompt));
 }
 
 module.exports = {
+    generateText,
     generateJson,
     getGeminiConfig,
     getGeminiApiKey,

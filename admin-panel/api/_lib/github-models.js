@@ -21,7 +21,7 @@ function extractJson(text) {
     return JSON.parse(match[0]);
 }
 
-async function generateJson(prompt) {
+async function generateText(prompt) {
     const { token, model } = getGitHubModelsConfig();
     if (!token) {
         throw new Error("GITHUB_MODELS_TOKEN is not configured");
@@ -57,10 +57,21 @@ async function generateJson(prompt) {
     }
 
     const payload = await response.json();
-    return extractJson(extractText(payload));
+    const text = extractText(payload);
+
+    if (!text) {
+        throw new Error("GitHub Models returned empty output");
+    }
+
+    return text;
+}
+
+async function generateJson(prompt) {
+    return extractJson(await generateText(prompt));
 }
 
 module.exports = {
+    generateText,
     generateJson,
     getGitHubModelsConfig,
 };

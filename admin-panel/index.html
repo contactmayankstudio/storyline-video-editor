@@ -314,6 +314,57 @@
             line-height: 1.65;
         }
 
+        .chat-thread {
+            display: grid;
+            gap: 12px;
+            margin-top: 16px;
+            max-height: 420px;
+            overflow: auto;
+            padding-right: 4px;
+        }
+
+        .chat-message {
+            padding: 14px 16px;
+            border-radius: 18px;
+            border: 1px solid rgba(146, 163, 255, 0.12);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .chat-message-user {
+            background: rgba(75, 198, 255, 0.1);
+            border-color: rgba(75, 198, 255, 0.18);
+        }
+
+        .chat-message-assistant {
+            background: rgba(146, 163, 255, 0.08);
+        }
+
+        .chat-message-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 8px;
+            font-size: 12px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .chat-message-body {
+            white-space: pre-wrap;
+            word-break: break-word;
+            line-height: 1.65;
+        }
+
+        .chat-empty {
+            padding: 18px;
+            border-radius: 18px;
+            border: 1px dashed rgba(146, 163, 255, 0.18);
+            color: var(--muted);
+            text-align: center;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
         .chip-row {
             display: flex;
             gap: 10px;
@@ -440,6 +491,24 @@
                     <pre id="ai-output-text"></pre>
                 </div>
             </section>
+
+            <section class="card card-wide">
+                <h2>AI Chat Console</h2>
+                <p>Normal back-and-forth chat for Storyline. This is the right place for prompts like “preview audio issue explain karo”, “export crash ka next fix kya hai”, or “Gemini CLI bridge ka architecture batao”.</p>
+                <div class="toolbar">
+                    <select id="chat-provider">
+                        <option value="auto">Auto Provider Chain</option>
+                    </select>
+                    <button type="button" class="ghost-button" id="chat-build-button">Use Latest Build</button>
+                    <button type="button" class="ghost-button" id="chat-clear-button">Clear Chat</button>
+                </div>
+                <div class="chat-thread" id="chat-thread"></div>
+                <textarea id="chat-input" placeholder="Type your message here. Example: Kiro CLI ya Gemini CLI ko mobile admin panel ke saath kaise jodna chahiye?"></textarea>
+                <div class="button-row" style="margin-top: 14px;">
+                    <button type="button" id="chat-send-button">Send</button>
+                    <span class="helper" id="chat-status">Idle</span>
+                </div>
+            </section>
         </section>
     </main>
 
@@ -480,12 +549,20 @@
         const aiOutputText = document.getElementById("ai-output-text");
         const injectBuildButton = document.getElementById("inject-build-button");
         const quickCommandButtons = Array.from(document.querySelectorAll("[data-command]"));
+        const chatProvider = document.getElementById("chat-provider");
+        const chatThread = document.getElementById("chat-thread");
+        const chatInput = document.getElementById("chat-input");
+        const chatSendButton = document.getElementById("chat-send-button");
+        const chatStatus = document.getElementById("chat-status");
+        const chatClearButton = document.getElementById("chat-clear-button");
+        const chatBuildButton = document.getElementById("chat-build-button");
 
         const state = {
             latestBuild: null,
             firebaseReady: false,
             providers: [],
             providerOrder: [],
+            chatMessages: [],
         };
 
         const modeConfig = {
@@ -597,11 +674,17 @@
             state.providerOrder = providerOrder;
             providerList.textContent = "";
             aiProvider.textContent = "";
+            chatProvider.textContent = "";
 
             const autoOption = document.createElement("option");
             autoOption.value = "auto";
             autoOption.textContent = "Auto Provider Chain";
             aiProvider.appendChild(autoOption);
+
+            const chatAutoOption = document.createElement("option");
+            chatAutoOption.value = "auto";
+            chatAutoOption.textContent = "Auto Provider Chain";
+            chatProvider.appendChild(chatAutoOption);
 
             const orderedProviders = providerOrder
                 .map((id) => providers.find((provider) => provider.id === id))
@@ -632,6 +715,11 @@
                 option.value = provider.id;
                 option.textContent = `${provider.label} (${provider.configured ? "ready" : "missing"})`;
                 aiProvider.appendChild(option);
+
+                const chatOption = document.createElement("option");
+                chatOption.value = provider.id;
+                chatOption.textContent = option.textContent;
+                chatProvider.appendChild(chatOption);
             }
 
             const activeChain = orderedProviders
@@ -665,8 +753,63 @@
             sensitivityValue.textContent = sensitivityInput.value;
         }
 
+        function loadChatHistory() {
+            try {
+                const raw = window.localStorage.getItem("storyline.admin.chat.v1");
+                const parsed = raw ? JSON.parse(raw) : [];
+                state.chatMessages = Array.isArray(parsed) ? parsed.filter((item) => item && item.role && item.content) : [];
+            } catch (error) {
+                console.error(error);
+                state.chatMessages = [];
+            }
+
+            renderChatMessages();
+        }
+
+        function saveChatHistory() {
+            window.localStorage.setItem("storyline.admin.chat.v1", JSON.stringify(state.chatMessages.slice(-20)));
+        }
+
         function updateSensitivityValue() {
             sensitivityValue.textContent = sensitivityInput.value;
+        }
+
+        function renderChatMessages() {
+            chatThread.textContent = "";
+
+            if (!state.chatMessages.length) {
+                const empty = document.createElement("div");
+                empty.className = "chat-empty";
+                empty.textContent = "No chat yet. Send a direct instruction and the panel will answer like an operator console.";
+                chatThread.appendChild(empty);
+                return;
+            }
+
+            for (const message of state.chatMessages) {
+                const node = document.createElement("div");
+                node.className = `chat-message chat-message-${message.role === "user" ? "user" : "assistant"}`;
+
+                const head = document.createElement("div");
+                head.className = "chat-message-head";
+
+                const role = document.createElement("span");
+                role.textContent = message.role === "user" ? "Operator" : "AI";
+
+                const meta = document.createElement("span");
+                meta.textContent = message.meta || "";
+
+                const body = document.createElement("div");
+                body.className = "chat-message-body";
+                body.textContent = message.content;
+
+                head.appendChild(role);
+                head.appendChild(meta);
+                node.appendChild(head);
+                node.appendChild(body);
+                chatThread.appendChild(node);
+            }
+
+            chatThread.scrollTop = chatThread.scrollHeight;
         }
 
         function updateSettings() {
@@ -733,6 +876,32 @@
             }
         }
 
+        function appendLatestBuildToChatInput() {
+            if (!state.latestBuild) {
+                chatStatus.textContent = "No build context loaded yet";
+                return;
+            }
+
+            const context = [
+                `Latest build context:`,
+                `Workflow: ${state.latestBuild.workflowName}`,
+                `Branch: ${state.latestBuild.branch}`,
+                `Conclusion: ${state.latestBuild.conclusion || "in progress"}`,
+                `Failed step: ${state.latestBuild.failedStep || "n/a"}`,
+                `Run URL: ${state.latestBuild.url || "n/a"}`,
+            ].join("\n");
+
+            chatInput.value = `${chatInput.value.trim()}\n${context}`.trim();
+            chatStatus.textContent = "Build context inserted";
+        }
+
+        function clearChat() {
+            state.chatMessages = [];
+            saveChatHistory();
+            renderChatMessages();
+            chatStatus.textContent = "Chat cleared";
+        }
+
         function insertLatestBuildContext() {
             if (!state.latestBuild) {
                 aiStatus.textContent = "No build context loaded yet";
@@ -751,6 +920,57 @@
                 aiInput.value = `${aiInput.value.trim()}\n${lines.join("\n")}`.trim();
             } else {
                 aiInput.value = `${aiInput.value.trim()}\nUse this latest build context while planning: ${lines.join(" | ")}`.trim();
+            }
+        }
+
+        async function sendChatMessage() {
+            const message = chatInput.value.trim();
+            if (!message) {
+                chatStatus.textContent = "Type a message first";
+                return;
+            }
+
+            state.chatMessages.push({
+                role: "user",
+                content: message,
+                meta: new Date().toLocaleTimeString(),
+            });
+            saveChatHistory();
+            renderChatMessages();
+            chatInput.value = "";
+            chatSendButton.disabled = true;
+            chatStatus.textContent = "Sending...";
+
+            try {
+                const response = await fetch("/api/ai-chat", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        messages: state.chatMessages,
+                        providerPreference: chatProvider.value,
+                    }),
+                });
+
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || "Chat request failed");
+                }
+
+                state.chatMessages.push({
+                    role: "assistant",
+                    content: data.reply,
+                    meta: `${data.providerLabel} • ${data.model || "n/a"}`,
+                });
+                saveChatHistory();
+                renderChatMessages();
+                chatStatus.textContent = `Reply via ${data.providerLabel}`;
+            } catch (error) {
+                console.error(error);
+                chatStatus.textContent = error.message;
+            } finally {
+                chatSendButton.disabled = false;
             }
         }
 
@@ -812,6 +1032,15 @@
         aiMode.addEventListener("change", updateModeUi);
         aiButton.addEventListener("click", runAiAction);
         injectBuildButton.addEventListener("click", insertLatestBuildContext);
+        chatSendButton.addEventListener("click", sendChatMessage);
+        chatClearButton.addEventListener("click", clearChat);
+        chatBuildButton.addEventListener("click", appendLatestBuildToChatInput);
+        chatInput.addEventListener("keydown", (event) => {
+            if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                event.preventDefault();
+                sendChatMessage();
+            }
+        });
 
         for (const button of quickCommandButtons) {
             button.addEventListener("click", () => {
@@ -822,6 +1051,7 @@
         }
 
         loadSavedSensitivity();
+        loadChatHistory();
         updateModeUi();
         initFirebase();
         loadBuildStatus();
