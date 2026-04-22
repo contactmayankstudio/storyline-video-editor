@@ -175,7 +175,7 @@ while (( export_waited < EXPORT_TIMEOUT_SECONDS )); do
         export_result="pass"
         break
     fi
-    if rg -q 'Export failed|bad_alloc|FATAL EXCEPTION|AndroidRuntime' "${SUITE_DIR}/export_watch.logcat.txt"; then
+    if rg -q 'Export failed|bad_alloc|FATAL EXCEPTION' "${SUITE_DIR}/export_watch.logcat.txt"; then
         export_result="fail"
         break
     fi

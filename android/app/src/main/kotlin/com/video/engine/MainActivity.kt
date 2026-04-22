@@ -1801,9 +1801,7 @@ class MainActivity : Activity() {
                     safeToast("Automation: no quick video found", Toast.LENGTH_SHORT)
                     return
                 }
-                window.decorView.postDelayed({
-                    clampAutomationSmokeVideoDuration()
-                }, 1400L)
+                scheduleAutomationSmokeVideoTrim()
                 window.decorView.postDelayed({
                     playbackController?.nativePlay()
                 }, 4200L)
@@ -1827,14 +1825,12 @@ class MainActivity : Activity() {
                     safeToast("Automation: no quick video found", Toast.LENGTH_SHORT)
                     return
                 }
-                window.decorView.postDelayed({
-                    clampAutomationSmokeVideoDuration()
-                }, 1400L)
+                scheduleAutomationSmokeVideoTrim()
                 window.decorView.postDelayed({
                     audioImportController?.importQuickSample()
                 }, 2200L)
                 window.decorView.postDelayed({
-                    clampAutomationSmokeAudioDurations()
+                    scheduleAutomationSmokeAudioTrim()
                 }, 3400L)
                 window.decorView.postDelayed({
                     addNewTextOverlay(overlayText)
@@ -1855,14 +1851,12 @@ class MainActivity : Activity() {
                     safeToast("Automation: no quick video found", Toast.LENGTH_SHORT)
                     return
                 }
-                window.decorView.postDelayed({
-                    clampAutomationSmokeVideoDuration()
-                }, 1400L)
+                scheduleAutomationSmokeVideoTrim()
                 window.decorView.postDelayed({
                     audioImportController?.importQuickSample()
                 }, 2200L)
                 window.decorView.postDelayed({
-                    clampAutomationSmokeAudioDurations()
+                    scheduleAutomationSmokeAudioTrim()
                 }, 3400L)
                 window.decorView.postDelayed({
                     addNewTextOverlay(overlayText)
@@ -2405,6 +2399,24 @@ class MainActivity : Activity() {
         Log.i(TAG, "[Automation] blank project ready")
     }
 
+    private fun scheduleAutomationSmokeVideoTrim(attempt: Int = 0) {
+        window.decorView.postDelayed({
+            val trimmed = clampAutomationSmokeVideoDuration()
+            if (!trimmed && attempt < 10) {
+                scheduleAutomationSmokeVideoTrim(attempt + 1)
+            }
+        }, if (attempt == 0) 1400L else 500L)
+    }
+
+    private fun scheduleAutomationSmokeAudioTrim(attempt: Int = 0) {
+        window.decorView.postDelayed({
+            val changed = clampAutomationSmokeAudioDurations()
+            if (!changed && attempt < 10) {
+                scheduleAutomationSmokeAudioTrim(attempt + 1)
+            }
+        }, if (attempt == 0) 3400L else 500L)
+    }
+
     private fun clampAutomationSmokeVideoDuration(maxDurationMs: Long = AUTOMATION_SMOKE_DURATION_MS): Boolean {
         val clipId =
             timelineManager
@@ -2452,7 +2464,7 @@ class MainActivity : Activity() {
         return true
     }
 
-    private fun clampAutomationSmokeAudioDurations(maxDurationMs: Long = AUTOMATION_SMOKE_DURATION_MS) {
+    private fun clampAutomationSmokeAudioDurations(maxDurationMs: Long = AUTOMATION_SMOKE_DURATION_MS): Boolean {
         var changed = false
         AudioClipStore.all().forEach { clip ->
             val clampedDurationMs = minOf(clip.durationMs, maxDurationMs).coerceAtLeast(150L)
@@ -2465,6 +2477,7 @@ class MainActivity : Activity() {
         if (changed) {
             NativeBridge.syncAudioClips()
         }
+        return changed
     }
 
     private fun saveUiState(projectFile: File, projectName: String) {
