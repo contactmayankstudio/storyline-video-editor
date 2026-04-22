@@ -18,6 +18,8 @@ const AUTOMATION_TARGET_BRANCH = optionalEnv("AUTOMATION_TARGET_BRANCH") || "mai
 const AUTOMATION_BUILD_COMMAND = optionalEnv("AUTOMATION_BUILD_COMMAND") || DEFAULT_BUILD_COMMAND;
 const AUTOMATION_MAX_ATTEMPTS = Math.max(1, Number.parseInt(optionalEnv("AUTOMATION_MAX_ATTEMPTS") || "2", 10));
 const AUTOMATION_MAX_FILES = Math.max(1, Math.min(6, Number.parseInt(optionalEnv("AUTOMATION_MAX_FILES") || "4", 10)));
+const AUTOMATION_GIT_NAME = optionalEnv("AUTOMATION_GIT_NAME") || optionalEnv("GITHUB_ACTOR") || "sarojshahu12-max";
+const AUTOMATION_GIT_EMAIL = optionalEnv("AUTOMATION_GIT_EMAIL") || `${AUTOMATION_GIT_NAME}@users.noreply.github.com`;
 const GITHUB_REPOSITORY = requiredEnv("GITHUB_REPOSITORY");
 const STEP_SUMMARY_PATH = optionalEnv("GITHUB_STEP_SUMMARY");
 
@@ -391,8 +393,8 @@ function buildFailureExcerpt(output) {
 }
 
 function configureGitIdentity() {
-    git('config user.name "storyline-automation[bot]"');
-    git('config user.email "storyline-automation[bot]@users.noreply.github.com"');
+    git(`config user.name ${shellQuote(AUTOMATION_GIT_NAME)}`);
+    git(`config user.email ${shellQuote(AUTOMATION_GIT_EMAIL)}`);
 }
 
 function syncCommitWithRemote() {
