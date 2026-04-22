@@ -366,7 +366,14 @@ function writeFile(filePath, contents) {
 }
 
 function currentChangedFiles() {
-    return git("diff --name-only").stdout.trim().split("\n").filter(Boolean);
+    return git("status --porcelain")
+        .stdout
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => line.slice(3).trim())
+        .map((filePath) => filePath.includes(" -> ") ? filePath.split(" -> ").pop().trim() : filePath)
+        .filter(Boolean);
 }
 
 function buildFailureExcerpt(output) {
