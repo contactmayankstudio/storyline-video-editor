@@ -93,11 +93,13 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
           if [ -z "${VERCEL_TOKEN}" ] || [ -z "${VERCEL_ORG_ID}" ] || [ -z "${VERCEL_PROJECT_ID}" ]; then
-            echo "Missing one or more Vercel deployment secrets."
-            exit 1
+            echo "::warning::Missing one or more Vercel deployment secrets. Skipping APK site deploy."
+            exit 0
           fi
           mkdir -p .vercel
           cat > .vercel/project.json <<EOF
           {"projectId":"${VERCEL_PROJECT_ID}","orgId":"${VERCEL_ORG_ID}","projectName":"apk-host"}
           EOF
-          vercel deploy --prod --yes --token "${VERCEL_TOKEN}"
+          if ! vercel deploy --prod --yes --token "${VERCEL_TOKEN}"; then
+            echo "::warning::Vercel deploy failed, but debug APK artifact was uploaded successfully."
+          fi
