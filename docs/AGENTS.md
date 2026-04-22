@@ -1,13 +1,13 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-This repository has two active layers:
+This repository is native-first:
 
 - `backend/`, `core/`, `preview/`, `engine/`, `api/`: native C++ video engine, FFmpeg decode path, GPU preview, and engine-facing APIs.
-- `my_editor/`: Flutter mobile editor app. Main UI code lives in `my_editor/lib/`, Android bridge code in `my_editor/android/`, and tests in `my_editor/test/`.
+- `android/`: Kotlin app shell, Android resources, JNI bridge, and device integration for the Storyline editor.
 - Root-level docs such as `NATIVE_BUILD_GUIDE.md`, `PLAYBACK_*`, and `TIMELINE_*` document prior implementation decisions.
 
-Use the root project for native engine work and `my_editor/` for Flutter/editor work.
+Use the root project for engine work and `android/` for app/editor work.
 
 ## Build, Test, and Development Commands
 - Native engine configure/build:
@@ -18,28 +18,20 @@ Use the root project for native engine work and `my_editor/` for Flutter/editor 
   Use this for non-Android validation only.
 - Android app debug build:
   ```bash
-  cd /home/am/video_engine_core/my_editor/android
+  cd /home/am/storyline/android
   ./gradlew :app:assembleDebug
   ```
 - Install on connected device:
   ```bash
   ./gradlew :app:installDebug
   ```
-- Flutter app run/analyze/test:
-  ```bash
-  cd /home/am/video_engine_core/my_editor
-  flutter run
-  flutter analyze
-  flutter test
-  ```
 
 ## Coding Style & Naming Conventions
 - C++: 4-space indentation, `m_memberName` for members, `CamelCase` for classes, `snake_case` only where already established by external APIs.
-- Dart/Flutter: follow `flutter_lints`; use `UpperCamelCase` for types, `lowerCamelCase` for methods/fields, and keep widgets/controllers split by responsibility.
-- Prefer small, focused patches. Keep JNI, engine, and Flutter changes modular.
+- Kotlin/Android: use idiomatic Kotlin, keep UI/controller responsibilities separated, and prefer resource-driven strings/colors/layouts.
+- Prefer small, focused patches. Keep JNI, engine, and Android UI changes modular.
 
 ## Testing Guidelines
-- Flutter tests use `flutter_test`; place new tests under `my_editor/test/` and name them `*_test.dart`.
 - For native changes, always run `:app:assembleDebug` because Android JNI/CMake is the real integration path.
 - Validate playback/timeline changes on-device when touching preview, seek, or render code.
 
@@ -53,4 +45,4 @@ Use the root project for native engine work and `my_editor/` for Flutter/editor 
 
 ## Security & Configuration Tips
 - Do not commit local build outputs, APKs, device IDs, or secrets.
-- Keep Android-specific assumptions inside the bridge/native layers; avoid hardcoding device-specific behavior in Flutter UI.
+- Keep Android-specific assumptions inside the bridge/native layers; avoid hardcoding device-specific behavior in the editor UI.

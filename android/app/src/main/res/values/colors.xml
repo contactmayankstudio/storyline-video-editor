@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="primary_dark">#0F0F0F</color>
-    <color name="surface_dark">#1A1A1A</color>
-    <color name="surface_darker">#111111</color>
-    <color name="accent_blue">#4db8ff</color>
-    <color name="accent_cyan">#00e5ff</color>
-    <color name="text_primary">#FFFFFF</color>
-    <color name="text_secondary">#888888</color>
-    <color name="text_disabled">#555555</color>
-    <color name="button_enabled">#242424</color>
-    <color name="button_pressed">#1A1A1A</color>
-    <color name="button_disabled">#3A3A3A</color>
-    <color name="toolbar_divider">#2A2A2A</color>
-    <color name="clip_selected_border">#FFB300</color>
-    <color name="playhead_color">#FFFFFF</color>
-    <color name="timeline_bg">#161616</color>
+    <color name="primary_dark">#091115</color>
+    <color name="surface_dark">#132129</color>
+    <color name="surface_darker">#0C171C</color>
+    <color name="accent_blue">#78D9C2</color>
+    <color name="accent_cyan">#F3A36A</color>
+    <color name="text_primary">#F5EBDD</color>
+    <color name="text_secondary">#9DB0B7</color>
+    <color name="text_disabled">#61757B</color>
+    <color name="button_enabled">#20313A</color>
+    <color name="button_pressed">#16242B</color>
+    <color name="button_disabled">#304148</color>
+    <color name="toolbar_divider">#24404A</color>
+    <color name="clip_selected_border">#F3A36A</color>
+    <color name="playhead_color">#F5EBDD</color>
+    <color name="timeline_bg">#122028</color>
 </resources>

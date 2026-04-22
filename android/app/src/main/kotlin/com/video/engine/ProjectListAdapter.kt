@@ -16,27 +16,25 @@ class ProjectListAdapter(
 ) : RecyclerView.Adapter<ProjectListAdapter.ViewHolder>() {
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        val name: TextView = view.findViewById(android.R.id.text1)
-        val date: TextView = view.findViewById(android.R.id.text2)
-        val icon: ImageView = ImageView(view.context).apply { 
-            setImageResource(android.R.drawable.ic_menu_slideshow)
-        }
+        val name: TextView = view.findViewById(R.id.projectCardName)
+        val date: TextView = view.findViewById(R.id.projectCardDate)
+        val status: TextView = view.findViewById(R.id.projectCardStatus)
+        val icon: ImageView = view.findViewById(R.id.projectCardIcon)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val view = LayoutInflater.from(parent.context)
-            .inflate(android.R.layout.simple_list_item_2, parent, false)
+            .inflate(R.layout.item_project_card, parent, false)
         return ViewHolder(view)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val project = projects[position]
         holder.name.text = displayName(project)
-        holder.name.setTextColor(0xFFFFFFFF.toInt())
-
         val sdf = SimpleDateFormat("dd MMM yyyy • HH:mm", Locale.getDefault())
         holder.date.text = "Updated ${sdf.format(Date(project.lastModified()))}"
-        holder.date.setTextColor(0xFF888888.toInt())
+        holder.status.text = holder.itemView.context.getString(R.string.project_card_status)
+        holder.icon.setImageResource(R.drawable.ic_video_clip)
 
         holder.itemView.setOnClickListener { onProjectClick(project) }
     }

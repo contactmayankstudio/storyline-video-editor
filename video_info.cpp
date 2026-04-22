@@ -10,8 +10,8 @@ extern "C" {
 /**
  * @brief Gets the duration (in seconds) and resolution of a video file using FFmpeg.
  *
- * This function is designed to be called from other languages via FFI (Foreign Function Interface),
- * such as Dart's FFI to be used in a Flutter application.
+ * This function is designed to be called from other layers via FFI (Foreign Function Interface),
+ * such as a Kotlin/JNI bridge or another native host.
  *
  * @param file_path The path to the video file.
  * @param duration Pointer to a 64-bit integer where the duration in seconds will be stored.

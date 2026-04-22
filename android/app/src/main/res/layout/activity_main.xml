@@ -4,16 +4,16 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0D0D0D">
+    android:background="@drawable/editor_root_background">
 
     <!-- ── TOP BAR ── -->
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/topBar"
         android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:background="#161616"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
+        android:layout_height="56dp"
+        android:background="@drawable/top_bar_background"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
@@ -22,11 +22,11 @@
             android:id="@+id/loadProjectButton"
             android:layout_width="36dp"
             android:layout_height="36dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/toolbar_item_background"
             android:contentDescription="@string/back_label"
             android:padding="8dp"
             android:src="@android:drawable/ic_menu_revert"
-            android:tint="#FFFFFF"
+            android:tint="@color/text_primary"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toBottomOf="parent" />
@@ -40,7 +40,7 @@
             android:fontFamily="monospace"
             android:gravity="center"
             android:text="00:00"
-            android:textColor="#4db8ff"
+            android:textColor="@color/accent_blue"
             android:textSize="13sp"
             android:textStyle="bold"
             android:visibility="gone"
@@ -55,11 +55,11 @@
             android:layout_width="36dp"
             android:layout_height="36dp"
             android:layout_marginEnd="6dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/toolbar_item_background"
             android:contentDescription="@string/save_label"
             android:padding="8dp"
             android:src="@android:drawable/ic_menu_save"
-            android:tint="#7A9BB5"
+            android:tint="@color/text_secondary"
             app:layout_constraintEnd_toStartOf="@id/exportButton"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toBottomOf="parent" />
@@ -68,11 +68,11 @@
             android:id="@+id/aspectRatioButton"
             android:layout_width="36dp"
             android:layout_height="36dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/toolbar_item_background"
             android:contentDescription="@string/aspect_ratio_label"
             android:padding="8dp"
             android:src="@android:drawable/ic_menu_crop"
-            android:tint="#FFFFFF"
+            android:tint="@color/text_primary"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="parent"
@@ -81,14 +81,14 @@
         <ImageView
             android:id="@+id/exportButton"
             android:layout_width="40dp"
-            android:layout_height="32dp"
+            android:layout_height="36dp"
             android:layout_marginEnd="4dp"
-            android:background="#E53935"
+            android:background="@drawable/editor_export_button_background"
             android:contentDescription="@string/export_button"
             android:padding="6dp"
             android:src="@drawable/ic_export"
             android:scaleType="centerInside"
-            android:tint="#FFFFFF"
+            android:tint="@color/text_primary"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toBottomOf="parent" />
@@ -113,7 +113,7 @@
         android:id="@+id/previewContainer"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:background="#000000"
+        android:background="@drawable/preview_surface_background"
         app:layout_constraintTop_toBottomOf="@id/editorTopBannerContainer"
         app:layout_constraintBottom_toTopOf="@id/bottomContainer"
         app:layout_constraintStart_toStartOf="parent"
@@ -126,7 +126,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="top|end"
             android:layout_margin="8dp"
-            android:background="#88000000"
+            android:background="@drawable/toolbar_item_background"
             android:orientation="vertical"
             android:padding="6dp"
             android:visibility="gone">
@@ -148,13 +148,13 @@
             android:layout_height="wrap_content"
             android:layout_gravity="top|start"
             android:layout_margin="8dp"
-            android:background="#66000000"
+            android:background="@drawable/toolbar_item_background"
             android:orientation="horizontal"
-            android:padding="4dp"
+            android:padding="6dp"
             android:visibility="gone">
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="@string/realtime_preview_label"
-                android:textColor="#D6F3FF" android:textSize="10sp" android:textStyle="bold"/>
+                android:textColor="@color/accent_blue" android:textSize="10sp" android:textStyle="bold"/>
         </LinearLayout>
 
         <!-- Play/Pause — center bottom of preview -->
@@ -212,7 +212,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="#0D0D0D"
+        android:background="@drawable/editor_root_background"
         app:layout_constraintTop_toBottomOf="@id/previewContainer"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -223,7 +223,10 @@
             android:id="@+id/timelineLayout"
             android:layout_width="match_parent"
             android:layout_height="210dp"
-            android:background="#141414">
+            android:layout_marginStart="8dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/timeline_panel_background">
 
             <com.video.engine.pro.timeline.TimelineCanvasView
                 android:id="@+id/timelineCanvasView"
@@ -249,33 +252,40 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="#1a1a1a"
+            android:layout_marginStart="8dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/toolbar_strip_background"
             android:padding="12dp"
             android:visibility="gone">
 
             <TextView android:id="@+id/brightnessLabel"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="@string/brightness_label" android:textColor="#ffffff" android:textSize="11sp"/>
+                android:text="@string/brightness_label" android:textColor="@color/text_primary" android:textSize="11sp"/>
             <SeekBar android:id="@+id/brightnessSeekBar"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:max="200" android:progress="100"
-                android:progressTint="#4db8ff" android:thumbTint="#4db8ff"
+                android:progressTint="@color/accent_blue" android:thumbTint="@color/accent_blue"
                 android:layout_marginBottom="8dp"/>
             <TextView android:id="@+id/contrastLabel"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="@string/contrast_label" android:textColor="#ffffff" android:textSize="11sp"/>
+                android:text="@string/contrast_label" android:textColor="@color/text_primary" android:textSize="11sp"/>
             <SeekBar android:id="@+id/contrastSeekBar"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:max="200" android:progress="100"
-                android:progressTint="#4db8ff" android:thumbTint="#4db8ff"/>
+                android:progressTint="@color/accent_blue" android:thumbTint="@color/accent_blue"/>
         </LinearLayout>
 
         <!-- MAIN TOOLBAR -->
         <HorizontalScrollView
             android:id="@+id/normalToolbarScroll"
             android:layout_width="match_parent"
-            android:layout_height="72dp"
-            android:background="#1A1A1A"
+            android:layout_height="@dimen/studio_toolbar_height"
+            android:layout_marginStart="8dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginEnd="8dp"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/toolbar_strip_background"
             android:scrollbars="none"
             android:clipToPadding="false">
 
@@ -291,19 +301,19 @@
                 <LinearLayout android:id="@+id/transitionButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_transition"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Transition"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Flow"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/voiceoverButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@android:drawable/ic_btn_speak_now"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Voiceover"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Record"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/colorGradingButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_filter"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Color"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Grade"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/cutButton"
@@ -321,19 +331,19 @@
                 <LinearLayout android:id="@+id/audioButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_audio"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Audio"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Sound"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/textButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_text"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Text"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Type"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/effectsButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_effects"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Effects"/>
+                    <TextView style="@style/ToolbarLabel" android:text="FX"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/stickersButton"
@@ -345,14 +355,14 @@
                 <LinearLayout android:id="@+id/layersButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_layers"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Layers"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Stack"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/exportButtonContainer"
                     style="@style/ToolbarItem"
                     android:visibility="gone">
-                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_export" android:tint="#FF6B35"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Export" android:textColor="#FF6B35"/>
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_export" android:tint="@color/accent_cyan"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Export" android:textColor="@color/accent_cyan"/>
                 </LinearLayout>
 
             </LinearLayout>
@@ -362,8 +372,12 @@
         <HorizontalScrollView
             android:id="@+id/audioEditToolbarScroll"
             android:layout_width="match_parent"
-            android:layout_height="72dp"
-            android:background="#1E1E1E"
+            android:layout_height="@dimen/studio_toolbar_height"
+            android:layout_marginStart="8dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginEnd="8dp"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/toolbar_strip_background"
             android:scrollbars="none"
             android:elevation="8dp"
             android:visibility="gone">
@@ -380,7 +394,7 @@
                 <TextView android:id="@+id/audioEditLabel"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text=""
-                    android:textColor="#FFD08A"
+                    android:textColor="@color/accent_cyan"
                     android:textSize="11sp" android:textStyle="bold"
                     android:paddingStart="8dp" android:paddingEnd="8dp"
                     android:ellipsize="end"
@@ -398,7 +412,7 @@
                 </LinearLayout>
                 <LinearLayout android:id="@+id/clipTrimButton" style="@style/ClipToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_trim"/>
-                    <TextView android:id="@+id/clipTrimLabel" style="@style/ClipToolbarLabel" android:text="Trim" android:textColor="#44FF88"/>
+                    <TextView android:id="@+id/clipTrimLabel" style="@style/ClipToolbarLabel" android:text="Trim" android:textColor="@color/accent_blue"/>
                 </LinearLayout>
                 <LinearLayout android:id="@+id/clipVolumeButton" style="@style/ClipToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_volume"/>
@@ -410,7 +424,7 @@
                 </LinearLayout>
                 <LinearLayout android:id="@+id/clipBrightnessButton" style="@style/ClipToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_brightness"/>
-                    <TextView android:id="@+id/clipBrightnessLabel" style="@style/ClipToolbarLabel" android:text="Adjust"/>
+                    <TextView android:id="@+id/clipBrightnessLabel" style="@style/ClipToolbarLabel" android:text="Tone"/>
                 </LinearLayout>
                 <LinearLayout android:id="@+id/clipFilterButton" style="@style/ClipToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_filter"/>
@@ -418,7 +432,7 @@
                 </LinearLayout>
                 <LinearLayout android:id="@+id/clipPanZoomButton" style="@style/ClipToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_panzoom"/>
-                    <TextView android:id="@+id/clipPanZoomLabel" style="@style/ClipToolbarLabel" android:text="Pan/Zoom"/>
+                    <TextView android:id="@+id/clipPanZoomLabel" style="@style/ClipToolbarLabel" android:text="Motion"/>
                 </LinearLayout>
                 <LinearLayout android:id="@+id/clipRotateMirrorButton" style="@style/ClipToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_rotate_mirror"/>
@@ -442,11 +456,11 @@
                 </LinearLayout>
                 <LinearLayout android:id="@+id/clipExtractAudioButton" style="@style/ClipToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_extract_audio"/>
-                    <TextView android:id="@+id/clipExtractAudioLabel" style="@style/ClipToolbarLabel" android:text="ExtAudio"/>
+                    <TextView android:id="@+id/clipExtractAudioLabel" style="@style/ClipToolbarLabel" android:text="Isolate"/>
                 </LinearLayout>
                 <LinearLayout android:id="@+id/clipAddLayerButton" style="@style/ClipToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_add_layer"/>
-                    <TextView android:id="@+id/clipAddLayerLabel" style="@style/ClipToolbarLabel" android:text="AddLayer"/>
+                    <TextView android:id="@+id/clipAddLayerLabel" style="@style/ClipToolbarLabel" android:text="Stack"/>
                 </LinearLayout>
                 <LinearLayout android:id="@+id/clipKeyframeButton" style="@style/ClipToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_keyframe"/>
@@ -458,11 +472,11 @@
                 </LinearLayout>
                 <LinearLayout android:id="@+id/clipCurveSpeedButton" style="@style/ClipToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_curve_speed"/>
-                    <TextView android:id="@+id/clipCurveSpeedLabel" style="@style/ClipToolbarLabel" android:text="CurveSpd"/>
+                    <TextView android:id="@+id/clipCurveSpeedLabel" style="@style/ClipToolbarLabel" android:text="Curve"/>
                 </LinearLayout>
                 <LinearLayout android:id="@+id/clipChromaKeyButton" style="@style/ClipToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@android:drawable/ic_menu_camera"/>
-                    <TextView android:id="@+id/clipChromaKeyLabel" style="@style/ClipToolbarLabel" android:text="Chroma"/>
+                    <TextView android:id="@+id/clipChromaKeyLabel" style="@style/ClipToolbarLabel" android:text="Key"/>
                 </LinearLayout>
                 <LinearLayout android:id="@+id/clipCutoutButton" style="@style/ClipToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_cutout"/>
@@ -478,14 +492,24 @@
 
     </LinearLayout>
 
-    <!-- ── START SCREEN OVERLAY (Converted from Flutter home_screen.dart) ── -->
+    <!-- ── START SCREEN OVERLAY ── -->
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/startScreenOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#0D0D0D"
+        android:background="@drawable/editor_root_background"
         android:elevation="100dp"
         android:visibility="visible">
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_margin="16dp"
+            android:background="@drawable/launch_surface_background"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
 
         <ImageView
             android:id="@+id/startLogo"
@@ -499,15 +523,46 @@
             app:layout_constraintEnd_toEndOf="parent" />
 
         <TextView
+            android:id="@+id/startEyebrow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.18"
+            android:text="@string/start_eyebrow"
+            android:textAllCaps="true"
+            android:textColor="@color/accent_blue"
+            android:textSize="11sp"
+            app:layout_constraintTop_toBottomOf="@id/startLogo"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <TextView
             android:id="@+id/startTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/start_title"
-            android:textColor="#FFFFFF"
-            android:textSize="32sp"
+            android:textColor="@color/text_primary"
+            android:textSize="34sp"
             android:textStyle="bold"
-            android:layout_marginTop="20dp"
-            app:layout_constraintTop_toBottomOf="@id/startLogo"
+            android:layout_marginTop="10dp"
+            app:layout_constraintTop_toBottomOf="@id/startEyebrow"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <TextView
+            android:id="@+id/startSubtitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:layout_marginStart="32dp"
+            android:layout_marginEnd="32dp"
+            android:gravity="center"
+            android:lineSpacingExtra="2dp"
+            android:text="@string/start_subtitle"
+            android:textColor="@color/text_secondary"
+            android:textSize="14sp"
+            app:layout_constraintTop_toBottomOf="@id/startTitle"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent" />
 
@@ -520,7 +575,7 @@
             android:layout_marginEnd="16dp"
             android:contentDescription="@string/start_top_ad_desc"
             android:visibility="gone"
-            app:layout_constraintTop_toBottomOf="@id/startTitle"
+            app:layout_constraintTop_toBottomOf="@id/startSubtitle"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent" />
 
@@ -529,19 +584,21 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="24dp"
+            android:paddingStart="24dp"
+            android:paddingTop="20dp"
+            android:paddingEnd="24dp"
+            android:paddingBottom="24dp"
             app:layout_constraintTop_toBottomOf="@id/startTopBannerContainer"
             app:layout_constraintBottom_toBottomOf="parent">
 
-            <!-- New Project Button (Glass effect style) -->
             <LinearLayout
                 android:id="@+id/startNewProjectButton"
                 android:layout_width="match_parent"
-                android:layout_height="100dp"
-                android:background="@drawable/toolbar_item_background"
-                android:gravity="center"
+                android:layout_height="120dp"
+                android:background="@drawable/launch_primary_action_background"
+                android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:padding="16dp"
+                android:padding="20dp"
                 android:layout_marginBottom="16dp"
                 android:clickable="true"
                 android:focusable="true">
@@ -549,15 +606,28 @@
                     android:layout_width="48dp"
                     android:layout_height="48dp"
                     android:src="@android:drawable/ic_input_add"
-                    android:tint="#4db8ff" />
-                <TextView
-                    android:layout_width="wrap_content"
+                    android:tint="#FFF3E6" />
+                <LinearLayout
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:text="New Project"
-                    android:textColor="#4db8ff"
-                    android:textSize="20sp"
                     android:layout_marginStart="16dp"
-                    android:textStyle="bold" />
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/start_primary_action"
+                        android:textColor="#FFF6ED"
+                        android:textSize="22sp"
+                        android:textStyle="bold" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="@string/start_primary_caption"
+                        android:textColor="#FFF1E2"
+                        android:textSize="13sp" />
+                </LinearLayout>
             </LinearLayout>
 
             <LinearLayout
@@ -566,15 +636,15 @@
                 android:orientation="horizontal"
                 android:weightSum="2">
 
-                <!-- Open Project -->
                 <LinearLayout
                     android:id="@+id/startOpenProjectButton"
                     android:layout_width="0dp"
-                    android:layout_height="80dp"
+                    android:layout_height="112dp"
                     android:layout_weight="1"
-                    android:background="@drawable/toolbar_item_background"
-                    android:gravity="center"
+                    android:background="@drawable/launch_secondary_action_background"
+                    android:gravity="center_vertical"
                     android:orientation="vertical"
+                    android:padding="16dp"
                     android:layout_marginEnd="8dp"
                     android:clickable="true"
                     android:focusable="true">
@@ -582,24 +652,34 @@
                         android:layout_width="32dp"
                         android:layout_height="32dp"
                         android:src="@android:drawable/ic_menu_upload"
-                        android:tint="#FFFFFF" />
+                        android:tint="@color/accent_blue" />
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Open"
-                        android:textColor="#FFFFFF"
-                        android:textSize="14sp" />
+                        android:layout_marginTop="10dp"
+                        android:text="@string/start_projects_action"
+                        android:textColor="@color/text_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:gravity="center"
+                        android:text="@string/start_projects_caption"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
                 </LinearLayout>
 
-                <!-- Import Media -->
                 <LinearLayout
                     android:id="@+id/startImportMediaButton"
                     android:layout_width="0dp"
-                    android:layout_height="80dp"
+                    android:layout_height="112dp"
                     android:layout_weight="1"
-                    android:background="@drawable/toolbar_item_background"
-                    android:gravity="center"
+                    android:background="@drawable/launch_secondary_action_background"
+                    android:gravity="center_vertical"
                     android:orientation="vertical"
+                    android:padding="16dp"
                     android:layout_marginStart="8dp"
                     android:clickable="true"
                     android:focusable="true">
@@ -607,13 +687,23 @@
                         android:layout_width="32dp"
                         android:layout_height="32dp"
                         android:src="@android:drawable/ic_menu_gallery"
-                        android:tint="#FFFFFF" />
+                        android:tint="@color/accent_cyan" />
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Import"
-                        android:textColor="#FFFFFF"
-                        android:textSize="14sp" />
+                        android:layout_marginTop="10dp"
+                        android:text="@string/start_import_action"
+                        android:textColor="@color/text_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:gravity="center"
+                        android:text="@string/start_import_caption"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
                 </LinearLayout>
 
             </LinearLayout>
@@ -621,9 +711,10 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Recent Projects"
-                android:textColor="#888888"
+                android:text="@string/recent_projects_label"
+                android:textColor="@color/text_secondary"
                 android:textSize="14sp"
+                android:textStyle="bold"
                 android:layout_marginTop="32dp"
                 android:layout_marginBottom="16dp" />
 
@@ -632,17 +723,20 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center"
+                android:background="@drawable/launch_secondary_action_background"
                 android:paddingTop="32dp"
                 android:paddingBottom="32dp"
-                android:text="No saved projects yet"
-                android:textColor="#666666"
+                android:text="@string/recent_projects_empty"
+                android:textColor="@color/text_secondary"
                 android:textSize="14sp"
                 android:visibility="gone" />
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/startRecentProjectsList"
                 android:layout_width="match_parent"
-                android:layout_height="200dp" />
+                android:layout_height="220dp"
+                android:clipToPadding="false"
+                android:paddingBottom="8dp" />
 
         </LinearLayout>
 

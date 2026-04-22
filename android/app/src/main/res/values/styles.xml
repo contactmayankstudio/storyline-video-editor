@@ -1,30 +1,19 @@
 <resources>
-    <!-- Dark theme for the Storyline editor -->
     <style name="Theme.Storyline" parent="Theme.AppCompat.NoActionBar">
-        <!-- Primary colors (dark) -->
         <item name="colorPrimary">@color/primary_dark</item>
         <item name="colorPrimaryDark">@color/surface_darker</item>
         <item name="colorAccent">@color/accent_blue</item>
-
-        <!-- Window attributes -->
         <item name="android:windowBackground">@color/primary_dark</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowFullscreen">false</item>
         <item name="android:windowActionBar">false</item>
-
-        <!-- Status bar styling (dark icons on light background) -->
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:statusBarColor">@color/surface_darker</item>
-
-        <!-- Text appearances -->
         <item name="android:textColorPrimary">@color/text_primary</item>
         <item name="android:textColorSecondary">@color/text_secondary</item>
-
-        <!-- Button styling -->
         <item name="android:buttonStyle">@style/Widget.Button</item>
     </style>
 
-    <!-- Custom button style with dark theme -->
     <style name="Widget.Button" parent="Widget.AppCompat.Button">
         <item name="android:textColor">@color/text_primary</item>
         <item name="android:textSize">14sp</item>
@@ -32,19 +21,22 @@
         <item name="android:minWidth">48dp</item>
     </style>
 
-    <!-- SeekBar styling -->
     <style name="Widget.SeekBar" parent="Widget.AppCompat.SeekBar">
         <item name="android:progressTint">@color/accent_blue</item>
         <item name="android:progressBackgroundTint">@color/text_disabled</item>
     </style>
 
     <style name="ToolbarItem">
-        <item name="android:layout_width">64dp</item>
+        <item name="android:layout_width">78dp</item>
         <item name="android:layout_height">match_parent</item>
         <item name="android:orientation">vertical</item>
         <item name="android:gravity">center</item>
         <item name="android:background">@drawable/toolbar_item_background</item>
-        <item name="android:padding">4dp</item>
+        <item name="android:layout_marginStart">4dp</item>
+        <item name="android:layout_marginEnd">4dp</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:layout_marginBottom">8dp</item>
+        <item name="android:padding">8dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
     </style>
@@ -53,15 +45,16 @@
         <item name="android:layout_width">22dp</item>
         <item name="android:layout_height">22dp</item>
         <item name="android:scaleType">centerInside</item>
-        <item name="android:tint">#CCCCCC</item>
+        <item name="android:tint">@color/text_primary</item>
     </style>
 
     <style name="ToolbarLabel">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:textColor">#AAAAAA</item>
-        <item name="android:textSize">9sp</item>
-        <item name="android:layout_marginTop">3dp</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textSize">10sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:layout_marginTop">5dp</item>
         <item name="android:maxLines">1</item>
     </style>
 
@@ -71,7 +64,11 @@
         <item name="android:orientation">vertical</item>
         <item name="android:gravity">center</item>
         <item name="android:background">@drawable/toolbar_item_background</item>
-        <item name="android:padding">4dp</item>
+        <item name="android:layout_marginStart">4dp</item>
+        <item name="android:layout_marginEnd">4dp</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:layout_marginBottom">8dp</item>
+        <item name="android:padding">8dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
     </style>
@@ -79,9 +76,10 @@
     <style name="ClipToolbarLabel">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:textColor">#FFFFFF</item>
-        <item name="android:textSize">9sp</item>
-        <item name="android:layout_marginTop">3dp</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textSize">10sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:layout_marginTop">5dp</item>
         <item name="android:maxLines">1</item>
     </style>
 </resources>

@@ -320,7 +320,7 @@ void nativeSeekPreview(JNIEnv*, jobject, jlong timeMs) {
 ## 7. Comparison: VN vs KineMaster vs Our Implementation
 
 ### VN (VivaVideo)
-- **UI Layer**: Thin Flutter/Kotlin wrapper
+- **UI Layer**: Thin mobile wrapper over a native engine
 - **Render**: Native C++ OpenGL ES 3.1
 - **Threading**: Dedicated render thread, main thread UI-only
 - **Scrubbing**: Throttled JNI callbacks
