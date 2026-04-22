@@ -2796,17 +2796,18 @@ class MainActivity : Activity() {
         nativeClipCurveSpeedProfile.keys.retainAll(nativeClipIdSet)
         nativeClipCurveSpeedStrength.keys.retainAll(nativeClipIdSet)
         videoClipTimingOverrides.clear()
+        val manager = timelineManager
         val existingVisibilityByClipId =
-            timelineManager?.getClips()?.associate { it.id to timelineManager.getClipVisibility(it.id) }.orEmpty()
-        timelineManager?.syncClips(clips, recordHistory = false, clearHistory = false)
+            manager?.getClips()?.associate { it.id to manager.getClipVisibility(it.id) }.orEmpty()
+        manager?.syncClips(clips, recordHistory = false, clearHistory = false)
         clips.forEach { clip ->
-            val existingLayer = timelineManager?.getClipLayerIndex(clip.id) ?: 0
-            timelineManager?.setClipLayerIndex(clip.id, nativeClipZOrder[clip.id] ?: existingLayer)
+            val existingLayer = manager?.getClipLayerIndex(clip.id) ?: 0
+            manager?.setClipLayerIndex(clip.id, nativeClipZOrder[clip.id] ?: existingLayer)
             val defaultVisible = trackVisibilityOverrides[nativeClipTrackType[clip.id] ?: TrackType.VIDEO] ?: true
-            timelineManager?.setClipVisibility(clip.id, existingVisibilityByClipId[clip.id] ?: defaultVisible)
+            manager?.setClipVisibility(clip.id, existingVisibilityByClipId[clip.id] ?: defaultVisible)
         }
         if (selectedClipId != null) {
-            timelineManager?.selectClip(selectedClipId)
+            manager?.selectClip(selectedClipId)
             selectedTimelineClipKey = selectionKeyForNativeClipId(selectedClipId)
         }
         refreshMainTimelineTracks()
