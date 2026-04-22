@@ -92,7 +92,7 @@ wait_for_log_pattern() {
     while (( waited < timeout_seconds )); do
         ensure_device
         adb logcat -d -v time > "${SUITE_DIR}/${label}.poll.logcat.txt" 2>/dev/null || true
-        if rg -q "${pattern}" "${SUITE_DIR}/${label}.poll.logcat.txt"; then
+        if [[ -f "${SUITE_DIR}/${label}.poll.logcat.txt" ]] && rg -q "${pattern}" "${SUITE_DIR}/${label}.poll.logcat.txt"; then
             return 0
         fi
         sleep "${POLL_SECONDS}"

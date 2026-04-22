@@ -202,6 +202,7 @@ class MainActivity : Activity() {
         private const val EXPORT_NOTIFICATION_CHANNEL_ID = "video_export"
         private const val EXPORT_NOTIFICATION_ID = 1001
         private const val HARDWARE_TELEMETRY_REFRESH_MS = 750L
+        private const val AUTOMATION_SMOKE_DURATION_MS = 15_000L
     }
 
     // UI References
@@ -1801,6 +1802,9 @@ class MainActivity : Activity() {
                     return
                 }
                 window.decorView.postDelayed({
+                    clampAutomationSmokeVideoDuration()
+                }, 1400L)
+                window.decorView.postDelayed({
                     playbackController?.nativePlay()
                 }, 4200L)
             }
@@ -1824,14 +1828,20 @@ class MainActivity : Activity() {
                     return
                 }
                 window.decorView.postDelayed({
+                    clampAutomationSmokeVideoDuration()
+                }, 1400L)
+                window.decorView.postDelayed({
                     audioImportController?.importQuickSample()
-                }, 1200L)
+                }, 2200L)
+                window.decorView.postDelayed({
+                    clampAutomationSmokeAudioDurations()
+                }, 3400L)
                 window.decorView.postDelayed({
                     addNewTextOverlay(overlayText)
-                }, 2600L)
+                }, 4200L)
                 window.decorView.postDelayed({
                     projectController?.autoSave()
-                }, 4200L)
+                }, 5600L)
             }
             "export_720" -> {
                 performExport(1280, 720, 30, 3)
@@ -1846,14 +1856,20 @@ class MainActivity : Activity() {
                     return
                 }
                 window.decorView.postDelayed({
+                    clampAutomationSmokeVideoDuration()
+                }, 1400L)
+                window.decorView.postDelayed({
                     audioImportController?.importQuickSample()
-                }, 1200L)
+                }, 2200L)
+                window.decorView.postDelayed({
+                    clampAutomationSmokeAudioDurations()
+                }, 3400L)
                 window.decorView.postDelayed({
                     addNewTextOverlay(overlayText)
-                }, 2600L)
+                }, 4200L)
                 window.decorView.postDelayed({
                     performExport(1280, 720, 30, 3)
-                }, 4200L)
+                }, 5600L)
             }
         }
     }
@@ -2387,6 +2403,68 @@ class MainActivity : Activity() {
             safeToast("New Project Created", Toast.LENGTH_SHORT)
         }
         Log.i(TAG, "[Automation] blank project ready")
+    }
+
+    private fun clampAutomationSmokeVideoDuration(maxDurationMs: Long = AUTOMATION_SMOKE_DURATION_MS): Boolean {
+        val clipId =
+            timelineManager
+                ?.getClips()
+                ?.firstOrNull { nativeClipTrackType[it.id] == TrackType.VIDEO }
+                ?.id
+                ?: nativeClipTrackType.entries.firstOrNull { it.value == TrackType.VIDEO }?.key
+                ?: return false
+        val currentTiming = selectedVideoTiming(clipId) ?: return false
+        val sourceInMs = nativeClipSourceInMs[clipId] ?: 0L
+        val originalSourceOutMs =
+            (nativeClipSourceOutMs[clipId] ?: (sourceInMs + currentTiming.second)).coerceAtLeast(sourceInMs + 1L)
+        val clampedDurationMs = minOf(currentTiming.second, maxDurationMs).coerceAtLeast(150L)
+        val clampedSourceOutMs = (sourceInMs + clampedDurationMs).coerceAtMost(originalSourceOutMs)
+        if (currentTiming.second <= clampedDurationMs && originalSourceOutMs <= clampedSourceOutMs) {
+            return true
+        }
+        val result = runCatching {
+            NativeBridge.executeCommand(
+                action = "UPDATE_CLIP_TIMING",
+                params = mapOf(
+                    "clipId" to clipId,
+                    "newStartTimeMs" to currentTiming.first,
+                    "newDurationMs" to clampedDurationMs,
+                    "newSourceInMs" to sourceInMs,
+                    "newSourceOutMs" to clampedSourceOutMs,
+                    "originalStartTimeMs" to currentTiming.first,
+                    "originalDurationMs" to currentTiming.second,
+                    "originalSourceInMs" to sourceInMs,
+                    "originalSourceOutMs" to originalSourceOutMs,
+                    "previewOnly" to false,
+                    "applyMagnetic" to true,
+                ),
+            )
+        }.getOrNull() ?: return false
+        if (!result.success) {
+            Log.w(TAG, "[Automation] smoke video trim failed: clip=$clipId message=${result.message}")
+            return false
+        }
+        nativeClipDurationMs[clipId] = clampedDurationMs
+        nativeClipSourceOutMs[clipId] = clampedSourceOutMs
+        syncTimelineShellFromNative(selectedClipId = clipId)
+        refreshPreviewAtPlayhead()
+        Log.i(TAG, "[Automation] smoke video clip trimmed clip=$clipId durationMs=$clampedDurationMs")
+        return true
+    }
+
+    private fun clampAutomationSmokeAudioDurations(maxDurationMs: Long = AUTOMATION_SMOKE_DURATION_MS) {
+        var changed = false
+        AudioClipStore.all().forEach { clip ->
+            val clampedDurationMs = minOf(clip.durationMs, maxDurationMs).coerceAtLeast(150L)
+            if (clampedDurationMs < clip.durationMs) {
+                clip.durationMs = clampedDurationMs
+                changed = true
+                Log.i(TAG, "[Automation] smoke audio clip trimmed clip=${clip.id} durationMs=$clampedDurationMs")
+            }
+        }
+        if (changed) {
+            NativeBridge.syncAudioClips()
+        }
     }
 
     private fun saveUiState(projectFile: File, projectName: String) {
