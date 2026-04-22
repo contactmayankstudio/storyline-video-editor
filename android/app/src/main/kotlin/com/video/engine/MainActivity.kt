@@ -458,15 +458,7 @@ class MainActivity : Activity() {
         clipToolbarContextLabel = findViewById(R.id.audioEditLabel)
 
         newProjectBtn.setOnClickListener {
-            setStartScreenVisible(false)
-            // 1. Reset Native Engine
-            NativeBridge.executeCommand("RESET_TIMELINE", emptyMap())
-            // 2. Clear Kotlin state
-            clearEditorShellState()
-            // 3. Reset Preview
-            previewView?.let { NativeBridge.seekToTime(it, 0L) }
-            refreshMainTimelineTracks()
-            safeToast("New Project Created", Toast.LENGTH_SHORT)
+            startBlankProject(showToast = true)
         }
 
         openProjectBtn.setOnClickListener {
@@ -1765,6 +1757,9 @@ class MainActivity : Activity() {
                 importController?.setNextImportTrackType(TrackType.VIDEO)
                 importController?.importQuickSample()
             }
+            "reset_to_blank" -> {
+                startBlankProject(showToast = false)
+            }
             "import_video_path" -> {
                 val path = intent?.getStringExtra("adb_path")
                 if (path != null) {
@@ -1797,11 +1792,53 @@ class MainActivity : Activity() {
             "add_text" -> {
                 addNewTextOverlay(intent?.getStringExtra("adb_text").orEmpty().ifBlank { "Hello World" })
             }
+            "smoke_playback_quick" -> {
+                startBlankProject(showToast = false)
+                importController?.setNextImportTrackType(TrackType.VIDEO)
+                val imported = importController?.importQuickSample() == true
+                if (!imported) {
+                    safeToast("Automation: no quick video found", Toast.LENGTH_SHORT)
+                    return
+                }
+                window.decorView.postDelayed({
+                    playbackController?.nativePlay()
+                }, 4200L)
+            }
+            "autosave_now" -> {
+                projectController?.autoSave()
+            }
+            "restore_autosave" -> {
+                val restored = projectController?.restoreAutoSave() == true
+                Log.i(TAG, "[Automation] restore_autosave restored=$restored")
+            }
+            "discard_autosave" -> {
+                projectController?.discardAutoSave()
+            }
+            "smoke_autosave_prepare" -> {
+                val overlayText = intent?.getStringExtra("adb_text").orEmpty().ifBlank { "AutosaveSmoke" }
+                startBlankProject(showToast = false)
+                importController?.setNextImportTrackType(TrackType.VIDEO)
+                val imported = importController?.importQuickSample() == true
+                if (!imported) {
+                    safeToast("Automation: no quick video found", Toast.LENGTH_SHORT)
+                    return
+                }
+                window.decorView.postDelayed({
+                    audioImportController?.importQuickSample()
+                }, 1200L)
+                window.decorView.postDelayed({
+                    addNewTextOverlay(overlayText)
+                }, 2600L)
+                window.decorView.postDelayed({
+                    projectController?.autoSave()
+                }, 4200L)
+            }
             "export_720" -> {
                 performExport(1280, 720, 30, 3)
             }
             "smoke_export_720" -> {
                 val overlayText = intent?.getStringExtra("adb_text").orEmpty().ifBlank { "Hello World" }
+                startBlankProject(showToast = false)
                 importController?.setNextImportTrackType(TrackType.VIDEO)
                 val imported = importController?.importQuickSample() == true
                 if (!imported) {
@@ -2338,6 +2375,18 @@ class MainActivity : Activity() {
         applySelectedClipPreviewTransform()
         updateUndoRedoButtons()
         refreshMainTimelineTracks()
+    }
+
+    private fun startBlankProject(showToast: Boolean) {
+        setStartScreenVisible(false)
+        NativeBridge.executeCommand("RESET_TIMELINE", emptyMap())
+        clearEditorShellState()
+        previewView?.let { NativeBridge.seekToTime(it, 0L) }
+        refreshMainTimelineTracks()
+        if (showToast) {
+            safeToast("New Project Created", Toast.LENGTH_SHORT)
+        }
+        Log.i(TAG, "[Automation] blank project ready")
     }
 
     private fun saveUiState(projectFile: File, projectName: String) {

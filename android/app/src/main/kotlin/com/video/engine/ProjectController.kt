@@ -66,14 +66,17 @@ class ProjectController(
 
     fun autoSave() {
         if (!hasProjectContentProvider()) {
+            Log.i(TAG, "[Project] autosave skipped: no project content")
             return
         }
         val projectsDir = File(activity.getExternalFilesDir(null), "autosave").also { it.mkdirs() }
         val outputFile = autoSaveFile()
+        Log.i(TAG, "[Project] autosave requested path=${outputFile.absolutePath}")
         Thread {
             try {
-                previewViewProvider()?.saveProject(outputFile.absolutePath, "autosave")
-                    ?.let { if (it) onSaveUiState(outputFile, "autosave") }
+                val success = previewViewProvider()?.saveProject(outputFile.absolutePath, "autosave") ?: false
+                if (success) onSaveUiState(outputFile, "autosave")
+                Log.i(TAG, "[Project] autosave complete success=$success path=${outputFile.absolutePath}")
             } catch (e: Exception) {
                 Log.w(TAG, "Auto-save failed: ${e.message}")
             }
@@ -99,6 +102,7 @@ class ProjectController(
     fun discardAutoSave() {
         runCatching { autoSaveFile().delete() }
         runCatching { autoSaveUiFile().delete() }
+        Log.i(TAG, "[Project] autosave discarded")
     }
 
     fun loadProject(filePath: String) {
@@ -114,6 +118,7 @@ class ProjectController(
             try {
                 val success = previewViewProvider()?.saveProject(outputFile.absolutePath, projectName) ?: false
                 if (success) onSaveUiState(outputFile, projectName)
+                Log.i(TAG, "[Project] save complete success=$success path=${outputFile.absolutePath}")
                 activity.runOnUiThread {
                     Toast.makeText(activity, if (success) "Saved: ${outputFile.name}" else "Save failed", Toast.LENGTH_SHORT).show()
                 }
@@ -129,6 +134,7 @@ class ProjectController(
         Thread {
             try {
                 val success = previewViewProvider()?.loadProject(filePath) ?: false
+                Log.i(TAG, "[Project] load complete success=$success path=$filePath")
                 activity.runOnUiThread {
                     if (success) {
                         onPrepareLoadedProject()
