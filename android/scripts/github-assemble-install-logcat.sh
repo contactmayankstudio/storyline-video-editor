@@ -133,7 +133,8 @@ selected = None
 
 for run in runs:
     created_at = parse_github_time(run.get("created_at", ""))
-    if target_sha and run.get("head_sha") != target_sha:
+    head_sha = (run.get("head_sha") or "").strip()
+    if target_sha and not head_sha.startswith(target_sha):
         continue
     if start_after_dt and created_at and created_at < start_after_dt:
         continue
@@ -195,7 +196,7 @@ while true; do
     runs_json="${tmpdir}/runs.json"
     api_get "/repos/${OWNER}/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?branch=${BRANCH}&per_page=15" >"$runs_json"
 
-    if mapfile -t run_fields < <(pick_run "$runs_json"); then
+    if mapfile -t run_fields < <(pick_run "$runs_json") && [[ "${#run_fields[@]}" -ge 5 ]]; then
         run_id="${run_fields[0]}"
         run_status="${run_fields[1]}"
         run_conclusion="${run_fields[2]}"
@@ -203,10 +204,6 @@ while true; do
         run_url="${run_fields[4]}"
         echo "Run ${run_id} status=${run_status} conclusion=${run_conclusion:-pending} sha=${run_sha:0:8}"
         if [[ "$run_status" == "completed" ]]; then
-            if [[ "$run_conclusion" != "success" ]]; then
-                echo "Remote build failed: ${run_url}" >&2
-                exit 1
-            fi
             break
         fi
     else
@@ -218,7 +215,17 @@ done
 
 artifacts_json="${tmpdir}/artifacts.json"
 api_get "/repos/${OWNER}/${REPO}/actions/runs/${run_id}/artifacts" >"$artifacts_json"
-artifact_url="$(pick_artifact_url "$artifacts_json")"
+if ! artifact_url="$(pick_artifact_url "$artifacts_json")"; then
+    if [[ "${run_conclusion:-}" != "success" ]]; then
+        echo "Remote build failed and no APK artifact was uploaded: ${run_url}" >&2
+    else
+        echo "Run completed successfully but no APK artifact was found: ${run_url}" >&2
+    fi
+    exit 1
+fi
+if [[ "${run_conclusion:-}" != "success" ]]; then
+    echo "Workflow conclusion=${run_conclusion}; continuing because APK artifact is available."
+fi
 artifact_zip="${tmpdir}/artifact.zip"
 artifact_dir="${tmpdir}/artifact"
 
