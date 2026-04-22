@@ -1,0 +1,64 @@
+name: Storyline AI Automation
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "Describe the Storyline feature, fix, or refactor to implement"
+        required: true
+        type: string
+      target_branch:
+        description: "Branch to push automation changes into"
+        required: true
+        default: "main"
+        type: string
+      max_attempts:
+        description: "How many build/fix attempts to allow"
+        required: true
+        default: "2"
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  automate:
+    runs-on: ubuntu-latest
+    env:
+      AUTOMATION_PROMPT: ${{ github.event.inputs.prompt }}
+      AUTOMATION_TARGET_BRANCH: ${{ github.event.inputs.target_branch }}
+      AUTOMATION_MAX_ATTEMPTS: ${{ github.event.inputs.max_attempts }}
+      AUTOMATION_BUILD_COMMAND: cd android && chmod +x gradlew && ./gradlew assembleDebug --console=plain
+      AUTOMATION_GITHUB_MODELS_MODEL: openai/gpt-4.1-mini
+      AUTOMATION_GITHUB_MODELS_TOKEN: ${{ secrets.AUTOMATION_GITHUB_MODELS_TOKEN }}
+      AUTOMATION_PUSH_TOKEN: ${{ secrets.AUTOMATION_PUSH_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
+
+      - name: Restore google-services.json
+        run: |
+          if [ -z "${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}" ]; then
+            echo "Missing repository secret ANDROID_GOOGLE_SERVICES_JSON"
+            exit 1
+          fi
+          printf '%s' '${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
+
+      - name: Run AI automation worker
+        run: node automation/worker.js

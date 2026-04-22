@@ -2,6 +2,7 @@ const DEFAULT_OWNER = process.env.GITHUB_OWNER || "sarojshahu12-max";
 const DEFAULT_REPO = process.env.GITHUB_REPO || "storyline";
 const DEFAULT_BRANCH = process.env.GITHUB_BRANCH || "main";
 const DEFAULT_WORKFLOW = process.env.GITHUB_WORKFLOW_NAME || "Android CI Build";
+const DEFAULT_AUTOMATION_WORKFLOW = process.env.GITHUB_AUTOMATION_WORKFLOW_NAME || "Storyline AI Automation";
 
 function getConfig() {
     return {
@@ -9,6 +10,7 @@ function getConfig() {
         repo: DEFAULT_REPO,
         branch: DEFAULT_BRANCH,
         workflowName: DEFAULT_WORKFLOW,
+        automationWorkflowName: DEFAULT_AUTOMATION_WORKFLOW,
         token: process.env.GITHUB_TOKEN || "",
     };
 }
@@ -36,8 +38,8 @@ async function githubRequest(pathname) {
     return response.json();
 }
 
-async function getWorkflowId() {
-    const { owner, repo, workflowName } = getConfig();
+async function getWorkflowId(workflowName = getConfig().workflowName) {
+    const { owner, repo } = getConfig();
     const workflows = await githubRequest(`/repos/${owner}/${repo}/actions/workflows`);
     const workflow = (workflows.workflows || []).find((item) => item.name === workflowName);
 
@@ -48,9 +50,10 @@ async function getWorkflowId() {
     return workflow.id;
 }
 
-async function getLatestRunSummary(preferredConclusion) {
+async function getLatestRunSummary(preferredConclusion, workflowNameOverride) {
     const { owner, repo, branch, workflowName } = getConfig();
-    const workflowId = await getWorkflowId();
+    const selectedWorkflowName = workflowNameOverride || workflowName;
+    const workflowId = await getWorkflowId(selectedWorkflowName);
     const runs = await githubRequest(`/repos/${owner}/${repo}/actions/workflows/${workflowId}/runs?branch=${encodeURIComponent(branch)}&per_page=10`);
     const allRuns = runs.workflow_runs || [];
     const selectedRun = allRuns.find((run) => run.conclusion === preferredConclusion) || allRuns[0];
@@ -65,7 +68,7 @@ async function getLatestRunSummary(preferredConclusion) {
     const failedStep = failedJob?.steps?.find((step) => step.conclusion === "failure") || null;
 
     return {
-        workflowName,
+        workflowName: selectedWorkflowName,
         branch: selectedRun.head_branch,
         status: selectedRun.status,
         conclusion: selectedRun.conclusion,
@@ -78,8 +81,34 @@ async function getLatestRunSummary(preferredConclusion) {
     };
 }
 
+async function dispatchWorkflow(workflowName, options = {}) {
+    const { owner, repo, branch } = getConfig();
+    const workflowId = await getWorkflowId(workflowName);
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`, {
+        method: "POST",
+        headers: {
+            Accept: "application/vnd.github+json",
+            Authorization: `Bearer ${getConfig().token}`,
+            "User-Agent": "storyline-admin-panel",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            ref: options.ref || branch,
+            inputs: options.inputs || {},
+        }),
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`GitHub API ${response.status}: ${text}`);
+    }
+
+    return true;
+}
+
 module.exports = {
+    dispatchWorkflow,
     getConfig,
     getLatestRunSummary,
 };
-

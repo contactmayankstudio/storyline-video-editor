@@ -463,6 +463,25 @@
                 </div>
             </section>
 
+            <section class="card card-wide">
+                <h2>Cloud Automation Bridge</h2>
+                <p>Send one bounded implementation request from mobile, and GitHub Actions will run the cloud automation worker: edit files, run a local Android build in the runner, retry one fix pass if needed, then commit and push to `main`.</p>
+                <textarea id="automation-prompt" placeholder="Example: Add a mobile-only admin toggle that shows the latest automation workflow status and make the copy clearer on small screens."></textarea>
+                <div class="toolbar">
+                    <select id="automation-attempts">
+                        <option value="2">2 build attempts</option>
+                        <option value="1">1 build attempt</option>
+                        <option value="3">3 build attempts</option>
+                    </select>
+                    <button type="button" id="automation-run-button">Run Cloud Automation</button>
+                    <button type="button" class="ghost-button" id="automation-refresh-button">Refresh Automation</button>
+                </div>
+                <div class="status-block" id="automation-status-block">Loading latest automation workflow...</div>
+                <div class="helper-row">
+                    <span class="helper" id="automation-note"></span>
+                </div>
+            </section>
+
             <section class="card card-wide danger-card">
                 <h2>AI Autopilot</h2>
                 <p>Use one console for failure analysis or for planning the next Storyline engine upgrade. Quick commands below are tuned for your current roadmap.</p>
@@ -539,6 +558,12 @@
         const buildConfigNote = document.getElementById("build-config-note");
         const providerList = document.getElementById("provider-list");
         const providerNote = document.getElementById("provider-note");
+        const automationPrompt = document.getElementById("automation-prompt");
+        const automationAttempts = document.getElementById("automation-attempts");
+        const automationRunButton = document.getElementById("automation-run-button");
+        const automationRefreshButton = document.getElementById("automation-refresh-button");
+        const automationStatusBlock = document.getElementById("automation-status-block");
+        const automationNote = document.getElementById("automation-note");
 
         const aiMode = document.getElementById("ai-mode");
         const aiProvider = document.getElementById("ai-provider");
@@ -559,6 +584,7 @@
 
         const state = {
             latestBuild: null,
+            latestAutomationRun: null,
             firebaseReady: false,
             providers: [],
             providerOrder: [],
@@ -610,6 +636,28 @@
 
             if (data.build.url) {
                 parts.push(`GitHub: ${data.build.url}`);
+            }
+
+            return parts.join("\n");
+        }
+
+        function formatRunSummary(run, fallback) {
+            if (!run) {
+                return fallback;
+            }
+
+            const parts = [
+                `Workflow: ${run.workflowName}`,
+                `Branch: ${run.branch}`,
+                `Status: ${run.status}`,
+                `Conclusion: ${run.conclusion || "in progress"}`,
+                `Commit: ${run.headSha?.slice(0, 8) || "n/a"}`,
+                `Failed step: ${run.failedStep || "n/a"}`,
+                `Updated: ${new Date(run.updatedAt).toLocaleString()}`,
+            ];
+
+            if (run.url) {
+                parts.push(`GitHub: ${run.url}`);
             }
 
             return parts.join("\n");
@@ -876,6 +924,76 @@
             }
         }
 
+        async function loadAutomationStatus() {
+            automationRefreshButton.disabled = true;
+            automationStatusBlock.textContent = "Checking latest automation workflow...";
+
+            try {
+                const response = await fetch("/api/automation-status");
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || "Automation status fetch failed");
+                }
+
+                state.latestAutomationRun = data.run;
+                automationStatusBlock.textContent = formatRunSummary(
+                    data.run,
+                    "No automation workflow run found yet."
+                );
+                automationNote.textContent = "This workflow is separate from Android CI Build. It edits code in GitHub Actions and pushes the result back to the repo.";
+            } catch (error) {
+                console.error(error);
+                automationStatusBlock.textContent = error.message;
+                automationNote.textContent = "Automation dispatch requires GitHub workflow access and repo automation secrets.";
+            } finally {
+                automationRefreshButton.disabled = false;
+            }
+        }
+
+        async function runAutomationBridge() {
+            const prompt = automationPrompt.value.trim();
+            if (!prompt) {
+                automationNote.textContent = "Type an implementation request first.";
+                return;
+            }
+
+            automationRunButton.disabled = true;
+            automationStatusBlock.textContent = "Dispatching cloud automation workflow...";
+            automationNote.textContent = "The laptop can stay off after dispatch. GitHub Actions will do the work in the cloud.";
+
+            try {
+                const response = await fetch("/api/automation-dispatch", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        prompt,
+                        maxAttempts: automationAttempts.value,
+                    }),
+                });
+
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || "Automation dispatch failed");
+                }
+
+                state.latestAutomationRun = data.run || null;
+                automationStatusBlock.textContent = formatRunSummary(
+                    data.run,
+                    "Automation workflow accepted. Refresh in a few seconds for the live run."
+                );
+                automationNote.textContent = "Automation accepted. The worker will edit code, run build checks, and push if successful.";
+            } catch (error) {
+                console.error(error);
+                automationStatusBlock.textContent = error.message;
+                automationNote.textContent = "Dispatch failed before any cloud edit started.";
+            } finally {
+                automationRunButton.disabled = false;
+            }
+        }
+
         function appendLatestBuildToChatInput() {
             if (!state.latestBuild) {
                 chatStatus.textContent = "No build context loaded yet";
@@ -1029,6 +1147,8 @@
         sensitivityInput.addEventListener("input", updateSensitivityValue);
         settingsButton.addEventListener("click", updateSettings);
         refreshButton.addEventListener("click", loadBuildStatus);
+        automationRunButton.addEventListener("click", runAutomationBridge);
+        automationRefreshButton.addEventListener("click", loadAutomationStatus);
         aiMode.addEventListener("change", updateModeUi);
         aiButton.addEventListener("click", runAiAction);
         injectBuildButton.addEventListener("click", insertLatestBuildContext);
@@ -1055,6 +1175,7 @@
         updateModeUi();
         initFirebase();
         loadBuildStatus();
+        loadAutomationStatus();
     </script>
 </body>
 </html>
