@@ -1,5 +1,5 @@
 const GITHUB_MODELS_API_URL = "https://models.github.ai/inference/chat/completions";
-const DEFAULT_GITHUB_MODELS_MODEL = process.env.GITHUB_MODELS_MODEL || "openai/gpt-4.1";
+const DEFAULT_GITHUB_MODELS_MODEL = process.env.GITHUB_MODELS_MODEL || "xai/grok-3-mini";
 
 function getGitHubModelsConfig() {
     return {

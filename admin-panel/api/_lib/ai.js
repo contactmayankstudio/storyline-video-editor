@@ -17,7 +17,7 @@ const PROVIDERS = {
         getConfig: getGitHubModelsConfig,
         generateText: generateGitHubModelsText,
         generateJson: generateGitHubModelsJson,
-        note: "Uses GitHub Models. Token must have model access.",
+        note: "Uses GitHub Models with xAI Grok or another configured model. Token must have model access.",
     },
     openai: {
         id: "openai",
