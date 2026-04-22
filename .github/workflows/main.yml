@@ -48,6 +48,15 @@ jobs:
           fi
           printf '%s' '${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}' > app/google-services.json
 
+      - name: Restore stable debug keystore
+        run: |
+          if [ -z "${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}" ]; then
+            echo "::warning::Missing ANDROID_DEBUG_KEYSTORE_B64 secret. Debug APK signature will change across GitHub runs."
+            exit 0
+          fi
+          mkdir -p "${HOME}/.android"
+          printf '%s' '${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}' | base64 --decode > "${HOME}/.android/debug.keystore"
+
       - name: Build debug APK
         working-directory: android
         run: ./gradlew assembleDebug
