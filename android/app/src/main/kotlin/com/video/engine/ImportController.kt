@@ -2,6 +2,7 @@ package com.video.engine
 
 import android.app.Activity
 import android.content.Intent
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -147,19 +148,36 @@ class ImportController(
     }
 
     private fun maybeStartGhostProxyBuild(clipId: Int, importPath: String, trackType: TrackType) {
-        // Proxy build disabled — causes stuttering on low-end devices
+        if (trackType != TrackType.VIDEO) {
+            return
+        }
+        val longEdgePx = resolveVideoLongEdgePx(importPath) ?: return
+        if (!DeviceDetector.shouldPreferProxyFor(longEdgePx)) {
+            return
+        }
+        val profile = DeviceDetector.getQualityProfile()
+        startProxyBuild(
+            clipId = clipId,
+            importPath = importPath,
+            maxLongEdgePx = profile.proxyLongEdgePx,
+            targetFps = profile.previewFps.coerceAtMost(30),
+        )
     }
 
-    private fun startProxyBuild(clipId: Int, importPath: String) {
+    private fun startProxyBuild(
+        clipId: Int,
+        importPath: String,
+        maxLongEdgePx: Int,
+        targetFps: Int,
+    ) {
         val proxyOutputPath = proxyOutputPathFor(clipId, importPath)
-        val profile = DeviceDetector.getQualityProfile()
         val started = runCatching {
             NativeBridge.buildClipProxy(
                 clipId = clipId,
                 sourcePath = importPath,
                 outputPath = proxyOutputPath,
-                maxLongEdgePx = if (DeviceDetector.isLowEndDevice()) 240 else 360,
-                targetFps = profile.previewFps.coerceAtMost(24),
+                maxLongEdgePx = maxLongEdgePx.coerceIn(240, 720),
+                targetFps = targetFps.coerceIn(24, 30),
             )
         }.getOrDefault(false)
         if (!started) {
@@ -209,6 +227,21 @@ class ImportController(
             ?.replace(Regex("[^A-Za-z0-9._-]"), "_")
             ?: "clip_$clipId"
         return File(proxyDir, "${baseName}_${clipId}_p360.mp4").absolutePath
+    }
+
+    private fun resolveVideoLongEdgePx(sourcePath: String): Int? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(sourcePath)
+            val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+            val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+            maxOf(width, height).takeIf { it > 0 }
+        } catch (error: Exception) {
+            Log.w(TAG, "Failed to probe media dimensions for proxy: ${error.message}")
+            null
+        } finally {
+            runCatching { retriever.release() }
+        }
     }
 
     private fun resolveImportPath(uri: Uri): String? {

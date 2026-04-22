@@ -3,6 +3,8 @@ package com.video.engine
 import android.content.Context
 import android.net.Uri
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Build
 import android.os.Handler
@@ -47,9 +49,12 @@ class PreviewAudioPlayer(
     private val mainHandler = Handler(Looper.getMainLooper())
     private val audioThread = HandlerThread("PreviewAudioPlayer").apply { start() }
     private val audioHandler = Handler(audioThread.looper)
+    private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val failedPaths = mutableSetOf<String>()
     private val requestLock = Any()
     private var mediaPlayer: MediaPlayer? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
+    private var hasAudioFocus = false
     private var currentSelection: SourceSelection? = null
     private var prepared = false
     private var preparing = false
@@ -66,6 +71,30 @@ class PreviewAudioPlayer(
     private var lastVideoClockResyncElapsedMs = 0L
     private var pendingSeekTargetMs = Int.MIN_VALUE
     private var pendingStartAfterSeek = false
+    private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_GAIN -> runOnAudioThread {
+                applyVolume(currentSelection?.volume ?: 1.0f)
+                if (playing && prepared && runCatching { mediaPlayer?.isPlaying == true }.getOrDefault(false).not()) {
+                    runCatching { mediaPlayer?.start() }
+                    if (runCatching { mediaPlayer?.isPlaying == true }.getOrDefault(false)) {
+                        setAudioMasterClockEnabled(true)
+                        startTicker()
+                    }
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> runOnAudioThread {
+                runCatching { mediaPlayer?.pause() }
+                setAudioMasterClockEnabled(false)
+                stopTicker()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> runOnAudioThread {
+                val ducked = (currentSelection?.volume ?: 1.0f).coerceIn(0f, 1f) * 0.35f
+                runCatching { mediaPlayer?.setVolume(ducked, ducked) }
+            }
+        }
+    }
     private val seekCompletionFallback = Runnable {
         val player = mediaPlayer ?: return@Runnable
         if (!prepared || !pendingStartAfterSeek || !playing) return@Runnable
@@ -73,7 +102,7 @@ class PreviewAudioPlayer(
         pendingStartAfterSeek = false
         pendingSeekTargetMs = Int.MIN_VALUE
         val isActuallyPlaying = runCatching { player.isPlaying }.getOrDefault(false)
-        if (!isActuallyPlaying) {
+        if (!isActuallyPlaying && requestAudioFocusIfNeeded()) {
             runCatching { player.start() }
         }
         val nowPlaying = runCatching { player.isPlaying }.getOrDefault(false)
@@ -128,6 +157,7 @@ class PreviewAudioPlayer(
             playing = false
             stopTicker()
             setAudioMasterClockEnabled(false)
+            abandonAudioFocusIfNeeded()
             audioHandler.removeCallbacks(seekCompletionFallback)
             pendingStartAfterSeek = false
             pendingSeekTargetMs = Int.MIN_VALUE
@@ -203,6 +233,7 @@ class PreviewAudioPlayer(
             Log.w(TAG, "No playable audio source at timelineMs=$pendingTimelineMs")
             setAudioMasterClockEnabled(false)
             stopTicker()
+            abandonAudioFocusIfNeeded()
             audioHandler.removeCallbacks(seekCompletionFallback)
             val isActuallyPlaying = runCatching { mediaPlayer?.isPlaying == true }.getOrDefault(false)
             if (isActuallyPlaying) {
@@ -259,15 +290,20 @@ class PreviewAudioPlayer(
         }
         if (autoPlay) {
             Log.d(TAG, "resumePlayer key=${selection.key} timelineMs=$pendingTimelineMs")
-            if (!isActuallyPlaying && !shouldStartAfterSeek) {
+            if (!isActuallyPlaying && !shouldStartAfterSeek && requestAudioFocusIfNeeded()) {
                 runCatching { mediaPlayer?.start() }
             }
-            if (isActuallyPlaying || !shouldStartAfterSeek) {
+            val nowPlaying = runCatching { mediaPlayer?.isPlaying == true }.getOrDefault(false)
+            if (nowPlaying) {
                 setAudioMasterClockEnabled(true)
                 startTicker()
+                lastAppliedAutoPlay = true
             } else {
                 setAudioMasterClockEnabled(false)
                 stopTicker()
+                if (!shouldStartAfterSeek) {
+                    lastAppliedAutoPlay = false
+                }
             }
         } else {
             setAudioMasterClockEnabled(false)
@@ -307,6 +343,7 @@ class PreviewAudioPlayer(
                 prepared = false
                 setAudioMasterClockEnabled(false)
                 stopTicker()
+                abandonAudioFocusIfNeeded()
                 audioHandler.removeCallbacks(seekCompletionFallback)
                 currentSelection = null
                 lastAppliedSelectionKey = null
@@ -330,7 +367,9 @@ class PreviewAudioPlayer(
                 pendingSeekTargetMs = Int.MIN_VALUE
                 if (pendingAutoPlay) {
                     Log.d(TAG, "playerPrepared start key=${selection.key} timelineMs=$pendingTimelineMs")
-                    runCatching { preparedPlayer.start() }
+                    if (requestAudioFocusIfNeeded()) {
+                        runCatching { preparedPlayer.start() }
+                    }
                     val isActuallyPlaying = runCatching { preparedPlayer.isPlaying }.getOrDefault(false)
                     if (isActuallyPlaying) {
                         setAudioMasterClockEnabled(true)
@@ -373,7 +412,7 @@ class PreviewAudioPlayer(
             pendingStartAfterSeek = false
             pendingSeekTargetMs = Int.MIN_VALUE
             val isActuallyPlaying = runCatching { completedPlayer.isPlaying }.getOrDefault(false)
-            if (resumeAfterSeek && !isActuallyPlaying) {
+            if (resumeAfterSeek && !isActuallyPlaying && requestAudioFocusIfNeeded()) {
                 Log.d(TAG, "seekComplete start key=${currentSelection?.key} timelineMs=$pendingTimelineMs")
                 runCatching { completedPlayer.start() }
             }
@@ -401,6 +440,7 @@ class PreviewAudioPlayer(
             prepared = false
             setAudioMasterClockEnabled(false)
             stopTicker()
+            abandonAudioFocusIfNeeded()
             audioHandler.removeCallbacks(seekCompletionFallback)
             currentSelection = null
             lastAppliedSelectionKey = null
@@ -422,6 +462,7 @@ class PreviewAudioPlayer(
             prepared = false
             setAudioMasterClockEnabled(false)
             stopTicker()
+            abandonAudioFocusIfNeeded()
             audioHandler.removeCallbacks(seekCompletionFallback)
             currentSelection = null
             lastAppliedSelectionKey = null
@@ -451,6 +492,7 @@ class PreviewAudioPlayer(
         player.setOnErrorListener(null)
         runCatching { if (wasPrepared) player.stop() }
         runCatching { player.release() }
+        abandonAudioFocusIfNeeded()
     }
 
     private fun isPlayableMediaPath(path: String): Boolean {
@@ -462,8 +504,7 @@ class PreviewAudioPlayer(
 
     private fun applyVolume(volume: Float) {
         val clamped = volume.coerceIn(0f, 1f)
-        val mastered = (clamped * 0.76f).coerceIn(0f, 0.76f)
-        runCatching { mediaPlayer?.setVolume(mastered, mastered) }
+        runCatching { mediaPlayer?.setVolume(clamped, clamped) }
     }
 
     private fun applyPlaybackSpeed(selection: SourceSelection) {
@@ -542,6 +583,52 @@ class PreviewAudioPlayer(
         mainHandler.post {
             previewViewProvider()?.setAudioMasterClockEnabled(enabled)
         }
+    }
+
+    private fun requestAudioFocusIfNeeded(): Boolean {
+        if (hasAudioFocus) {
+            return true
+        }
+        val focusResult = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val request = audioFocusRequest
+                ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                            .build(),
+                    )
+                    .setOnAudioFocusChangeListener(audioFocusChangeListener)
+                    .setWillPauseWhenDucked(false)
+                    .build()
+                    .also { audioFocusRequest = it }
+            audioManager.requestAudioFocus(request)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.requestAudioFocus(
+                audioFocusChangeListener,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN,
+            )
+        }
+        hasAudioFocus = focusResult == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        if (!hasAudioFocus) {
+            Log.w(TAG, "Audio focus denied for preview playback")
+        }
+        return hasAudioFocus
+    }
+
+    private fun abandonAudioFocusIfNeeded() {
+        if (!hasAudioFocus) {
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(audioFocusChangeListener)
+        }
+        hasAudioFocus = false
     }
 
     private fun queueSelectionRequest(timelineMs: Long, autoPlay: Boolean, reason: String) {

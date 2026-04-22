@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.app.NotificationManager
 import android.content.Intent
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -279,21 +280,21 @@ class MainActivity : Activity() {
         ClipToolbarItem(R.id.clipSplitButton, R.id.clipSplitLabel, "Split"),
         ClipToolbarItem(R.id.clipVolumeButton, R.id.clipVolumeLabel, "Volume"),
         ClipToolbarItem(R.id.clipSpeedButton, R.id.clipSpeedLabel, "Speed"),
-        ClipToolbarItem(R.id.clipPanZoomButton, R.id.clipPanZoomLabel, "Pan/Zoom"),
+        ClipToolbarItem(R.id.clipPanZoomButton, R.id.clipPanZoomLabel, "Motion"),
         ClipToolbarItem(R.id.clipFilterButton, R.id.clipFilterLabel, "Filter"),
-        ClipToolbarItem(R.id.clipBrightnessButton, R.id.clipBrightnessLabel, "Adjust"),
+        ClipToolbarItem(R.id.clipBrightnessButton, R.id.clipBrightnessLabel, "Tone"),
         ClipToolbarItem(R.id.clipGraphicsButton, R.id.clipGraphicsLabel, "Graphics"),
-        ClipToolbarItem(R.id.clipExtractAudioButton, R.id.clipExtractAudioLabel, "Extract"),
+        ClipToolbarItem(R.id.clipExtractAudioButton, R.id.clipExtractAudioLabel, "Isolate"),
         ClipToolbarItem(R.id.clipReplaceButton, R.id.clipReplaceLabel, "Replace"),
         ClipToolbarItem(R.id.clipDuplicateButton, R.id.clipDuplicateLabel, "Duplicate"),
-        ClipToolbarItem(R.id.clipAddLayerButton, R.id.clipAddLayerLabel, "Layer"),
+        ClipToolbarItem(R.id.clipAddLayerButton, R.id.clipAddLayerLabel, "Stack"),
         ClipToolbarItem(R.id.clipRotateMirrorButton, R.id.clipRotateMirrorLabel, "Rotate"),
         ClipToolbarItem(R.id.clipKeyframeButton, R.id.clipKeyframeLabel, "Keyframe"),
         ClipToolbarItem(R.id.clipReverseButton, R.id.clipReverseLabel, "Reverse"),
         ClipToolbarItem(R.id.clipFreezeFrameButton, R.id.clipFreezeFrameLabel, "Freeze"),
         ClipToolbarItem(R.id.clipDuckingButton, R.id.clipDuckingLabel, "Ducking"),
         ClipToolbarItem(R.id.clipCurveSpeedButton, R.id.clipCurveSpeedLabel, "Curve"),
-        ClipToolbarItem(R.id.clipChromaKeyButton, R.id.clipChromaKeyLabel, "Chroma"),
+        ClipToolbarItem(R.id.clipChromaKeyButton, R.id.clipChromaKeyLabel, "Key"),
         ClipToolbarItem(R.id.clipCutoutButton, R.id.clipCutoutLabel, "Cutout"),
         ClipToolbarItem(R.id.clipTrimButton, R.id.clipTrimLabel, "Trim"),
     )
@@ -309,6 +310,24 @@ class MainActivity : Activity() {
 
     private fun allTextOverlays(): List<TextOverlay> = OverlayStore.all()
     private var editorState: EditorState? = null
+
+    private fun applyAdaptivePreviewProfile() {
+        val profile = DeviceDetector.getQualityProfile()
+        NativeBridge.setPreviewPolicy(
+            ghostPreviewEnabled = true,
+            ghostLongEdgePx = DeviceDetector.getRecommendedGhostLongEdgePx(),
+            adaptiveFrameDropEnabled = true,
+            targetPreviewFps = profile.previewFps,
+            minPreviewFps = DeviceDetector.getRecommendedMinPreviewFps(),
+        )
+        NativeBridge.setPerformancePolicy(
+            dirtyRegionEnabled = true,
+            predictiveCachingEnabled = true,
+            predictiveLookAroundMs = DeviceDetector.getRecommendedPredictiveLookAroundMs(),
+            predictiveSampleStepMs = DeviceDetector.getRecommendedPredictiveSampleStepMs(),
+            predictiveCacheMaxFrames = DeviceDetector.getRecommendedPredictiveCacheMaxFrames(),
+        )
+    }
 
     private fun setupStartScreen() {
         startScreenOverlayView = findViewById(R.id.startScreenOverlay)
@@ -343,6 +362,7 @@ class MainActivity : Activity() {
         }
 
         startRecentProjectsList?.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
+        startRecentProjectsList?.adapter = ProjectListAdapter(emptyList()) { }
         refreshRecentProjects()
     }
 
@@ -403,9 +423,11 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        CrashAutoFix.retryPending(this)
-        Thread.setDefaultUncaughtExceptionHandler { _, throwable ->
+        volumeControlStream = AudioManager.STREAM_MUSIC
+        val previousUncaughtExceptionHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             CrashAutoFix.reportCrash(this, throwable)
+            previousUncaughtExceptionHandler?.uncaughtException(thread, throwable)
         }
         NativeBridge.warmUpEngineAsync()
         com.video.engine.pro.timeline.TimelineThumbnailCache.init(this)
@@ -427,6 +449,7 @@ class MainActivity : Activity() {
         setupStartScreen()
         scheduleTopBannerPlacement(delayMs = 1200L)
         mainHandler.postDelayed({ rewardedUnlockController?.preload() }, 1800L)
+        window.decorView.postDelayed({ CrashAutoFix.retryPending(this) }, 12000L)
         window.decorView.post {
             if (isFinishing || isDestroyed) return@post
         }
@@ -543,20 +566,7 @@ class MainActivity : Activity() {
         }
         findViewById<View?>(R.id.previewHud)?.visibility = View.GONE
         findViewById<View?>(R.id.hardwareBufferTelemetryPanel)?.visibility = View.GONE
-        NativeBridge.setPreviewPolicy(
-            ghostPreviewEnabled = true,
-            ghostLongEdgePx = 240, // Reduced from 360 for better performance on low-end devices
-            adaptiveFrameDropEnabled = true,
-            targetPreviewFps = 24,
-            minPreviewFps = 15,
-        )
-        NativeBridge.setPerformancePolicy(
-            dirtyRegionEnabled = true,
-            predictiveCachingEnabled = true,
-            predictiveLookAroundMs = 400, // Reduced from 700 to save memory/cpu
-            predictiveSampleStepMs = 150,
-            predictiveCacheMaxFrames = 8, // Reduced from 12
-        )
+        applyAdaptivePreviewProfile()
         previewAudioPlayer = PreviewAudioPlayer(
             context = this,
             previewViewProvider = { previewView },
@@ -1356,6 +1366,22 @@ class MainActivity : Activity() {
             }
             "quick_import_audio" -> {
                 audioImportController?.importQuickSample()
+            }
+            "play" -> {
+                playbackController?.nativePlay()
+            }
+            "pause" -> {
+                playbackController?.nativePause()
+            }
+            "import_video_and_play" -> {
+                val path = intent?.getStringExtra("adb_path")
+                if (path != null) {
+                    importController?.setNextImportTrackType(TrackType.VIDEO)
+                    importController?.importFromPath(path)
+                    window.decorView.postDelayed({
+                        playbackController?.nativePlay()
+                    }, 5200L)
+                }
             }
             "add_text" -> {
                 addNewTextOverlay(intent?.getStringExtra("adb_text").orEmpty().ifBlank { "Hello World" })

@@ -13,6 +13,8 @@ object CrashAutoFix {
     private const val API_URL = "https://crash-fix-server.vercel.app/api/analyze"
     private const val PREFS = "crash_fix_queue"
     private const val KEY_QUEUE = "pending_crashes"
+    private const val MAX_QUEUE_SIZE = 20
+    private const val MAX_RETRY_PER_RUN = 3
 
     // Crash report karo — quota nahi hai to queue mein save ho, baad mein retry
     fun reportCrash(context: Context, throwable: Throwable) {
@@ -31,12 +33,14 @@ object CrashAutoFix {
         CoroutineScope(Dispatchers.IO).launch {
             val queue = loadQueue(context).toMutableList()
             if (queue.isEmpty()) return@launch
-            Log.d(TAG, "Retrying ${queue.size} pending crashes")
+            val batch = queue.take(MAX_RETRY_PER_RUN)
+            val tail = queue.drop(MAX_RETRY_PER_RUN)
+            Log.d(TAG, "Retrying ${batch.size} pending crashes")
             val remaining = mutableListOf<String>()
-            for (stackTrace in queue) {
+            for (stackTrace in batch) {
                 if (!sendToApi(stackTrace)) remaining.add(stackTrace)
             }
-            saveQueue(context, remaining)
+            saveQueue(context, tail + remaining)
         }
     }
 
@@ -48,13 +52,21 @@ object CrashAutoFix {
                 conn.requestMethod = "POST"
                 conn.setRequestProperty("Content-Type", "application/json")
                 conn.connectTimeout = 10000
+                conn.readTimeout = 10000
                 conn.doOutput = true
                 conn.outputStream.write(body.toByteArray())
                 val code = conn.responseCode
-                val response = conn.inputStream.bufferedReader().readText()
+                val response = (
+                    if (code in 200..299) conn.inputStream else conn.errorStream
+                    )?.bufferedReader()?.readText().orEmpty()
                 conn.disconnect()
-                Log.d(TAG, "Fix: $response")
-                code == 200  // 202 = queued on server side, treat as retry needed
+                if (code in 200..299) {
+                    Log.d(TAG, "Crash report accepted code=$code")
+                    true
+                } else {
+                    Log.w(TAG, "Crash report failed code=$code body=${response.take(120)}")
+                    false
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "API call failed: ${e.message}")
                 false
@@ -64,8 +76,9 @@ object CrashAutoFix {
 
     private fun saveToQueue(context: Context, stackTrace: String) {
         val queue = loadQueue(context).toMutableList()
+        if (queue.contains(stackTrace)) return
         queue.add(stackTrace)
-        saveQueue(context, queue)
+        saveQueue(context, queue.takeLast(MAX_QUEUE_SIZE))
     }
 
     private fun loadQueue(context: Context): List<String> {

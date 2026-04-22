@@ -31,25 +31,6 @@
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toBottomOf="parent" />
 
-        <TextView
-            android:id="@+id/timelineCurrentTimeText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:layout_marginEnd="10dp"
-            android:fontFamily="monospace"
-            android:gravity="center"
-            android:text="00:00"
-            android:textColor="@color/accent_blue"
-            android:textSize="13sp"
-            android:textStyle="bold"
-            android:visibility="gone"
-            app:layout_constraintStart_toEndOf="@id/loadProjectButton"
-            app:layout_constraintEnd_toStartOf="@id/saveProjectButton"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintHorizontal_bias="0.35" />
-
         <ImageView
             android:id="@+id/saveProjectButton"
             android:layout_width="36dp"
@@ -68,15 +49,63 @@
             android:id="@+id/aspectRatioButton"
             android:layout_width="36dp"
             android:layout_height="36dp"
+            android:layout_marginStart="8dp"
             android:background="@drawable/toolbar_item_background"
             android:contentDescription="@string/aspect_ratio_label"
             android:padding="8dp"
             android:src="@android:drawable/ic_menu_crop"
             android:tint="@color/text_primary"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toEndOf="@id/loadProjectButton"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toBottomOf="parent" />
+
+        <LinearLayout
+            android:id="@+id/editorTitleStack"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:gravity="center"
+            android:orientation="vertical"
+            app:layout_constraintStart_toEndOf="@id/aspectRatioButton"
+            app:layout_constraintEnd_toStartOf="@id/saveProjectButton"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/project_title"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@string/editor_subtitle"
+                android:textColor="@color/text_secondary"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/timelineCurrentTimeText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:gravity="center"
+            android:text="00:00"
+            android:textColor="@color/accent_blue"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            app:layout_constraintStart_toStartOf="@id/editorTitleStack"
+            app:layout_constraintEnd_toEndOf="@id/editorTitleStack"
+            app:layout_constraintTop_toTopOf="@id/editorTitleStack"
+            app:layout_constraintBottom_toBottomOf="@id/editorTitleStack" />
 
         <ImageView
             android:id="@+id/exportButton"

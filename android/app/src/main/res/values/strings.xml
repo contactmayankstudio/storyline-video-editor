@@ -15,8 +15,8 @@
     <string name="project_card_status">Ready to edit</string>
     <string name="activity_preview_label">Preview</string>
 
-    <string name="project_title">Untitled Project</string>
-    <string name="editor_subtitle">Native studio • Kotlin + C++ engine</string>
+    <string name="project_title">Storyline Studio</string>
+    <string name="editor_subtitle">Native timeline • smooth preview • layered audio</string>
     <string name="export_button">Export</string>
     <string name="play_button">Play / Pause</string>
     <string name="pro_time_default">00:00.000</string>

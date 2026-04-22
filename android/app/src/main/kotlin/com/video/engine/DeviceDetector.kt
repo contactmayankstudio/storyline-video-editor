@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.Build
 import android.util.Log
+import kotlin.math.max
 
 /**
  * Device detection and adaptive quality settings.
@@ -21,11 +22,13 @@ import android.util.Log
  */
 object DeviceDetector {
     private const val TAG = "[DeviceDetector]"
-    private const val LOCKED_PREVIEW_WIDTH = 640
-    private const val LOCKED_PREVIEW_HEIGHT = 360
-    private const val LOCKED_PREVIEW_FPS = 24
-    private const val LOCKED_EXPORT_MAX_FPS = 30
-    private const val LOCKED_EXPORT_BITRATE_KBPS = 4000
+    private const val LOW_PREVIEW_WIDTH = 640
+    private const val LOW_PREVIEW_HEIGHT = 360
+    private const val MID_PREVIEW_WIDTH = 960
+    private const val MID_PREVIEW_HEIGHT = 540
+    private const val HIGH_PREVIEW_WIDTH = 1280
+    private const val HIGH_PREVIEW_HEIGHT = 720
+    private const val GIGABYTE_BYTES = 1024L * 1024L * 1024L
 
     /**
      * Detected device tier based on RAM and API level.
@@ -45,38 +48,47 @@ object DeviceDetector {
         val previewFps: Int,
         val exportBitrate: Int,  // Kbps
         val maxExportFps: Int,
-        val glTextureSize: Int   // Max texture size
+        val glTextureSize: Int,  // Max texture size
+        val previewLongEdgePx: Int,
+        val minPreviewFps: Int,
+        val predictiveLookAroundMs: Int,
+        val predictiveSampleStepMs: Int,
+        val predictiveCacheMaxFrames: Int,
+        val proxyLongEdgePx: Int,
     )
 
     private lateinit var activityManager: ActivityManager
     private var deviceTier = DeviceTier.MID
     private var qualityProfile: QualityProfile? = null
+    private var totalRamGb = 0
+    private var memoryClassMb = 0
 
     /**
      * Initialize device detector. Call once in MainActivity.onCreate().
      */
     fun init(context: Context) {
         activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        memoryClassMb = activityManager.memoryClass
+        totalRamGb = queryDeviceRamGb()
         detectDeviceTier()
         generateQualityProfile()
         logDeviceInfo()
     }
 
     private fun detectDeviceTier() {
-        val ramGb = getDeviceRamGb()
         val apiLevel = Build.VERSION.SDK_INT
 
         deviceTier = when {
-            ramGb < 2 || apiLevel < Build.VERSION_CODES.N -> {
-                Log.w(TAG, "Low-end device detected: ${ramGb}GB RAM, API $apiLevel")
+            totalRamGb <= 2 || memoryClassMb <= 192 || apiLevel < Build.VERSION_CODES.O -> {
+                Log.w(TAG, "Low-end device detected: ${totalRamGb}GB RAM, memClass=${memoryClassMb}MB, API $apiLevel")
                 DeviceTier.LOW
             }
-            ramGb < 4 -> {
-                Log.i(TAG, "Mid-range device detected: ${ramGb}GB RAM, API $apiLevel")
+            totalRamGb <= 4 || memoryClassMb <= 256 -> {
+                Log.i(TAG, "Mid-range device detected: ${totalRamGb}GB RAM, memClass=${memoryClassMb}MB, API $apiLevel")
                 DeviceTier.MID
             }
             else -> {
-                Log.i(TAG, "High-end device detected: ${ramGb}GB RAM, API $apiLevel")
+                Log.i(TAG, "High-end device detected: ${totalRamGb}GB RAM, memClass=${memoryClassMb}MB, API $apiLevel")
                 DeviceTier.HIGH
             }
         }
@@ -85,28 +97,46 @@ object DeviceDetector {
     private fun generateQualityProfile() {
         qualityProfile = when (deviceTier) {
             DeviceTier.LOW -> QualityProfile(
-                previewWidth = LOCKED_PREVIEW_WIDTH,
-                previewHeight = LOCKED_PREVIEW_HEIGHT,
-                previewFps = LOCKED_PREVIEW_FPS,
-                exportBitrate = 1500,  // 1.5 Mbps
-                maxExportFps = LOCKED_EXPORT_MAX_FPS,
-                glTextureSize = 1024
+                previewWidth = LOW_PREVIEW_WIDTH,
+                previewHeight = LOW_PREVIEW_HEIGHT,
+                previewFps = 24,
+                exportBitrate = 2500,
+                maxExportFps = 30,
+                glTextureSize = 1024,
+                previewLongEdgePx = 320,
+                minPreviewFps = 15,
+                predictiveLookAroundMs = 420,
+                predictiveSampleStepMs = 150,
+                predictiveCacheMaxFrames = 8,
+                proxyLongEdgePx = 360,
             )
             DeviceTier.MID -> QualityProfile(
-                previewWidth = LOCKED_PREVIEW_WIDTH,
-                previewHeight = LOCKED_PREVIEW_HEIGHT,
-                previewFps = LOCKED_PREVIEW_FPS,
-                exportBitrate = LOCKED_EXPORT_BITRATE_KBPS,
-                maxExportFps = LOCKED_EXPORT_MAX_FPS,
-                glTextureSize = 2048
+                previewWidth = MID_PREVIEW_WIDTH,
+                previewHeight = MID_PREVIEW_HEIGHT,
+                previewFps = 30,
+                exportBitrate = 6000,
+                maxExportFps = 30,
+                glTextureSize = 2048,
+                previewLongEdgePx = 480,
+                minPreviewFps = 18,
+                predictiveLookAroundMs = 900,
+                predictiveSampleStepMs = 110,
+                predictiveCacheMaxFrames = 16,
+                proxyLongEdgePx = 540,
             )
             DeviceTier.HIGH -> QualityProfile(
-                previewWidth = LOCKED_PREVIEW_WIDTH,
-                previewHeight = LOCKED_PREVIEW_HEIGHT,
-                previewFps = LOCKED_PREVIEW_FPS,
-                exportBitrate = LOCKED_EXPORT_BITRATE_KBPS,
-                maxExportFps = LOCKED_EXPORT_MAX_FPS,
-                glTextureSize = 4096
+                previewWidth = HIGH_PREVIEW_WIDTH,
+                previewHeight = HIGH_PREVIEW_HEIGHT,
+                previewFps = 45,
+                exportBitrate = 12000,
+                maxExportFps = 60,
+                glTextureSize = 4096,
+                previewLongEdgePx = 720,
+                minPreviewFps = 24,
+                predictiveLookAroundMs = 1400,
+                predictiveSampleStepMs = 80,
+                predictiveCacheMaxFrames = 28,
+                proxyLongEdgePx = 720,
             )
         }
     }
@@ -114,8 +144,10 @@ object DeviceDetector {
     private fun logDeviceInfo() {
         val profile = qualityProfile ?: return
         Log.i(TAG, "Device Tier: $deviceTier")
+        Log.i(TAG, "RAM: ${totalRamGb}GB total, memoryClass=${memoryClassMb}MB")
         Log.i(TAG, "Preview: ${profile.previewWidth}x${profile.previewHeight} @ ${profile.previewFps}fps")
         Log.i(TAG, "Export: ${profile.exportBitrate}kbps @ ${profile.maxExportFps}fps")
+        Log.i(TAG, "Ghost preview long edge: ${profile.previewLongEdgePx}px")
         Log.i(TAG, "Max GL texture: ${profile.glTextureSize}")
     }
 
@@ -123,12 +155,18 @@ object DeviceDetector {
 
     fun getQualityProfile(): QualityProfile =
         qualityProfile ?: QualityProfile(
-            LOCKED_PREVIEW_WIDTH,
-            LOCKED_PREVIEW_HEIGHT,
-            LOCKED_PREVIEW_FPS,
-            LOCKED_EXPORT_BITRATE_KBPS,
-            LOCKED_EXPORT_MAX_FPS,
+            MID_PREVIEW_WIDTH,
+            MID_PREVIEW_HEIGHT,
+            30,
+            6000,
+            30,
             2048,
+            480,
+            18,
+            900,
+            110,
+            16,
+            540,
         )
 
     fun isLowEndDevice(): Boolean = deviceTier == DeviceTier.LOW
@@ -154,18 +192,33 @@ object DeviceDetector {
 
     /**
      * Get recommended preview frame rate based on device.
-     * Reduces to 24fps on low-end to prevent jank.
      */
     fun getRecommendedPreviewFps(): Int {
-        return LOCKED_PREVIEW_FPS
+        return getQualityProfile().previewFps
     }
-}
 
-/**
- * Get total device RAM in GB.
- */
-fun getDeviceRamGb(): Long {
-    val runtime = Runtime.getRuntime()
-    val maxMemory = runtime.maxMemory()
-    return maxMemory / (1024L * 1024L * 1024L)
+    fun getRecommendedMinPreviewFps(): Int = getQualityProfile().minPreviewFps
+
+    fun getRecommendedGhostLongEdgePx(): Int = getQualityProfile().previewLongEdgePx
+
+    fun getRecommendedPredictiveLookAroundMs(): Int = getQualityProfile().predictiveLookAroundMs
+
+    fun getRecommendedPredictiveSampleStepMs(): Int = getQualityProfile().predictiveSampleStepMs
+
+    fun getRecommendedPredictiveCacheMaxFrames(): Int = getQualityProfile().predictiveCacheMaxFrames
+
+    fun getRecommendedProxyLongEdgePx(): Int = getQualityProfile().proxyLongEdgePx
+
+    fun shouldPreferProxyFor(longEdgePx: Int): Boolean {
+        if (longEdgePx <= 0) return false
+        val profile = getQualityProfile()
+        return isLowEndDevice() || longEdgePx > (profile.previewWidth * 13 / 10)
+    }
+
+    private fun queryDeviceRamGb(): Int {
+        val info = ActivityManager.MemoryInfo()
+        activityManager.getMemoryInfo(info)
+        val totalBytes = max(info.totalMem, memoryClassMb.toLong() * 1024L * 1024L)
+        return ((totalBytes + GIGABYTE_BYTES - 1L) / GIGABYTE_BYTES).toInt().coerceAtLeast(1)
+    }
 }
