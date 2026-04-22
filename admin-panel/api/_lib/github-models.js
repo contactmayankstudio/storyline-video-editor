@@ -40,7 +40,7 @@ async function generateText(prompt) {
             temperature: 0.2,
             messages: [
                 {
-                    role: "developer",
+                    role: "system",
                     content: "Return only valid JSON. Do not include markdown or code fences.",
                 },
                 {
