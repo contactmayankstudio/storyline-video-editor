@@ -2,6 +2,7 @@ package com.video.engine
 
 import android.app.Activity
 import android.util.Log
+import android.view.View
 import android.widget.ImageView
 import android.widget.ImageButton
 import android.widget.LinearLayout
@@ -76,7 +77,7 @@ class UiChromeController(
     }
 
     fun setupExportButton() {
-        activity.findViewById<ImageView>(R.id.exportButton)?.setOnClickListener {
+        activity.findViewById<View>(R.id.exportButton)?.setOnClickListener {
             onShowExportDialog()
         }
         activity.findViewById<LinearLayout?>(R.id.exportButtonContainer)?.setOnClickListener {

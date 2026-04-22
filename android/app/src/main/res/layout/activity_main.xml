@@ -10,18 +10,18 @@
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/topBar"
         android:layout_width="match_parent"
-        android:layout_height="48dp"
+        android:layout_height="44dp"
         android:background="@drawable/top_bar_background"
-        android:paddingStart="6dp"
-        android:paddingEnd="6dp"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
         <ImageView
             android:id="@+id/loadProjectButton"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
             android:background="@drawable/toolbar_item_background"
             android:contentDescription="@string/back_label"
             android:padding="6dp"
@@ -33,23 +33,24 @@
 
         <LinearLayout
             android:id="@+id/editorTitleStack"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_marginEnd="8dp"
-            android:gravity="start|center_vertical"
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="6dp"
+            android:gravity="center"
             android:orientation="vertical"
             app:layout_constraintStart_toEndOf="@id/loadProjectButton"
             app:layout_constraintEnd_toStartOf="@id/topActionRail"
             app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintBottom_toBottomOf="parent">
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintHorizontal_bias="0.5">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/project_title"
                 android:textColor="@color/text_primary"
-                android:textSize="12sp"
+                android:textSize="13sp"
                 android:textStyle="bold"
                 android:fontFamily="sans-serif-medium" />
 
@@ -61,62 +62,56 @@
                 android:maxLines="1"
                 android:text="@string/editor_subtitle"
                 android:textColor="@color/text_secondary"
-                android:textSize="7.5sp"
+                android:textSize="8sp"
                 android:fontFamily="sans-serif-medium" />
         </LinearLayout>
 
         <LinearLayout
             android:id="@+id/topActionRail"
             android:layout_width="wrap_content"
-            android:layout_height="34dp"
+            android:layout_height="wrap_content"
             android:layout_marginEnd="4dp"
-            android:background="@drawable/top_action_cluster_background"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingStart="3dp"
-            android:paddingTop="3dp"
-            android:paddingEnd="3dp"
-            android:paddingBottom="3dp"
             app:layout_constraintEnd_toStartOf="@id/exportButton"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toBottomOf="parent">
 
             <ImageView
                 android:id="@+id/aspectRatioButton"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:background="@drawable/toolbar_item_background"
                 android:contentDescription="@string/aspect_ratio_label"
                 android:padding="6dp"
                 android:src="@drawable/ic_aspect_ratio_toolbar"
                 android:tint="@color/text_primary" />
 
-            <View
-                android:layout_width="1dp"
-                android:layout_height="14dp"
-                android:layout_marginStart="2dp"
-                android:layout_marginEnd="2dp"
-                android:background="@color/toolbar_divider" />
-
             <ImageView
                 android:id="@+id/saveProjectButton"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/toolbar_item_background"
                 android:contentDescription="@string/save_label"
                 android:padding="6dp"
                 android:src="@drawable/ic_save_toolbar"
-                android:tint="@color/text_secondary" />
+                android:tint="@color/text_primary" />
         </LinearLayout>
 
-        <ImageView
+        <TextView
             android:id="@+id/exportButton"
-            android:layout_width="36dp"
-            android:layout_height="34dp"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:minWidth="70dp"
             android:background="@drawable/editor_export_button_background"
-            android:contentDescription="@string/export_button"
-            android:padding="6dp"
-            android:src="@drawable/ic_export"
-            android:scaleType="centerInside"
-            android:tint="@color/text_primary"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:text="@string/export_button"
+            android:textColor="@color/text_primary"
+            android:textSize="10sp"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toBottomOf="parent" />
@@ -147,75 +142,14 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <LinearLayout
-            android:id="@+id/previewTopChromeRow"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top|center_horizontal"
-            android:layout_marginTop="10dp"
-            android:background="@drawable/preview_top_strip_background"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="6dp"
-            android:paddingTop="6dp"
-            android:paddingEnd="6dp"
-            android:paddingBottom="6dp">
-
-            <TextView
-                android:id="@+id/previewModeText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="@drawable/preview_info_chip_background"
-                android:fontFamily="sans-serif-medium"
-                android:paddingStart="10dp"
-                android:paddingTop="6dp"
-                android:paddingEnd="10dp"
-                android:paddingBottom="6dp"
-                android:text="Canvas"
-                android:textColor="@color/text_secondary"
-                android:textSize="9sp" />
-
-            <TextView
-                android:id="@+id/timelineCurrentTimeText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:background="@drawable/preview_time_chip_background"
-                android:fontFamily="monospace"
-                android:gravity="center"
-                android:paddingStart="12dp"
-                android:paddingTop="6dp"
-                android:paddingEnd="12dp"
-                android:paddingBottom="6dp"
-                android:text="00:00"
-                android:textColor="@color/text_primary"
-                android:textSize="11sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/previewAspectRatioText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:background="@drawable/preview_info_chip_background"
-                android:fontFamily="sans-serif-medium"
-                android:paddingStart="10dp"
-                android:paddingTop="6dp"
-                android:paddingEnd="10dp"
-                android:paddingBottom="6dp"
-                android:text="16:9"
-                android:textColor="@color/text_primary"
-                android:textSize="9sp" />
-        </LinearLayout>
-
         <FrameLayout
             android:id="@+id/previewStageHost"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:layout_marginStart="10dp"
-            android:layout_marginTop="48dp"
-            android:layout_marginEnd="10dp"
-            android:layout_marginBottom="82dp"
+            android:layout_marginStart="8dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginEnd="8dp"
+            android:layout_marginBottom="68dp"
             android:background="@drawable/preview_stage_frame_background" />
 
         <!-- HW telemetry (hidden by default) -->
@@ -261,47 +195,63 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|center_horizontal"
-            android:layout_marginBottom="12dp"
-            android:background="@drawable/playback_dock_background"
+            android:layout_marginBottom="10dp"
+            android:background="@drawable/timeline_panel_background"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingStart="6dp"
-            android:paddingTop="6dp"
-            android:paddingEnd="6dp"
-            android:paddingBottom="6dp">
+            android:paddingStart="4dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="4dp"
+            android:paddingBottom="4dp">
 
             <ImageButton
                 android:id="@+id/undoButton"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="@drawable/playback_control_box_background"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="@drawable/toolbar_item_background"
                 android:contentDescription="@string/undo_label"
-                android:padding="9dp"
+                android:padding="8dp"
                 android:src="@drawable/ic_undo_toolbar"
                 android:tint="@color/text_secondary" />
 
             <ImageButton
                 android:id="@+id/previewPlayPauseButton"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_marginStart="6dp"
-                android:layout_marginEnd="6dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="4dp"
                 android:background="@drawable/playback_control_primary_background"
                 android:contentDescription="@string/play_button"
-                android:padding="11dp"
+                android:padding="9dp"
                 android:src="@drawable/ic_play_toolbar"
                 android:tint="@color/text_primary" />
 
             <ImageButton
                 android:id="@+id/redoButton"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="@drawable/playback_control_box_background"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/toolbar_item_background"
                 android:contentDescription="@string/redo_label"
-                android:padding="9dp"
+                android:padding="8dp"
                 android:rotation="180"
                 android:src="@drawable/ic_undo_toolbar"
                 android:tint="@color/text_secondary" />
+
+            <TextView
+                android:id="@+id/timelineCurrentTimeText"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/toolbar_item_background"
+                android:fontFamily="monospace"
+                android:gravity="center"
+                android:minWidth="74dp"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:text="00:00"
+                android:textColor="@color/text_primary"
+                android:textSize="10sp"
+                android:textStyle="bold" />
         </LinearLayout>
 
     </FrameLayout>
