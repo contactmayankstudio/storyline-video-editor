@@ -157,6 +157,22 @@ void updatePreviewAudioSelectionCache(
     g_previewAudioSelectionCache.json = std::move(json);
 }
 
+bool shouldInvalidatePreviewAudioSelectionCacheForAction(const std::string& action) {
+    if (action.empty()) {
+        return false;
+    }
+    if (action == "SEEK" ||
+        action == "PLAY" ||
+        action == "PAUSE" ||
+        action == "SET_PREVIEW_POLICY" ||
+        action == "SET_PERFORMANCE_POLICY" ||
+        action == "SET_AUDIO_MASTER_CLOCK_ENABLED" ||
+        action == "UPDATE_AUDIO_CLOCK_US") {
+        return false;
+    }
+    return action.rfind("GET_", 0) != 0;
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -184,6 +200,9 @@ Java_com_video_engine_NativeBridge_nativeExecuteCommand(
     auto& manager = VideoEngine::Commands::CommandManager::instance();
     manager.initialize(context);
     const auto result = manager.execute(action, payloadJson);
+    if (result.success && shouldInvalidatePreviewAudioSelectionCacheForAction(action)) {
+        invalidatePreviewAudioSelectionCache();
+    }
     return env->NewStringUTF(result.toJson().c_str());
 }
 

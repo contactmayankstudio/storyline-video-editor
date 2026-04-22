@@ -1373,6 +1373,9 @@ class MainActivity : Activity() {
             "pause" -> {
                 playbackController?.nativePause()
             }
+            "delete_selected" -> {
+                performSelectedClipDeleteAction()
+            }
             "import_video_and_play" -> {
                 val path = intent?.getStringExtra("adb_path")
                 if (path != null) {
@@ -3308,6 +3311,15 @@ class MainActivity : Activity() {
         updateBottomToolbarMode()
     }
 
+    private fun resolvePostDeleteRevealTime(anchorTimeMs: Long): Long {
+        val durationMs = previewView?.getDuration()?.coerceAtLeast(0L) ?: 0L
+        return when {
+            durationMs <= 0L -> 0L
+            durationMs == 1L -> 0L
+            else -> anchorTimeMs.coerceIn(0L, durationMs - 1L)
+        }
+    }
+
     private fun trimSelectedVideoAtPlayhead(edge: String): Boolean {
         val clipId = selectedTimelineClipKey
             ?.takeIf { key ->
@@ -3474,8 +3486,10 @@ class MainActivity : Activity() {
         selectedTimelineClipKey = null
         lastLayoutFetchMs = 0L
         syncTimelineShellFromNative()
-        playbackController?.scrubTo(anchorTimeMs, syncTimelineUi = false)
-        stabilizeAfterDelete(anchorTimeMs)
+        val revealTimeMs = resolvePostDeleteRevealTime(anchorTimeMs)
+        playbackController?.scrubTo(revealTimeMs, syncTimelineUi = false)
+        stabilizeAfterDelete(revealTimeMs)
+        recordUndoDomain(UndoDomain.TIMELINE)
         safeToast("Audio deleted", Toast.LENGTH_SHORT)
         Log.d(TAG, "Audio deleted: id=$audioId")
         return true
@@ -3518,8 +3532,9 @@ class MainActivity : Activity() {
             }
             stabilizeAfterDelete(0L)
         } else {
-            playbackController?.scrubTo(anchorTimeMs, syncTimelineUi = false)
-            stabilizeAfterDelete(anchorTimeMs)
+            val revealTimeMs = resolvePostDeleteRevealTime(anchorTimeMs)
+            playbackController?.scrubTo(revealTimeMs, syncTimelineUi = false)
+            stabilizeAfterDelete(revealTimeMs)
         }
         recordUndoDomain(UndoDomain.TIMELINE)
         safeToast("Video deleted", Toast.LENGTH_SHORT)

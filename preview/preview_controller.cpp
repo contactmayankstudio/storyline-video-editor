@@ -836,44 +836,6 @@ bool PreviewController::renderTimelineFrameLocked(
             activeClip = activeVisualClips.front();
         }
 
-        if (!activeClip) {
-            int64_t bestEndMs = std::numeric_limits<int64_t>::min();
-            int bestFallbackPriority = std::numeric_limits<int>::max();
-            for (const auto& clip : m_timeline->clips()) {
-                if (!clip || !clip->getProperties().enabled) continue;
-                const auto trackRole = clip->getTrackRole();
-                const bool isVisualTrack =
-                    trackRole == Clip::TrackRole::MainVideo ||
-                    trackRole == Clip::TrackRole::Overlay;
-                if (!isVisualTrack) continue;
-                const int64_t endMs = clip->getStartTime() + std::max<int64_t>(1, clip->getDuration());
-                const int priority = visualTrackPriority(trackRole);
-                if (endMs <= clampedTimelineMs &&
-                    (priority < bestFallbackPriority ||
-                     (priority == bestFallbackPriority && endMs > bestEndMs))) {
-                    bestFallbackPriority = priority;
-                    bestEndMs = endMs;
-                    activeClip = clip;
-                }
-            }
-        }
-        if (!activeClip) {
-            int bestFirstPriority = std::numeric_limits<int>::max();
-            for (const auto& clip : m_timeline->clips()) {
-                if (!clip || !clip->getProperties().enabled) continue;
-                const auto trackRole = clip->getTrackRole();
-                const bool isVisualTrack =
-                    trackRole == Clip::TrackRole::MainVideo ||
-                    trackRole == Clip::TrackRole::Overlay;
-                if (!isVisualTrack) continue;
-                const int priority = visualTrackPriority(trackRole);
-                if (!activeClip || priority < bestFirstPriority ||
-                    (priority == bestFirstPriority && clip->getStartTime() < activeClip->getStartTime())) {
-                    bestFirstPriority = priority;
-                    activeClip = clip;
-                }
-            }
-        }
     }
 
     std::vector<std::shared_ptr<Clip>> activeCompositeClips;
@@ -909,9 +871,22 @@ bool PreviewController::renderTimelineFrameLocked(
         if (activeClip->getMediaType() == Clip::MediaType::Image) {
             predictiveAllowed = false;
         }
-    } else if (!m_decoder) {
-        setError("No active clip at timeline %lld ms", static_cast<long long>(clampedTimelineMs));
-        return false;
+    } else {
+        if (!m_renderer->renderLayers({})) {
+            setError(
+                "Blank frame render failed at timeline %lld ms: %s",
+                static_cast<long long>(clampedTimelineMs),
+                m_renderer->getLastError());
+            return false;
+        }
+        m_chromaKey = {};
+        m_hasDecodedFrame = false;
+        m_lastRenderedClipId = -1;
+        m_lastRenderedSourceMs = -1;
+        if (renderedTimelineMs) {
+            *renderedTimelineMs = clampedTimelineMs;
+        }
+        return true;
     }
 
     const bool canReuseStillImageFrame =
