@@ -4768,8 +4768,24 @@ class MainActivity : Activity() {
     private fun updateClipToolbarHeader(kind: ClipKind) {
         val header = clipToolbarContextLabel ?: findViewById<TextView?>(R.id.audioEditLabel) ?: return
         clipToolbarContextLabel = header
-        header.text = ""
-        header.visibility = View.GONE
+        if (kind == ClipKind.NONE) {
+            header.text = ""
+            header.visibility = View.GONE
+            return
+        }
+        val label = when (kind) {
+            ClipKind.VIDEO -> "VIDEO CLIP"
+            ClipKind.OVERLAY -> "OVERLAY LAYER"
+            ClipKind.AUDIO -> "AUDIO CLIP"
+            ClipKind.TEXT -> "TEXT LAYER"
+            ClipKind.STICKER -> "GRAPHIC LAYER"
+            ClipKind.NONE -> ""
+        }
+        val isLocked = selectedTrackType()?.let(::isTrackLocked) == true
+        header.text = if (isLocked) "$label • LOCKED" else label
+        header.setTextColor(if (isLocked) resources.getColor(R.color.accent_cyan) else resources.getColor(R.color.accent_blue))
+        header.alpha = if (isLocked) 0.88f else 1f
+        header.visibility = View.VISIBLE
     }
 
     private fun showClipToolPending(toolName: String) {
@@ -4928,11 +4944,71 @@ class MainActivity : Activity() {
                 else -> Unit
             }
 
+            val featuredButtons = when (kind) {
+                ClipKind.VIDEO -> setOf(
+                    R.id.clipTrimButton,
+                    R.id.clipVolumeButton,
+                    R.id.clipPanZoomButton,
+                    R.id.clipFilterButton,
+                    R.id.clipKeyframeButton,
+                )
+                ClipKind.OVERLAY -> setOf(
+                    R.id.clipTrimButton,
+                    R.id.clipPanZoomButton,
+                    R.id.clipGraphicsButton,
+                    R.id.clipChromaKeyButton,
+                )
+                ClipKind.AUDIO -> setOf(
+                    R.id.clipVolumeButton,
+                    R.id.clipBrightnessButton,
+                    R.id.clipSpeedButton,
+                    R.id.clipDuckingButton,
+                )
+                ClipKind.TEXT -> setOf(
+                    R.id.clipGraphicsButton,
+                    R.id.clipPanZoomButton,
+                    R.id.clipReplaceButton,
+                    R.id.clipKeyframeButton,
+                )
+                ClipKind.STICKER -> setOf(
+                    R.id.clipGraphicsButton,
+                    R.id.clipPanZoomButton,
+                    R.id.clipKeyframeButton,
+                )
+                ClipKind.NONE -> emptySet()
+            }
+
             clipToolbarItems.forEach { item ->
-                val button = findViewById<View>(item.buttonId)
+                val button = findViewById<LinearLayout?>(item.buttonId)
                 button?.visibility = if (visibleButtons.contains(item.buttonId)) View.VISIBLE else View.GONE
                 button?.isEnabled = visibleButtons.contains(item.buttonId)
-                findViewById<TextView>(item.labelId)?.text = labelOverrides[item.labelId] ?: item.defaultLabel
+                val label = findViewById<TextView>(item.labelId)
+                label?.text = labelOverrides[item.labelId] ?: item.defaultLabel
+                val icon = button?.getChildAt(0) as? ImageView
+                val isDestructive = item.buttonId == R.id.clipDeleteButton
+                val isFeatured = featuredButtons.contains(item.buttonId)
+                if (button != null) {
+                    when {
+                        isDestructive -> {
+                            button.setBackgroundResource(R.drawable.toolbar_item_danger_background)
+                            icon?.setColorFilter(resources.getColor(R.color.accent_cyan))
+                            label?.setTextColor(resources.getColor(R.color.accent_cyan))
+                            button.alpha = 1f
+                        }
+                        isFeatured -> {
+                            button.setBackgroundResource(R.drawable.toolbar_item_active_background)
+                            icon?.setColorFilter(resources.getColor(R.color.accent_blue))
+                            label?.setTextColor(resources.getColor(R.color.accent_blue))
+                            button.alpha = 1f
+                        }
+                        else -> {
+                            button.setBackgroundResource(R.drawable.toolbar_item_background)
+                            icon?.setColorFilter(resources.getColor(R.color.text_primary))
+                            label?.setTextColor(resources.getColor(R.color.text_primary))
+                            button.alpha = 0.94f
+                        }
+                    }
+                }
             }
 
             findViewById<HorizontalScrollView>(R.id.audioEditToolbarScroll)?.post {

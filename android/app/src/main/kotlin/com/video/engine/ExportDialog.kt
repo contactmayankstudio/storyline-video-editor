@@ -3,6 +3,7 @@ package com.video.engine
 import android.app.Activity
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Environment
 import android.text.InputType
 import android.view.Gravity
@@ -81,11 +82,12 @@ class ExportDialog(
         val recommendation = recommendExportSettings(complexity)
         val dialog = BottomSheetDialog(activity)
         val scroll = ScrollView(activity).apply {
-            setBackgroundColor(Color.parseColor("#141414"))
+            setBackgroundColor(Color.TRANSPARENT)
+            isFillViewport = true
         }
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#141414"))
+            background = sheetRootBackground()
             setPadding(dp(20), dp(14), dp(20), dp(28))
         }
         scroll.addView(
@@ -98,6 +100,13 @@ class ExportDialog(
 
         root.addView(dragHandle())
         root.addView(titleView("Export Video"))
+        root.addView(
+            subtitleView(
+                "${describeDuration(durationMs)}  •  ${complexity.visualClipCount} visual  •  " +
+                    "${complexity.audioClipCount} audio  •  ${complexity.totalOverlayLayers} overlays",
+            ),
+        )
+        recommendation.note?.let { root.addView(recommendationBanner(it)) }
 
         var selectedProfileIndex = recommendation.profileIndex
         var selectedFps = recommendation.fps
@@ -105,6 +114,7 @@ class ExportDialog(
         var watermarkUnlocked = isWatermarkUnlockedProvider()
         var selectedAspectRatioIndex = if (activity is MainActivity) activity.getSelectedAspectRatioIndex() else 0
 
+        val ratioButtons = mutableListOf<TextView>()
         val resolutionButtons = mutableListOf<TextView>()
         val fpsButtons = mutableListOf<TextView>()
         val qualityLabelsRow = mutableListOf<TextView>()
@@ -125,9 +135,11 @@ class ExportDialog(
                 selectedProfileIndex = index
                 refreshExportSummary(
                     resolutionButtons,
+                    ratioButtons,
                     fpsButtons,
                     qualityLabelsRow,
                     selectedProfileIndex,
+                    selectedAspectRatioIndex,
                     selectedFps,
                     selectedQualityIndex,
                     watermarkUnlocked,
@@ -143,7 +155,6 @@ class ExportDialog(
 
         // ── Aspect Ratio ──────────────────────────────────────────────────────
         root.addView(sectionLabel("Aspect Ratio"))
-        val ratioButtons = mutableListOf<TextView>()
         val ratioRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
@@ -152,21 +163,17 @@ class ExportDialog(
             val button = choiceButton(ratio.label)
             button.setOnClickListener {
                 selectedAspectRatioIndex = index
-                ratioButtons.forEachIndexed { i, b ->
-                    b.setBackgroundColor(if (i == index) Color.parseColor("#FF5A52") else Color.parseColor("#2A2A2A"))
-                }
                 refreshExportSummary(
-                    resolutionButtons, fpsButtons, qualityLabelsRow,
-                    selectedProfileIndex, selectedFps, selectedQualityIndex,
+                    resolutionButtons, ratioButtons, fpsButtons, qualityLabelsRow,
+                    selectedProfileIndex, selectedAspectRatioIndex, selectedFps, selectedQualityIndex,
                     watermarkUnlocked, summaryValue, summaryMeta, exportButton,
                 )
             }
             ratioButtons += button
             ratioRow.addView(button)
         }
-        // highlight default
-        ratioButtons.getOrNull(selectedAspectRatioIndex)?.setBackgroundColor(Color.parseColor("#FF5A52"))
         root.addView(ratioRow)
+        root.addView(sectionLabel("Frame Rate"))
         val fpsRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
@@ -177,9 +184,11 @@ class ExportDialog(
                 selectedFps = fps
                 refreshExportSummary(
                     resolutionButtons,
+                    ratioButtons,
                     fpsButtons,
                     qualityLabelsRow,
                     selectedProfileIndex,
+                    selectedAspectRatioIndex,
                     selectedFps,
                     selectedQualityIndex,
                     watermarkUnlocked,
@@ -201,8 +210,8 @@ class ExportDialog(
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
             setSingleLine(true)
             setTextColor(Color.WHITE)
-            setHintTextColor(Color.parseColor("#7C7C7C"))
-            setBackgroundColor(Color.parseColor("#1F1F1F"))
+            setHintTextColor(Color.parseColor("#6F7E8B"))
+            background = inputBackground()
             setPadding(dp(14), dp(12), dp(14), dp(12))
         }
         root.addView(titleInput)
@@ -221,7 +230,7 @@ class ExportDialog(
         }
         val bitrateCurrent = TextView(activity).apply {
             textSize = 14f
-            setTextColor(Color.parseColor("#FF8A80"))
+            setTextColor(accentWarm())
         }
         qualityTitleRow.addView(qualityCurrent)
         qualityTitleRow.addView(bitrateCurrent)
@@ -230,7 +239,7 @@ class ExportDialog(
         val qualitySeek = SeekBar(activity).apply {
             max = qualityLabels.lastIndex
             progress = selectedQualityIndex
-            progressTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#FF5A52"))
+            progressTintList = android.content.res.ColorStateList.valueOf(accentBlue())
             thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
         }
         root.addView(qualitySeek)
@@ -257,7 +266,7 @@ class ExportDialog(
         val watermarkCard = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(Color.parseColor("#1F1F1F"))
+            background = surfaceCard()
             setPadding(dp(16), dp(14), dp(16), dp(14))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -308,9 +317,11 @@ class ExportDialog(
                     refreshWatermarkState(watermarkUnlocked, watermarkStatus, watermarkAction)
                     refreshExportSummary(
                         resolutionButtons,
+                        ratioButtons,
                         fpsButtons,
                         qualityLabelsRow,
                         selectedProfileIndex,
+                        selectedAspectRatioIndex,
                         selectedFps,
                         selectedQualityIndex,
                         watermarkUnlocked,
@@ -325,7 +336,7 @@ class ExportDialog(
 
         val summaryCard = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#1F1F1F"))
+            background = surfaceCard()
             setPadding(dp(16), dp(14), dp(16), dp(14))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -335,7 +346,7 @@ class ExportDialog(
         val summaryCaption = TextView(activity).apply {
             text = "Export Summary"
             textSize = 12f
-            setTextColor(Color.parseColor("#9A9A9A"))
+            setTextColor(Color.parseColor("#8E9AA6"))
         }
         summaryValue = TextView(activity).apply {
             textSize = 20f
@@ -403,9 +414,11 @@ class ExportDialog(
                 selectedQualityIndex = progress.coerceIn(0, qualityLabels.lastIndex)
                 refreshExportSummary(
                     resolutionButtons,
+                    ratioButtons,
                     fpsButtons,
                     qualityLabelsRow,
                     selectedProfileIndex,
+                    selectedAspectRatioIndex,
                     selectedFps,
                     selectedQualityIndex,
                     watermarkUnlocked,
@@ -425,9 +438,11 @@ class ExportDialog(
 
         refreshExportSummary(
             resolutionButtons,
+            ratioButtons,
             fpsButtons,
             qualityLabelsRow,
             selectedProfileIndex,
+            selectedAspectRatioIndex,
             selectedFps,
             selectedQualityIndex,
             watermarkUnlocked,
@@ -446,9 +461,11 @@ class ExportDialog(
 
     private fun refreshExportSummary(
         resolutionButtons: List<TextView>,
+        ratioButtons: List<TextView>,
         fpsButtons: List<TextView>,
         qualityLabelsRow: List<TextView>,
         selectedProfileIndex: Int,
+        selectedAspectRatioIndex: Int,
         selectedFps: Int,
         selectedQualityIndex: Int,
         watermarkUnlocked: Boolean,
@@ -459,26 +476,31 @@ class ExportDialog(
         resolutionButtons.forEachIndexed { index, button ->
             styleChoiceButton(button, index == selectedProfileIndex)
         }
+        ratioButtons.forEachIndexed { index, button ->
+            styleChoiceButton(button, index == selectedAspectRatioIndex)
+        }
         fpsButtons.forEachIndexed { index, button ->
             styleChoiceButton(button, if (index == 0) selectedFps == 24 else selectedFps == 30)
         }
         qualityLabelsRow.forEachIndexed { index, label ->
             label.setTextColor(
                 when {
-                    index == selectedQualityIndex -> Color.WHITE
-                    else -> Color.parseColor("#7C7C7C")
+                    index == selectedQualityIndex -> accentBlue()
+                    else -> Color.parseColor("#74808C")
                 }
             )
             label.setTypeface(null, if (index == selectedQualityIndex) Typeface.BOLD else Typeface.NORMAL)
         }
 
         val profile = profiles[selectedProfileIndex]
-        val effectiveSettings = resolveEffectiveExportSettings(profile, selectedFps, selectedQualityIndex)
+        val ratio = aspectRatios[selectedAspectRatioIndex]
+        val effectiveSettings = resolveEffectiveExportSettings(profile, selectedFps, selectedQualityIndex, ratio.w, ratio.h)
         val estimatedSize = estimateOutputSize(durationMs, effectiveSettings.bitrateMbps)
-        summaryValue.text = "${profile.label} • ${qualityLabels[selectedQualityIndex]} • ${effectiveSettings.fps}fps"
+        summaryValue.text = "${profile.label} • ${ratio.label} • ${qualityLabels[selectedQualityIndex]}"
         summaryMeta.text =
-            "${effectiveSettings.bitrateMbps} Mbps  •  ${if (watermarkUnlocked) "No watermark" else "Watermark ON"}  •  Estimated ${formatSize(estimatedSize)}"
-        exportButton.text = "Export"
+            "${effectiveSettings.fps}fps  •  ${effectiveSettings.bitrateMbps} Mbps  •  " +
+                "${if (watermarkUnlocked) "No watermark" else "Watermark ON"}  •  ${formatSize(estimatedSize)}"
+        exportButton.text = "Start Export"
     }
 
     private fun refreshWatermarkState(
@@ -683,9 +705,25 @@ class ExportDialog(
         }
     }
 
+    private fun describeDuration(durationMs: Long): String {
+        if (durationMs <= 0L) return "Quick export"
+        val totalSec = (durationMs / 1000L).coerceAtLeast(0L)
+        val minutes = totalSec / 60L
+        val seconds = totalSec % 60L
+        return if (minutes > 0) {
+            String.format(Locale.US, "%d:%02d timeline", minutes, seconds)
+        } else {
+            String.format(Locale.US, "%ds timeline", seconds)
+        }
+    }
+
     private fun dragHandle(): View =
         View(activity).apply {
-            setBackgroundColor(Color.parseColor("#565656"))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(999).toFloat()
+                setColor(Color.parseColor("#4A5561"))
+            }
             layoutParams = LinearLayout.LayoutParams(dp(42), dp(4)).also {
                 it.gravity = Gravity.CENTER_HORIZONTAL
                 it.bottomMargin = dp(14)
@@ -695,7 +733,7 @@ class ExportDialog(
     private fun titleView(textValue: String): TextView =
         TextView(activity).apply {
             text = textValue
-            textSize = 20f
+            textSize = 22f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
@@ -705,9 +743,9 @@ class ExportDialog(
         TextView(activity).apply {
             text = textValue
             textSize = 12f
-            setTextColor(Color.parseColor("#A0A0A0"))
+            setTextColor(Color.parseColor("#8E99A5"))
             gravity = Gravity.CENTER
-            setPadding(0, dp(6), 0, dp(18))
+            setPadding(0, dp(8), 0, dp(16))
         }
 
     private fun sectionLabel(textValue: String): TextView =
@@ -715,7 +753,7 @@ class ExportDialog(
             text = textValue
             textSize = 12f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#9A9A9A"))
+            setTextColor(Color.parseColor("#8E99A5"))
             setPadding(0, dp(12), 0, dp(8))
         }
 
@@ -723,8 +761,8 @@ class ExportDialog(
         TextView(activity).apply {
             text = textValue
             textSize = 12f
-            setTextColor(Color.parseColor("#FFD9C7"))
-            setBackgroundColor(Color.parseColor("#2A1C18"))
+            setTextColor(Color.parseColor("#FFD4A5"))
+            background = warningCard()
             setPadding(dp(14), dp(12), dp(14), dp(12))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -746,9 +784,7 @@ class ExportDialog(
         }
 
     private fun styleChoiceButton(button: TextView, selected: Boolean) {
-        button.setBackgroundColor(
-            if (selected) Color.parseColor("#FF5A52") else Color.parseColor("#232323"),
-        )
+        button.background = chipBackground(selected)
         button.setTextColor(if (selected) Color.WHITE else Color.parseColor("#D8D8D8"))
         button.setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
     }
@@ -760,12 +796,81 @@ class ExportDialog(
             gravity = Gravity.CENTER
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor(textColor))
-            setBackgroundColor(Color.parseColor(backgroundColor))
+            background = if (backgroundColor.equals("#FF5A52", ignoreCase = true)) {
+                primaryButtonBackground()
+            } else {
+                secondaryButtonBackground()
+            }
             setPadding(dp(16), dp(14), dp(16), dp(14))
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).also {
                 it.marginStart = dp(4)
                 it.marginEnd = dp(4)
             }
+        }
+
+    private fun accentBlue(): Int = Color.parseColor("#6FDBFF")
+
+    private fun accentWarm(): Int = Color.parseColor("#FFB257")
+
+    private fun sheetRootBackground(): GradientDrawable =
+        GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadii = floatArrayOf(dp(26).toFloat(), dp(26).toFloat(), dp(26).toFloat(), dp(26).toFloat(), 0f, 0f, 0f, 0f)
+            setColor(Color.parseColor("#0B0F13"))
+            setStroke(dp(1), Color.parseColor("#1B222A"))
+        }
+
+    private fun surfaceCard(): GradientDrawable =
+        GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(18).toFloat()
+            setColor(Color.parseColor("#131920"))
+            setStroke(dp(1), Color.parseColor("#252F38"))
+        }
+
+    private fun inputBackground(): GradientDrawable =
+        GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(16).toFloat()
+            setColor(Color.parseColor("#11161C"))
+            setStroke(dp(1), Color.parseColor("#27323B"))
+        }
+
+    private fun chipBackground(selected: Boolean): GradientDrawable =
+        GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(15).toFloat()
+            if (selected) {
+                setColor(Color.parseColor("#152330"))
+                setStroke(dp(1), accentBlue())
+            } else {
+                setColor(Color.parseColor("#12171D"))
+                setStroke(dp(1), Color.parseColor("#252F38"))
+            }
+        }
+
+    private fun primaryButtonBackground(): GradientDrawable =
+        GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(16).toFloat()
+            setColor(Color.parseColor("#12171D"))
+            setStroke(dp(1), accentWarm())
+        }
+
+    private fun secondaryButtonBackground(): GradientDrawable =
+        GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(16).toFloat()
+            setColor(Color.parseColor("#11161C"))
+            setStroke(dp(1), Color.parseColor("#27323B"))
+        }
+
+    private fun warningCard(): GradientDrawable =
+        GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(16).toFloat()
+            setColor(Color.parseColor("#17120E"))
+            setStroke(dp(1), Color.parseColor("#5A4121"))
         }
 
     private fun dp(value: Int): Int =
