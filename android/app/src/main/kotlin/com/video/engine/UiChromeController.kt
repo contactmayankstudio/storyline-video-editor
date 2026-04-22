@@ -57,8 +57,8 @@ class UiChromeController(
         val playPauseButton = activity.findViewById<ImageButton>(R.id.previewPlayPauseButton)
         fun syncPlayPauseIcon() {
             playPauseButton?.setImageResource(
-                if (isPlayingProvider()) android.R.drawable.ic_media_pause
-                else android.R.drawable.ic_media_play,
+                if (isPlayingProvider()) R.drawable.ic_pause_toolbar
+                else R.drawable.ic_play_toolbar,
             )
         }
         syncPlayPauseIcon()

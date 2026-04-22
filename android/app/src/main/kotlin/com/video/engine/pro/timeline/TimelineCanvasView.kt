@@ -52,46 +52,47 @@ class TimelineCanvasView @JvmOverloads constructor(
     private var totalContentWidthPx: Float = 0f
 
     // ── Layout constants ──────────────────────────────────────────────────────
-    private val rulerHeightPx = dp(24)
-    private val trackHeightPx = dp(40)
-    private val trackGapPx = dp(2)
-    private val headerWidthPx = dp(56)
-    private val handleWidthPx = dp(14)
+    private val rulerHeightPx = dp(22)
+    private val trackHeightPx = dp(36)
+    private val trackGapPx = dp(4)
+    private val headerWidthPx = dp(50)
+    private val handleWidthPx = dp(12)
     private val snapThresholdPx = dp(12).toFloat()
     private val minClipWidthPx = dp(4).toFloat()
 
     // ── Paints ────────────────────────────────────────────────────────────────
-    private val bgPaint = Paint().apply { color = Color.parseColor("#1A1A1A") }
-    private val rulerPaint = Paint().apply { color = Color.parseColor("#2A2A2A") }
+    private val bgPaint = Paint().apply { color = Color.parseColor("#06080B") }
+    private val rulerPaint = Paint().apply { color = Color.parseColor("#090D12") }
     private val rulerTickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#555555"); strokeWidth = 1f
+        color = Color.parseColor("#28303A"); strokeWidth = 1f
     }
     private val rulerTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#888888"); textSize = dp(9).toFloat(); textAlign = Paint.Align.CENTER
+        color = Color.parseColor("#74808D"); textSize = dp(8.5f); textAlign = Paint.Align.CENTER
     }
-    private val headerPaint = Paint().apply { color = Color.parseColor("#1A1A1A") }
+    private val headerPaint = Paint().apply { color = Color.parseColor("#070A0E") }
     private val headerTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#BBBBBB"); textSize = dp(9).toFloat(); textAlign = Paint.Align.CENTER
+        color = Color.parseColor("#E7EDF3"); textSize = dp(8f); textAlign = Paint.Align.CENTER
         isFakeBoldText = true
     }
     private val clipPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val clipStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = dp(2).toFloat(); color = Color.WHITE
+        style = Paint.Style.STROKE; strokeWidth = dp(2).toFloat(); color = Color.parseColor("#87D9FF")
     }
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
     private val playheadPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#FF4444"); strokeWidth = dp(2).toFloat()
+        color = Color.parseColor("#FFB56B"); strokeWidth = dp(2).toFloat()
     }
     private val snapLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#FFD700"); strokeWidth = dp(1).toFloat()
+        color = Color.parseColor("#6FDBFF"); strokeWidth = dp(1).toFloat()
     }
     private val clipTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE; textSize = dp(10).toFloat()
+        color = Color.WHITE; textSize = dp(9).toFloat()
         setShadowLayer(2f, 0f, 1f, Color.BLACK)
     }
 
     private val clipRect = RectF()
     private val handleRect = RectF()
+    private val laneRect = RectF()
 
     // ── Extra paints ──────────────────────────────────────────────────────────
     private val tooltipBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#CC000000") }
@@ -99,24 +100,34 @@ class TimelineCanvasView @JvmOverloads constructor(
         color = Color.WHITE; textSize = dp(11).toFloat(); textAlign = Paint.Align.CENTER
     }
     private val durationTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#CCFFFFFF"); textSize = dp(9).toFloat(); textAlign = Paint.Align.CENTER
+        color = Color.parseColor("#D6E0EA"); textSize = dp(8).toFloat(); textAlign = Paint.Align.CENTER
     }
-    private val transitionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#FFD700") }
+    private val transitionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#FFB56B") }
     private val plusPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#444444"); style = Paint.Style.FILL
+        color = Color.parseColor("#171C22"); style = Paint.Style.FILL
     }
     private val plusTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#888888"); textSize = dp(18).toFloat(); textAlign = Paint.Align.CENTER
+        color = Color.parseColor("#9EABB8"); textSize = dp(15).toFloat(); textAlign = Paint.Align.CENTER
     }
     private val trackVisibilityPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#666666"); textSize = dp(8).toFloat(); textAlign = Paint.Align.CENTER
+        color = Color.parseColor("#7E8A97"); textSize = dp(7.5f); textAlign = Paint.Align.CENTER
     }
     private val trackLockPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#8B94A5"); strokeWidth = dp(1.5f)
         style = Paint.Style.STROKE
     }
     private val trackLockedOverlayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#40000000")
+        color = Color.parseColor("#32000000")
+    }
+    private val trackLanePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val trackLaneStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1).toFloat()
+    }
+    private val headerCellPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val headerDividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#171D25")
+        strokeWidth = dp(1).toFloat()
     }
 
     // ── Long press state ──────────────────────────────────────────────────────
@@ -283,6 +294,7 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     private fun drawRuler(canvas: Canvas) {
         canvas.drawRect(0f, 0f, width.toFloat(), rulerHeightPx.toFloat(), rulerPaint)
+        canvas.drawLine(headerWidthPx.toFloat(), 0f, headerWidthPx.toFloat(), height.toFloat(), headerDividerPaint)
         val stepMs = rulerStepMs()
         val startMs = xToMs(headerWidthPx.toFloat()).let { it - it % stepMs }
         var ms = startMs
@@ -313,18 +325,23 @@ class TimelineCanvasView @JvmOverloads constructor(
         canvas.drawRect(0f, rulerHeightPx.toFloat(), headerWidthPx.toFloat(), height.toFloat(), headerPaint)
         tracks.forEachIndexed { i, track ->
             val top = trackTop(i).toFloat()
-            val mid = top + trackHeightPx / 2f
+            val bottom = top + trackHeightPx
             val label = when (track.type) {
-                TrackType.VIDEO -> "VID"
-                TrackType.OVERLAY -> "OVR"
-                TrackType.TEXT -> "TXT"
-                TrackType.AUDIO -> "AUD"
+                TrackType.VIDEO -> "V1"
+                TrackType.OVERLAY -> "O1"
+                TrackType.TEXT -> "T1"
+                TrackType.AUDIO -> "A1"
             }
             val isVisible = trackVisible[track.type] != false
             val isLocked = trackLocked[track.type] == true
+            laneRect.set(dp(4).toFloat(), top + dp(1), headerWidthPx.toFloat() - dp(4), bottom - dp(1))
+            headerCellPaint.color = trackLaneFill(track.type, isLocked)
+            canvas.drawRoundRect(laneRect, dp(8).toFloat(), dp(8).toFloat(), headerCellPaint)
+            trackLaneStrokePaint.color = trackLaneStroke(track.type)
+            canvas.drawRoundRect(laneRect, dp(8).toFloat(), dp(8).toFloat(), trackLaneStrokePaint)
             headerTextPaint.alpha = if (isVisible) 255 else 110
-            canvas.drawText(label, headerWidthPx / 2f, top + dp(16), headerTextPaint)
-            trackVisibilityPaint.color = if (isVisible) Color.parseColor("#9EF0C2") else Color.parseColor("#666666")
+            canvas.drawText(label, headerWidthPx / 2f, top + dp(13), headerTextPaint)
+            trackVisibilityPaint.color = if (isVisible) Color.parseColor("#6FDBFF") else Color.parseColor("#6C7480")
             canvas.drawText(if (isVisible) "●" else "○", headerVisibilityX(), headerToggleY(i), trackVisibilityPaint)
             drawLockIcon(
                 canvas = canvas,
@@ -442,6 +459,11 @@ class TimelineCanvasView @JvmOverloads constructor(
         tracks.forEachIndexed { i, track ->
             val top = trackTop(i).toFloat()
             val bottom = top + trackHeightPx
+            laneRect.set(headerWidthPx.toFloat() + dp(4), top + dp(1), width.toFloat() - dp(4), bottom - dp(1))
+            trackLanePaint.color = trackLaneFill(track.type, trackLocked[track.type] == true)
+            canvas.drawRoundRect(laneRect, dp(8).toFloat(), dp(8).toFloat(), trackLanePaint)
+            trackLaneStrokePaint.color = trackLaneStroke(track.type)
+            canvas.drawRoundRect(laneRect, dp(8).toFloat(), dp(8).toFloat(), trackLaneStrokePaint)
             track.clips.forEach { clip ->
                 val ct = clipTop(i, clip)
                 val cb = clipBottom(i, clip)
@@ -527,10 +549,27 @@ class TimelineCanvasView @JvmOverloads constructor(
     }
 
     private fun clipColor(clip: ClipSegment) = when (clip.trackType) {
-        TrackType.VIDEO -> Color.parseColor("#1B5E20")   // dark green for primary video track
-        TrackType.OVERLAY -> Color.parseColor("#0D47A1") // dark blue
-        TrackType.TEXT -> Color.parseColor("#4A148C")    // dark purple
-        TrackType.AUDIO -> Color.parseColor("#BF360C")   // dark orange
+        TrackType.VIDEO -> Color.parseColor("#23634C")
+        TrackType.OVERLAY -> Color.parseColor("#335D89")
+        TrackType.TEXT -> Color.parseColor("#6C45A3")
+        TrackType.AUDIO -> Color.parseColor("#9A5C2F")
+    }
+
+    private fun trackLaneFill(trackType: TrackType, locked: Boolean): Int {
+        val base = when (trackType) {
+            TrackType.VIDEO -> "#0D1713"
+            TrackType.OVERLAY -> "#0D141C"
+            TrackType.TEXT -> "#14111B"
+            TrackType.AUDIO -> "#18120D"
+        }
+        return Color.parseColor(if (locked) "#0B0E12" else base)
+    }
+
+    private fun trackLaneStroke(trackType: TrackType): Int = when (trackType) {
+        TrackType.VIDEO -> Color.parseColor("#1E2E28")
+        TrackType.OVERLAY -> Color.parseColor("#1D2835")
+        TrackType.TEXT -> Color.parseColor("#2A2036")
+        TrackType.AUDIO -> Color.parseColor("#32261A")
     }
 
     private fun drawEmptyTrackButtons(canvas: Canvas) {
@@ -541,8 +580,8 @@ class TimelineCanvasView @JvmOverloads constructor(
                 val btnX = headerWidthPx + dp(24).toFloat()
                 val r = dp(14).toFloat()
                 val isLocked = trackLocked[track.type] == true
-                plusPaint.color = if (isLocked) Color.parseColor("#2A2A2A") else Color.parseColor("#444444")
-                plusTextPaint.color = if (isLocked) Color.parseColor("#666666") else Color.parseColor("#888888")
+                plusPaint.color = if (isLocked) Color.parseColor("#11151A") else Color.parseColor("#1A2027")
+                plusTextPaint.color = if (isLocked) Color.parseColor("#626B74") else Color.parseColor("#D7E0E8")
                 canvas.drawCircle(btnX, mid, r, plusPaint)
                 canvas.drawText(if (isLocked) "x" else "+", btnX, mid + dp(6), plusTextPaint)
                 // hint label
@@ -551,14 +590,14 @@ class TimelineCanvasView @JvmOverloads constructor(
                         "Unlock to add"
                     } else {
                         when (track.type) {
-                            TrackType.VIDEO -> "Tap + to add video"
-                            TrackType.OVERLAY -> "Tap + to add overlay"
-                            TrackType.TEXT -> "Tap + to add text"
-                            TrackType.AUDIO -> "Tap + to add audio"
+                            TrackType.VIDEO -> "Add video"
+                            TrackType.OVERLAY -> "Add overlay"
+                            TrackType.TEXT -> "Add title"
+                            TrackType.AUDIO -> "Add audio"
                         }
                     }
                 val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = Color.parseColor("#555555")
+                    color = Color.parseColor("#616B76")
                     textSize = dp(9).toFloat()
                 }
                 canvas.drawText(hint, btnX + r + dp(8), mid + dp(4), hintPaint)
