@@ -2,16 +2,54 @@ package com.video.engine.pro.model
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
 
 enum class TrackType {
     TEXT,
     OVERLAY,
+    LAYER,
     VIDEO,
     AUDIO,
     ;
 
+    fun displayName(): String = when (this) {
+        TEXT -> "Text"
+        OVERLAY -> "Overlay"
+        LAYER -> "Layer"
+        VIDEO -> "Video"
+        AUDIO -> "Audio"
+    }
+
+    fun nativeRoleName(): String = when (this) {
+        TEXT -> "TEXT"
+        OVERLAY, LAYER -> "OVERLAY"
+        VIDEO -> "VIDEO"
+        AUDIO -> "AUDIO"
+    }
+
+    fun isOverlayLike(): Boolean = this == OVERLAY || this == LAYER
+
+    fun usesVisualMediaImport(): Boolean = this == VIDEO || isOverlayLike()
+
+    fun defaultZOrder(clipCount: Int): Int = when (this) {
+        TEXT -> 400 + clipCount
+        OVERLAY -> 200 + clipCount
+        LAYER -> 120 + clipCount
+        AUDIO -> 0
+        VIDEO -> clipCount - 1
+    }
+
     companion object {
-        fun displayOrder(): List<TrackType> = listOf(TEXT, OVERLAY, VIDEO, AUDIO)
+        fun displayOrder(): List<TrackType> = listOf(TEXT, OVERLAY, LAYER, VIDEO, AUDIO)
+
+        fun fromNativeRole(trackTypeRaw: String?, zOrder: Int = 0): TrackType {
+            return when (trackTypeRaw?.uppercase(Locale.US)) {
+                "OVERLAY" -> if (zOrder in 100 until 200) LAYER else OVERLAY
+                "TEXT", "TEXT_STICKER" -> TEXT
+                "AUDIO" -> AUDIO
+                else -> VIDEO
+            }
+        }
     }
 }
 

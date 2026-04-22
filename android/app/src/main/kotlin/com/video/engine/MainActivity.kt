@@ -96,13 +96,7 @@ class MainActivity : Activity() {
     private fun activeMultiTrackTimelineView() =
         multiTrackTimelineView?.takeIf { it.visibility == View.VISIBLE }
 
-    private fun trackDisplayName(trackType: TrackType): String =
-        when (trackType) {
-            TrackType.VIDEO -> "Video"
-            TrackType.OVERLAY -> "Overlay"
-            TrackType.TEXT -> "Text"
-            TrackType.AUDIO -> "Audio"
-        }
+    private fun trackDisplayName(trackType: TrackType): String = trackType.displayName()
 
     private fun isTrackLocked(trackType: TrackType): Boolean =
         trackLockedOverrides[trackType] == true
@@ -125,6 +119,15 @@ class MainActivity : Activity() {
         val suffix = actionName?.let { " for $it" }.orEmpty()
         safeToast("${trackDisplayName(trackType)} track locked$suffix", Toast.LENGTH_SHORT)
         return false
+    }
+
+    private fun normalizeTrackZOrder(trackType: TrackType, requestedZ: Int): Int {
+        return when (trackType) {
+            TrackType.LAYER -> requestedZ.coerceIn(100, 199)
+            TrackType.OVERLAY -> requestedZ.coerceAtLeast(200)
+            TrackType.TEXT -> requestedZ.coerceAtLeast(400)
+            else -> requestedZ
+        }
     }
 
     // ANR-safe executeCommand: always runs on background thread, posts UI callback on main thread
@@ -649,6 +652,7 @@ class MainActivity : Activity() {
                 when (trackType) {
                     TrackType.VIDEO -> openVideoTrackImport()
                     TrackType.OVERLAY -> openOverlayTrackImport()
+                    TrackType.LAYER -> openLayerTrackImport()
                     TrackType.TEXT -> showAddTextDialog()
                     TrackType.AUDIO -> openAudioTrackImport()
                 }
@@ -879,7 +883,11 @@ class MainActivity : Activity() {
                 multiTrackTimelineView?.revealClip(clipKey)
                 multiTrackTimelineView?.setCurrentTimeMs(revealTimeMs)
                 Log.d(TAG, "Clip import complete: id=$clipId track=$trackType duration=${importedDurationMs}ms ext=$fileExtension")
-                val toastLabel = if (trackType == TrackType.OVERLAY) "Overlay" else "Clip"
+                val toastLabel = when (trackType) {
+                    TrackType.OVERLAY -> "Overlay"
+                    TrackType.LAYER -> "Layer"
+                    else -> "Clip"
+                }
                 safeToast("$toastLabel added (ID: $clipId)", Toast.LENGTH_SHORT)
                 revealTimeMs
             },
@@ -1081,6 +1089,7 @@ class MainActivity : Activity() {
             },
             onOpenVideoImportPicker = { openVideoTrackImport() },
             onOpenOverlayImportPicker = { openOverlayTrackImport() },
+            onOpenLayerImportPicker = { openLayerTrackImport() },
             onQuickImport = {
                 if (!ensureTrackEditable(TrackType.VIDEO, "import")) {
                     false
@@ -2623,14 +2632,8 @@ class MainActivity : Activity() {
         refreshMainTimelineTracks()
     }
 
-    private fun mapNativeTrackType(trackTypeRaw: String?): TrackType {
-        return when (trackTypeRaw?.uppercase(Locale.US)) {
-            "OVERLAY" -> TrackType.OVERLAY
-            "TEXT", "TEXT_STICKER" -> TrackType.TEXT
-            "AUDIO" -> TrackType.AUDIO
-            else -> TrackType.VIDEO
-        }
-    }
+    private fun mapNativeTrackType(trackTypeRaw: String?, zOrder: Int = 0): TrackType =
+        TrackType.fromNativeRole(trackTypeRaw, zOrder)
 
     private fun buildTimelineShellClipsFromNativeCache(): List<com.video.engine.timeline.TimelineClip> {
         val nativeIds = linkedSetOf<Int>().apply {
@@ -2656,6 +2659,10 @@ class MainActivity : Activity() {
                     TrackType.OVERLAY -> {
                         val sourcePath = nativeClipSourcePath[clipId].orEmpty()
                         File(sourcePath).nameWithoutExtension.takeIf { it.isNotBlank() } ?: "Overlay $clipId"
+                    }
+                    TrackType.LAYER -> {
+                        val sourcePath = nativeClipSourcePath[clipId].orEmpty()
+                        File(sourcePath).nameWithoutExtension.takeIf { it.isNotBlank() } ?: "Layer $clipId"
                     }
                     else -> {
                         val sourcePath = nativeClipSourcePath[clipId].orEmpty()
@@ -2728,9 +2735,10 @@ class MainActivity : Activity() {
                     val clipJson = clipsJson.optJSONObject(index) ?: continue
                     val clipId = clipJson.optInt("clipId", -1)
                     if (clipId <= 0 || !validClipIds.contains(clipId)) continue
-                    nextTrackType[clipId] = mapNativeTrackType(clipJson.optString("trackType", "VIDEO"))
+                    val clipZOrder = clipJson.optInt("zOrder", 0)
+                    nextTrackType[clipId] = mapNativeTrackType(clipJson.optString("trackType", "VIDEO"), clipZOrder)
                     nextLane[clipId] = clipJson.optInt("trackLane", 0).coerceAtLeast(0)
-                    nextZOrder[clipId] = clipJson.optInt("zOrder", 0)
+                    nextZOrder[clipId] = clipZOrder
                     nextStartMs[clipId] = clipJson.optLong("startTimeMs", 0L).coerceAtLeast(0L)
                     val durationMs = clipJson.optLong("durationMs", 0L).coerceAtLeast(1L)
                     nextDurationMs[clipId] = durationMs
@@ -2782,7 +2790,11 @@ class MainActivity : Activity() {
                 nativeClipCurveSpeedStrength.clear(); nativeClipCurveSpeedStrength.putAll(nextCurveSpeedStrength)
                 nativeClipAudioGainKeyframes.clear(); nativeClipAudioGainKeyframes.putAll(nextAudioGainKeyframes)
                 videoClipGainOverrides.keys
-                    .filter { clipId -> nextTrackType[clipId] != TrackType.VIDEO && nextTrackType[clipId] != TrackType.OVERLAY }
+                    .filter { clipId ->
+                        nextTrackType[clipId] != TrackType.VIDEO &&
+                            nextTrackType[clipId] != TrackType.OVERLAY &&
+                            nextTrackType[clipId] != TrackType.LAYER
+                    }
                     .toList()
                     .forEach { videoClipGainOverrides.remove(it) }
                 audioClipGainOverrides.keys
@@ -2792,7 +2804,7 @@ class MainActivity : Activity() {
                 nextVolumeGain.forEach { (clipId, gain) ->
                     when (nextTrackType[clipId]) {
                         TrackType.AUDIO -> audioClipGainOverrides[clipId] = gain
-                        TrackType.VIDEO, TrackType.OVERLAY -> videoClipGainOverrides[clipId] = gain
+                        TrackType.VIDEO, TrackType.OVERLAY, TrackType.LAYER -> videoClipGainOverrides[clipId] = gain
                         else -> Unit
                     }
                 }
@@ -2806,7 +2818,7 @@ class MainActivity : Activity() {
                 nextDuckingEnabled.forEach { (clipId, enabled) ->
                     val key = when (nextTrackType[clipId]) {
                         TrackType.AUDIO -> "audio-$clipId"
-                        TrackType.VIDEO, TrackType.OVERLAY -> clipId.toString()
+                        TrackType.VIDEO, TrackType.OVERLAY, TrackType.LAYER -> clipId.toString()
                         else -> return@forEach
                     }
                     duckingEnabledForKey[key] = enabled
@@ -2899,6 +2911,7 @@ class MainActivity : Activity() {
             val title = when (trackType) {
                 TrackType.AUDIO -> "Audio ${index + 1}"
                 TrackType.OVERLAY -> "Overlay ${index + 1}"
+                TrackType.LAYER -> "Layer ${index + 1}"
                 else -> "Clip ${index + 1}"
             }
             com.video.engine.timeline.TimelineClip(
@@ -3155,6 +3168,7 @@ class MainActivity : Activity() {
                 when (trackType) {
                     TrackType.VIDEO -> openVideoTrackImport()
                     TrackType.OVERLAY -> openOverlayTrackImport()
+                    TrackType.LAYER -> openLayerTrackImport()
                     TrackType.TEXT -> showAddTextDialog()
                     TrackType.AUDIO -> openAudioTrackImport()
                 }
@@ -3198,6 +3212,17 @@ class MainActivity : Activity() {
     private fun openOverlayTrackImport() {
         if (!ensureTrackEditable(TrackType.OVERLAY, "import")) return
         importController?.setNextImportTrackType(TrackType.OVERLAY)
+        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("video/*", "image/*"))
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        startActivityForResult(intent, PICK_VIDEO_REQUEST)
+    }
+
+    private fun openLayerTrackImport() {
+        if (!ensureTrackEditable(TrackType.LAYER, "import")) return
+        importController?.setNextImportTrackType(TrackType.LAYER)
         val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
             type = "*/*"
             putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("video/*", "image/*"))
@@ -3305,6 +3330,9 @@ class MainActivity : Activity() {
         val overlayManagerClips = managerClips.filter { clip ->
             nativeClipTrackType[clip.id] == TrackType.OVERLAY
         }
+        val layerManagerClips = managerClips.filter { clip ->
+            nativeClipTrackType[clip.id] == TrackType.LAYER
+        }
         val audioManagerClips = managerClips.filter { clip ->
             nativeClipTrackType[clip.id] == TrackType.AUDIO
         }
@@ -3383,6 +3411,40 @@ class MainActivity : Activity() {
             isVisible = resolvedTrackVisibility(
                 TrackType.OVERLAY,
                 overlayManagerClips.any { timelineManager?.getClipVisibility(it.id) ?: true } || overlayManagerClips.isEmpty(),
+            ),
+        )
+        val layerTrack = TrackState(
+            id = "main-layer",
+            type = TrackType.LAYER,
+            clips = withAutoSubTracks(
+                layerManagerClips.map { clip ->
+                    val timing = videoClipTimingOverrides[clip.id]
+                    val nativeStartTimeMs = nativeClipStartMs[clip.id] ?: currentTimeMs
+                    val nativeDuration = nativeClipDurationMs[clip.id] ?: clip.durationMs
+                    val durationMs = timing?.durationMs ?: nativeDuration
+                    val startTimeMs = timing?.startTimeMs ?: nativeStartTimeMs
+                    val sourceInMs = timing?.sourceInMs ?: (nativeClipSourceInMs[clip.id] ?: 0L)
+                    val sourceOutMs = timing?.sourceOutMs ?: (nativeClipSourceOutMs[clip.id] ?: (sourceInMs + durationMs))
+                    ClipSegment(
+                        id = "layer-${clip.id}",
+                        sourcePath = nativeClipSourcePath[clip.id].orEmpty().ifBlank { clip.title },
+                        trackType = TrackType.LAYER,
+                        startTimeMs = startTimeMs,
+                        durationMs = durationMs,
+                        sourceInMs = sourceInMs,
+                        sourceOutMs = sourceOutMs,
+                        zOrder = nativeClipZOrder[clip.id] ?: (timelineManager?.getClipLayerIndex(clip.id) ?: 120),
+                        isHidden = !(timelineManager?.getClipVisibility(clip.id) ?: true),
+                        metadata = mapOf(
+                            "subTrack" to ((nativeClipLane[clip.id] ?: 0) + 1).toString(),
+                        ),
+                    )
+                },
+            ),
+            isLocked = resolvedTrackLocked(TrackType.LAYER),
+            isVisible = resolvedTrackVisibility(
+                TrackType.LAYER,
+                layerManagerClips.any { timelineManager?.getClipVisibility(it.id) ?: true } || layerManagerClips.isEmpty(),
             ),
         )
         val topLayerTrack = TrackState(
@@ -3472,7 +3534,7 @@ class MainActivity : Activity() {
                 } || audioManagerClips.isEmpty(),
             ),
         )
-        val trackStates = listOf(topLayerTrack, overlayTrack, videoTrack, audioTrack)
+        val trackStates = listOf(topLayerTrack, overlayTrack, layerTrack, videoTrack, audioTrack)
         val selectedClipKey =
             selectedTimelineClipKey ?: timelineManager?.getSelectedClipId()?.let(::selectionKeyForNativeClipId)
 
@@ -3602,7 +3664,7 @@ class MainActivity : Activity() {
                     val c = clipsJson.optJSONObject(i) ?: continue
                     val id = c.optInt("clipId", -1)
                     if (id <= 0) continue
-                    nativeClipTrackType[id] = mapNativeTrackType(c.optString("trackType", "VIDEO"))
+                    nativeClipTrackType[id] = mapNativeTrackType(c.optString("trackType", "VIDEO"), c.optInt("zOrder", 0))
                     nativeClipStartMs[id] = c.optLong("startTimeMs", 0L)
                     nativeClipDurationMs[id] = c.optLong("durationMs", 1L).coerceAtLeast(1L)
                     nativeClipSourceInMs[id] = c.optLong("sourceInMs", 0L)
@@ -3624,13 +3686,18 @@ class MainActivity : Activity() {
                 "edit",
                 "split_rejected",
                 JSONObject()
-                    .put("trackType", TrackType.VIDEO.name)
+                    .put("trackType", selectedTrackType()?.name ?: TrackType.VIDEO.name)
                     .put("playheadMs", targetTimeMs)
                     .put("selectedClipKey", selectedTimelineClipKey ?: JSONObject.NULL),
             )
             return false
         }
-        val clipLabel = if (isOverlayNativeClip(clipId)) "Overlay" else "Video"
+        val clipTrackType = nativeClipTrackType[clipId] ?: TrackType.VIDEO
+        val clipLabel = when (clipTrackType) {
+            TrackType.LAYER -> "Layer"
+            TrackType.OVERLAY -> "Overlay"
+            else -> "Video"
+        }
         val result = runCatching {
             NativeBridge.executeCommand(
                 action = "SPLIT",
@@ -3645,7 +3712,7 @@ class MainActivity : Activity() {
                 "edit",
                 "split_failed",
                 JSONObject()
-                    .put("trackType", if (isOverlayNativeClip(clipId)) TrackType.OVERLAY.name else TrackType.VIDEO.name)
+                    .put("trackType", clipTrackType.name)
                     .put("playheadMs", targetTimeMs)
                     .put("targetClipId", clipId)
                     .put("message", "Native command returned null"),
@@ -3659,7 +3726,7 @@ class MainActivity : Activity() {
                 "edit",
                 "split_failed",
                 JSONObject()
-                    .put("trackType", if (isOverlayNativeClip(clipId)) TrackType.OVERLAY.name else TrackType.VIDEO.name)
+                    .put("trackType", clipTrackType.name)
                     .put("playheadMs", targetTimeMs)
                     .put("targetClipId", clipId)
                     .put("message", result.message),
@@ -3718,7 +3785,7 @@ class MainActivity : Activity() {
             "edit",
             "split_success",
             JSONObject()
-                .put("trackType", if (isOverlayNativeClip(clipId)) TrackType.OVERLAY.name else TrackType.VIDEO.name)
+                .put("trackType", clipTrackType.name)
                 .put("playheadMs", targetTimeMs)
                 .put("targetClipId", clipId)
                 .put("leftClipId", result.data.optInt("leftClipId", -1))
@@ -4270,6 +4337,7 @@ class MainActivity : Activity() {
         if (clipKey.isNullOrBlank()) return null
         return when {
             clipKey.startsWith("overlay-") -> clipKey.removePrefix("overlay-").toIntOrNull()
+            clipKey.startsWith("layer-") -> clipKey.removePrefix("layer-").toIntOrNull()
             else -> clipKey.toIntOrNull()
         }
     }
@@ -4279,6 +4347,7 @@ class MainActivity : Activity() {
         return when {
             clipKey.startsWith("audio-") -> clipKey.removePrefix("audio-").toIntOrNull()
             clipKey.startsWith("overlay-") -> clipKey.removePrefix("overlay-").toIntOrNull()
+            clipKey.startsWith("layer-") -> clipKey.removePrefix("layer-").toIntOrNull()
             else -> clipKey.toIntOrNull()
         }
     }
@@ -4287,6 +4356,7 @@ class MainActivity : Activity() {
         return when (nativeClipTrackType[clipId]) {
             TrackType.AUDIO -> "audio-$clipId"
             TrackType.OVERLAY -> "overlay-$clipId"
+            TrackType.LAYER -> "layer-$clipId"
             else -> clipId.toString()
         }
     }
@@ -4295,14 +4365,18 @@ class MainActivity : Activity() {
         return nativeClipTrackType[clipId] == TrackType.OVERLAY
     }
 
+    private fun isLayerNativeClip(clipId: Int): Boolean {
+        return nativeClipTrackType[clipId] == TrackType.LAYER
+    }
+
     private fun selectedClipKind(): ClipKind {
         val key = selectedTimelineClipKey ?: return ClipKind.NONE
         return when {
             key.startsWith("audio-") -> ClipKind.AUDIO
             key.startsWith("text-") -> ClipKind.TEXT
             key.startsWith("sticker-") -> ClipKind.STICKER
-            key.toIntOrNull()?.let { isOverlayNativeClip(it) } == true -> ClipKind.OVERLAY
-            key.startsWith("overlay-") -> ClipKind.OVERLAY
+            key.startsWith("overlay-") || key.startsWith("layer-") -> ClipKind.OVERLAY
+            key.toIntOrNull()?.let { isOverlayNativeClip(it) || isLayerNativeClip(it) } == true -> ClipKind.OVERLAY
             key.toIntOrNull() != null -> ClipKind.VIDEO
             else -> ClipKind.NONE
         }
@@ -4311,7 +4385,9 @@ class MainActivity : Activity() {
     private fun selectedTrackType(): TrackType? {
         return when (selectedClipKind()) {
             ClipKind.VIDEO -> TrackType.VIDEO
-            ClipKind.OVERLAY -> TrackType.OVERLAY
+            ClipKind.OVERLAY -> parseNativeClipId(selectedTimelineClipKey)
+                ?.let { nativeClipTrackType[it] }
+                ?: TrackType.OVERLAY
             ClipKind.AUDIO -> TrackType.AUDIO
             ClipKind.TEXT, ClipKind.STICKER -> TrackType.TEXT
             ClipKind.NONE -> null
@@ -4360,7 +4436,11 @@ class MainActivity : Activity() {
     }
 
     private fun selectedNativeClipLabel(): String {
-        return if (selectedClipKind() == ClipKind.OVERLAY) "Overlay" else "Video"
+        return when (selectedTrackType()) {
+            TrackType.LAYER -> "Layer"
+            TrackType.OVERLAY -> "Overlay"
+            else -> "Video"
+        }
     }
 
     private fun deleteTextOverlayById(
@@ -4498,19 +4578,20 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this)
             .setTitle("$clipLabel Layer")
             .setItems(options) { _, which ->
-                val nextZ = when (which) {
+                val requestedZ = when (which) {
                     0 -> currentZ + 1
                     1 -> currentZ - 1
                     2 -> maxZ + 1
                     3 -> minZ - 1
                     else -> currentZ
                 }
+                val nextZ = normalizeTrackZOrder(trackType, requestedZ)
                 val result = runCatching {
                     NativeBridge.executeCommand(
                         action = "SET_CLIP_TRACK",
                         params = mapOf(
                             "clipId" to clipId,
-                            "trackType" to trackType.name,
+                            "trackType" to trackType.nativeRoleName(),
                             "trackLane" to currentLane,
                             "zOrder" to nextZ,
                         ),
@@ -4563,7 +4644,9 @@ class MainActivity : Activity() {
             addAll(nativeClipDurationMs.keys)
             addAll(timelineManager?.getClips().orEmpty().map { it.id })
             timelineManager?.getSelectedClipId()?.let { add(it) }
-        }.filter { nativeClipTrackType[it] != TrackType.OVERLAY }
+        }.filter {
+            nativeClipTrackType[it] != TrackType.OVERLAY && nativeClipTrackType[it] != TrackType.LAYER
+        }
 
         val matchingIds = candidateClipIds
             .filter(::clipContainsPlayhead)
@@ -4734,6 +4817,7 @@ class MainActivity : Activity() {
             key.startsWith("text-") -> "Text Clip"
             key.startsWith("sticker-") -> "Overlay Clip"
             key.startsWith("overlay-") -> "Overlay Clip"
+            key.startsWith("layer-") -> "Layer Clip"
             else -> "Video Clip"
         }
     }
@@ -4773,15 +4857,16 @@ class MainActivity : Activity() {
             header.visibility = View.GONE
             return
         }
+        val selectedTrackType = selectedTrackType()
         val label = when (kind) {
             ClipKind.VIDEO -> "VIDEO CLIP"
-            ClipKind.OVERLAY -> "OVERLAY LAYER"
+            ClipKind.OVERLAY -> if (selectedTrackType == TrackType.LAYER) "MEDIA LAYER" else "OVERLAY LAYER"
             ClipKind.AUDIO -> "AUDIO CLIP"
             ClipKind.TEXT -> "TEXT LAYER"
             ClipKind.STICKER -> "GRAPHIC LAYER"
             ClipKind.NONE -> ""
         }
-        val isLocked = selectedTrackType()?.let(::isTrackLocked) == true
+        val isLocked = selectedTrackType?.let(::isTrackLocked) == true
         header.text = if (isLocked) "$label • LOCKED" else label
         header.setTextColor(if (isLocked) resources.getColor(R.color.accent_cyan) else resources.getColor(R.color.accent_blue))
         header.alpha = if (isLocked) 0.88f else 1f
@@ -4801,7 +4886,7 @@ class MainActivity : Activity() {
     private fun applyTrackVisibilityChange(trackType: TrackType, isVisible: Boolean) {
         trackVisibilityOverrides[trackType] = isVisible
         when (trackType) {
-            TrackType.VIDEO, TrackType.OVERLAY -> {
+            TrackType.VIDEO, TrackType.OVERLAY, TrackType.LAYER -> {
                 nativeClipTrackType
                     .filterValues { it == trackType }
                     .keys
@@ -5276,11 +5361,15 @@ class MainActivity : Activity() {
             }
             ClipKind.OVERLAY -> {
                 val clipId = selectedVideoClipId() ?: run {
-                    safeToast("Select overlay clip first", Toast.LENGTH_SHORT)
+                    safeToast("Select ${selectedNativeClipLabel().lowercase(Locale.US)} clip first", Toast.LENGTH_SHORT)
                     return
                 }
                 pendingVideoReplaceClipId = clipId
-                openOverlayTrackImport()
+                if (selectedTrackType() == TrackType.LAYER) {
+                    openLayerTrackImport()
+                } else {
+                    openOverlayTrackImport()
+                }
             }
             ClipKind.AUDIO -> {
                 val audioId = selectedAudioClipId() ?: return
@@ -5912,7 +6001,7 @@ class MainActivity : Activity() {
             ClipKind.AUDIO -> showClipToolPending("Layer")
             ClipKind.OVERLAY -> {
                 val clipId = selectedVideoClipId() ?: return
-                showNativeClipLayerSheet(clipId, "Overlay")
+                showNativeClipLayerSheet(clipId, selectedNativeClipLabel())
             }
             ClipKind.NONE -> Toast.makeText(this@MainActivity, "Select clip first", Toast.LENGTH_SHORT).show()
         }

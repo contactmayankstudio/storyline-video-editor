@@ -52,11 +52,11 @@ class TimelineCanvasView @JvmOverloads constructor(
     private var totalContentWidthPx: Float = 0f
 
     // ── Layout constants ──────────────────────────────────────────────────────
-    private val rulerHeightPx = dp(22)
-    private val trackHeightPx = dp(36)
-    private val trackGapPx = dp(4)
-    private val headerWidthPx = dp(50)
-    private val handleWidthPx = dp(12)
+    private val rulerHeightPx = dp(20)
+    private val trackHeightPx = dp(31)
+    private val trackGapPx = dp(2)
+    private val headerWidthPx = dp(46)
+    private val handleWidthPx = dp(10)
     private val snapThresholdPx = dp(12).toFloat()
     private val minClipWidthPx = dp(4).toFloat()
 
@@ -329,6 +329,7 @@ class TimelineCanvasView @JvmOverloads constructor(
             val label = when (track.type) {
                 TrackType.VIDEO -> "V1"
                 TrackType.OVERLAY -> "O1"
+                TrackType.LAYER -> "L1"
                 TrackType.TEXT -> "T1"
                 TrackType.AUDIO -> "A1"
             }
@@ -434,7 +435,7 @@ class TimelineCanvasView @JvmOverloads constructor(
     private val clipThumbnailKeys = mutableMapOf<String, String>()
 
     private fun requestThumbnails(clip: ClipSegment) {
-        if (clip.trackType != TrackType.VIDEO && clip.trackType != TrackType.OVERLAY) return
+        if (clip.trackType != TrackType.VIDEO && !clip.trackType.isOverlayLike()) return
         if (clip.sourcePath.isBlank()) return
         val left = msToX(clip.startTimeMs)
         val right = msToX(clip.startTimeMs + clip.durationMs)
@@ -490,7 +491,7 @@ class TimelineCanvasView @JvmOverloads constructor(
 
         // Draw thumbnails
         val thumbs = clipThumbnails[clip.id]
-        if (!thumbs.isNullOrEmpty() && (clip.trackType == TrackType.VIDEO || clip.trackType == TrackType.OVERLAY)) {
+        if (!thumbs.isNullOrEmpty() && (clip.trackType == TrackType.VIDEO || clip.trackType.isOverlayLike())) {
             val clipW = right - left
             val tileW = clipW / thumbs.size
             canvas.save()
@@ -551,6 +552,7 @@ class TimelineCanvasView @JvmOverloads constructor(
     private fun clipColor(clip: ClipSegment) = when (clip.trackType) {
         TrackType.VIDEO -> Color.parseColor("#23634C")
         TrackType.OVERLAY -> Color.parseColor("#335D89")
+        TrackType.LAYER -> Color.parseColor("#2F6970")
         TrackType.TEXT -> Color.parseColor("#6C45A3")
         TrackType.AUDIO -> Color.parseColor("#9A5C2F")
     }
@@ -559,6 +561,7 @@ class TimelineCanvasView @JvmOverloads constructor(
         val base = when (trackType) {
             TrackType.VIDEO -> "#0D1713"
             TrackType.OVERLAY -> "#0D141C"
+            TrackType.LAYER -> "#0C1618"
             TrackType.TEXT -> "#14111B"
             TrackType.AUDIO -> "#18120D"
         }
@@ -568,6 +571,7 @@ class TimelineCanvasView @JvmOverloads constructor(
     private fun trackLaneStroke(trackType: TrackType): Int = when (trackType) {
         TrackType.VIDEO -> Color.parseColor("#1E2E28")
         TrackType.OVERLAY -> Color.parseColor("#1D2835")
+        TrackType.LAYER -> Color.parseColor("#1C3135")
         TrackType.TEXT -> Color.parseColor("#2A2036")
         TrackType.AUDIO -> Color.parseColor("#32261A")
     }
@@ -592,6 +596,7 @@ class TimelineCanvasView @JvmOverloads constructor(
                         when (track.type) {
                             TrackType.VIDEO -> "Add video"
                             TrackType.OVERLAY -> "Add overlay"
+                            TrackType.LAYER -> "Add layer"
                             TrackType.TEXT -> "Add title"
                             TrackType.AUDIO -> "Add audio"
                         }

@@ -31,6 +31,7 @@ class UiChromeController(
     private val onRedo: () -> Unit,
     private val onOpenVideoImportPicker: () -> Unit,
     private val onOpenOverlayImportPicker: () -> Unit,
+    private val onOpenLayerImportPicker: () -> Unit,
     private val onQuickImport: () -> Boolean,
     private val onQuickOverlayImport: () -> Boolean,
     private val onShowAudioPicker: () -> Unit,
@@ -118,6 +119,21 @@ class UiChromeController(
             true
         }
 
+        activity.findViewById<LinearLayout>(R.id.layersButton).setOnClickListener {
+            Log.d(TAG, "Layer import button clicked")
+            onOpenLayerImportPicker()
+        }
+        activity.findViewById<LinearLayout>(R.id.layersButton).setOnLongClickListener {
+            val layerItems = mutableListOf<LayerItem>()
+            editorStateProvider()?.buildLayerDescriptors().orEmpty().forEach { descriptor ->
+                layerControllerProvider()?.buildLayerItem(descriptor)?.let { item ->
+                    layerItems += item
+                }
+            }
+            LayersPanel(activity, layerItems).show()
+            true
+        }
+
         activity.findViewById<LinearLayout>(R.id.audioButton).setOnClickListener {
             Log.d(TAG, "Audio button clicked")
             onShowAudioPicker()
@@ -189,16 +205,6 @@ class UiChromeController(
                     Log.d("[IMAGE]", "added path=$imagePath")
                 },
             ).show()
-        }
-
-        bindOptionalLinearButton("layersButton", "Layers button not found in layout") {
-            val layerItems = mutableListOf<LayerItem>()
-            editorStateProvider()?.buildLayerDescriptors().orEmpty().forEach { descriptor ->
-                layerControllerProvider()?.buildLayerItem(descriptor)?.let { item ->
-                    layerItems += item
-                }
-            }
-            LayersPanel(activity, layerItems).show()
         }
 
         bindOptionalLinearButton("transitionButton", "Transition button not found") {

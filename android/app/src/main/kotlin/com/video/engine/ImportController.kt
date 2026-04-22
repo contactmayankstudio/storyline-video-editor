@@ -86,7 +86,7 @@ class ImportController(
         // Heavy JNI (FFmpeg open + probe) — run off main thread
         Thread {
             Log.d(TAG, "Attempting NativeBridge.addClip for: $importPath")
-            val clipId = NativeBridge.addClip(previewView, importPath, trackType = trackType.name)
+            val clipId = NativeBridge.addClip(previewView, importPath, trackType = trackType.nativeRoleName())
             Log.d(TAG, "NativeBridge.addClip result clipId: $clipId")
             if (clipId <= 0) {
                 if (importRetryCount >= maxImportRetries) {
@@ -114,12 +114,7 @@ class ImportController(
                 val timelineManager = timelineManagerProvider()
                 timelineManager?.syncClips(timeline.getClips())
                 val clipCount = timelineManager?.getClips()?.size ?: 0
-                val layerIndex = when (trackType) {
-                    TrackType.OVERLAY -> 200 + clipCount
-                    TrackType.TEXT -> 400 + clipCount
-                    TrackType.AUDIO -> 0
-                    TrackType.VIDEO -> clipCount - 1
-                }
+                val layerIndex = trackType.defaultZOrder(clipCount)
                 timelineManager?.setClipLayerIndex(clipId, layerIndex)
                 timelineManager?.setClipVisibility(clipId, true)
                 timelineManager?.selectClip(clipId)
@@ -148,7 +143,7 @@ class ImportController(
     }
 
     private fun maybeStartGhostProxyBuild(clipId: Int, importPath: String, trackType: TrackType) {
-        if (trackType != TrackType.VIDEO) {
+        if (trackType != TrackType.VIDEO && trackType != TrackType.LAYER) {
             return
         }
         val longEdgePx = resolveVideoLongEdgePx(importPath) ?: return
@@ -315,7 +310,7 @@ class ImportController(
     private fun supportsTrackImport(file: File, trackType: TrackType): Boolean {
         val extension = file.extension.lowercase()
         return when (trackType) {
-            TrackType.VIDEO, TrackType.OVERLAY -> extension in VIDEO_EXTENSIONS || extension in IMAGE_EXTENSIONS
+            TrackType.VIDEO, TrackType.OVERLAY, TrackType.LAYER -> extension in VIDEO_EXTENSIONS || extension in IMAGE_EXTENSIONS
             TrackType.AUDIO -> extension in setOf("mp3", "aac", "wav", "flac", "ogg", "m4a", "wma", "opus")
             TrackType.TEXT -> false
         }

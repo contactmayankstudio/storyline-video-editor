@@ -53,8 +53,8 @@ class MultiTrackTimelineView @JvmOverloads constructor(
 
     companion object {
         private const val RULER_HEIGHT_DP = 16
-        private const val TRACK_ROW_HEIGHT_DP = 38
-        private const val TRACK_HEADER_WIDTH_DP = 60
+        private const val TRACK_ROW_HEIGHT_DP = 32
+        private const val TRACK_HEADER_WIDTH_DP = 54
         private const val MIN_CLIP_WIDTH_DP = 52
         private const val PAYLOAD_SELECTION = "selection"
     }
@@ -658,6 +658,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
             text = when (trackType) {
                 TrackType.VIDEO -> "VID"
                 TrackType.OVERLAY -> "OVR"
+                TrackType.LAYER -> "LYR"
                 TrackType.TEXT -> "TXT"
                 TrackType.AUDIO -> "AUD"
             }
@@ -1663,6 +1664,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
             return when (trackType) {
                 TrackType.VIDEO -> Color.parseColor("#3E5BFF")
                 TrackType.OVERLAY -> Color.parseColor("#1FA774")
+                TrackType.LAYER -> Color.parseColor("#2A8FA0")
                 TrackType.TEXT -> Color.parseColor("#A14DFF")
                 TrackType.AUDIO -> {
                     val clip = boundClip
@@ -1690,6 +1692,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                     }
                 }
                 TrackType.TEXT -> lanePrefix + clip.sourcePath.ifBlank { clip.id }
+                TrackType.LAYER -> lanePrefix + clip.sourcePath.substringAfterLast('/').ifBlank { clip.id }
                 TrackType.OVERLAY -> lanePrefix + clip.sourcePath.substringAfterLast('/').ifBlank { clip.id }
                 TrackType.VIDEO -> lanePrefix + clip.sourcePath.substringAfterLast('/').ifBlank { clip.id }
             }
@@ -1733,7 +1736,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
 
         private fun drawVideoThumbnails(canvas: Canvas) {
             val clip = boundClip ?: return
-            if (clip.trackType != TrackType.VIDEO && clip.trackType != TrackType.OVERLAY) return
+            if (clip.trackType != TrackType.VIDEO && !clip.trackType.isOverlayLike()) return
             if (boundVideoThumbnails.isEmpty()) return
             val tileCount = boundVideoThumbnails.size
             val tileWidth = (width.toFloat() / tileCount.coerceAtLeast(1)).coerceAtLeast(dpPx(20).toFloat())
@@ -1754,7 +1757,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
         }
 
         private fun maybeRequestVideoThumbnails(clip: ClipSegment) {
-            if (clip.trackType != TrackType.VIDEO && clip.trackType != TrackType.OVERLAY) {
+            if (clip.trackType != TrackType.VIDEO && !clip.trackType.isOverlayLike()) {
                 boundVideoThumbnails = emptyList()
                 thumbnailRequestKey = null
                 return

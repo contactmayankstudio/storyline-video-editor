@@ -44,6 +44,7 @@ object ProjectSessionMutator {
             when (track.type) {
                 TrackType.VIDEO -> track.copy(clips = normalizeVideoMagnetic(track.clips))
                 TrackType.OVERLAY -> track.copy(clips = repackOverlayLanes(track.clips, zOrderBase = 200))
+                TrackType.LAYER -> track.copy(clips = repackOverlayLanes(track.clips, zOrderBase = 120))
                 TrackType.TEXT -> track.copy(clips = normalizeTextTopLayer(repackOverlayLanes(track.clips, zOrderBase = 400)))
                 TrackType.AUDIO -> track.copy(
                     clips = track.clips.sortedWith(compareBy<ClipSegment> { it.startTimeMs }.thenBy { it.id }),
@@ -86,6 +87,7 @@ object ProjectSessionMutator {
         val clipWithTrackDefaults = when (trackType) {
             TrackType.TEXT -> clip.copy(zOrder = maxOf(clip.zOrder, 400))
             TrackType.OVERLAY -> clip.copy(zOrder = maxOf(clip.zOrder, 200))
+            TrackType.LAYER -> clip.copy(zOrder = maxOf(clip.zOrder, 120))
             else -> clip
         }
         val updated = session.copy(

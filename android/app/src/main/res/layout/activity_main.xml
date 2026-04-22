@@ -252,9 +252,9 @@
             android:id="@+id/timelineLayout"
             android:layout_width="match_parent"
             android:layout_height="194dp"
-            android:layout_marginStart="6dp"
-            android:layout_marginTop="6dp"
-            android:layout_marginEnd="6dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginEnd="4dp"
             android:background="@drawable/timeline_panel_background">
 
             <com.video.engine.pro.timeline.TimelineCanvasView
@@ -310,10 +310,10 @@
             android:id="@+id/normalToolbarScroll"
             android:layout_width="match_parent"
             android:layout_height="@dimen/studio_toolbar_height"
-            android:layout_marginStart="6dp"
-            android:layout_marginTop="6dp"
-            android:layout_marginEnd="6dp"
-            android:layout_marginBottom="6dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginEnd="4dp"
+            android:layout_marginBottom="4dp"
             android:background="@drawable/toolbar_strip_background"
             android:scrollbars="none"
             android:clipToPadding="false">
@@ -324,13 +324,13 @@
                 android:layout_height="match_parent"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:paddingStart="6dp"
-                android:paddingEnd="6dp">
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp">
 
                 <LinearLayout android:id="@+id/transitionButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_transition"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Flow"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Trans"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/voiceoverButton"
@@ -342,7 +342,7 @@
                 <LinearLayout android:id="@+id/colorGradingButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_filter"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Grade"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Color"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/cutButton"
@@ -366,13 +366,13 @@
                 <LinearLayout android:id="@+id/textButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_text"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Title"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Text"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/effectsButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_fx"/>
-                    <TextView style="@style/ToolbarLabel" android:text="FX"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Effect"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/stickersButton"
@@ -383,8 +383,8 @@
 
                 <LinearLayout android:id="@+id/layersButton"
                     style="@style/ToolbarItem">
-                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_layers"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Layers"/>
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_add_layer"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Layer+"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/exportButtonContainer"
@@ -402,10 +402,10 @@
             android:id="@+id/audioEditToolbarScroll"
             android:layout_width="match_parent"
             android:layout_height="@dimen/studio_toolbar_height"
-            android:layout_marginStart="6dp"
-            android:layout_marginTop="6dp"
-            android:layout_marginEnd="6dp"
-            android:layout_marginBottom="6dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginEnd="4dp"
+            android:layout_marginBottom="4dp"
             android:background="@drawable/toolbar_strip_background"
             android:scrollbars="none"
             android:elevation="8dp"
@@ -417,8 +417,8 @@
                 android:layout_height="match_parent"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:paddingStart="6dp"
-                android:paddingEnd="6dp">
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp">
 
                 <TextView android:id="@+id/audioEditLabel"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
