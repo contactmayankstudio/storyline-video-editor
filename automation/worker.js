@@ -366,14 +366,23 @@ function writeFile(filePath, contents) {
 }
 
 function currentChangedFiles() {
-    return git("status --porcelain")
+    const tracked = git("diff --name-only --relative")
         .stdout
         .trim()
         .split("\n")
-        .filter(Boolean)
-        .map((line) => line.slice(3).trim())
-        .map((filePath) => filePath.includes(" -> ") ? filePath.split(" -> ").pop().trim() : filePath)
         .filter(Boolean);
+    const staged = git("diff --cached --name-only --relative")
+        .stdout
+        .trim()
+        .split("\n")
+        .filter(Boolean);
+    const untracked = git("ls-files --others --exclude-standard")
+        .stdout
+        .trim()
+        .split("\n")
+        .filter(Boolean);
+
+    return Array.from(new Set([...tracked, ...staged, ...untracked]));
 }
 
 function buildFailureExcerpt(output) {
@@ -384,6 +393,18 @@ function buildFailureExcerpt(output) {
 function configureGitIdentity() {
     git('config user.name "storyline-automation[bot]"');
     git('config user.email "storyline-automation[bot]@users.noreply.github.com"');
+}
+
+function syncCommitWithRemote() {
+    git(`fetch origin ${shellQuote(AUTOMATION_TARGET_BRANCH)}`);
+    const rebaseResult = git(`rebase origin/${AUTOMATION_TARGET_BRANCH}`, { allowFailure: true });
+
+    if (rebaseResult.code === 0) {
+        return;
+    }
+
+    git("rebase --abort", { allowFailure: true });
+    throw new Error(`git rebase failed\n${rebaseResult.stdout}\n${rebaseResult.stderr}`);
 }
 
 function pushChanges(commitMessage) {
@@ -399,7 +420,7 @@ function pushChanges(commitMessage) {
 
     configureGitIdentity();
     git(`remote set-url origin https://x-access-token:${AUTOMATION_PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git`);
-    git(`add ${changedFiles.map(shellQuote).join(" ")}`);
+    git(`add -- ${changedFiles.map(shellQuote).join(" ")}`);
     const commitResult = git(`commit -m ${shellQuote(commitMessage)}`, { allowFailure: true });
 
     if (commitResult.code !== 0) {
@@ -410,6 +431,7 @@ function pushChanges(commitMessage) {
         throw new Error(`git commit failed\n${commitResult.stdout}\n${commitResult.stderr}`);
     }
 
+    syncCommitWithRemote();
     git(`push origin HEAD:${AUTOMATION_TARGET_BRANCH}`);
     return git("rev-parse HEAD").stdout.trim();
 }
