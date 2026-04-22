@@ -30,6 +30,15 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
 
+      - name: Restore google-services.json
+        run: |
+          if [ -z "${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}" ]; then
+            echo "Missing repository secret ANDROID_GOOGLE_SERVICES_JSON"
+            echo "Add the full contents of android/app/google-services.json as a GitHub Actions secret."
+            exit 1
+          fi
+          printf '%s' '${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}' > app/google-services.json
+
       - name: Build debug APK
         run: ./gradlew assembleDebug
 
