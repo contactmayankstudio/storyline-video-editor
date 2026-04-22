@@ -46,3 +46,4 @@ Makefile
 **/.env
 **/.env.*
 crash-fix-server/.env
+.vercel
