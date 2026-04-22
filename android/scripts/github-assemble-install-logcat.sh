@@ -275,7 +275,19 @@ echo "Using APK: ${local_apk}"
 adb start-server >/dev/null
 adb wait-for-device
 adb logcat -c || true
-adb install -r "$local_apk"
+install_output=""
+if ! install_output="$(adb install -r "$local_apk" 2>&1)"; then
+    echo "$install_output"
+    if grep -q "INSTALL_FAILED_UPDATE_INCOMPATIBLE" <<<"$install_output"; then
+        echo "Existing install signature mismatch detected. Uninstalling ${APP_ID} and retrying..."
+        adb uninstall "$APP_ID" || true
+        adb install "$local_apk"
+    else
+        exit 1
+    fi
+else
+    echo "$install_output"
+fi
 adb shell am force-stop "$APP_ID" || true
 adb shell am start -n "${APP_ID}/${LAUNCH_ACTIVITY}"
 sleep 4
