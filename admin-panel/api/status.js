@@ -1,5 +1,5 @@
 const { getConfig, getLatestRunSummary } = require("./_lib/github");
-const { getGeminiApiKey } = require("./_lib/gemini");
+const { getAiConfig } = require("./_lib/ai");
 
 module.exports = async function handler(req, res) {
     if (req.method !== "GET") {
@@ -7,7 +7,8 @@ module.exports = async function handler(req, res) {
     }
 
     const githubConfig = getConfig();
-    const geminiConfigured = Boolean(getGeminiApiKey());
+    const aiConfig = getAiConfig();
+    const geminiConfigured = Boolean(aiConfig.providers.find((provider) => provider.id === "gemini")?.configured);
 
     try {
         let build = null;
@@ -26,6 +27,9 @@ module.exports = async function handler(req, res) {
             config: {
                 githubConfigured: Boolean(githubConfig.token),
                 geminiConfigured,
+                aiConfigured: aiConfig.anyConfigured,
+                providerOrder: aiConfig.providerOrder,
+                providers: aiConfig.providers,
                 repo: `${githubConfig.owner}/${githubConfig.repo}`,
                 workflowName: githubConfig.workflowName,
             },
@@ -38,8 +42,10 @@ module.exports = async function handler(req, res) {
             config: {
                 githubConfigured: Boolean(githubConfig.token),
                 geminiConfigured,
+                aiConfigured: aiConfig.anyConfigured,
+                providerOrder: aiConfig.providerOrder,
+                providers: aiConfig.providers,
             },
         });
     }
 };
-

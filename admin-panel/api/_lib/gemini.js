@@ -1,7 +1,18 @@
-const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+const DEFAULT_GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
 function getGeminiApiKey() {
     return process.env.GEMINI_API_KEY || "";
+}
+
+function getGeminiConfig() {
+    return {
+        apiKey: getGeminiApiKey(),
+        model: DEFAULT_GEMINI_MODEL,
+    };
+}
+
+function getGeminiApiUrl(model) {
+    return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 }
 
 function extractText(payload) {
@@ -12,13 +23,22 @@ function extractText(payload) {
         .trim();
 }
 
+function extractJson(text) {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) {
+        throw new Error("Gemini returned non-JSON output");
+    }
+
+    return JSON.parse(match[0]);
+}
+
 async function generateJson(prompt) {
-    const apiKey = getGeminiApiKey();
+    const { apiKey, model } = getGeminiConfig();
     if (!apiKey) {
         throw new Error("GEMINI_API_KEY is not configured");
     }
 
-    const response = await fetch(GEMINI_API_URL, {
+    const response = await fetch(getGeminiApiUrl(model), {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
@@ -47,17 +67,11 @@ async function generateJson(prompt) {
 
     const payload = await response.json();
     const text = extractText(payload);
-    const match = text.match(/\{[\s\S]*\}/);
-
-    if (!match) {
-        throw new Error("Gemini returned non-JSON output");
-    }
-
-    return JSON.parse(match[0]);
+    return extractJson(text);
 }
 
 module.exports = {
     generateJson,
+    getGeminiConfig,
     getGeminiApiKey,
 };
-

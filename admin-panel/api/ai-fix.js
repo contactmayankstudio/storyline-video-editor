@@ -1,5 +1,5 @@
 const { getLatestRunSummary } = require("./_lib/github");
-const { generateJson } = require("./_lib/gemini");
+const { generateJsonWithFallback } = require("./_lib/ai");
 
 module.exports = async function handler(req, res) {
     if (req.method !== "POST") {
@@ -7,7 +7,7 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const { build: clientBuild, errorText } = req.body || {};
+        const { build: clientBuild, errorText, providerPreference } = req.body || {};
         const latestFailure = await getLatestRunSummary("failure").catch(() => null);
         const build = latestFailure || clientBuild || null;
 
@@ -34,10 +34,18 @@ module.exports = async function handler(req, res) {
             "- If the problem is missing Firebase Android config, explicitly say that web firebaseConfig is not a replacement for google-services.json.",
         ].join("\n");
 
-        const result = await generateJson(prompt);
-        return res.status(200).json(result);
+        const aiResponse = await generateJsonWithFallback(prompt, {
+            preferredProvider: providerPreference,
+        });
+
+        return res.status(200).json({
+            ...aiResponse.result,
+            provider: aiResponse.provider,
+            providerLabel: aiResponse.providerLabel,
+            model: aiResponse.model,
+            attempts: aiResponse.attempts,
+        });
     } catch (error) {
         return res.status(500).json({ error: error.message });
     }
 };
-

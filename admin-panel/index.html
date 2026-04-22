@@ -3,23 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Storyline Admin Control</title>
+    <title>Storyline AI Ops Matrix</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
         :root {
             color-scheme: dark;
-            --bg: #0d1117;
-            --panel: #161b22;
-            --panel-alt: #10161f;
-            --border: #30363d;
-            --text: #f0f6fc;
-            --muted: #8b949e;
-            --accent: #2f81f7;
-            --accent-hover: #4c96ff;
-            --danger: #f85149;
-            --danger-soft: rgba(248, 81, 73, 0.12);
-            --success: #2ea043;
-            --warning: #d29922;
-            --pill: #1f2937;
+            --bg: #050816;
+            --bg-soft: #0b1021;
+            --panel: rgba(13, 19, 36, 0.88);
+            --panel-alt: rgba(18, 27, 47, 0.9);
+            --border: rgba(140, 166, 219, 0.18);
+            --text: #f4f7ff;
+            --muted: #95a4c4;
+            --accent: #4bc6ff;
+            --accent-strong: #1d8fff;
+            --success: #39d98a;
+            --warning: #f3c969;
+            --danger: #ff6b7a;
+            --violet: #92a3ff;
+            --pill: rgba(255, 255, 255, 0.05);
+            --shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
         }
 
         * {
@@ -29,123 +34,206 @@
         body {
             margin: 0;
             min-height: 100vh;
-            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            font-family: "Space Grotesk", system-ui, sans-serif;
             background:
-                radial-gradient(circle at top, rgba(47, 129, 247, 0.18), transparent 28%),
-                linear-gradient(180deg, #0b0f14 0%, #0d1117 100%);
+                radial-gradient(circle at top left, rgba(75, 198, 255, 0.18), transparent 28%),
+                radial-gradient(circle at top right, rgba(146, 163, 255, 0.18), transparent 24%),
+                linear-gradient(180deg, #040712 0%, #060b17 55%, #04070e 100%);
             color: var(--text);
             padding: 24px;
         }
 
         main {
-            width: min(920px, 100%);
+            width: min(1120px, 100%);
             margin: 0 auto;
         }
 
+        .hero {
+            position: relative;
+            overflow: hidden;
+            padding: 28px;
+            border-radius: 28px;
+            border: 1px solid var(--border);
+            background:
+                linear-gradient(135deg, rgba(29, 143, 255, 0.18), transparent 52%),
+                linear-gradient(180deg, rgba(13, 19, 36, 0.96) 0%, rgba(7, 13, 26, 0.94) 100%);
+            box-shadow: var(--shadow);
+        }
+
+        .hero::after {
+            content: "";
+            position: absolute;
+            inset: auto -80px -80px auto;
+            width: 240px;
+            height: 240px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(75, 198, 255, 0.22), transparent 68%);
+            pointer-events: none;
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(75, 198, 255, 0.08);
+            border: 1px solid rgba(75, 198, 255, 0.22);
+            color: #bcecff;
+            font-size: 12px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
         h1 {
-            margin: 0 0 8px;
-            font-size: clamp(2rem, 5vw, 3rem);
+            margin: 16px 0 10px;
+            font-size: clamp(2.2rem, 5vw, 4rem);
+            line-height: 0.95;
+            letter-spacing: -0.04em;
         }
 
         .subtitle {
-            margin: 0 0 24px;
+            margin: 0;
+            max-width: 780px;
             color: var(--muted);
+            line-height: 1.6;
+            font-size: 15px;
         }
 
-        .grid {
+        .hero-meta {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        .layout {
             display: grid;
+            grid-template-columns: repeat(12, minmax(0, 1fr));
             gap: 18px;
+            margin-top: 18px;
         }
 
         .card {
-            background: linear-gradient(180deg, var(--panel) 0%, var(--panel-alt) 100%);
+            grid-column: span 12;
+            background:
+                linear-gradient(180deg, var(--panel) 0%, var(--panel-alt) 100%);
             border: 1px solid var(--border);
-            border-radius: 18px;
-            padding: 20px;
-            box-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
+            border-radius: 24px;
+            padding: 22px;
+            box-shadow: var(--shadow);
         }
 
+        .card-wide {
+            grid-column: span 8;
+        }
+
+        .card-side {
+            grid-column: span 4;
+        }
+
+        .card h2,
         .card h3 {
-            margin-top: 0;
-            margin-bottom: 10px;
+            margin: 0 0 10px;
+            font-size: 1.2rem;
         }
 
         .card p {
+            margin: 0;
             color: var(--muted);
-            line-height: 1.5;
+            line-height: 1.55;
         }
 
         .danger-card {
-            border-color: rgba(248, 81, 73, 0.45);
-            box-shadow: 0 18px 50px rgba(248, 81, 73, 0.08);
+            border-color: rgba(255, 107, 122, 0.28);
+            background:
+                linear-gradient(180deg, rgba(28, 17, 24, 0.92) 0%, rgba(19, 12, 21, 0.96) 100%);
         }
 
         .range-row,
         .button-row,
-        .meta-row {
+        .toolbar,
+        .meta-row,
+        .helper-row {
             display: flex;
             gap: 12px;
             align-items: center;
             flex-wrap: wrap;
         }
 
-        .range-row {
-            margin: 16px 0;
+        .range-row,
+        .toolbar,
+        .helper-row {
+            margin-top: 16px;
         }
 
         input[type="range"] {
             flex: 1 1 260px;
         }
 
-        textarea {
+        textarea,
+        select {
             width: 100%;
-            min-height: 132px;
-            padding: 12px 14px;
-            border-radius: 12px;
-            border: 1px solid var(--border);
-            background: #0b1118;
+            border: 1px solid rgba(146, 163, 255, 0.18);
+            border-radius: 16px;
+            background: rgba(3, 8, 18, 0.78);
             color: var(--text);
-            resize: vertical;
             font: inherit;
+        }
+
+        textarea {
+            min-height: 180px;
+            resize: vertical;
+            padding: 14px 16px;
+            line-height: 1.6;
+        }
+
+        select {
+            padding: 12px 14px;
+            min-width: 190px;
         }
 
         button {
             appearance: none;
             border: none;
-            border-radius: 12px;
-            background: var(--accent);
-            color: var(--text);
+            border-radius: 14px;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+            color: #031321;
             font: inherit;
-            font-weight: 600;
-            padding: 11px 16px;
+            font-weight: 700;
+            padding: 12px 18px;
             cursor: pointer;
-            transition: background 0.2s ease, transform 0.2s ease;
+            transition: transform 0.2s ease, filter 0.2s ease;
         }
 
         button:hover {
-            background: var(--accent-hover);
             transform: translateY(-1px);
+            filter: brightness(1.05);
         }
 
         button:disabled {
             cursor: wait;
-            opacity: 0.7;
+            filter: saturate(0.6);
+            opacity: 0.72;
             transform: none;
         }
 
-        .danger-button {
-            background: var(--danger);
+        .ghost-button {
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text);
+            border: 1px solid rgba(146, 163, 255, 0.16);
         }
 
-        .danger-button:hover {
-            background: #ff6a63;
+        .danger-button {
+            background: linear-gradient(135deg, #ff7a7a 0%, #ff3b6a 100%);
+            color: white;
         }
 
         .pill {
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            padding: 6px 10px;
+            padding: 7px 12px;
             border-radius: 999px;
             background: var(--pill);
             color: var(--text);
@@ -154,34 +242,65 @@
         }
 
         .pill-success {
-            background: rgba(46, 160, 67, 0.14);
-            border-color: rgba(46, 160, 67, 0.35);
+            background: rgba(57, 217, 138, 0.11);
+            border-color: rgba(57, 217, 138, 0.28);
         }
 
         .pill-failure {
-            background: var(--danger-soft);
-            border-color: rgba(248, 81, 73, 0.35);
+            background: rgba(255, 107, 122, 0.12);
+            border-color: rgba(255, 107, 122, 0.28);
         }
 
         .pill-warning {
-            background: rgba(210, 153, 34, 0.12);
-            border-color: rgba(210, 153, 34, 0.35);
+            background: rgba(243, 201, 105, 0.12);
+            border-color: rgba(243, 201, 105, 0.28);
         }
 
-        .muted {
+        .pill-info {
+            background: rgba(75, 198, 255, 0.12);
+            border-color: rgba(75, 198, 255, 0.24);
+        }
+
+        .provider-grid {
+            display: grid;
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .provider-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: flex-start;
+            padding: 14px 16px;
+            border-radius: 18px;
+            border: 1px solid rgba(146, 163, 255, 0.12);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .provider-row strong {
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .provider-row span,
+        .muted,
+        .helper {
             color: var(--muted);
+        }
+
+        .helper {
+            font-size: 13px;
+            line-height: 1.5;
         }
 
         .status-block,
         .ai-output {
-            margin-top: 14px;
-            padding: 14px;
-            border-radius: 14px;
-            border: 1px solid var(--border);
-            background: rgba(255, 255, 255, 0.02);
-        }
-
-        .status-block {
+            margin-top: 16px;
+            padding: 16px;
+            border-radius: 18px;
+            border: 1px solid rgba(146, 163, 255, 0.12);
+            background: rgba(255, 255, 255, 0.03);
             white-space: pre-wrap;
         }
 
@@ -189,18 +308,42 @@
             margin: 0;
             white-space: pre-wrap;
             word-break: break-word;
-            color: #d2e8ff;
+            color: #def1ff;
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
             font-size: 13px;
-            line-height: 1.55;
+            line-height: 1.65;
         }
 
-        .helper {
+        .chip-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 14px;
+        }
+
+        .chip {
+            background: rgba(146, 163, 255, 0.08);
+            border: 1px solid rgba(146, 163, 255, 0.18);
+            color: var(--text);
+            padding: 10px 14px;
+            border-radius: 999px;
             font-size: 13px;
+            font-weight: 500;
+        }
+
+        .chip:hover {
+            background: rgba(146, 163, 255, 0.14);
         }
 
         .hidden {
             display: none;
+        }
+
+        @media (max-width: 960px) {
+            .card-wide,
+            .card-side {
+                grid-column: span 12;
+            }
         }
 
         @media (max-width: 640px) {
@@ -208,60 +351,96 @@
                 padding: 16px;
             }
 
+            .hero,
             .card {
-                padding: 16px;
-                border-radius: 16px;
+                padding: 18px;
+                border-radius: 20px;
+            }
+
+            h1 {
+                font-size: 2.4rem;
             }
         }
     </style>
 </head>
 <body>
     <main>
-        <h1>Storyline High-Tech Admin</h1>
-        <p class="subtitle">Mobile launchpad for build monitoring, Firebase-ready controls, and server-side AI failure analysis.</p>
+        <section class="hero">
+            <div class="eyebrow">Storyline Control Surface</div>
+            <h1>AI Ops Matrix</h1>
+            <p class="subtitle">Single mobile launchpad for Storyline build health, Firebase-ready controls, and multi-AI fallback. Gemini stays primary, but the panel can route to GitHub AI or OpenAI when you wire those tokens.</p>
+            <div class="hero-meta">
+                <span class="pill" id="build-pill">Build: checking</span>
+                <span class="pill pill-info" id="chain-pill">AI Chain: loading</span>
+                <span class="pill" id="firebase-pill">Firebase: checking</span>
+            </div>
+        </section>
 
-        <div class="grid">
-            <section class="card">
-                <h3>Croma Key Advance Settings</h3>
-                <p>Firebase Web SDK is initialized here. The slider state is stored locally right now; the next wiring step is Remote Config or Firestore-based sync into the app.</p>
+        <section class="layout">
+            <section class="card card-side">
+                <h2>Croma Key Control</h2>
+                <p>Panel-side setting is still local, but the Firebase SDK is initialized here so the next step can wire this into Remote Config or Firestore.</p>
                 <div class="range-row">
                     <label for="sensitivity">Sensitivity</label>
                     <input type="range" id="sensitivity" min="0" max="100" value="50">
                     <span id="sensitivity-value">50</span>
                 </div>
                 <div class="button-row">
-                    <button type="button" id="settings-button">Save Panel Setting</button>
-                    <span class="pill" id="firebase-pill">Firebase: checking</span>
+                    <button type="button" id="settings-button">Save Setting</button>
                 </div>
                 <div class="status-block hidden" id="settings-status"></div>
             </section>
 
-            <section class="card">
+            <section class="card card-wide">
                 <div class="meta-row">
-                    <h3 style="margin: 0;">Build Status</h3>
-                    <span class="pill" id="build-pill">Checking GitHub Actions</span>
+                    <h2>Build Command Deck</h2>
                 </div>
-                <p>Latest status comes from a server-side Vercel function. For a private repo, set `GITHUB_TOKEN` in Vercel so the panel can read Actions data safely.</p>
-                <div class="button-row">
+                <p>Live GitHub Actions state comes from a server-side Vercel function. The panel can feed failed build context into AI analysis without exposing keys in the browser.</p>
+                <div class="button-row" style="margin-top: 16px;">
                     <button type="button" id="refresh-button">Refresh Build Status</button>
-                    <span class="helper muted" id="build-config-note"></span>
+                    <span class="helper" id="build-config-note"></span>
                 </div>
                 <div class="status-block" id="build-status">Loading latest workflow run...</div>
             </section>
 
-            <section class="card danger-card">
-                <h3>AI Autonomous Fixer</h3>
-                <p>If the build fails, paste the GitHub Actions error excerpt below for accurate analysis. The Gemini call runs on the server, not in the browser, so your secret stays on Vercel.</p>
-                <textarea id="ai-input" placeholder="Paste the failed GitHub Actions log excerpt here for best results. If left empty, the server will analyze only the latest workflow metadata."></textarea>
+            <section class="card card-side">
+                <h3>AI Provider Mesh</h3>
+                <p>Auto mode will try providers in order until one succeeds.</p>
+                <div class="provider-grid" id="provider-list"></div>
+                <div class="helper-row">
+                    <span class="helper" id="provider-note"></span>
+                </div>
+            </section>
+
+            <section class="card card-wide danger-card">
+                <h2>AI Autopilot</h2>
+                <p>Use one console for failure analysis or for planning the next Storyline engine upgrade. Quick commands below are tuned for your current roadmap.</p>
+                <div class="toolbar">
+                    <select id="ai-mode">
+                        <option value="fix-build">Fix Build Failure</option>
+                        <option value="nextgen-plan">Plan NextGen Upgrade</option>
+                    </select>
+                    <select id="ai-provider">
+                        <option value="auto">Auto Provider Chain</option>
+                    </select>
+                    <button type="button" class="danger-button" id="ai-button">Analyze Build</button>
+                </div>
+                <div class="chip-row">
+                    <button type="button" class="chip" data-command="Design an incremental multi-clip timeline architecture with draggable clip handles, overlap-safe edits, and minimum disruption to the current Storyline engine.">Multi-Clip Timeline</button>
+                    <button type="button" class="chip" data-command="Plan a TextureView plus OpenGL frame-buffer preview pipeline for Storyline, including JNI boundaries, render threading, and rollback-safe migration steps.">OpenGL Preview</button>
+                    <button type="button" class="chip" data-command="Plan master audio support for imported video, background music, voiceover, and sound effects with per-track gain and export parity.">Master Audio</button>
+                    <button type="button" class="chip" data-command="Design an async export pipeline using MediaCodec background processing while keeping the editor responsive.">Async Export</button>
+                </div>
+                <textarea id="ai-input" placeholder="Paste a GitHub Actions error excerpt, or switch mode and describe the Storyline feature you want to architect next."></textarea>
                 <div class="button-row" style="margin-top: 14px;">
-                    <button type="button" class="danger-button" id="ai-button">Analyze Latest Failure</button>
-                    <span class="helper muted" id="ai-status">Idle</span>
+                    <button type="button" class="ghost-button" id="inject-build-button">Insert Latest Build Context</button>
+                    <span class="helper" id="ai-status">Idle</span>
                 </div>
                 <div class="ai-output hidden" id="ai-output">
                     <pre id="ai-output-text"></pre>
                 </div>
             </section>
-        </div>
+        </section>
     </main>
 
     <script type="module">
@@ -284,20 +463,42 @@
         const settingsStatus = document.getElementById("settings-status");
         const firebasePill = document.getElementById("firebase-pill");
 
-        const refreshButton = document.getElementById("refresh-button");
         const buildPill = document.getElementById("build-pill");
+        const chainPill = document.getElementById("chain-pill");
+        const refreshButton = document.getElementById("refresh-button");
         const buildStatus = document.getElementById("build-status");
         const buildConfigNote = document.getElementById("build-config-note");
+        const providerList = document.getElementById("provider-list");
+        const providerNote = document.getElementById("provider-note");
 
+        const aiMode = document.getElementById("ai-mode");
+        const aiProvider = document.getElementById("ai-provider");
         const aiButton = document.getElementById("ai-button");
         const aiInput = document.getElementById("ai-input");
         const aiStatus = document.getElementById("ai-status");
         const aiOutput = document.getElementById("ai-output");
         const aiOutputText = document.getElementById("ai-output-text");
+        const injectBuildButton = document.getElementById("inject-build-button");
+        const quickCommandButtons = Array.from(document.querySelectorAll("[data-command]"));
 
         const state = {
             latestBuild: null,
             firebaseReady: false,
+            providers: [],
+            providerOrder: [],
+        };
+
+        const modeConfig = {
+            "fix-build": {
+                buttonText: "Analyze Build",
+                statusText: "AI is analyzing the latest build failure...",
+                placeholder: "Paste the failed GitHub Actions excerpt here. If left empty, the latest workflow metadata will still be analyzed."
+            },
+            "nextgen-plan": {
+                buttonText: "Draft NextGen Plan",
+                statusText: "AI is drafting the next Storyline upgrade plan...",
+                placeholder: "Describe the exact upgrade you want. Example: Integrate multi-clip timeline, OpenGL preview, and per-track audio without a full engine rewrite."
+            }
         };
 
         function setPill(element, text, tone) {
@@ -306,6 +507,7 @@
             if (tone === "success") element.classList.add("pill-success");
             if (tone === "failure") element.classList.add("pill-failure");
             if (tone === "warning") element.classList.add("pill-warning");
+            if (tone === "info") element.classList.add("pill-info");
         }
 
         function showBlock(element, text) {
@@ -313,18 +515,142 @@
             element.textContent = text;
         }
 
-        async function initFirebase() {
-            try {
-                const app = initializeApp(firebaseConfig);
-                if (await isSupported()) {
-                    getAnalytics(app);
-                }
-                state.firebaseReady = true;
-                setPill(firebasePill, "Firebase: ready", "success");
-            } catch (error) {
-                console.error(error);
-                setPill(firebasePill, "Firebase: init failed", "failure");
+        function formatBuildSummary(data) {
+            if (!data.build) {
+                return data.message || "Build status is not available yet.";
             }
+
+            const parts = [
+                `Workflow: ${data.build.workflowName}`,
+                `Branch: ${data.build.branch}`,
+                `Status: ${data.build.status}`,
+                `Conclusion: ${data.build.conclusion || "in progress"}`,
+                `Commit: ${data.build.headSha?.slice(0, 8) || "n/a"}`,
+                `Failed job: ${data.build.failedJob || "n/a"}`,
+                `Failed step: ${data.build.failedStep || "n/a"}`,
+                `Updated: ${new Date(data.build.updatedAt).toLocaleString()}`,
+            ];
+
+            if (data.build.url) {
+                parts.push(`GitHub: ${data.build.url}`);
+            }
+
+            return parts.join("\n");
+        }
+
+        function formatAttempts(attempts = []) {
+            if (!attempts.length) {
+                return "Attempts: n/a";
+            }
+
+            return [
+                "Attempts:",
+                ...attempts.map((attempt, index) => {
+                    const suffix = attempt.error ? ` - ${attempt.error}` : "";
+                    return `${index + 1}. ${attempt.label} (${attempt.model || "n/a"}) -> ${attempt.status}${suffix}`;
+                }),
+            ].join("\n");
+        }
+
+        function formatFixOutput(data) {
+            return [
+                `Provider: ${data.providerLabel} (${data.model || "n/a"})`,
+                "",
+                `Summary: ${data.summary}`,
+                `Likely Cause: ${data.likelyCause}`,
+                `Confidence: ${data.confidence}`,
+                `Required Action: ${data.requiredAction}`,
+                "",
+                "Next Steps:",
+                ...(data.nextSteps || []).map((step, index) => `${index + 1}. ${step}`),
+                "",
+                formatAttempts(data.attempts),
+            ].join("\n");
+        }
+
+        function formatPlanOutput(data) {
+            return [
+                `Provider: ${data.providerLabel} (${data.model || "n/a"})`,
+                "",
+                `Summary: ${data.summary}`,
+                "",
+                "Architecture Moves:",
+                ...(data.architectureMoves || []).map((step, index) => `${index + 1}. ${step}`),
+                "",
+                "Repo Changes:",
+                ...(data.repoChanges || []).map((step, index) => `${index + 1}. ${step}`),
+                "",
+                "Workflow Changes:",
+                ...(data.workflowChanges || []).map((step, index) => `${index + 1}. ${step}`),
+                "",
+                "Risks:",
+                ...(data.risks || []).map((step, index) => `${index + 1}. ${step}`),
+                "",
+                `Next Command: ${data.nextCommand}`,
+                "",
+                formatAttempts(data.attempts),
+            ].join("\n");
+        }
+
+        function renderProviders(providers = [], providerOrder = []) {
+            state.providers = providers;
+            state.providerOrder = providerOrder;
+            providerList.textContent = "";
+            aiProvider.textContent = "";
+
+            const autoOption = document.createElement("option");
+            autoOption.value = "auto";
+            autoOption.textContent = "Auto Provider Chain";
+            aiProvider.appendChild(autoOption);
+
+            const orderedProviders = providerOrder
+                .map((id) => providers.find((provider) => provider.id === id))
+                .filter(Boolean);
+
+            for (const provider of orderedProviders) {
+                const row = document.createElement("div");
+                row.className = "provider-row";
+
+                const copy = document.createElement("div");
+                copy.innerHTML = `<strong>${provider.label}</strong><span>${provider.note}</span>`;
+
+                const badge = document.createElement("span");
+                badge.className = `pill ${provider.configured ? "pill-success" : "pill-warning"}`;
+                badge.textContent = provider.configured
+                    ? `Ready • ${provider.model}`
+                    : `Missing • ${provider.model}`;
+
+                row.appendChild(copy);
+                row.appendChild(badge);
+                providerList.appendChild(row);
+
+                const option = document.createElement("option");
+                option.value = provider.id;
+                option.textContent = `${provider.label} (${provider.configured ? "ready" : "missing"})`;
+                aiProvider.appendChild(option);
+            }
+
+            const activeChain = orderedProviders
+                .filter((provider) => provider.configured)
+                .map((provider) => provider.label)
+                .join(" -> ");
+
+            setPill(
+                chainPill,
+                activeChain ? `AI Chain: ${activeChain}` : "AI Chain: not configured",
+                activeChain ? "info" : "failure"
+            );
+
+            providerNote.textContent = orderedProviders.some((provider) => provider.id === "github-models")
+                ? "GitHub AI uses GitHub Models. The token must have model access, not just repo access."
+                : "";
+        }
+
+        function updateModeUi() {
+            const config = modeConfig[aiMode.value];
+            aiButton.textContent = config.buttonText;
+            aiInput.placeholder = config.placeholder;
+            aiStatus.textContent = "Idle";
         }
 
         function loadSavedSensitivity() {
@@ -342,37 +668,29 @@
         function updateSettings() {
             window.localStorage.setItem("storyline.admin.sensitivity", sensitivityInput.value);
             const suffix = state.firebaseReady
-                ? "Firebase SDK is ready; wire this value into Remote Config or Firestore next."
+                ? "Firebase SDK is ready; wire this into Remote Config or Firestore next."
                 : "Firebase SDK could not be initialized in this browser session.";
             showBlock(settingsStatus, `Saved sensitivity ${sensitivityInput.value}. ${suffix}`);
         }
 
-        function formatBuildSummary(data) {
-            if (!data.build) {
-                return data.message || "Build status is not available yet.";
+        async function initFirebase() {
+            try {
+                const app = initializeApp(firebaseConfig);
+                if (await isSupported()) {
+                    getAnalytics(app);
+                }
+                state.firebaseReady = true;
+                setPill(firebasePill, "Firebase: ready", "success");
+            } catch (error) {
+                console.error(error);
+                setPill(firebasePill, "Firebase: init failed", "failure");
             }
-
-            const parts = [
-                `Workflow: ${data.build.workflowName}`,
-                `Branch: ${data.build.branch}`,
-                `Status: ${data.build.status}`,
-                `Conclusion: ${data.build.conclusion || "in progress"}`,
-                `Commit: ${data.build.headSha?.slice(0, 8) || "n/a"}`,
-                `Failed step: ${data.build.failedStep || "n/a"}`,
-                `Updated: ${new Date(data.build.updatedAt).toLocaleString()}`,
-            ];
-
-            if (data.build.url) {
-                parts.push(`GitHub: ${data.build.url}`);
-            }
-
-            return parts.join("\n");
         }
 
         async function loadBuildStatus() {
             refreshButton.disabled = true;
             buildStatus.textContent = "Checking latest GitHub Actions run...";
-            setPill(buildPill, "Checking", "warning");
+            setPill(buildPill, "Build: checking", "warning");
 
             try {
                 const response = await fetch("/api/status");
@@ -384,68 +702,98 @@
 
                 state.latestBuild = data.build;
                 buildStatus.textContent = formatBuildSummary(data);
+                renderProviders(data.config?.providers || [], data.config?.providerOrder || []);
 
                 if (data.build?.conclusion === "success") {
-                    setPill(buildPill, "Build passing", "success");
+                    setPill(buildPill, "Build: passing", "success");
                 } else if (data.build?.conclusion === "failure") {
-                    setPill(buildPill, "Build failing", "failure");
+                    setPill(buildPill, "Build: failing", "failure");
                 } else {
-                    setPill(buildPill, "Build pending", "warning");
+                    setPill(buildPill, "Build: pending", "warning");
                 }
 
                 const notes = [];
                 if (!data.config?.githubConfigured) {
                     notes.push("Set GITHUB_TOKEN in Vercel for private repo access.");
                 }
-                if (!data.config?.geminiConfigured) {
-                    notes.push("Set GEMINI_API_KEY in Vercel to enable AI analysis.");
+                if (!data.config?.aiConfigured) {
+                    notes.push("Set GEMINI_API_KEY and at least one fallback AI token in Vercel.");
                 }
                 buildConfigNote.textContent = notes.join(" ");
             } catch (error) {
                 console.error(error);
                 buildStatus.textContent = error.message;
-                setPill(buildPill, "Status unavailable", "failure");
+                setPill(buildPill, "Build: unavailable", "failure");
             } finally {
                 refreshButton.disabled = false;
             }
         }
 
-        async function runAIFix() {
+        function insertLatestBuildContext() {
+            if (!state.latestBuild) {
+                aiStatus.textContent = "No build context loaded yet";
+                return;
+            }
+
+            const lines = [
+                `Workflow: ${state.latestBuild.workflowName}`,
+                `Branch: ${state.latestBuild.branch}`,
+                `Conclusion: ${state.latestBuild.conclusion || "in progress"}`,
+                `Failed step: ${state.latestBuild.failedStep || "n/a"}`,
+                `Run URL: ${state.latestBuild.url || "n/a"}`,
+            ];
+
+            if (aiMode.value === "fix-build") {
+                aiInput.value = `${aiInput.value.trim()}\n${lines.join("\n")}`.trim();
+            } else {
+                aiInput.value = `${aiInput.value.trim()}\nUse this latest build context while planning: ${lines.join(" | ")}`.trim();
+            }
+        }
+
+        async function runAiAction() {
+            const mode = aiMode.value;
+            const config = modeConfig[mode];
+            const endpoint = mode === "fix-build" ? "/api/ai-fix" : "/api/ai-command";
+            const payload = mode === "fix-build"
+                ? {
+                    build: state.latestBuild,
+                    errorText: aiInput.value.trim(),
+                    providerPreference: aiProvider.value,
+                }
+                : {
+                    build: state.latestBuild,
+                    requestText: aiInput.value.trim(),
+                    providerPreference: aiProvider.value,
+                };
+
+            if (mode === "nextgen-plan" && !payload.requestText) {
+                payload.requestText = "Create an incremental roadmap for Storyline covering multi-clip timeline, OpenGL preview, master audio, and background export without a full engine rewrite.";
+            }
+
             aiButton.disabled = true;
-            aiStatus.textContent = "Gemini is analyzing the latest failure...";
             aiOutput.classList.add("hidden");
             aiOutputText.textContent = "";
+            aiStatus.textContent = config.statusText;
 
             try {
-                const response = await fetch("/api/ai-fix", {
+                const response = await fetch(endpoint, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
                     },
-                    body: JSON.stringify({
-                        build: state.latestBuild,
-                        errorText: aiInput.value.trim(),
-                    }),
+                    body: JSON.stringify(payload),
                 });
 
                 const data = await response.json();
                 if (!response.ok) {
-                    throw new Error(data.error || "AI analysis failed");
+                    throw new Error(data.error || "AI request failed");
                 }
 
-                const lines = [
-                    `Summary: ${data.summary}`,
-                    `Likely Cause: ${data.likelyCause}`,
-                    `Confidence: ${data.confidence}`,
-                    `Required Action: ${data.requiredAction}`,
-                    "",
-                    "Next Steps:",
-                    ...(data.nextSteps || []).map((step, index) => `${index + 1}. ${step}`),
-                ];
-
-                aiOutputText.textContent = lines.join("\n");
+                aiOutputText.textContent = mode === "fix-build"
+                    ? formatFixOutput(data)
+                    : formatPlanOutput(data);
                 aiOutput.classList.remove("hidden");
-                aiStatus.textContent = "Analysis complete";
+                aiStatus.textContent = `Complete via ${data.providerLabel}`;
             } catch (error) {
                 console.error(error);
                 aiStatus.textContent = error.message;
@@ -457,9 +805,20 @@
         sensitivityInput.addEventListener("input", updateSensitivityValue);
         settingsButton.addEventListener("click", updateSettings);
         refreshButton.addEventListener("click", loadBuildStatus);
-        aiButton.addEventListener("click", runAIFix);
+        aiMode.addEventListener("change", updateModeUi);
+        aiButton.addEventListener("click", runAiAction);
+        injectBuildButton.addEventListener("click", insertLatestBuildContext);
+
+        for (const button of quickCommandButtons) {
+            button.addEventListener("click", () => {
+                aiMode.value = "nextgen-plan";
+                updateModeUi();
+                aiInput.value = button.dataset.command || "";
+            });
+        }
 
         loadSavedSensitivity();
+        updateModeUi();
         initFirebase();
         loadBuildStatus();
     </script>
