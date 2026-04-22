@@ -213,6 +213,7 @@ class MainActivity : Activity() {
     private var previewContainerView: FrameLayout? = null
     private var timelineRecyclerView: RecyclerView? = null
     private var timelineCurrentTimeText: TextView? = null
+    private var previewAspectRatioText: TextView? = null
     private var startScreenOverlayView: View? = null
     private var startRecentProjectsList: androidx.recyclerview.widget.RecyclerView? = null
     private var startRecentProjectsEmptyText: TextView? = null
@@ -579,11 +580,14 @@ class MainActivity : Activity() {
 
         // Get UI references
         val previewContainer = findViewById<FrameLayout>(R.id.previewContainer)
-        previewContainerView = previewContainer
+        val previewStageHost = findViewById<FrameLayout>(R.id.previewStageHost)
+        previewContainerView = previewStageHost
         val bottomContainer = findViewById<View>(R.id.bottomContainer)
         val timelineLayout = findViewById<View>(R.id.timelineLayout)
         timelineCurrentTimeText = findViewById(R.id.timelineCurrentTimeText)
-        timelineCurrentTimeText?.visibility = View.GONE
+        timelineCurrentTimeText?.visibility = View.VISIBLE
+        timelineCurrentTimeText?.text = getString(R.string.time_zero)
+        previewAspectRatioText = findViewById(R.id.previewAspectRatioText)
         clipToolbarContextLabel?.visibility = View.GONE
         hardwareTelemetrySummaryText = findViewById(R.id.hardwareBufferTelemetrySummary)
         hardwareTelemetryReasonText = findViewById(R.id.hardwareBufferTelemetryReason)
@@ -712,7 +716,7 @@ class MainActivity : Activity() {
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
         )
-        previewContainer.addView(previewView, params)
+        previewStageHost.addView(previewView, params)
 
         // Check if native library is loaded
         if (!VideoPreviewView.isNativeLibraryLoaded()) {
@@ -726,11 +730,13 @@ class MainActivity : Activity() {
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
         )
-        previewContainer.addView(overlayContainer, overlayLp)
+        previewStageHost.addView(overlayContainer, overlayLp)
+        previewStageHost.clipToOutline = true
         setupPreviewTransformGestures()
         setupAspectRatioButton()
         previewContainer.post { applyPreviewAspectRatio() }
         findViewById<android.view.View?>(R.id.previewHud)?.bringToFront()
+        findViewById<android.view.View?>(R.id.previewTopChromeRow)?.bringToFront()
         findViewById<android.view.View?>(R.id.hardwareBufferTelemetryPanel)?.bringToFront()
         findViewById<android.view.View?>(R.id.playbackUndoRedoRow)?.bringToFront()
         findViewById<android.view.View?>(R.id.previewPlayPauseButton)?.bringToFront()
@@ -1171,6 +1177,7 @@ class MainActivity : Activity() {
         }
 
         val option = aspectRatioOptions[selectedAspectRatioIndex]
+        previewAspectRatioText?.text = option.label
         val targetRatio = option.width.toFloat() / option.height.toFloat()
         val availableWidth = container.width
         val availableHeight = container.height
@@ -1192,6 +1199,7 @@ class MainActivity : Activity() {
         preview.visibility = View.VISIBLE
         overlay.visibility = View.VISIBLE
         overlay.bringToFront()
+        findViewById<View?>(R.id.previewTopChromeRow)?.bringToFront()
         findViewById<View?>(R.id.playbackUndoRedoRow)?.bringToFront()
         findViewById<View?>(R.id.previewPlayPauseButton)?.bringToFront()
     }
