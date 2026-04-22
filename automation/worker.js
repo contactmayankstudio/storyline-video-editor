@@ -7,6 +7,8 @@ const GITHUB_MODELS_API_URL = "https://models.github.ai/inference/chat/completio
 const DEFAULT_MODEL = "openai/gpt-4.1-mini";
 const DEFAULT_BUILD_COMMAND = "cd android && chmod +x gradlew && ./gradlew assembleDebug --console=plain";
 const MAX_FILE_SIZE = 120000;
+const MAX_PLAN_FILE_COUNT = 140;
+const MAX_REPO_MAP_CHARS = 6500;
 
 const AUTOMATION_PROMPT = requiredEnv("AUTOMATION_PROMPT");
 const AUTOMATION_GITHUB_MODELS_TOKEN = optionalEnv("AUTOMATION_GITHUB_MODELS_TOKEN");
@@ -126,6 +128,65 @@ function listCandidateFiles() {
             };
         })
         .filter((file) => file.size <= MAX_FILE_SIZE);
+}
+
+function tokenizePrompt(value) {
+    return Array.from(new Set(
+        value
+            .toLowerCase()
+            .split(/[^a-z0-9._/-]+/)
+            .map((token) => token.trim())
+            .filter((token) => token.length >= 3)
+    ));
+}
+
+function scoreFile(filePath, promptTokens) {
+    let score = 0;
+    const lowerPath = filePath.toLowerCase();
+
+    for (const token of promptTokens) {
+        if (lowerPath.includes(token)) {
+            score += token.length > 6 ? 5 : 3;
+        }
+    }
+
+    if (lowerPath.startsWith("admin-panel/")) score += 3;
+    if (lowerPath.startsWith(".github/")) score += 2;
+    if (lowerPath.startsWith("android/")) score += 2;
+    if (lowerPath.startsWith("automation/")) score += 2;
+
+    return score;
+}
+
+function buildRepoMap(files) {
+    const promptTokens = tokenizePrompt(AUTOMATION_PROMPT);
+    const ranked = [...files]
+        .map((file) => ({
+            ...file,
+            score: scoreFile(file.path, promptTokens),
+        }))
+        .sort((left, right) => {
+            if (right.score !== left.score) {
+                return right.score - left.score;
+            }
+            return left.path.localeCompare(right.path);
+        });
+
+    const selected = [];
+    for (const file of ranked) {
+        if (selected.length >= MAX_PLAN_FILE_COUNT) {
+            break;
+        }
+
+        const preview = [...selected, file].map((item) => item.path).join("\n");
+        if (preview.length > MAX_REPO_MAP_CHARS) {
+            break;
+        }
+
+        selected.push(file);
+    }
+
+    return selected.map((file) => file.path).join("\n");
 }
 
 function readFile(filePath) {
@@ -352,10 +413,7 @@ async function main() {
     addSummary(`Model: ${AUTOMATION_GITHUB_MODELS_MODEL}`);
 
     const candidateFiles = listCandidateFiles();
-    const repoMap = candidateFiles
-        .slice(0, 500)
-        .map((file) => `${file.path} (${file.size} bytes)`)
-        .join("\n");
+    const repoMap = buildRepoMap(candidateFiles);
 
     if (!repoMap) {
         throw new Error("No candidate files found for automation");
