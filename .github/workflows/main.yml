@@ -9,12 +9,13 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: android
 
     steps:
       - name: Checkout repository
@@ -27,10 +28,18 @@ jobs:
           distribution: "temurin"
           cache: gradle
 
+      - name: Set up Node.js
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Make Gradle wrapper executable
+        working-directory: android
         run: chmod +x gradlew
 
       - name: Restore google-services.json
+        working-directory: android
         run: |
           if [ -z "${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}" ]; then
             echo "Missing repository secret ANDROID_GOOGLE_SERVICES_JSON"
@@ -40,6 +49,7 @@ jobs:
           printf '%s' '${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}' > app/google-services.json
 
       - name: Build debug APK
+        working-directory: android
         run: ./gradlew assembleDebug
 
       - name: Upload debug APK
@@ -47,3 +57,47 @@ jobs:
         with:
           name: storyline-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
+
+      - name: Prepare APK website bundle
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        working-directory: .
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk apk-host/public/app.apk
+          APK_SIZE_BYTES=$(wc -c < apk-host/public/app.apk | tr -d ' ')
+          BUILT_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          cat > apk-host/public/build.json <<EOF
+          {
+            "appName": "Storyline",
+            "apkName": "app.apk",
+            "buildNumber": "${GITHUB_RUN_NUMBER}",
+            "commitSha": "${GITHUB_SHA}",
+            "shortSha": "${GITHUB_SHA::8}",
+            "apkSizeBytes": ${APK_SIZE_BYTES},
+            "builtAt": "${BUILT_AT}",
+            "workflowUrl": "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}",
+            "downloadPath": "/app.apk"
+          }
+          EOF
+
+      - name: Install Vercel CLI
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        working-directory: .
+        run: npm install --global vercel@latest
+
+      - name: Deploy APK website to Vercel
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        working-directory: apk-host
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          if [ -z "${VERCEL_TOKEN}" ] || [ -z "${VERCEL_ORG_ID}" ] || [ -z "${VERCEL_PROJECT_ID}" ]; then
+            echo "Missing one or more Vercel deployment secrets."
+            exit 1
+          fi
+          mkdir -p .vercel
+          cat > .vercel/project.json <<EOF
+          {"projectId":"${VERCEL_PROJECT_ID}","orgId":"${VERCEL_ORG_ID}","projectName":"apk-host"}
+          EOF
+          vercel deploy --prod --yes --token "${VERCEL_TOKEN}"

@@ -4,7 +4,14 @@
   "headers": [
     {
       "source": "/app.apk",
-      "headers": [{ "key": "Content-Type", "value": "application/vnd.android.package-archive" }]
+      "headers": [
+        { "key": "Content-Type", "value": "application/vnd.android.package-archive" },
+        { "key": "Cache-Control", "value": "public, max-age=300" }
+      ]
+    },
+    {
+      "source": "/build.json",
+      "headers": [{ "key": "Cache-Control", "value": "no-store, max-age=0" }]
     }
   ]
 }
