@@ -4912,6 +4912,8 @@ static int64_t mapAudioClipTimelineToSourceMs(
 static bool decodeAudioClipToStereoFloat(
     const std::string& inputPath,
     int outputSampleRate,
+    int64_t trimStartMs,
+    int64_t trimEndMs,
     std::vector<float>& pcmOut,
     std::string& errorOut) {
     AVFormatContext* inputFmt = nullptr;
@@ -5013,6 +5015,15 @@ static bool decodeAudioClipToStereoFloat(
         return false;
     }
 
+    pcmOut.clear();
+    const int64_t trimStartSample = std::max<int64_t>(0, (trimStartMs * outputSampleRate) / 1000);
+    const int64_t trimEndSample = trimEndMs > trimStartMs
+        ? std::max<int64_t>(trimStartSample + 1, (trimEndMs * outputSampleRate + 999) / 1000)
+        : std::numeric_limits<int64_t>::max() / 4;
+    int64_t decodedSampleCursor = 0;
+    bool reachedTrimEnd = false;
+    std::vector<float> framePcm;
+
     auto appendFrame = [&](AVFrame* decodedFrame) -> bool {
         const int dstSamples = av_rescale_rnd(
             swr_get_delay(swr, std::max(1, decoderCtx->sample_rate)) + decodedFrame->nb_samples,
@@ -5022,10 +5033,14 @@ static bool decodeAudioClipToStereoFloat(
         if (dstSamples <= 0) {
             return true;
         }
-        const size_t oldSize = pcmOut.size();
-        pcmOut.resize(oldSize + static_cast<size_t>(dstSamples) * 2);
+        try {
+            framePcm.resize(static_cast<size_t>(dstSamples) * 2);
+        } catch (const std::bad_alloc&) {
+            errorOut = "Failed to allocate decoded audio frame buffer";
+            return false;
+        }
         uint8_t* outData[4] = {
-            reinterpret_cast<uint8_t*>(pcmOut.data() + oldSize),
+            reinterpret_cast<uint8_t*>(framePcm.data()),
             nullptr,
             nullptr,
             nullptr
@@ -5040,11 +5055,32 @@ static bool decodeAudioClipToStereoFloat(
             errorOut = "Failed to resample decoded audio";
             return false;
         }
-        pcmOut.resize(oldSize + static_cast<size_t>(converted) * 2);
+        const int64_t frameStartSample = decodedSampleCursor;
+        const int64_t frameEndSample = frameStartSample + converted;
+        const int64_t copyStartSample = std::max(trimStartSample, frameStartSample);
+        const int64_t copyEndSample = std::min(trimEndSample, frameEndSample);
+        if (copyEndSample > copyStartSample) {
+            const size_t sourceOffset =
+                static_cast<size_t>(copyStartSample - frameStartSample) * 2;
+            const size_t copyCount =
+                static_cast<size_t>(copyEndSample - copyStartSample) * 2;
+            const size_t oldSize = pcmOut.size();
+            try {
+                pcmOut.resize(oldSize + copyCount);
+            } catch (const std::bad_alloc&) {
+                errorOut = "Failed to allocate decoded audio clip buffer";
+                return false;
+            }
+            std::copy_n(framePcm.data() + sourceOffset, copyCount, pcmOut.data() + oldSize);
+        }
+        decodedSampleCursor = frameEndSample;
+        if (decodedSampleCursor >= trimEndSample) {
+            reachedTrimEnd = true;
+        }
         return true;
     };
 
-    while (av_read_frame(inputFmt, packet) >= 0) {
+    while (!reachedTrimEnd && av_read_frame(inputFmt, packet) >= 0) {
         if (packet->stream_index != audioStreamIndex) {
             av_packet_unref(packet);
             continue;
@@ -5056,7 +5092,7 @@ static bool decodeAudioClipToStereoFloat(
             return false;
         }
         av_packet_unref(packet);
-        while (avcodec_receive_frame(decoderCtx, frame) == 0) {
+        while (!reachedTrimEnd && avcodec_receive_frame(decoderCtx, frame) == 0) {
             if (!appendFrame(frame)) {
                 cleanup();
                 return false;
@@ -5065,13 +5101,15 @@ static bool decodeAudioClipToStereoFloat(
         }
     }
 
-    avcodec_send_packet(decoderCtx, nullptr);
-    while (avcodec_receive_frame(decoderCtx, frame) == 0) {
-        if (!appendFrame(frame)) {
-            cleanup();
-            return false;
+    if (!reachedTrimEnd) {
+        avcodec_send_packet(decoderCtx, nullptr);
+        while (!reachedTrimEnd && avcodec_receive_frame(decoderCtx, frame) == 0) {
+            if (!appendFrame(frame)) {
+                cleanup();
+                return false;
+            }
+            av_frame_unref(frame);
         }
-        av_frame_unref(frame);
     }
 
     cleanup();
@@ -5335,90 +5373,116 @@ static bool mixAudioClipsToAac(
         errorOut = "Failed to allocate audio buffer (out of memory)";
         return false;
     }
-    bool mixedAny = false;
 
-    LOGI("[Export] mixing %zu audio clips to %s duration=%lldms",
-         audioClips.size(),
-         outputPath.c_str(),
-         static_cast<long long>(totalDurationMs));
+    try {
+        bool mixedAny = false;
 
-    for (const auto& clip : audioClips) {
-        if (clip.path.empty() || clip.durationMs <= 0 || clip.volume <= 0.0001f) {
-            continue;
-        }
-        std::vector<float> clipPcm;
-        std::string clipError;
-        if (!decodeAudioClipToStereoFloat(clip.path, kOutputSampleRate, clipPcm, clipError)) {
-            LOGW("[Export] skipping audio clip path=%s reason=%s", clip.path.c_str(), clipError.c_str());
-            continue;
-        }
-        const int64_t sourceSampleCount = static_cast<int64_t>(clipPcm.size() / kOutputChannels);
-        if (sourceSampleCount <= 0) {
-            continue;
-        }
-        const int64_t writeStartSample = std::max<int64_t>(0, (clip.startTimeMs * kOutputSampleRate) / 1000);
-        if (writeStartSample >= totalSamples) {
-            continue;
-        }
-        const int64_t writeSampleCount = std::min<int64_t>(
-            totalSamples - writeStartSample,
-            std::max<int64_t>(1, (clip.durationMs * kOutputSampleRate + 999) / 1000));
-        for (int64_t outSampleOffset = 0; outSampleOffset < writeSampleCount; ++outSampleOffset) {
-            const int64_t timelineMs = clip.startTimeMs + ((outSampleOffset * 1000) / kOutputSampleRate);
-            const int64_t sourceMs = mapAudioClipTimelineToSourceMs(clip, timelineMs);
-            const int64_t sourceSample =
-                std::clamp<int64_t>((sourceMs * kOutputSampleRate) / 1000, 0, sourceSampleCount - 1);
-            const float fadeGain = computeTimelineFadeMultiplier(
-                clip.startTimeMs,
-                clip.durationMs,
-                clip.fadeInMs,
-                clip.fadeOutMs,
-                timelineMs);
-            const int64_t localTimelineMs = std::clamp<int64_t>(timelineMs - clip.startTimeMs, 0, clip.durationMs - 1);
-            const float envelopeGain = sampleAudioGainEnvelope(clip.audioGainKeyframes, localTimelineMs);
-            const float effectiveGain = clip.volume * envelopeGain * fadeGain;
-            if (effectiveGain <= 0.0001f) {
+        LOGI("[Export] mixing %zu audio clips to %s duration=%lldms",
+             audioClips.size(),
+             outputPath.c_str(),
+             static_cast<long long>(totalDurationMs));
+
+        for (const auto& clip : audioClips) {
+            if (clip.path.empty() || clip.durationMs <= 0 || clip.volume <= 0.0001f) {
                 continue;
             }
-            const size_t dstIndex = static_cast<size_t>(writeStartSample + outSampleOffset) * kOutputChannels;
-            const size_t srcIndex = static_cast<size_t>(sourceSample) * kOutputChannels;
-            mixedPcm[dstIndex] += clipPcm[srcIndex] * effectiveGain;
-            mixedPcm[dstIndex + 1] += clipPcm[srcIndex + 1] * effectiveGain;
-            mixedAny = true;
-        }
-    }
+            const int64_t sourceDecodeStartMs = std::max<int64_t>(0, clip.sourceInMs);
+            int64_t sourceDecodeEndMs = clip.sourceOutMs;
+            if (sourceDecodeEndMs <= sourceDecodeStartMs) {
+                sourceDecodeEndMs = sourceDecodeStartMs + std::max<int64_t>(1, clip.durationMs);
+            }
+            if (sourceDecodeEndMs <= sourceDecodeStartMs) {
+                sourceDecodeEndMs = sourceDecodeStartMs + 1;
+            }
 
-    if (!mixedAny) {
-        LOGW("[Export] No audio clips mixed (silent output)");
-    }
+            std::vector<float> clipPcm;
+            std::string clipError;
+            if (!decodeAudioClipToStereoFloat(
+                    clip.path,
+                    kOutputSampleRate,
+                    sourceDecodeStartMs,
+                    sourceDecodeEndMs,
+                    clipPcm,
+                    clipError)) {
+                LOGW("[Export] skipping audio clip path=%s reason=%s", clip.path.c_str(), clipError.c_str());
+                continue;
+            }
+            const int64_t sourceSampleCount = static_cast<int64_t>(clipPcm.size() / kOutputChannels);
+            if (sourceSampleCount <= 0) {
+                continue;
+            }
+            const int64_t writeStartSample = std::max<int64_t>(0, (clip.startTimeMs * kOutputSampleRate) / 1000);
+            if (writeStartSample >= totalSamples) {
+                continue;
+            }
+            const int64_t writeSampleCount = std::min<int64_t>(
+                totalSamples - writeStartSample,
+                std::max<int64_t>(1, (clip.durationMs * kOutputSampleRate + 999) / 1000));
+            for (int64_t outSampleOffset = 0; outSampleOffset < writeSampleCount; ++outSampleOffset) {
+                const int64_t timelineMs = clip.startTimeMs + ((outSampleOffset * 1000) / kOutputSampleRate);
+                const int64_t sourceMs = mapAudioClipTimelineToSourceMs(clip, timelineMs);
+                const int64_t relativeSourceMs = std::max<int64_t>(0, sourceMs - sourceDecodeStartMs);
+                const int64_t sourceSample =
+                    std::clamp<int64_t>((relativeSourceMs * kOutputSampleRate) / 1000, 0, sourceSampleCount - 1);
+                const float fadeGain = computeTimelineFadeMultiplier(
+                    clip.startTimeMs,
+                    clip.durationMs,
+                    clip.fadeInMs,
+                    clip.fadeOutMs,
+                    timelineMs);
+                const int64_t localTimelineMs =
+                    std::clamp<int64_t>(timelineMs - clip.startTimeMs, 0, clip.durationMs - 1);
+                const float envelopeGain = sampleAudioGainEnvelope(clip.audioGainKeyframes, localTimelineMs);
+                const float effectiveGain = clip.volume * envelopeGain * fadeGain;
+                if (effectiveGain <= 0.0001f) {
+                    continue;
+                }
+                const size_t dstIndex = static_cast<size_t>(writeStartSample + outSampleOffset) * kOutputChannels;
+                const size_t srcIndex = static_cast<size_t>(sourceSample) * kOutputChannels;
+                mixedPcm[dstIndex] += clipPcm[srcIndex] * effectiveGain;
+                mixedPcm[dstIndex + 1] += clipPcm[srcIndex + 1] * effectiveGain;
+                mixedAny = true;
+            }
+        }
 
-    float peakSample = 0.0f;
-    for (float sample : mixedPcm) {
-        peakSample = std::max(peakSample, std::fabs(sample));
-    }
-    constexpr float kTargetPeak = 0.90f;
-    if (peakSample > kTargetPeak) {
-        const float scale = kTargetPeak / peakSample;
-        LOGI("[Export] applying audio headroom scale=%.3f peak=%.3f", scale, peakSample);
-        for (float& sample : mixedPcm) {
-            sample *= scale;
+        if (!mixedAny) {
+            LOGW("[Export] No audio clips mixed (silent output)");
         }
-    }
-    if (peakSample > 0.72f) {
-        const float limiterDrive = 1.15f;
-        const float limiterNorm = std::tanh(limiterDrive);
-        for (float& sample : mixedPcm) {
-            sample = std::tanh(sample * limiterDrive) / limiterNorm;
+
+        float peakSample = 0.0f;
+        for (float sample : mixedPcm) {
+            peakSample = std::max(peakSample, std::fabs(sample));
         }
+        constexpr float kTargetPeak = 0.90f;
+        if (peakSample > kTargetPeak) {
+            const float scale = kTargetPeak / peakSample;
+            LOGI("[Export] applying audio headroom scale=%.3f peak=%.3f", scale, peakSample);
+            for (float& sample : mixedPcm) {
+                sample *= scale;
+            }
+        }
+        if (peakSample > 0.72f) {
+            const float limiterDrive = 1.15f;
+            const float limiterNorm = std::tanh(limiterDrive);
+            for (float& sample : mixedPcm) {
+                sample = std::tanh(sample * limiterDrive) / limiterNorm;
+            }
+        }
+        for (float& sample : mixedPcm) {
+            sample = std::clamp(sample, -1.0f, 1.0f);
+        }
+        const bool encoded = encodeMixedAudioToAac(mixedPcm, kOutputSampleRate, outputPath, errorOut);
+        if (encoded) {
+            LOGI("[Export] mixed audio encoded: %s", outputPath.c_str());
+        }
+        return encoded;
+    } catch (const std::bad_alloc&) {
+        errorOut = "Audio export ran out of memory while mixing clips";
+        return false;
+    } catch (const std::exception& e) {
+        errorOut = std::string("Audio export failed while mixing clips: ") + e.what();
+        return false;
     }
-    for (float& sample : mixedPcm) {
-        sample = std::clamp(sample, -1.0f, 1.0f);
-    }
-    const bool encoded = encodeMixedAudioToAac(mixedPcm, kOutputSampleRate, outputPath, errorOut);
-    if (encoded) {
-        LOGI("[Export] mixed audio encoded: %s", outputPath.c_str());
-    }
-    return encoded;
 }
 
 static bool muxVideoAndAudioToMp4(
