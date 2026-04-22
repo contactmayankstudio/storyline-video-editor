@@ -4844,6 +4844,23 @@ static bool decodeAudioClipToStereoFloat(
         return false;
     }
 
+    AVChannelLayout inputLayout{};
+    const int inputChannels = std::max(
+        1,
+        std::max(
+            decoderCtx->ch_layout.nb_channels,
+            audioStream->codecpar ? audioStream->codecpar->ch_layout.nb_channels : 0));
+    if (decoderCtx->ch_layout.nb_channels > 0) {
+        av_channel_layout_copy(&inputLayout, &decoderCtx->ch_layout);
+    } else if (audioStream->codecpar && audioStream->codecpar->ch_layout.nb_channels > 0) {
+        av_channel_layout_copy(&inputLayout, &audioStream->codecpar->ch_layout);
+    } else {
+        LOGW("[Export] audio layout missing for %s, defaulting to %d channel(s)",
+             inputPath.c_str(),
+             inputChannels);
+        av_channel_layout_default(&inputLayout, inputChannels);
+    }
+
     AVChannelLayout outLayout{};
     av_channel_layout_default(&outLayout, 2);
     if (swr_alloc_set_opts2(
@@ -4851,7 +4868,7 @@ static bool decodeAudioClipToStereoFloat(
             &outLayout,
             AV_SAMPLE_FMT_FLT,
             outputSampleRate,
-            &decoderCtx->ch_layout,
+            &inputLayout,
             decoderCtx->sample_fmt,
             std::max(1, decoderCtx->sample_rate),
             0,
@@ -4859,11 +4876,13 @@ static bool decodeAudioClipToStereoFloat(
         !swr ||
         swr_init(swr) < 0) {
         av_channel_layout_uninit(&outLayout);
+        av_channel_layout_uninit(&inputLayout);
         errorOut = "Failed to initialize audio resampler";
         cleanup();
         return false;
     }
     av_channel_layout_uninit(&outLayout);
+    av_channel_layout_uninit(&inputLayout);
 
     frame = av_frame_alloc();
     packet = av_packet_alloc();

@@ -38,6 +38,7 @@ class PreviewAudioPlayer(
         private const val TAG = "[PreviewAudio]"
         private const val CLOCK_TICK_MS = 16L
         private const val SEEK_TOLERANCE_MS = 24
+        private const val SEEK_COMPLETE_FALLBACK_MS = 250L
         private const val VIDEO_CLOCK_RESYNC_THRESHOLD_MS = 48L
         private const val VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS = 140L
     }
@@ -65,6 +66,23 @@ class PreviewAudioPlayer(
     private var lastVideoClockResyncElapsedMs = 0L
     private var pendingSeekTargetMs = Int.MIN_VALUE
     private var pendingStartAfterSeek = false
+    private val seekCompletionFallback = Runnable {
+        val player = mediaPlayer ?: return@Runnable
+        if (!prepared || !pendingStartAfterSeek || !playing) return@Runnable
+        Log.d(TAG, "seekFallback start key=${currentSelection?.key} timelineMs=$pendingTimelineMs")
+        pendingStartAfterSeek = false
+        pendingSeekTargetMs = Int.MIN_VALUE
+        val isActuallyPlaying = runCatching { player.isPlaying }.getOrDefault(false)
+        if (!isActuallyPlaying) {
+            runCatching { player.start() }
+        }
+        val nowPlaying = runCatching { player.isPlaying }.getOrDefault(false)
+        if (nowPlaying) {
+            setAudioMasterClockEnabled(true)
+            startTicker()
+            lastAppliedAutoPlay = true
+        }
+    }
     private val applyRequestedState = Runnable {
         val timelineMs: Long
         val autoPlay: Boolean
@@ -110,6 +128,7 @@ class PreviewAudioPlayer(
             playing = false
             stopTicker()
             setAudioMasterClockEnabled(false)
+            audioHandler.removeCallbacks(seekCompletionFallback)
             pendingStartAfterSeek = false
             pendingSeekTargetMs = Int.MIN_VALUE
             val isActuallyPlaying = runCatching { mediaPlayer?.isPlaying == true }.getOrDefault(false)
@@ -165,6 +184,7 @@ class PreviewAudioPlayer(
             playing = false
             stopTicker()
             setAudioMasterClockEnabled(false)
+            audioHandler.removeCallbacks(seekCompletionFallback)
             releasePlayer()
             audioHandler.removeCallbacksAndMessages(null)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
@@ -183,6 +203,7 @@ class PreviewAudioPlayer(
             Log.w(TAG, "No playable audio source at timelineMs=$pendingTimelineMs")
             setAudioMasterClockEnabled(false)
             stopTicker()
+            audioHandler.removeCallbacks(seekCompletionFallback)
             val isActuallyPlaying = runCatching { mediaPlayer?.isPlaying == true }.getOrDefault(false)
             if (isActuallyPlaying) {
                 runCatching { mediaPlayer?.pause() }
@@ -214,6 +235,7 @@ class PreviewAudioPlayer(
         val targetMs = timelineToMediaMs(selection, pendingTimelineMs)
             .coerceIn(0L, Int.MAX_VALUE.toLong())
             .toInt()
+        val shouldSkipSeek = targetMs <= SEEK_TOLERANCE_MS
         val duplicateSeek =
             lastAppliedSelectionKey == selection.key &&
                 abs(lastAppliedMediaSeekMs - targetMs) <= SEEK_TOLERANCE_MS
@@ -226,9 +248,14 @@ class PreviewAudioPlayer(
 
         applyVolume(selection.volume)
         applyPlaybackSpeed(selection)
-        val shouldStartAfterSeek = autoPlay && !isActuallyPlaying && !duplicateSeek
-        if (!duplicateSeek) {
+        val shouldStartAfterSeek = autoPlay && !isActuallyPlaying && !duplicateSeek && !shouldSkipSeek
+        if (!duplicateSeek && !shouldSkipSeek) {
             seekPlayer(targetMs, autoPlayAfterSeek = shouldStartAfterSeek)
+        } else if (!duplicateSeek) {
+            audioHandler.removeCallbacks(seekCompletionFallback)
+            pendingStartAfterSeek = false
+            pendingSeekTargetMs = Int.MIN_VALUE
+            lastAppliedMediaSeekMs = targetMs
         }
         if (autoPlay) {
             Log.d(TAG, "resumePlayer key=${selection.key} timelineMs=$pendingTimelineMs")
@@ -245,6 +272,7 @@ class PreviewAudioPlayer(
         } else {
             setAudioMasterClockEnabled(false)
             stopTicker()
+            audioHandler.removeCallbacks(seekCompletionFallback)
             if (isActuallyPlaying) {
                 runCatching { mediaPlayer?.pause() }
             }
@@ -279,6 +307,7 @@ class PreviewAudioPlayer(
                 prepared = false
                 setAudioMasterClockEnabled(false)
                 stopTicker()
+                audioHandler.removeCallbacks(seekCompletionFallback)
                 currentSelection = null
                 lastAppliedSelectionKey = null
                 lastAppliedMediaSeekMs = Int.MIN_VALUE
@@ -293,9 +322,34 @@ class PreviewAudioPlayer(
             val targetMs = timelineToMediaMs(selection, pendingTimelineMs)
                 .coerceIn(0L, Int.MAX_VALUE.toLong())
                 .toInt()
-            seekPlayer(targetMs, autoPlayAfterSeek = pendingAutoPlay)
             lastAppliedSelectionKey = selection.key
             lastAppliedMediaSeekMs = targetMs
+            if (targetMs <= SEEK_TOLERANCE_MS) {
+                audioHandler.removeCallbacks(seekCompletionFallback)
+                pendingStartAfterSeek = false
+                pendingSeekTargetMs = Int.MIN_VALUE
+                if (pendingAutoPlay) {
+                    Log.d(TAG, "playerPrepared start key=${selection.key} timelineMs=$pendingTimelineMs")
+                    runCatching { preparedPlayer.start() }
+                    val isActuallyPlaying = runCatching { preparedPlayer.isPlaying }.getOrDefault(false)
+                    if (isActuallyPlaying) {
+                        setAudioMasterClockEnabled(true)
+                        startTicker()
+                        lastAppliedAutoPlay = true
+                    } else {
+                        setAudioMasterClockEnabled(false)
+                        stopTicker()
+                        lastAppliedAutoPlay = false
+                    }
+                } else {
+                    Log.d(TAG, "playerPrepared idle key=${selection.key} timelineMs=$pendingTimelineMs")
+                    setAudioMasterClockEnabled(false)
+                    stopTicker()
+                    lastAppliedAutoPlay = false
+                }
+                return@setOnPreparedListener
+            }
+            seekPlayer(targetMs, autoPlayAfterSeek = pendingAutoPlay)
             if (pendingAutoPlay) {
                 Log.d(TAG, "playerPrepared awaitSeek key=${selection.key} timelineMs=$pendingTimelineMs")
                 setAudioMasterClockEnabled(false)
@@ -311,6 +365,7 @@ class PreviewAudioPlayer(
             if (completedPlayer !== mediaPlayer) {
                 return@setOnSeekCompleteListener
             }
+            audioHandler.removeCallbacks(seekCompletionFallback)
             if (pendingSeekTargetMs != Int.MIN_VALUE) {
                 lastAppliedMediaSeekMs = pendingSeekTargetMs
             }
@@ -346,6 +401,7 @@ class PreviewAudioPlayer(
             prepared = false
             setAudioMasterClockEnabled(false)
             stopTicker()
+            audioHandler.removeCallbacks(seekCompletionFallback)
             currentSelection = null
             lastAppliedSelectionKey = null
             lastAppliedMediaSeekMs = Int.MIN_VALUE
@@ -366,6 +422,7 @@ class PreviewAudioPlayer(
             prepared = false
             setAudioMasterClockEnabled(false)
             stopTicker()
+            audioHandler.removeCallbacks(seekCompletionFallback)
             currentSelection = null
             lastAppliedSelectionKey = null
             lastAppliedMediaSeekMs = Int.MIN_VALUE
@@ -382,6 +439,7 @@ class PreviewAudioPlayer(
         mediaPlayer = null
         prepared = false
         preparing = false
+        audioHandler.removeCallbacks(seekCompletionFallback)
         lastAppliedSelectionKey = null
         lastAppliedMediaSeekMs = Int.MIN_VALUE
         lastAppliedAutoPlay = false
@@ -425,6 +483,7 @@ class PreviewAudioPlayer(
 
     private fun seekPlayer(targetMs: Int, autoPlayAfterSeek: Boolean = false) {
         val player = mediaPlayer ?: return
+        audioHandler.removeCallbacks(seekCompletionFallback)
         pendingSeekTargetMs = targetMs
         pendingStartAfterSeek = autoPlayAfterSeek
         runCatching {
@@ -438,6 +497,9 @@ class PreviewAudioPlayer(
             pendingStartAfterSeek = false
             pendingSeekTargetMs = Int.MIN_VALUE
             Log.w(TAG, "Failed to seek audio preview to $targetMs ms: ${it.message}")
+        }
+        if (autoPlayAfterSeek) {
+            audioHandler.postDelayed(seekCompletionFallback, SEEK_COMPLETE_FALLBACK_MS)
         }
         lastAppliedMediaSeekMs = targetMs
     }
