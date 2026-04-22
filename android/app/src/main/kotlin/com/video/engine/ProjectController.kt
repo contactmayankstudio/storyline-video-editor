@@ -11,6 +11,7 @@ import java.util.Locale
 class ProjectController(
     private val activity: Activity,
     private val previewViewProvider: () -> VideoPreviewView?,
+    private val hasProjectContentProvider: () -> Boolean,
     private val isPlayingProvider: () -> Boolean,
     private val onPausePlayback: () -> Unit,
     private val onSaveUiState: (projectFile: File, projectName: String) -> Unit,
@@ -19,6 +20,12 @@ class ProjectController(
     private val onProjectLoadFinished: () -> Unit,
 ) {
     companion object { private const val TAG = "[UI]" }
+
+    private fun autoSaveFile(): File =
+        File(activity.getExternalFilesDir(null), "autosave/autosave.vne")
+
+    private fun autoSaveUiFile(): File =
+        File(activity.getExternalFilesDir(null), "autosave/autosave.ui.json")
 
     fun showSaveProjectDialog() {
         if (previewViewProvider() == null) {
@@ -58,8 +65,11 @@ class ProjectController(
     }
 
     fun autoSave() {
+        if (!hasProjectContentProvider()) {
+            return
+        }
         val projectsDir = File(activity.getExternalFilesDir(null), "autosave").also { it.mkdirs() }
-        val outputFile = File(projectsDir, "autosave.vne")
+        val outputFile = autoSaveFile()
         Thread {
             try {
                 previewViewProvider()?.saveProject(outputFile.absolutePath, "autosave")
@@ -71,10 +81,24 @@ class ProjectController(
     }
 
     fun restoreAutoSave(): Boolean {
-        val autoSaveFile = File(activity.getExternalFilesDir(null), "autosave/autosave.vne")
+        val autoSaveFile = autoSaveFile()
         if (!autoSaveFile.exists()) return false
         loadProject(autoSaveFile.absolutePath)
         return true
+    }
+
+    fun hasAutoSave(): Boolean = autoSaveFile().exists()
+
+    fun describeAutoSave(): String? {
+        val file = autoSaveFile()
+        if (!file.exists()) return null
+        val modified = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.US).format(Date(file.lastModified()))
+        return "Last autosave: $modified"
+    }
+
+    fun discardAutoSave() {
+        runCatching { autoSaveFile().delete() }
+        runCatching { autoSaveUiFile().delete() }
     }
 
     fun loadProject(filePath: String) {

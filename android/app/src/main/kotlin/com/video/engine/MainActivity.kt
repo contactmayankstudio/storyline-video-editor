@@ -96,6 +96,37 @@ class MainActivity : Activity() {
     private fun activeMultiTrackTimelineView() =
         multiTrackTimelineView?.takeIf { it.visibility == View.VISIBLE }
 
+    private fun trackDisplayName(trackType: TrackType): String =
+        when (trackType) {
+            TrackType.VIDEO -> "Video"
+            TrackType.OVERLAY -> "Overlay"
+            TrackType.TEXT -> "Text"
+            TrackType.AUDIO -> "Audio"
+        }
+
+    private fun isTrackLocked(trackType: TrackType): Boolean =
+        trackLockedOverrides[trackType] == true
+
+    private fun trackVisibilityStateSnapshot(): Map<TrackType, Boolean> =
+        TrackType.displayOrder().associateWith { trackType -> trackVisibilityOverrides[trackType] ?: true }
+
+    private fun trackLockStateSnapshot(): Map<TrackType, Boolean> =
+        TrackType.displayOrder().associateWith { trackType -> trackLockedOverrides[trackType] ?: false }
+
+    private fun hasProjectContent(): Boolean {
+        return timelineManager?.getClips()?.isNotEmpty() == true ||
+            allTextOverlays().isNotEmpty() ||
+            StickerClipStore.all().isNotEmpty() ||
+            AudioClipStore.all().isNotEmpty()
+    }
+
+    private fun ensureTrackEditable(trackType: TrackType, actionName: String? = null): Boolean {
+        if (!isTrackLocked(trackType)) return true
+        val suffix = actionName?.let { " for $it" }.orEmpty()
+        safeToast("${trackDisplayName(trackType)} track locked$suffix", Toast.LENGTH_SHORT)
+        return false
+    }
+
     // ANR-safe executeCommand: always runs on background thread, posts UI callback on main thread
     private fun execCmd(action: String, params: Map<String, Any> = emptyMap(), onResult: ((com.video.engine.NativeBridge.CommandResult) -> Unit)? = null) {
         commandExecutor.execute {
@@ -263,8 +294,11 @@ class MainActivity : Activity() {
     private val stickerClipKeyframes = mutableMapOf<Int, MutableList<Long>>()
     private val nativeClipAudioGainKeyframes = mutableMapOf<Int, List<AudioGainKeyframe>>()
     private val duckingEnabledForKey = mutableMapOf<String, Boolean>()
+    private val trackVisibilityOverrides = mutableMapOf<TrackType, Boolean>()
+    private val trackLockedOverrides = mutableMapOf<TrackType, Boolean>()
     private val hardwareTelemetryHandler = Handler(Looper.getMainLooper())
     private var lastTimelineSeekTelemetryElapsedMs = 0L
+    private var autoSaveRestorePromptShown = false
     private var pendingVideoReplaceClipId: Int? = null
     private var pendingAudioReplaceClipId: Int? = null
     private val aspectRatioOptions = listOf(
@@ -623,11 +657,14 @@ class MainActivity : Activity() {
                     TrackType.VIDEO -> openVideoTrackImport()
                     TrackType.OVERLAY -> openOverlayTrackImport()
                     TrackType.TEXT -> showAddTextDialog()
-                    TrackType.AUDIO -> audioImportController?.openPicker(PICK_AUDIO_REQUEST)
+                    TrackType.AUDIO -> openAudioTrackImport()
                 }
             }
             override fun onTrackVisibilityChanged(trackType: TrackType, isVisible: Boolean) {
                 applyTrackVisibilityChange(trackType, isVisible)
+            }
+            override fun onTrackLockedChanged(trackType: TrackType, isLocked: Boolean) {
+                applyTrackLockChange(trackType, isLocked)
             }
         }
         canvasView?.onSplitAtPlayhead = { timeMs ->
@@ -940,6 +977,7 @@ class MainActivity : Activity() {
         projectController = ProjectController(
             activity = this,
             previewViewProvider = { previewView },
+            hasProjectContentProvider = { hasProjectContent() },
             isPlayingProvider = { isPlaying },
             onPausePlayback = {
                 isPlaying = false
@@ -973,6 +1011,12 @@ class MainActivity : Activity() {
             allTextOverlaysProvider = { allTextOverlays() },
             nextTextOverlayIdProvider = { nextTextOverlayId },
             nextStickerIdProvider = { nextStickerId },
+            nextAudioClipIdProvider = { nextAudioClipId },
+            selectedAspectRatioIndexProvider = { selectedAspectRatioIndex },
+            playheadTimeMsProvider = { currentPlayheadMs() },
+            timelineZoomPxPerSecondProvider = { NativeBridge.getTimelineZoomPxPerSecond() },
+            trackVisibilityProvider = { trackVisibilityStateSnapshot() },
+            trackLockedProvider = { trackLockStateSnapshot() },
             onAddOverlayView = { overlay -> addOverlayView(overlay) },
             onAddStickerOverlayView = { clip -> addStickerOverlayView(clip) },
         )
@@ -1044,15 +1088,29 @@ class MainActivity : Activity() {
             },
             onOpenVideoImportPicker = { openVideoTrackImport() },
             onOpenOverlayImportPicker = { openOverlayTrackImport() },
-            onQuickImport = { importController?.importQuickSample() == true },
-            onQuickOverlayImport = {
-                importController?.setNextImportTrackType(TrackType.OVERLAY)
-                importController?.importQuickSample() == true
+            onQuickImport = {
+                if (!ensureTrackEditable(TrackType.VIDEO, "import")) {
+                    false
+                } else {
+                    importController?.importQuickSample() == true
+                }
             },
-            onShowAudioPicker = { audioImportController?.openPicker(PICK_AUDIO_REQUEST) },
+            onQuickOverlayImport = {
+                if (!ensureTrackEditable(TrackType.OVERLAY, "import")) {
+                    false
+                } else {
+                    importController?.setNextImportTrackType(TrackType.OVERLAY)
+                    importController?.importQuickSample() == true
+                }
+            },
+            onShowAudioPicker = { openAudioTrackImport() },
             onQuickAudioImport = {
-                audioImportController?.openPickerOrQuickImport(PICK_AUDIO_REQUEST)
-                true
+                if (!ensureTrackEditable(TrackType.AUDIO, "import")) {
+                    false
+                } else {
+                    audioImportController?.openPickerOrQuickImport(PICK_AUDIO_REQUEST)
+                    true
+                }
             },
             onSplitAudioAtPlayhead = { splitAudioAtPlayhead() },
             clipEffects = clipEffects,
@@ -1081,6 +1139,9 @@ class MainActivity : Activity() {
         playbackController?.scheduleInitialDurationRefresh()
         refreshMainTimelineTracks()
         maybeHandleAutomationIntent(intent)
+        if (intent?.getStringExtra("adb_action").isNullOrBlank()) {
+            mainHandler.post { maybePromptAutoSaveRestore() }
+        }
     }
 
     private fun setupAspectRatioButton() {
@@ -1548,6 +1609,28 @@ class MainActivity : Activity() {
         setStartScreenVisible(true)
     }
 
+    private fun maybePromptAutoSaveRestore() {
+        if (autoSaveRestorePromptShown) return
+        if (hasProjectContent()) return
+        val controller = projectController ?: return
+        val summary = controller.describeAutoSave() ?: return
+        autoSaveRestorePromptShown = true
+        AlertDialog.Builder(this)
+            .setTitle("Resume Last Session")
+            .setMessage(summary)
+            .setPositiveButton("Resume") { _, _ ->
+                if (controller.restoreAutoSave() != true) {
+                    autoSaveRestorePromptShown = false
+                    safeToast("Autosave restore failed", Toast.LENGTH_SHORT)
+                }
+            }
+            .setNegativeButton("Discard") { _, _ ->
+                controller.discardAutoSave()
+            }
+            .setOnCancelListener { }
+            .show()
+    }
+
     private fun textOverlayPresetByLabel(label: String): TextOverlayPreset? {
         return textOverlayPresets.firstOrNull { it.label == label }
     }
@@ -1604,6 +1687,7 @@ class MainActivity : Activity() {
     }
 
     private fun showAddTextDialog() {
+        if (!ensureTrackEditable(TrackType.TEXT, "text")) return
         var customDurationMs: Int? = null
         ModernSheet.show(this, "Add Text") {
             textInput("Text", "Write a title, caption, or label") { }
@@ -1637,6 +1721,7 @@ class MainActivity : Activity() {
     }
 
     private fun addNewTextOverlay(text: String) {
+        if (!ensureTrackEditable(TrackType.TEXT, "text")) return
         val preset = textOverlayPresetByLabel("Basic") ?: return
         addTextOverlay(
             buildTextOverlayFromPreset(
@@ -2233,6 +2318,8 @@ class MainActivity : Activity() {
         nativeClipFreezeFrameDurationMs.clear()
         nativeClipCurveSpeedProfile.clear()
         nativeClipCurveSpeedStrength.clear()
+        trackVisibilityOverrides.clear()
+        trackLockedOverrides.clear()
         selectedTimelineClipKey = null
         currentTimeMs = 0L
         videoDurationMs = 0L
@@ -2270,6 +2357,27 @@ class MainActivity : Activity() {
         val loadedState = projectStateSerializer?.loadUiState(projectFile) ?: return
         nextTextOverlayId = loadedState.nextTextOverlayId
         nextStickerId = loadedState.nextStickerId
+        nextAudioClipId = loadedState.nextAudioClipId.coerceAtLeast(1)
+        trackVisibilityOverrides.clear()
+        trackVisibilityOverrides.putAll(loadedState.trackVisibilityByType)
+        trackLockedOverrides.clear()
+        trackLockedOverrides.putAll(loadedState.trackLockedByType)
+        loadedState.selectedAspectRatioIndex?.let { restoredIndex ->
+            selectedAspectRatioIndex = restoredIndex.coerceIn(0, aspectRatioOptions.lastIndex)
+            applyPreviewAspectRatio()
+        }
+        loadedState.timelineZoomPxPerSecond?.let { restoredZoom ->
+            NativeBridge.setTimelineZoomPxPerSecond(restoredZoom)
+            activeCanvasTimelineView()?.setZoomPxPerSecond(restoredZoom)
+            multiTrackTimelineView?.setZoomPxPerSecond(restoredZoom)
+        }
+        loadedState.playheadTimeMs?.let { restoredTimeMs ->
+            currentTimeMs = restoredTimeMs
+            previewView?.let { NativeBridge.seekToTime(it, restoredTimeMs) }
+            timelineManager?.dispatchScrub(restoredTimeMs)
+            activeCanvasTimelineView()?.setPlayheadMs(restoredTimeMs)
+            multiTrackTimelineView?.setCurrentTimeMs(restoredTimeMs)
+        }
         recordTelemetryEvent(
             "project",
             "load_ui_state",
@@ -2688,11 +2796,14 @@ class MainActivity : Activity() {
         nativeClipCurveSpeedProfile.keys.retainAll(nativeClipIdSet)
         nativeClipCurveSpeedStrength.keys.retainAll(nativeClipIdSet)
         videoClipTimingOverrides.clear()
+        val existingVisibilityByClipId =
+            timelineManager?.getClips()?.associate { it.id to timelineManager.getClipVisibility(it.id) }.orEmpty()
         timelineManager?.syncClips(clips, recordHistory = false, clearHistory = false)
         clips.forEach { clip ->
             val existingLayer = timelineManager?.getClipLayerIndex(clip.id) ?: 0
             timelineManager?.setClipLayerIndex(clip.id, nativeClipZOrder[clip.id] ?: existingLayer)
-            timelineManager?.setClipVisibility(clip.id, true)
+            val defaultVisible = trackVisibilityOverrides[nativeClipTrackType[clip.id] ?: TrackType.VIDEO] ?: true
+            timelineManager?.setClipVisibility(clip.id, existingVisibilityByClipId[clip.id] ?: defaultVisible)
         }
         if (selectedClipId != null) {
             timelineManager?.selectClip(selectedClipId)
@@ -2904,7 +3015,7 @@ class MainActivity : Activity() {
                     TrackType.VIDEO -> openVideoTrackImport()
                     TrackType.OVERLAY -> openOverlayTrackImport()
                     TrackType.TEXT -> showAddTextDialog()
-                    TrackType.AUDIO -> audioImportController?.openPicker(PICK_AUDIO_REQUEST)
+                    TrackType.AUDIO -> openAudioTrackImport()
                 }
             }
 
@@ -2919,11 +3030,21 @@ class MainActivity : Activity() {
                 )
             }
 
-            override fun onTrackLockedChanged(trackType: TrackType, isLocked: Boolean) = Unit
+            override fun onTrackLockedChanged(trackType: TrackType, isLocked: Boolean) {
+                applyTrackLockChange(trackType, isLocked)
+                recordTelemetryEvent(
+                    "timeline",
+                    "track_locked_changed",
+                    JSONObject()
+                        .put("trackType", trackType.name)
+                        .put("isLocked", isLocked),
+                )
+            }
         })
     }
 
     private fun openVideoTrackImport() {
+        if (!ensureTrackEditable(TrackType.VIDEO, "import")) return
         importController?.setNextImportTrackType(TrackType.VIDEO)
         val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
             type = "*/*"
@@ -2934,6 +3055,7 @@ class MainActivity : Activity() {
     }
 
     private fun openOverlayTrackImport() {
+        if (!ensureTrackEditable(TrackType.OVERLAY, "import")) return
         importController?.setNextImportTrackType(TrackType.OVERLAY)
         val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
             type = "*/*"
@@ -2941,6 +3063,11 @@ class MainActivity : Activity() {
             addCategory(Intent.CATEGORY_OPENABLE)
         }
         startActivityForResult(intent, PICK_VIDEO_REQUEST)
+    }
+
+    private fun openAudioTrackImport() {
+        if (!ensureTrackEditable(TrackType.AUDIO, "import")) return
+        audioImportController?.openPicker(PICK_AUDIO_REQUEST)
     }
 
     private fun applyLocalClipTimingUpdate(update: MultiTrackTimelineView.ClipUpdate): Boolean {
@@ -3000,6 +3127,14 @@ class MainActivity : Activity() {
     private fun refreshMainTimelineTracks() {
         mainHandler.removeCallbacks(refreshTimelineRunnable)
         mainHandler.postDelayed(refreshTimelineRunnable, 16L)
+    }
+
+    private fun resolvedTrackVisibility(trackType: TrackType, computedDefault: Boolean): Boolean {
+        return trackVisibilityOverrides[trackType] ?: computedDefault
+    }
+
+    private fun resolvedTrackLocked(trackType: TrackType): Boolean {
+        return trackLockedOverrides[trackType] ?: false
     }
 
     private fun refreshMainTimelineTracksInternal() {
@@ -3069,7 +3204,11 @@ class MainActivity : Activity() {
                     ),
                 )
             },
-            isVisible = videoManagerClips.any { timelineManager?.getClipVisibility(it.id) ?: true } || videoManagerClips.isEmpty(),
+            isLocked = resolvedTrackLocked(TrackType.VIDEO),
+            isVisible = resolvedTrackVisibility(
+                TrackType.VIDEO,
+                videoManagerClips.any { timelineManager?.getClipVisibility(it.id) ?: true } || videoManagerClips.isEmpty(),
+            ),
         )
         val overlayTrack = TrackState(
             id = "main-overlay",
@@ -3099,7 +3238,11 @@ class MainActivity : Activity() {
                     )
                 },
             ),
-            isVisible = overlayManagerClips.any { timelineManager?.getClipVisibility(it.id) ?: true } || overlayManagerClips.isEmpty(),
+            isLocked = resolvedTrackLocked(TrackType.OVERLAY),
+            isVisible = resolvedTrackVisibility(
+                TrackType.OVERLAY,
+                overlayManagerClips.any { timelineManager?.getClipVisibility(it.id) ?: true } || overlayManagerClips.isEmpty(),
+            ),
         )
         val topLayerTrack = TrackState(
             id = "top-text-sticker",
@@ -3140,8 +3283,12 @@ class MainActivity : Activity() {
                     )
                 }
             ),
-            isVisible = allTextOverlays().any { it.visible } || StickerClipStore.all().any { it.visible } ||
-                (allTextOverlays().isEmpty() && StickerClipStore.all().isEmpty()),
+            isLocked = resolvedTrackLocked(TrackType.TEXT),
+            isVisible = resolvedTrackVisibility(
+                TrackType.TEXT,
+                allTextOverlays().any { it.visible } || StickerClipStore.all().any { it.visible } ||
+                    (allTextOverlays().isEmpty() && StickerClipStore.all().isEmpty()),
+            ),
         )
         val audioTrack = TrackState(
             id = "main-audio",
@@ -3176,9 +3323,13 @@ class MainActivity : Activity() {
                     ),
                 )
             },
-            isVisible = audioManagerClips.any { clip ->
-                AudioClipStore.get(clip.id)?.visible ?: (timelineManager?.getClipVisibility(clip.id) ?: true)
-            } || audioManagerClips.isEmpty(),
+            isLocked = resolvedTrackLocked(TrackType.AUDIO),
+            isVisible = resolvedTrackVisibility(
+                TrackType.AUDIO,
+                audioManagerClips.any { clip ->
+                    AudioClipStore.get(clip.id)?.visible ?: (timelineManager?.getClipVisibility(clip.id) ?: true)
+                } || audioManagerClips.isEmpty(),
+            ),
         )
         val trackStates = listOf(topLayerTrack, overlayTrack, videoTrack, audioTrack)
         val selectedClipKey =
@@ -3965,7 +4116,13 @@ class MainActivity : Activity() {
     }
 
     private fun bindClipToolbarAction(buttonId: Int, action: () -> Unit) {
-        findViewById<View>(buttonId)?.setOnClickListener { action() }
+        findViewById<View>(buttonId)?.setOnClickListener {
+            val trackType = selectedTrackType()
+            if (trackType != null && !ensureTrackEditable(trackType)) {
+                return@setOnClickListener
+            }
+            action()
+        }
     }
 
     private fun parseNativeClipId(clipKey: String?): Int? {
@@ -4007,6 +4164,16 @@ class MainActivity : Activity() {
             key.startsWith("overlay-") -> ClipKind.OVERLAY
             key.toIntOrNull() != null -> ClipKind.VIDEO
             else -> ClipKind.NONE
+        }
+    }
+
+    private fun selectedTrackType(): TrackType? {
+        return when (selectedClipKind()) {
+            ClipKind.VIDEO -> TrackType.VIDEO
+            ClipKind.OVERLAY -> TrackType.OVERLAY
+            ClipKind.AUDIO -> TrackType.AUDIO
+            ClipKind.TEXT, ClipKind.STICKER -> TrackType.TEXT
+            ClipKind.NONE -> null
         }
     }
 
@@ -4475,6 +4642,7 @@ class MainActivity : Activity() {
     }
 
     private fun applyTrackVisibilityChange(trackType: TrackType, isVisible: Boolean) {
+        trackVisibilityOverrides[trackType] = isVisible
         when (trackType) {
             TrackType.VIDEO, TrackType.OVERLAY -> {
                 nativeClipTrackType
@@ -4504,6 +4672,15 @@ class MainActivity : Activity() {
         }
         refreshMainTimelineTracks()
         previewAudioPlayer?.seekTo(currentTimeMs, continuePlaying = isPlaying)
+    }
+
+    private fun applyTrackLockChange(trackType: TrackType, isLocked: Boolean) {
+        trackLockedOverrides[trackType] = isLocked
+        refreshMainTimelineTracks()
+        updateBottomToolbarMode()
+        if (isLocked) {
+            safeToast("${trackDisplayName(trackType)} track locked", Toast.LENGTH_SHORT)
+        }
     }
 
     private fun applyClipToolbarProfile(kind: ClipKind) {
@@ -4891,7 +5068,7 @@ class MainActivity : Activity() {
             ClipKind.AUDIO -> {
                 val audioId = selectedAudioClipId() ?: return
                 pendingAudioReplaceClipId = audioId
-                audioImportController?.openPicker(PICK_AUDIO_REQUEST)
+                openAudioTrackImport()
             }
             ClipKind.TEXT -> {
                 val overlayId = selectedTextOverlayId() ?: return
@@ -5555,6 +5732,7 @@ class MainActivity : Activity() {
     private fun updateBottomToolbarMode() {
         val key = selectedTimelineClipKey
         val kind = selectedClipKind()
+        val selectedTrackLocked = selectedTrackType()?.let(::isTrackLocked) == true
         val showClipEdit = when {
             key == null -> false
             key.startsWith("audio-") -> true
@@ -5564,6 +5742,7 @@ class MainActivity : Activity() {
         }
         findViewById<View>(R.id.normalToolbarScroll)?.visibility = if (showClipEdit) View.GONE else View.VISIBLE
         findViewById<View>(R.id.audioEditToolbarScroll)?.visibility = if (showClipEdit) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.audioEditToolbarScroll)?.alpha = if (showClipEdit && selectedTrackLocked) 0.55f else 1f
         if (!showClipEdit || (kind != ClipKind.VIDEO && kind != ClipKind.OVERLAY)) {
             effectSlidersContainer?.visibility = View.GONE
         }

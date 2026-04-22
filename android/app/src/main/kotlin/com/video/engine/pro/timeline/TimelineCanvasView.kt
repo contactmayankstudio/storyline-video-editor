@@ -36,6 +36,7 @@ class TimelineCanvasView @JvmOverloads constructor(
         fun onPlayheadScrub(timeMs: Long)
         fun onTrackVisibilityChanged(trackType: TrackType, isVisible: Boolean) {}
         fun onTrackImportRequested(trackType: TrackType) {}
+        fun onTrackLockedChanged(trackType: TrackType, isLocked: Boolean) {}
     }
     var listener: Listener? = null
 
@@ -54,7 +55,7 @@ class TimelineCanvasView @JvmOverloads constructor(
     private val rulerHeightPx = dp(24)
     private val trackHeightPx = dp(40)
     private val trackGapPx = dp(2)
-    private val headerWidthPx = dp(44)
+    private val headerWidthPx = dp(56)
     private val handleWidthPx = dp(14)
     private val snapThresholdPx = dp(12).toFloat()
     private val minClipWidthPx = dp(4).toFloat()
@@ -110,6 +111,13 @@ class TimelineCanvasView @JvmOverloads constructor(
     private val trackVisibilityPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#666666"); textSize = dp(8).toFloat(); textAlign = Paint.Align.CENTER
     }
+    private val trackLockPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#8B94A5"); strokeWidth = dp(1.5f)
+        style = Paint.Style.STROKE
+    }
+    private val trackLockedOverlayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#40000000")
+    }
 
     // ── Long press state ──────────────────────────────────────────────────────
     private var longPressClipId: String? = null
@@ -121,6 +129,7 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     // ── Track visibility ──────────────────────────────────────────────────────
     private val trackVisible = mutableMapOf<TrackType, Boolean>()
+    private val trackLocked = mutableMapOf<TrackType, Boolean>()
 
     // ── Double tap zoom reset ─────────────────────────────────────────────────
     private var lastTapTimeMs = 0L
@@ -172,6 +181,10 @@ class TimelineCanvasView @JvmOverloads constructor(
     // ── Public setters ────────────────────────────────────────────────────────
     fun setTracks(tracks: List<TrackState>) {
         this.tracks = tracks
+        tracks.forEach { track ->
+            trackVisible[track.type] = track.isVisible
+            trackLocked[track.type] = track.isLocked
+        }
         recalcContentWidth()
         scheduleAssetRequests()
         invalidate()
@@ -232,6 +245,12 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     private fun trackTop(trackIndex: Int) =
         rulerHeightPx + trackIndex * (trackHeightPx + trackGapPx)
+
+    private fun headerVisibilityX(): Float = headerWidthPx * 0.34f
+
+    private fun headerLockX(): Float = headerWidthPx * 0.72f
+
+    private fun headerToggleY(trackIndex: Int): Float = trackTop(trackIndex) + trackHeightPx * 0.72f
 
     private fun clipTop(trackIndex: Int, clip: ClipSegment): Float {
         val base = trackTop(trackIndex).toFloat()
@@ -302,12 +321,49 @@ class TimelineCanvasView @JvmOverloads constructor(
                 TrackType.AUDIO -> "AUD"
             }
             val isVisible = trackVisible[track.type] != false
-            headerTextPaint.alpha = if (isVisible) 255 else 100
-            canvas.drawText(label, headerWidthPx / 2f, mid, headerTextPaint)
-            // Eye icon hint
-            canvas.drawText(if (isVisible) "●" else "○", headerWidthPx / 2f, mid + dp(12), trackVisibilityPaint)
+            val isLocked = trackLocked[track.type] == true
+            headerTextPaint.alpha = if (isVisible) 255 else 110
+            canvas.drawText(label, headerWidthPx / 2f, top + dp(16), headerTextPaint)
+            trackVisibilityPaint.color = if (isVisible) Color.parseColor("#9EF0C2") else Color.parseColor("#666666")
+            canvas.drawText(if (isVisible) "●" else "○", headerVisibilityX(), headerToggleY(i), trackVisibilityPaint)
+            drawLockIcon(
+                canvas = canvas,
+                centerX = headerLockX(),
+                centerY = headerToggleY(i) - dp(4),
+                locked = isLocked,
+                tint = if (isLocked) Color.parseColor("#F5C06A") else Color.parseColor("#6F7785"),
+            )
             headerTextPaint.alpha = 255
         }
+    }
+
+    private fun drawLockIcon(
+        canvas: Canvas,
+        centerX: Float,
+        centerY: Float,
+        locked: Boolean,
+        tint: Int,
+    ) {
+        trackLockPaint.color = tint
+        val bodyW = dp(8).toFloat()
+        val bodyH = dp(6).toFloat()
+        val shackleH = dp(4).toFloat()
+        val bodyRect = RectF(
+            centerX - (bodyW / 2f),
+            centerY,
+            centerX + (bodyW / 2f),
+            centerY + bodyH,
+        )
+        canvas.drawRoundRect(bodyRect, dp(1).toFloat(), dp(1).toFloat(), trackLockPaint)
+        val shackleRect = RectF(
+            centerX - (bodyW * 0.32f),
+            centerY - shackleH,
+            centerX + (bodyW * 0.32f),
+            centerY + (bodyH * 0.2f),
+        )
+        val startAngle = if (locked) 180f else 210f
+        val sweepAngle = if (locked) 180f else 130f
+        canvas.drawArc(shackleRect, startAngle, sweepAngle, false, trackLockPaint)
     }
 
     // ── Waveform cache ────────────────────────────────────────────────────────
@@ -447,6 +503,9 @@ class TimelineCanvasView @JvmOverloads constructor(
             val dimPaint = Paint(Paint.ANTI_ALIAS_FLAG).also { it.color = 0x88000000.toInt() }
             canvas.drawRoundRect(clipRect, dp(6).toFloat(), dp(6).toFloat(), dimPaint)
         }
+        if (trackLocked[clip.trackType] == true) {
+            canvas.drawRoundRect(clipRect, dp(6).toFloat(), dp(6).toFloat(), trackLockedOverlayPaint)
+        }
 
         // Selection border + handles
         if (clip.id == selectedClipId) {
@@ -481,15 +540,23 @@ class TimelineCanvasView @JvmOverloads constructor(
                 val mid = top + trackHeightPx / 2f
                 val btnX = headerWidthPx + dp(24).toFloat()
                 val r = dp(14).toFloat()
+                val isLocked = trackLocked[track.type] == true
+                plusPaint.color = if (isLocked) Color.parseColor("#2A2A2A") else Color.parseColor("#444444")
+                plusTextPaint.color = if (isLocked) Color.parseColor("#666666") else Color.parseColor("#888888")
                 canvas.drawCircle(btnX, mid, r, plusPaint)
-                canvas.drawText("+", btnX, mid + dp(6), plusTextPaint)
+                canvas.drawText(if (isLocked) "x" else "+", btnX, mid + dp(6), plusTextPaint)
                 // hint label
-                val hint = when (track.type) {
-                    TrackType.VIDEO -> "Tap + to add video"
-                    TrackType.OVERLAY -> "Tap + to add overlay"
-                    TrackType.TEXT -> "Tap + to add text"
-                    TrackType.AUDIO -> "Tap + to add audio"
-                }
+                val hint =
+                    if (isLocked) {
+                        "Unlock to add"
+                    } else {
+                        when (track.type) {
+                            TrackType.VIDEO -> "Tap + to add video"
+                            TrackType.OVERLAY -> "Tap + to add overlay"
+                            TrackType.TEXT -> "Tap + to add text"
+                            TrackType.AUDIO -> "Tap + to add audio"
+                        }
+                    }
                 val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = Color.parseColor("#555555")
                     textSize = dp(9).toFloat()
@@ -636,14 +703,22 @@ class TimelineCanvasView @JvmOverloads constructor(
         lastTapTimeMs = now
         lastTapX = event.x
 
-        // Track header tap → toggle visibility
+        // Track header tap → toggle visibility / lock
         if (event.x < headerWidthPx) {
             tracks.forEachIndexed { i, track ->
                 val top = trackTop(i).toFloat()
                 if (event.y in top..(top + trackHeightPx)) {
-                    val cur = trackVisible[track.type] != false
-                    trackVisible[track.type] = !cur
-                    listener?.onTrackVisibilityChanged(track.type, !cur)
+                    val toggleY = headerToggleY(i)
+                    val hitRadius = dp(12).toFloat()
+                    if (abs(event.x - headerVisibilityX()) <= hitRadius && abs(event.y - toggleY) <= hitRadius) {
+                        val cur = trackVisible[track.type] != false
+                        trackVisible[track.type] = !cur
+                        listener?.onTrackVisibilityChanged(track.type, !cur)
+                    } else if (abs(event.x - headerLockX()) <= hitRadius && abs(event.y - toggleY) <= hitRadius) {
+                        val cur = trackLocked[track.type] == true
+                        trackLocked[track.type] = !cur
+                        listener?.onTrackLockedChanged(track.type, !cur)
+                    }
                     invalidate()
                     return
                 }
@@ -665,6 +740,9 @@ class TimelineCanvasView @JvmOverloads constructor(
                 val btnX = headerWidthPx + dp(24).toFloat()
                 val r = dp(14).toFloat()
                 if (abs(event.x - btnX) < r && abs(event.y - mid) < r) {
+                    if (trackLocked[track.type] == true) {
+                        return
+                    }
                     listener?.onTrackImportRequested(track.type)
                     return
                 }
@@ -687,6 +765,16 @@ class TimelineCanvasView @JvmOverloads constructor(
         val clip = findClipAt(event.x, event.y) ?: return
         val left = msToX(clip.startTimeMs)
         val right = msToX(clip.startTimeMs + clip.durationMs)
+
+        val isTrackLocked = trackLocked[clip.trackType] == true
+        if (isTrackLocked) {
+            if (clip.id != selectedClipId) {
+                selectedClipId = clip.id
+                listener?.onClipSelected(clip.id)
+                invalidate()
+            }
+            return
+        }
 
         gesture = when {
             clip.id == selectedClipId && event.x <= left + handleWidthPx + dp(4) -> GestureKind.TRIM_START

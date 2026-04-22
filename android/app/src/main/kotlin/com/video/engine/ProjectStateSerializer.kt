@@ -1,7 +1,9 @@
 package com.video.engine
 
+import com.video.engine.audio.AudioClipStore
 import com.video.engine.overlay.OverlayStore
 import com.video.engine.overlay.TextOverlay
+import com.video.engine.pro.model.TrackType
 import com.video.engine.stickers.StickerClip
 import com.video.engine.stickers.StickerClipStore
 import com.video.engine.timeline.MultiClipTimeline
@@ -13,6 +15,12 @@ import org.json.JSONObject
 data class LoadedUiState(
     val nextTextOverlayId: Int,
     val nextStickerId: Int,
+    val nextAudioClipId: Int,
+    val selectedAspectRatioIndex: Int?,
+    val playheadTimeMs: Long?,
+    val timelineZoomPxPerSecond: Float?,
+    val trackVisibilityByType: Map<TrackType, Boolean>,
+    val trackLockedByType: Map<TrackType, Boolean>,
 )
 
 class ProjectStateSerializer(
@@ -23,6 +31,12 @@ class ProjectStateSerializer(
     private val allTextOverlaysProvider: () -> List<TextOverlay>,
     private val nextTextOverlayIdProvider: () -> Int,
     private val nextStickerIdProvider: () -> Int,
+    private val nextAudioClipIdProvider: () -> Int,
+    private val selectedAspectRatioIndexProvider: () -> Int,
+    private val playheadTimeMsProvider: () -> Long,
+    private val timelineZoomPxPerSecondProvider: () -> Float,
+    private val trackVisibilityProvider: () -> Map<TrackType, Boolean>,
+    private val trackLockedProvider: () -> Map<TrackType, Boolean>,
     private val onAddOverlayView: (TextOverlay) -> Unit,
     private val onAddStickerOverlayView: (StickerClip) -> Unit,
 ) {
@@ -30,6 +44,10 @@ class ProjectStateSerializer(
         val timelineManager = timelineManagerProvider()
         val root = JSONObject()
         root.put("projectName", projectName)
+        root.put("nextAudioClipId", nextAudioClipIdProvider())
+        root.put("selectedAspectRatioIndex", selectedAspectRatioIndexProvider())
+        root.put("playheadTimeMs", playheadTimeMsProvider())
+        root.put("timelineZoomPxPerSecond", timelineZoomPxPerSecondProvider().toDouble())
 
         val clips = JSONArray()
         timeline.getClips().forEach { clip ->
@@ -88,6 +106,19 @@ class ProjectStateSerializer(
         root.put("nextTextOverlayId", nextTextOverlayIdProvider())
         root.put("nextStickerId", nextStickerIdProvider())
         root.put(
+            "trackStates",
+            JSONArray().apply {
+                TrackType.displayOrder().forEach { trackType ->
+                    put(
+                        JSONObject()
+                            .put("type", trackType.name)
+                            .put("isVisible", trackVisibilityProvider()[trackType] ?: true)
+                            .put("isLocked", trackLockedProvider()[trackType] ?: false),
+                    )
+                }
+            },
+        )
+        root.put(
             "nativeCommandJournal",
             JSONArray().apply {
                 NativeBridge.snapshotCommandJournal().forEach { put(it) }
@@ -105,6 +136,12 @@ class ProjectStateSerializer(
             return LoadedUiState(
                 nextTextOverlayId = (allTextOverlaysProvider().maxOfOrNull { it.id } ?: 0) + 1,
                 nextStickerId = (StickerClipStore.all().maxOfOrNull { it.id } ?: 0) + 1,
+                nextAudioClipId = (AudioClipStore.all().maxOfOrNull { it.id } ?: 0) + 1,
+                selectedAspectRatioIndex = null,
+                playheadTimeMs = null,
+                timelineZoomPxPerSecond = null,
+                trackVisibilityByType = emptyMap(),
+                trackLockedByType = emptyMap(),
             )
         }
 
@@ -112,6 +149,8 @@ class ProjectStateSerializer(
         val previewView = previewViewProvider()
         val editorState = editorStateProvider()
         val root = JSONObject(sidecar.readText())
+        val trackVisibilityByType = mutableMapOf<TrackType, Boolean>()
+        val trackLockedByType = mutableMapOf<TrackType, Boolean>()
         NativeBridge.restoreCommandJournal(
             buildList {
                 val journal = root.optJSONArray("nativeCommandJournal") ?: JSONArray()
@@ -184,10 +223,26 @@ class ProjectStateSerializer(
             onAddStickerOverlayView(clip)
         }
 
+        val trackStates = root.optJSONArray("trackStates") ?: JSONArray()
+        for (i in 0 until trackStates.length()) {
+            val item = trackStates.optJSONObject(i) ?: continue
+            val trackType = runCatching { TrackType.valueOf(item.optString("type")) }.getOrNull() ?: continue
+            trackVisibilityByType[trackType] = item.optBoolean("isVisible", true)
+            trackLockedByType[trackType] = item.optBoolean("isLocked", false)
+        }
+
         editorState?.normalizeAllLayerIndices()
         return LoadedUiState(
             nextTextOverlayId = root.optInt("nextTextOverlayId", (allTextOverlaysProvider().maxOfOrNull { it.id } ?: 0) + 1),
             nextStickerId = root.optInt("nextStickerId", (StickerClipStore.all().maxOfOrNull { it.id } ?: 0) + 1),
+            nextAudioClipId = root.optInt("nextAudioClipId", (AudioClipStore.all().maxOfOrNull { it.id } ?: 0) + 1),
+            selectedAspectRatioIndex = root.optInt("selectedAspectRatioIndex", -1).takeIf { it >= 0 },
+            playheadTimeMs = root.optLong("playheadTimeMs", -1L).takeIf { it >= 0L },
+            timelineZoomPxPerSecond = root.optDouble("timelineZoomPxPerSecond", -1.0)
+                .takeIf { it > 0.0 }
+                ?.toFloat(),
+            trackVisibilityByType = trackVisibilityByType,
+            trackLockedByType = trackLockedByType,
         )
     }
 
