@@ -1,5 +1,6 @@
 const { getConfig, getLatestRunSummary } = require("./_lib/github");
 const { getAiConfig } = require("./_lib/ai");
+const { requireAdmin, sendAdminError } = require("./_lib/admin");
 
 module.exports = async function handler(req, res) {
     if (req.method !== "GET") {
@@ -11,6 +12,7 @@ module.exports = async function handler(req, res) {
     const geminiConfigured = Boolean(aiConfig.providers.find((provider) => provider.id === "gemini")?.configured);
 
     try {
+        await requireAdmin(req);
         let build = null;
         let message = "";
 
@@ -37,6 +39,9 @@ module.exports = async function handler(req, res) {
             message,
         });
     } catch (error) {
+        if (error.status) {
+            return sendAdminError(res, error);
+        }
         return res.status(500).json({
             error: error.message,
             config: {

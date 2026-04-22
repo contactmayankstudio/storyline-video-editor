@@ -2,6 +2,7 @@
 // To be included in native_preview.cpp or as standalone file
 
 #include <jni.h>
+#include <algorithm>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -151,6 +152,9 @@ Java_com_video_engine_VideoPreviewView_nativeLoadProject(
             clip->setOpacity(clipEntry.opacity);
             clip->setEnabled(clipEntry.enabled);
             clip->setVolumeGain(clipEntry.volumeGain);
+            clip->getMutableProperties().fadeInMs = std::max<int32_t>(0, clipEntry.fadeInMs);
+            clip->getMutableProperties().fadeOutMs = std::max<int32_t>(0, clipEntry.fadeOutMs);
+            clip->getMutableProperties().audioGainKeyframes = clipEntry.audioGainKeyframes;
             clip->setPlaybackSpeed(clipEntry.playbackSpeed);
             clip->getMutableProperties().reversePlayback = clipEntry.reversePlayback;
             clip->getMutableProperties().freezeFrameEnabled = clipEntry.freezeFrameEnabled;

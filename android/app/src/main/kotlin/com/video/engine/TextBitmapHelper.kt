@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
+import com.video.engine.overlay.TextOverlay
+import kotlin.math.roundToInt
 
 /**
  * Helper for creating text bitmaps for GPU text overlay rendering.
@@ -36,48 +38,55 @@ object TextBitmapHelper {
         text: String,
         fontSize: Float = 36f,
         textColor: Int = 0xFFFFFFFF.toInt(),  // White
-        bgColor: Int = 0x00000000               // Transparent
+        bgColor: Int = 0x00000000,              // Transparent
+        bold: Boolean = true,
+        italic: Boolean = false,
+        fontName: String? = null,
     ): Bitmap {
         if (text.isEmpty()) {
             // Return minimal 1x1 transparent pixels
             return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
         }
-        
+
         // Setup paint for text rendering
         val paint = Paint().apply {
             color = textColor
             textSize = fontSize
-            typeface = Typeface.DEFAULT_BOLD
+            typeface = resolveTypeface(fontName, bold, italic)
             isAntiAlias = true
             isDither = true
-            // Optional: add text effects
-            // setShadowLayer(2f, 0f, 0f, 0xFF000000.toInt())
+            textAlign = Paint.Align.LEFT
+            setShadowLayer(fontSize * 0.10f, 0f, fontSize * 0.05f, 0x99000000.toInt())
         }
-        
-        // Measure text dimensions
-        val bounds = android.graphics.Rect()
-        paint.getTextBounds(text, 0, text.length, bounds)
-        
-        // Calculate bitmap size (add padding for antialiasing)
-        val textWidth = bounds.width() + 16
-        val textHeight = bounds.height() + 16
-        val bitmapWidth = textWidth.coerceAtLeast(32)
-        val bitmapHeight = textHeight.coerceAtLeast(32)
-        
+
+        val lines = text.replace("\r\n", "\n").split('\n').ifEmpty { listOf(" ") }
+        val safeLines = lines.map { if (it.isEmpty()) " " else it }
+        val fontMetrics = paint.fontMetrics
+        val lineHeight = (fontMetrics.descent - fontMetrics.ascent + fontSize * 0.18f).coerceAtLeast(fontSize * 1.15f)
+        val maxLineWidth = safeLines.maxOfOrNull { paint.measureText(it) } ?: 0f
+        val horizontalPadding = (fontSize * 0.32f).toInt().coerceAtLeast(16)
+        val verticalPadding = (fontSize * 0.28f).toInt().coerceAtLeast(16)
+        val bitmapWidth = (maxLineWidth + horizontalPadding * 2).roundToInt().coerceAtLeast(32)
+        val bitmapHeight = (lineHeight * safeLines.size + verticalPadding * 2).roundToInt().coerceAtLeast(32)
+
         // Create bitmap
         val bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        
+
         // Clear background
         canvas.drawColor(bgColor, android.graphics.PorterDuff.Mode.CLEAR)
-        
-        // Draw text centered
-        val xPos = (bitmapWidth - bounds.width()) / 2f
-        val yPos = (bitmapHeight / 2f) + (bounds.height() / 2f)
-        canvas.drawText(text, xPos, yPos, paint)
-        
+
+        // Draw multiline text centered line-by-line.
+        var baselineY = verticalPadding - fontMetrics.ascent
+        safeLines.forEach { line ->
+            val lineWidth = paint.measureText(line)
+            val xPos = ((bitmapWidth - lineWidth) * 0.5f).coerceAtLeast(horizontalPadding.toFloat())
+            canvas.drawText(line, xPos, baselineY, paint)
+            baselineY += lineHeight
+        }
+
         android.util.Log.d(TAG, "Created bitmap: text='$text' size=${bitmapWidth}x${bitmapHeight} color=$textColor")
-        
+
         return bitmap
     }
     
@@ -105,10 +114,46 @@ object TextBitmapHelper {
     fun createTextPixels(
         text: String,
         fontSize: Float = 36f,
-        textColor: Int = 0xFFFFFFFF.toInt()
+        textColor: Int = 0xFFFFFFFF.toInt(),
+        bold: Boolean = true,
+        italic: Boolean = false,
+        fontName: String? = null,
     ): Triple<IntArray, Int, Int> {
-        val bitmap = createTextBitmap(text, fontSize, textColor)
+        val bitmap = createTextBitmap(
+            text = text,
+            fontSize = fontSize,
+            textColor = textColor,
+            bold = bold,
+            italic = italic,
+            fontName = fontName,
+        )
         val pixels = bitmapToPixelArray(bitmap)
         return Triple(pixels, bitmap.width, bitmap.height)
+    }
+
+    fun createTextPixels(overlay: TextOverlay): Triple<IntArray, Int, Int> {
+        return createTextPixels(
+            text = overlay.text,
+            fontSize = overlay.fontSize,
+            textColor = overlay.color,
+            bold = overlay.bold,
+            italic = overlay.italic,
+            fontName = overlay.fontName,
+        )
+    }
+
+    private fun resolveTypeface(fontName: String?, bold: Boolean, italic: Boolean): Typeface {
+        val style = when {
+            bold && italic -> Typeface.BOLD_ITALIC
+            bold -> Typeface.BOLD
+            italic -> Typeface.ITALIC
+            else -> Typeface.NORMAL
+        }
+        val base = when (fontName?.trim()?.lowercase()) {
+            "serif" -> Typeface.SERIF
+            "mono", "monospace" -> Typeface.MONOSPACE
+            else -> Typeface.SANS_SERIF
+        }
+        return Typeface.create(base, style)
     }
 }

@@ -34,6 +34,7 @@
 #include <algorithm>
 #include <functional>
 #include <string>
+#include <sstream>
 #include <cmath>
 #include <limits>
 #include <dlfcn.h>
@@ -62,6 +63,7 @@ extern "C" {
 #endif
 
 using namespace VideoEngine; // Add this line here
+using AudioGainKeyframe = VideoEngine::Clip::AudioGainKeyframe;
 
 // Global JavaVM for thread attachment
 static JavaVM* g_javaVM = nullptr;
@@ -335,6 +337,9 @@ void configureRenderThreadPriority() {
         bool  effectsEnabled = false;
         // Volume
         float volumeGain = 1.0f;
+        int32_t fadeInMs = 0;
+        int32_t fadeOutMs = 0;
+        std::vector<AudioGainKeyframe> audioGainKeyframes;
         // Chroma key
         bool  chromaEnabled = false;
         float chromaSimilarity = 0.35f;
@@ -357,6 +362,9 @@ void configureRenderThreadPriority() {
         int64_t startTimeMs = 0;
         int64_t durationMs  = 0;
         float   volume      = 1.0f;
+        int32_t fadeInMs = 0;
+        int32_t fadeOutMs = 0;
+        std::vector<AudioGainKeyframe> audioGainKeyframes;
         int64_t sourceInMs = 0;
         int64_t sourceOutMs = 0;
         float playbackSpeed = 1.0f;
@@ -390,6 +398,89 @@ void configureRenderThreadPriority() {
         const std::string ext = normalizedExtension(path);
         return ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "webp" ||
             ext == "bmp" || ext == "gif" || ext == "tif" || ext == "tiff";
+    }
+
+    static std::vector<AudioGainKeyframe> sanitizeAudioGainKeyframes(
+        const std::vector<AudioGainKeyframe>& keyframes,
+        int64_t clipDurationMs) {
+        const int64_t clampedDurationMs = std::max<int64_t>(1, clipDurationMs);
+        std::vector<AudioGainKeyframe> normalized = keyframes;
+        for (auto& keyframe : normalized) {
+            keyframe.timeMs = std::clamp<int64_t>(keyframe.timeMs, 0, clampedDurationMs - 1);
+            keyframe.gain = std::clamp(keyframe.gain, 0.0f, 2.0f);
+        }
+        std::stable_sort(
+            normalized.begin(),
+            normalized.end(),
+            [](const AudioGainKeyframe& left, const AudioGainKeyframe& right) {
+                return left.timeMs < right.timeMs;
+            });
+
+        std::vector<AudioGainKeyframe> deduped;
+        deduped.reserve(normalized.size());
+        for (const auto& keyframe : normalized) {
+            if (!deduped.empty() && deduped.back().timeMs == keyframe.timeMs) {
+                deduped.back() = keyframe;
+            } else {
+                deduped.push_back(keyframe);
+            }
+        }
+        return deduped;
+    }
+
+    static std::vector<AudioGainKeyframe> parseAudioGainKeyframesCsv(
+        const std::string& csv,
+        int64_t clipDurationMs) {
+        std::vector<AudioGainKeyframe> parsed;
+        if (csv.empty()) {
+            return parsed;
+        }
+        std::stringstream stream(csv);
+        std::string token;
+        while (std::getline(stream, token, ',')) {
+            if (token.empty()) {
+                continue;
+            }
+            const size_t colonPos = token.find(':');
+            if (colonPos == std::string::npos) {
+                continue;
+            }
+            try {
+                parsed.push_back(AudioGainKeyframe{
+                    std::stoll(token.substr(0, colonPos)),
+                    std::stof(token.substr(colonPos + 1)),
+                });
+            } catch (...) {
+            }
+        }
+        return sanitizeAudioGainKeyframes(parsed, clipDurationMs);
+    }
+
+    static float sampleAudioGainEnvelope(
+        const std::vector<AudioGainKeyframe>& keyframes,
+        int64_t localTimeMs) {
+        if (keyframes.empty()) {
+            return 1.0f;
+        }
+        const int64_t clampedLocalTimeMs = std::max<int64_t>(0, localTimeMs);
+        if (clampedLocalTimeMs <= keyframes.front().timeMs) {
+            return std::clamp(keyframes.front().gain, 0.0f, 2.0f);
+        }
+        if (clampedLocalTimeMs >= keyframes.back().timeMs) {
+            return std::clamp(keyframes.back().gain, 0.0f, 2.0f);
+        }
+        for (size_t index = 1; index < keyframes.size(); ++index) {
+            const auto& right = keyframes[index];
+            if (clampedLocalTimeMs > right.timeMs) {
+                continue;
+            }
+            const auto& left = keyframes[index - 1];
+            const int64_t spanMs = std::max<int64_t>(1, right.timeMs - left.timeMs);
+            const float progress = static_cast<float>(clampedLocalTimeMs - left.timeMs) /
+                static_cast<float>(spanMs);
+            return std::clamp(left.gain + ((right.gain - left.gain) * progress), 0.0f, 2.0f);
+        }
+        return 1.0f;
     }
 
     static int64_t lookupCachedClipDurationMs(const std::string& path) {
@@ -465,6 +556,9 @@ void configureRenderThreadPriority() {
         spec.curveSpeedProfile = props.curveSpeedProfile;
         spec.curveSpeedStrength = props.curveSpeedStrength;
         spec.volumeGain = props.volumeGain;
+        spec.fadeInMs = std::max<int32_t>(0, props.fadeInMs);
+        spec.fadeOutMs = std::max<int32_t>(0, props.fadeOutMs);
+        spec.audioGainKeyframes = sanitizeAudioGainKeyframes(props.audioGainKeyframes, spec.durationMs);
 
         const auto& fx = clip->getEffects();
         spec.brightness     = fx.brightness;
@@ -4665,7 +4759,10 @@ Java_com_video_engine_VideoPreviewView_nativeSetExportAudioClips(
     jobjectArray pathsArray,
     jlongArray startTimesMs,
     jlongArray durationsMs,
-    jfloatArray volumes) {
+    jfloatArray volumes,
+    jintArray fadeInMs,
+    jintArray fadeOutMs,
+    jobjectArray keyframeCsvArray) {
     std::lock_guard<std::mutex> lock(g_mutex);
     g_audioExportClips.clear();
     if (!pathsArray) return;
@@ -4673,18 +4770,27 @@ Java_com_video_engine_VideoPreviewView_nativeSetExportAudioClips(
     jlong* starts = startTimesMs ? env->GetLongArrayElements(startTimesMs, nullptr) : nullptr;
     jlong* durs   = durationsMs  ? env->GetLongArrayElements(durationsMs,  nullptr) : nullptr;
     jfloat* vols  = volumes      ? env->GetFloatArrayElements(volumes,     nullptr) : nullptr;
+    jint* fadeIns = fadeInMs ? env->GetIntArrayElements(fadeInMs, nullptr) : nullptr;
+    jint* fadeOuts = fadeOutMs ? env->GetIntArrayElements(fadeOutMs, nullptr) : nullptr;
     
     // Validate array lengths to prevent crashes
     const jsize startsCount = startTimesMs ? env->GetArrayLength(startTimesMs) : 0;
     const jsize dursCount = durationsMs ? env->GetArrayLength(durationsMs) : 0;
     const jsize volsCount = volumes ? env->GetArrayLength(volumes) : 0;
+    const jsize fadeInsCount = fadeInMs ? env->GetArrayLength(fadeInMs) : 0;
+    const jsize fadeOutsCount = fadeOutMs ? env->GetArrayLength(fadeOutMs) : 0;
+    const jsize keyframeCsvCount = keyframeCsvArray ? env->GetArrayLength(keyframeCsvArray) : 0;
     
-    if (startsCount != count || dursCount != count || volsCount != count) {
-        LOGE("[Export] Array length mismatch: paths=%d starts=%d durs=%d vols=%d - skipping",
-             (int)count, (int)startsCount, (int)dursCount, (int)volsCount);
+    if (startsCount != count || dursCount != count || volsCount != count ||
+        fadeInsCount != count || fadeOutsCount != count || keyframeCsvCount != count) {
+        LOGE("[Export] Array length mismatch: paths=%d starts=%d durs=%d vols=%d fadeIn=%d fadeOut=%d keyframes=%d - skipping",
+             (int)count, (int)startsCount, (int)dursCount, (int)volsCount,
+             (int)fadeInsCount, (int)fadeOutsCount, (int)keyframeCsvCount);
         if (starts) env->ReleaseLongArrayElements(startTimesMs,  starts, JNI_ABORT);
         if (durs)   env->ReleaseLongArrayElements(durationsMs,   durs,   JNI_ABORT);
         if (vols)   env->ReleaseFloatArrayElements(volumes,      vols,   JNI_ABORT);
+        if (fadeIns) env->ReleaseIntArrayElements(fadeInMs, fadeIns, JNI_ABORT);
+        if (fadeOuts) env->ReleaseIntArrayElements(fadeOutMs, fadeOuts, JNI_ABORT);
         return;
     }
     
@@ -4697,6 +4803,19 @@ Java_com_video_engine_VideoPreviewView_nativeSetExportAudioClips(
         ac.startTimeMs = starts ? starts[i] : 0;
         ac.durationMs  = durs   ? durs[i]   : 0;
         ac.volume      = vols   ? vols[i]   : 1.0f;
+        ac.fadeInMs    = fadeIns ? std::max<jint>(0, fadeIns[i]) : 0;
+        ac.fadeOutMs   = fadeOuts ? std::max<jint>(0, fadeOuts[i]) : 0;
+        if (keyframeCsvArray) {
+            jstring keyframeCsvJ = (jstring)env->GetObjectArrayElement(keyframeCsvArray, i);
+            if (keyframeCsvJ) {
+                const char* keyframeCsvChars = env->GetStringUTFChars(keyframeCsvJ, nullptr);
+                ac.audioGainKeyframes = parseAudioGainKeyframesCsv(
+                    keyframeCsvChars ? keyframeCsvChars : "",
+                    ac.durationMs);
+                if (keyframeCsvChars) env->ReleaseStringUTFChars(keyframeCsvJ, keyframeCsvChars);
+                env->DeleteLocalRef(keyframeCsvJ);
+            }
+        }
         ac.sourceInMs  = 0;
         ac.sourceOutMs = ac.durationMs > 0 ? ac.durationMs : 0;
         g_audioExportClips.push_back(ac);
@@ -4706,6 +4825,8 @@ Java_com_video_engine_VideoPreviewView_nativeSetExportAudioClips(
     if (starts) env->ReleaseLongArrayElements(startTimesMs,  starts, JNI_ABORT);
     if (durs)   env->ReleaseLongArrayElements(durationsMs,   durs,   JNI_ABORT);
     if (vols)   env->ReleaseFloatArrayElements(volumes,      vols,   JNI_ABORT);
+    if (fadeIns) env->ReleaseIntArrayElements(fadeInMs, fadeIns, JNI_ABORT);
+    if (fadeOuts) env->ReleaseIntArrayElements(fadeOutMs, fadeOuts, JNI_ABORT);
     LOGI("[Export] registered %d audio clips", (int)g_audioExportClips.size());
 }
 
@@ -5158,6 +5279,35 @@ static bool encodeMixedAudioToAac(
     return true;
 }
 
+static float computeTimelineFadeMultiplier(
+    int64_t clipStartTimeMs,
+    int64_t clipDurationMs,
+    int32_t fadeInMs,
+    int32_t fadeOutMs,
+    int64_t timelineMs) {
+    const int64_t clampedDurationMs = std::max<int64_t>(1, clipDurationMs);
+    const int64_t localTimelineMs = std::clamp<int64_t>(timelineMs - clipStartTimeMs, 0, clampedDurationMs - 1);
+    const int64_t safeFadeInMs = std::clamp<int64_t>(fadeInMs, 0, clampedDurationMs);
+    const int64_t safeFadeOutMs = std::clamp<int64_t>(fadeOutMs, 0, clampedDurationMs);
+
+    float fadeGain = 1.0f;
+    if (safeFadeInMs > 0 && localTimelineMs < safeFadeInMs) {
+        fadeGain = std::min(
+            fadeGain,
+            static_cast<float>(localTimelineMs) / static_cast<float>(safeFadeInMs));
+    }
+    if (safeFadeOutMs > 0) {
+        const int64_t fadeOutStartMs = std::max<int64_t>(0, clampedDurationMs - safeFadeOutMs);
+        if (localTimelineMs >= fadeOutStartMs) {
+            const int64_t remainingMs = std::max<int64_t>(0, (clampedDurationMs - 1) - localTimelineMs);
+            fadeGain = std::min(
+                fadeGain,
+                static_cast<float>(remainingMs) / static_cast<float>(safeFadeOutMs));
+        }
+    }
+    return std::clamp(fadeGain, 0.0f, 1.0f);
+}
+
 static bool mixAudioClipsToAac(
     const std::vector<AudioExportClip>& audioClips,
     const std::string& outputPath,
@@ -5218,10 +5368,22 @@ static bool mixAudioClipsToAac(
             const int64_t sourceMs = mapAudioClipTimelineToSourceMs(clip, timelineMs);
             const int64_t sourceSample =
                 std::clamp<int64_t>((sourceMs * kOutputSampleRate) / 1000, 0, sourceSampleCount - 1);
+            const float fadeGain = computeTimelineFadeMultiplier(
+                clip.startTimeMs,
+                clip.durationMs,
+                clip.fadeInMs,
+                clip.fadeOutMs,
+                timelineMs);
+            const int64_t localTimelineMs = std::clamp<int64_t>(timelineMs - clip.startTimeMs, 0, clip.durationMs - 1);
+            const float envelopeGain = sampleAudioGainEnvelope(clip.audioGainKeyframes, localTimelineMs);
+            const float effectiveGain = clip.volume * envelopeGain * fadeGain;
+            if (effectiveGain <= 0.0001f) {
+                continue;
+            }
             const size_t dstIndex = static_cast<size_t>(writeStartSample + outSampleOffset) * kOutputChannels;
             const size_t srcIndex = static_cast<size_t>(sourceSample) * kOutputChannels;
-            mixedPcm[dstIndex] += clipPcm[srcIndex] * clip.volume;
-            mixedPcm[dstIndex + 1] += clipPcm[srcIndex + 1] * clip.volume;
+            mixedPcm[dstIndex] += clipPcm[srcIndex] * effectiveGain;
+            mixedPcm[dstIndex + 1] += clipPcm[srcIndex + 1] * effectiveGain;
             mixedAny = true;
         }
     }
@@ -5442,6 +5604,9 @@ static std::vector<AudioExportClip> buildExportAudioClips(
         clip.startTimeMs = spec.startTimeMs;
         clip.durationMs = spec.durationMs;
         clip.volume = spec.volumeGain;
+        clip.fadeInMs = spec.fadeInMs;
+        clip.fadeOutMs = spec.fadeOutMs;
+        clip.audioGainKeyframes = spec.audioGainKeyframes;
         clip.sourceInMs = spec.trimInMs;
         clip.sourceOutMs = spec.trimOutMs;
         clip.playbackSpeed = spec.playbackSpeed;

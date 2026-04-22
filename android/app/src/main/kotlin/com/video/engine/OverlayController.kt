@@ -94,11 +94,7 @@ class OverlayController(
         if (nativeId > 0) {
             overlay.id = nativeId.toInt()
             try {
-                val (pixels, width, height) = TextBitmapHelper.createTextPixels(
-                    text,
-                    overlay.fontSize,
-                    overlay.color,
-                )
+                val (pixels, width, height) = TextBitmapHelper.createTextPixels(overlay)
                 previewView.setTextOverlayBitmap(overlay.id, pixels, width, height)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to create text bitmap: ${e.message}")

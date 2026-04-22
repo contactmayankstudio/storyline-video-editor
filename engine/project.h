@@ -62,6 +62,9 @@ public:
         int32_t zOrder = 0;
         float opacity = 1.0f;
         float volumeGain = 1.0f;
+        int32_t fadeInMs = 0;
+        int32_t fadeOutMs = 0;
+        std::vector<Clip::AudioGainKeyframe> audioGainKeyframes;
         bool enabled = true;
         float playbackSpeed = 1.0f;
         bool reversePlayback = false;

@@ -1,5 +1,6 @@
 const { getLatestRunSummary } = require("./_lib/github");
 const { generateTextWithFallback } = require("./_lib/ai");
+const { requireAdmin, sendAdminError } = require("./_lib/admin");
 
 function sanitizeMessages(messages) {
     if (!Array.isArray(messages)) {
@@ -44,6 +45,7 @@ module.exports = async function handler(req, res) {
     }
 
     try {
+        await requireAdmin(req);
         const { messages, providerPreference } = req.body || {};
         const sanitizedMessages = sanitizeMessages(messages);
 
@@ -65,6 +67,9 @@ module.exports = async function handler(req, res) {
             attempts: aiResponse.attempts,
         });
     } catch (error) {
+        if (error.status) {
+            return sendAdminError(res, error);
+        }
         return res.status(500).json({ error: error.message });
     }
 };

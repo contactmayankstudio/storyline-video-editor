@@ -1,5 +1,6 @@
 const { getLatestRunSummary } = require("./_lib/github");
 const { generateJsonWithFallback } = require("./_lib/ai");
+const { requireAdmin, sendAdminError } = require("./_lib/admin");
 
 module.exports = async function handler(req, res) {
     if (req.method !== "POST") {
@@ -7,6 +8,7 @@ module.exports = async function handler(req, res) {
     }
 
     try {
+        await requireAdmin(req);
         const { build: clientBuild, errorText, providerPreference } = req.body || {};
         const latestFailure = await getLatestRunSummary("failure").catch(() => null);
         const build = latestFailure || clientBuild || null;
@@ -46,6 +48,9 @@ module.exports = async function handler(req, res) {
             attempts: aiResponse.attempts,
         });
     } catch (error) {
+        if (error.status) {
+            return sendAdminError(res, error);
+        }
         return res.status(500).json({ error: error.message });
     }
 };

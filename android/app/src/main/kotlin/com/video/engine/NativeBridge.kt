@@ -1,12 +1,9 @@
 package com.video.engine
 
 import android.util.Log
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.Typeface
 import android.os.SystemClock
 import com.video.engine.audio.AudioClip
+import com.video.engine.audio.AudioGainKeyframe
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -66,6 +63,8 @@ object NativeBridge {
         "SPEED",
         "CURVE_SPEED",
         "SET_CLIP_VOLUME",
+        "SET_CLIP_AUDIO_FADES",
+        "SET_CLIP_AUDIO_KEYFRAMES",
         "AUDIO_DUCKING",
         "DUPLICATE_CLIP",
         "REPLACE_CLIP_SOURCE",
@@ -143,9 +142,34 @@ object NativeBridge {
         val startTimeMs: Long,
         val durationMs: Long,
         val volume: Float,
+        val fadeInMs: Int,
+        val fadeOutMs: Int,
+        val keyframesCsv: String,
         val layerIndex: Int,
         val visible: Boolean,
     )
+
+    fun serializeAudioGainKeyframesCsv(keyframes: List<AudioGainKeyframe>): String {
+        return keyframes
+            .sortedBy { it.timeMs }
+            .distinctBy { it.timeMs }
+            .joinToString(separator = ",") { keyframe ->
+                "${keyframe.timeMs.coerceAtLeast(0L)}:${keyframe.gain.coerceIn(0f, 2f)}"
+            }
+    }
+
+    private fun parseAudioGainKeyframes(data: JSONArray?): List<AudioGainKeyframe> {
+        if (data == null) return emptyList()
+        val parsed = mutableListOf<AudioGainKeyframe>()
+        for (index in 0 until data.length()) {
+            val item = data.optJSONObject(index) ?: continue
+            parsed += AudioGainKeyframe(
+                timeMs = item.optLong("timeMs", 0L).coerceAtLeast(0L),
+                gain = item.optDouble("gain", 1.0).toFloat().coerceIn(0f, 2f),
+            )
+        }
+        return parsed.sortedBy { it.timeMs }.distinctBy { it.timeMs }
+    }
 
     /**
      * Seek to a timeline position and render one preview frame.
@@ -315,32 +339,12 @@ object NativeBridge {
 
     /**
      * Create a bitmap from overlay text and upload pixel data to native preview.
-     * This uses a simple Paint drawText approach (ARGB_8888).
+     * This uses the shared text bitmap helper so preview/export/edit all render consistently.
      */
     fun setTextOverlayBitmap(previewView: VideoPreviewView, overlay: com.video.engine.overlay.TextOverlay) {
         try {
-            val text = overlay.text
-            val fontSize = overlay.fontSize
-
-            val paint = Paint().apply {
-                isAntiAlias = true
-                color = overlay.color
-                textSize = fontSize
-                typeface = Typeface.DEFAULT_BOLD
-            }
-
-            val width = (paint.measureText(text) + 8).toInt().coerceAtLeast(8)
-            val height = (fontSize * 1.4f).toInt().coerceAtLeast(8)
-
-            val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bmp)
-            canvas.drawText(text, 4f, fontSize, paint)
-
-            val pixels = IntArray(width * height)
-            bmp.getPixels(pixels, 0, width, 0, 0, width, height)
-
+            val (pixels, width, height) = TextBitmapHelper.createTextPixels(overlay)
             previewView.setTextOverlayBitmap(overlay.id, pixels, width, height)
-            bmp.recycle()
             Log.d("[Text]", "uploaded bitmap id=${overlay.id} size=${width}x${height}")
         } catch (e: Exception) {
             Log.e(TAG, "setTextOverlayBitmap failed: ${e.message}")
@@ -390,6 +394,9 @@ object NativeBridge {
             audioVols    = audioClips.map { clip ->
                 if (clip.muted || !clip.visible) 0f else clip.gain.coerceIn(0f, 2f)
             }.toFloatArray(),
+            audioFadeInMs = audioClips.map { it.fadeInMs.coerceAtLeast(0) }.toIntArray(),
+            audioFadeOutMs = audioClips.map { it.fadeOutMs.coerceAtLeast(0) }.toIntArray(),
+            audioKeyframeCsvs = audioClips.map { serializeAudioGainKeyframesCsv(it.gainKeyframes) }.toTypedArray(),
         )
     }
 
@@ -706,6 +713,9 @@ object NativeBridge {
                 startTimeMs = clip.startTimeMs,
                 durationMs = clip.durationMs,
                 volume = gainProvider(clip),
+                fadeInMs = clip.fadeInMs.coerceAtLeast(0),
+                fadeOutMs = clip.fadeOutMs.coerceAtLeast(0),
+                keyframesCsv = serializeAudioGainKeyframesCsv(clip.gainKeyframes),
                 layerIndex = clip.layerIndex,
                 visible = clip.visible,
             )
@@ -722,6 +732,9 @@ object NativeBridge {
                 clips.map { it.startTimeMs }.toLongArray(),
                 clips.map { it.durationMs }.toLongArray(),
                 clips.map { it.volume }.toFloatArray(),
+                clips.map { it.fadeInMs }.toIntArray(),
+                clips.map { it.fadeOutMs }.toIntArray(),
+                clips.map { it.keyframesCsv }.toTypedArray(),
                 clips.map { it.layerIndex }.toIntArray(),
                 clips.map { it.visible }.toBooleanArray(),
             )
@@ -770,6 +783,9 @@ object NativeBridge {
             sourceInMs = data.optLong("sourceInMs", 0L),
             sourceOutMs = data.optLong("sourceOutMs", 0L),
             volume = data.optDouble("volume", 1.0).toFloat(),
+            fadeInMs = data.optInt("fadeInMs", 0).coerceAtLeast(0),
+            fadeOutMs = data.optInt("fadeOutMs", 0).coerceAtLeast(0),
+            gainKeyframes = parseAudioGainKeyframes(data.optJSONArray("audioGainKeyframes")),
             playbackSpeed = data.optDouble("playbackSpeed", 1.0).toFloat(),
             reversePlayback = data.optBoolean("reversePlayback", false),
             freezeFrameEnabled = data.optBoolean("freezeFrameEnabled", false),
@@ -959,6 +975,9 @@ object NativeBridge {
         startTimesMs: LongArray,
         durationsMs: LongArray,
         volumes: FloatArray,
+        fadeInMs: IntArray,
+        fadeOutMs: IntArray,
+        keyframeCsvs: Array<String>,
         layerIndices: IntArray,
         visibleFlags: BooleanArray,
     )

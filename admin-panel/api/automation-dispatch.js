@@ -1,4 +1,5 @@
 const { dispatchWorkflow, getConfig, getLatestRunSummary } = require("./_lib/github");
+const { requireAdmin, sendAdminError } = require("./_lib/admin");
 
 module.exports = async function handler(req, res) {
     if (req.method !== "POST") {
@@ -9,6 +10,7 @@ module.exports = async function handler(req, res) {
     const workflowName = config.automationWorkflowName;
 
     try {
+        await requireAdmin(req);
         const { prompt, targetBranch, maxAttempts } = req.body || {};
         const trimmedPrompt = String(prompt || "").trim();
 
@@ -34,6 +36,9 @@ module.exports = async function handler(req, res) {
             run: latestRun,
         });
     } catch (error) {
+        if (error.status) {
+            return sendAdminError(res, error);
+        }
         return res.status(500).json({ error: error.message });
     }
 };

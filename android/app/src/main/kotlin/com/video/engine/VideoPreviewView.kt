@@ -584,11 +584,22 @@ class VideoPreviewView @JvmOverloads constructor(
                     audioStartMs: LongArray = LongArray(0),
                     audioDurMs: LongArray = LongArray(0),
                     audioVols: FloatArray = FloatArray(0),
+                    audioFadeInMs: IntArray = IntArray(0),
+                    audioFadeOutMs: IntArray = IntArray(0),
+                    audioKeyframeCsvs: Array<String> = emptyArray(),
                     callback: ExportCallback? = null) {
         exportCallback = callback
         Thread {
             nativeSetExportCallback(callback)
-            nativeSetExportAudioClips(audioPaths, audioStartMs, audioDurMs, audioVols)
+            nativeSetExportAudioClips(
+                audioPaths,
+                audioStartMs,
+                audioDurMs,
+                audioVols,
+                audioFadeInMs,
+                audioFadeOutMs,
+                audioKeyframeCsvs,
+            )
             nativeStartExport(outputPath, width, height, fps)
         }.start()
     }
@@ -838,7 +849,14 @@ class VideoPreviewView @JvmOverloads constructor(
     private external fun nativeStartExport(outputPath: String, width: Int, height: Int, fps: Int)
     private external fun nativeSetExportCallback(callback: ExportCallback?)
     external fun nativeSetExportAudioClips(
-        paths: Array<String>, startTimesMs: LongArray, durationsMs: LongArray, volumes: FloatArray)
+        paths: Array<String>,
+        startTimesMs: LongArray,
+        durationsMs: LongArray,
+        volumes: FloatArray,
+        fadeInMs: IntArray,
+        fadeOutMs: IntArray,
+        keyframeCsvs: Array<String>,
+    )
     private external fun nativeCancelExport()
 
     /**

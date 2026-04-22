@@ -91,6 +91,9 @@ Project::Project(std::shared_ptr<Timeline> timeline) {
         const auto& props = clip->getProperties();
         entry.opacity = props.opacity;
         entry.volumeGain = props.volumeGain;
+        entry.fadeInMs = props.fadeInMs;
+        entry.fadeOutMs = props.fadeOutMs;
+        entry.audioGainKeyframes = props.audioGainKeyframes;
         entry.enabled = props.enabled;
         entry.playbackSpeed = props.playbackSpeed;
         entry.reversePlayback = props.reversePlayback;
@@ -207,6 +210,21 @@ std::string Project::toJSON() const {
         json << "      \"zOrder\": " << clip.zOrder << ",\n";
         json << "      \"opacity\": " << clip.opacity << ",\n";
         json << "      \"volumeGain\": " << clip.volumeGain << ",\n";
+        json << "      \"fadeInMs\": " << clip.fadeInMs << ",\n";
+        json << "      \"fadeOutMs\": " << clip.fadeOutMs << ",\n";
+        json << "      \"audioGainKeyframes\": [\n";
+        for (size_t j = 0; j < clip.audioGainKeyframes.size(); ++j) {
+            const auto& keyframe = clip.audioGainKeyframes[j];
+            json << "        {"
+                 << "\"timeMs\": " << keyframe.timeMs << ", "
+                 << "\"gain\": " << keyframe.gain
+                 << "}";
+            if (j + 1 < clip.audioGainKeyframes.size()) {
+                json << ",";
+            }
+            json << "\n";
+        }
+        json << "      ],\n";
         json << "      \"enabled\": " << (clip.enabled ? "true" : "false") << ",\n";
         json << "      \"playback\": {\n";
         json << "        \"speed\": " << clip.playbackSpeed << ",\n";
@@ -465,6 +483,15 @@ bool Project::fromJSON(const std::string& jsonStr) {
             clip.volumeGain = hasJsonKey(clipJson, "volumeGain")
                 ? extractDoubleValue(clipJson, "volumeGain")
                 : 1.0f;
+            clip.fadeInMs = static_cast<int32_t>(extractInt64Value(clipJson, "fadeInMs"));
+            clip.fadeOutMs = static_cast<int32_t>(extractInt64Value(clipJson, "fadeOutMs"));
+            auto audioGainKeyframeObjects = extractArrayObjects(clipJson, "audioGainKeyframes");
+            for (const auto& keyframeJson : audioGainKeyframeObjects) {
+                Clip::AudioGainKeyframe keyframe;
+                keyframe.timeMs = extractInt64Value(keyframeJson, "timeMs");
+                keyframe.gain = static_cast<float>(extractDoubleValue(keyframeJson, "gain"));
+                clip.audioGainKeyframes.push_back(keyframe);
+            }
             clip.enabled = extractBoolValue(clipJson, "enabled");
             clip.sourceInMs = extractInt64Value(clipJson, "sourceInMs");
             clip.sourceOutMs = extractInt64Value(clipJson, "sourceOutMs");
@@ -490,6 +517,12 @@ bool Project::fromJSON(const std::string& jsonStr) {
                 clip.curveSpeedStrength = extractDoubleValue(clipJson, "curveSpeedStrength");
             }
             if (clip.playbackSpeed <= 0.0f) clip.playbackSpeed = 1.0f;
+            clip.fadeInMs = std::max<int32_t>(0, clip.fadeInMs);
+            clip.fadeOutMs = std::max<int32_t>(0, clip.fadeOutMs);
+            for (auto& keyframe : clip.audioGainKeyframes) {
+                keyframe.timeMs = std::max<int64_t>(0, keyframe.timeMs);
+                keyframe.gain = std::clamp(keyframe.gain, 0.0f, 2.0f);
+            }
             if (clip.freezeFrameDurationMs <= 0) clip.freezeFrameDurationMs = 1000;
             if (clip.curveSpeedProfile.empty()) clip.curveSpeedProfile = "linear";
             if (clip.curveSpeedStrength <= 0.0f) clip.curveSpeedStrength = 1.0f;

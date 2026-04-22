@@ -81,6 +81,157 @@ std::mutex g_keyframeMutex;
 std::map<int, std::vector<int64_t>> g_clipKeyframes;
 constexpr int64_t kDefaultStillImageDurationMs = 5000;
 
+using AudioGainKeyframe = VideoEngine::Clip::AudioGainKeyframe;
+
+std::vector<AudioGainKeyframe> sanitizeAudioGainKeyframes(
+    const std::vector<AudioGainKeyframe>& keyframes,
+    int64_t clipDurationMs) {
+    const int64_t clampedDurationMs = std::max<int64_t>(1, clipDurationMs);
+    std::vector<AudioGainKeyframe> normalized = keyframes;
+    for (auto& keyframe : normalized) {
+        keyframe.timeMs = std::clamp<int64_t>(keyframe.timeMs, 0, clampedDurationMs - 1);
+        keyframe.gain = std::clamp(keyframe.gain, 0.0f, 2.0f);
+    }
+    std::stable_sort(
+        normalized.begin(),
+        normalized.end(),
+        [](const AudioGainKeyframe& a, const AudioGainKeyframe& b) {
+            return a.timeMs < b.timeMs;
+        });
+
+    std::vector<AudioGainKeyframe> deduped;
+    deduped.reserve(normalized.size());
+    for (const auto& keyframe : normalized) {
+        if (!deduped.empty() && deduped.back().timeMs == keyframe.timeMs) {
+            deduped.back() = keyframe;
+        } else {
+            deduped.push_back(keyframe);
+        }
+    }
+    return deduped;
+}
+
+float sampleAudioGainEnvelope(
+    const std::vector<AudioGainKeyframe>& keyframes,
+    int64_t localTimeMs) {
+    if (keyframes.empty()) {
+        return 1.0f;
+    }
+    const int64_t clampedLocalMs = std::max<int64_t>(0, localTimeMs);
+    if (clampedLocalMs <= keyframes.front().timeMs) {
+        return std::clamp(keyframes.front().gain, 0.0f, 2.0f);
+    }
+    if (clampedLocalMs >= keyframes.back().timeMs) {
+        return std::clamp(keyframes.back().gain, 0.0f, 2.0f);
+    }
+    for (size_t index = 1; index < keyframes.size(); ++index) {
+        const auto& right = keyframes[index];
+        if (clampedLocalMs > right.timeMs) {
+            continue;
+        }
+        const auto& left = keyframes[index - 1];
+        if (right.timeMs <= left.timeMs) {
+            return std::clamp(right.gain, 0.0f, 2.0f);
+        }
+        const float progress = static_cast<float>(clampedLocalMs - left.timeMs) /
+            static_cast<float>(right.timeMs - left.timeMs);
+        return std::clamp(left.gain + ((right.gain - left.gain) * progress), 0.0f, 2.0f);
+    }
+    return 1.0f;
+}
+
+std::vector<AudioGainKeyframe> parseAudioGainKeyframesCsv(
+    const std::string& csv,
+    int64_t clipDurationMs) {
+    std::vector<AudioGainKeyframe> parsed;
+    if (csv.empty()) {
+        return parsed;
+    }
+    std::stringstream stream(csv);
+    std::string token;
+    while (std::getline(stream, token, ',')) {
+        if (token.empty()) {
+            continue;
+        }
+        const size_t colonPos = token.find(':');
+        if (colonPos == std::string::npos) {
+            continue;
+        }
+        try {
+            const int64_t timeMs = std::stoll(token.substr(0, colonPos));
+            const float gain = std::stof(token.substr(colonPos + 1));
+            parsed.push_back(AudioGainKeyframe{timeMs, gain});
+        } catch (...) {
+        }
+    }
+    return sanitizeAudioGainKeyframes(parsed, clipDurationMs);
+}
+
+std::vector<AudioGainKeyframe> shiftedAudioGainKeyframesForRightClip(
+    const std::vector<AudioGainKeyframe>& source,
+    int64_t splitLocalMs,
+    int64_t rightDurationMs) {
+    const std::vector<AudioGainKeyframe> normalized = sanitizeAudioGainKeyframes(
+        source,
+        std::max<int64_t>(1, splitLocalMs + rightDurationMs));
+    std::vector<AudioGainKeyframe> result;
+    const float splitGain = sampleAudioGainEnvelope(normalized, std::max<int64_t>(0, splitLocalMs));
+    result.push_back(AudioGainKeyframe{0, splitGain});
+    for (const auto& keyframe : normalized) {
+        if (keyframe.timeMs < splitLocalMs) {
+            continue;
+        }
+        result.push_back(AudioGainKeyframe{
+            std::max<int64_t>(0, keyframe.timeMs - splitLocalMs),
+            keyframe.gain,
+        });
+    }
+    return sanitizeAudioGainKeyframes(result, rightDurationMs);
+}
+
+std::vector<AudioGainKeyframe> shiftedAudioGainKeyframesLater(
+    const std::vector<AudioGainKeyframe>& source,
+    int64_t offsetMs,
+    int64_t clipDurationMs) {
+    if (offsetMs <= 0) {
+        return sanitizeAudioGainKeyframes(source, clipDurationMs);
+    }
+    std::vector<AudioGainKeyframe> shifted;
+    shifted.reserve(source.size());
+    for (const auto& keyframe : source) {
+        shifted.push_back(AudioGainKeyframe{
+            keyframe.timeMs + offsetMs,
+            keyframe.gain,
+        });
+    }
+    return sanitizeAudioGainKeyframes(shifted, clipDurationMs);
+}
+
+std::string audioGainKeyframesToJson(const std::vector<AudioGainKeyframe>& keyframes) {
+    std::ostringstream json;
+    json << "[";
+    for (size_t index = 0; index < keyframes.size(); ++index) {
+        if (index > 0) {
+            json << ",";
+        }
+        json << "{"
+             << "\"timeMs\":" << keyframes[index].timeMs << ","
+             << "\"gain\":" << keyframes[index].gain
+             << "}";
+    }
+    json << "]";
+    return json.str();
+}
+
+void clampClipAudioGainKeyframes(VideoEngine::Clip* clip) {
+    if (!clip) {
+        return;
+    }
+    clip->getMutableProperties().audioGainKeyframes = sanitizeAudioGainKeyframes(
+        clip->getProperties().audioGainKeyframes,
+        clip->getDuration());
+}
+
 std::string normalizedExtension(std::string path) {
     const size_t dotPos = path.find_last_of('.');
     if (dotPos == std::string::npos) {
@@ -1076,6 +1227,7 @@ std::shared_ptr<VideoEngine::Clip> cloneClip(const VideoEngine::Clip& source) {
     copy->setTrackRole(source.getTrackRole());
     copy->setTrackLane(source.getTrackLane());
     copy->setTrackZOrder(source.getTrackZOrder());
+    clampClipAudioGainKeyframes(copy.get());
     return copy;
 }
 
@@ -1097,6 +1249,15 @@ std::shared_ptr<VideoEngine::Clip> cloneClipRange(
     copy->setTrackRole(source.getTrackRole());
     copy->setTrackLane(source.getTrackLane());
     copy->setTrackZOrder(source.getTrackZOrder());
+    const int64_t localOffsetMs = std::max<int64_t>(0, timelineStartMs - source.getStartTime());
+    if (localOffsetMs > 0) {
+        copy->getMutableProperties().audioGainKeyframes = shiftedAudioGainKeyframesForRightClip(
+            source.getProperties().audioGainKeyframes,
+            localOffsetMs,
+            durationMs);
+    } else {
+        clampClipAudioGainKeyframes(copy.get());
+    }
     return copy;
 }
 
@@ -1521,6 +1682,9 @@ public:
                       << "\"enabled\":" << (props.enabled ? "true" : "false") << ","
                       << "\"opacity\":" << props.opacity << ","
                       << "\"volumeGain\":" << props.volumeGain << ","
+                      << "\"fadeInMs\":" << props.fadeInMs << ","
+                      << "\"fadeOutMs\":" << props.fadeOutMs << ","
+                      << "\"audioGainKeyframes\":" << audioGainKeyframesToJson(props.audioGainKeyframes) << ","
                       << "\"duckingEnabled\":" << (props.duckingEnabled ? "true" : "false") << ","
                       << "\"duckingAmount\":" << props.duckingAmount << ","
                       << "\"playbackSpeed\":" << props.playbackSpeed << ","
@@ -2262,6 +2426,7 @@ public:
         m_oldStartTimeMs = clip->getStartTime();
         m_oldDurationMs = clip->getDuration();
         clip->getTrimPoints(m_oldSourceInMs, m_oldSourceOutMs);
+        m_oldAudioGainKeyframes = clip->getProperties().audioGainKeyframes;
         if (m_oldSourceOutMs <= m_oldSourceInMs) {
             m_oldSourceOutMs = m_oldSourceInMs + m_oldDurationMs;
         }
@@ -2277,11 +2442,18 @@ public:
             const int64_t newDurationMs = clipEnd - m_timeMs;
             clip->setTimelinePosition(m_timeMs, newDurationMs);
             clip->setTrimPoints(m_oldSourceInMs + deltaMs, m_oldSourceOutMs);
+            clip->getMutableProperties().audioGainKeyframes = shiftedAudioGainKeyframesForRightClip(
+                m_oldAudioGainKeyframes,
+                deltaMs,
+                newDurationMs);
         } else if (m_edge == "end") {
             const int64_t removedMs = clipEnd - m_timeMs;
             const int64_t newDurationMs = m_timeMs - clipStart;
             clip->setTimelinePosition(clipStart, newDurationMs);
             clip->setTrimPoints(m_oldSourceInMs, m_oldSourceOutMs - removedMs);
+            clip->getMutableProperties().audioGainKeyframes = sanitizeAudioGainKeyframes(
+                m_oldAudioGainKeyframes,
+                newDurationMs);
         } else {
             return CommandResult::fail(action(), "Unsupported trim edge");
         }
@@ -2310,6 +2482,9 @@ public:
         }
         clip->setTimelinePosition(m_oldStartTimeMs, m_oldDurationMs);
         clip->setTrimPoints(m_oldSourceInMs, m_oldSourceOutMs);
+        clip->getMutableProperties().audioGainKeyframes = sanitizeAudioGainKeyframes(
+            m_oldAudioGainKeyframes,
+            m_oldDurationMs);
         normalizePrimaryTrack(timeline.get());
         return CommandResult::ok(
             "UNDO",
@@ -2325,6 +2500,7 @@ private:
     int64_t m_oldDurationMs = 0;
     int64_t m_oldSourceInMs = 0;
     int64_t m_oldSourceOutMs = 0;
+    std::vector<AudioGainKeyframe> m_oldAudioGainKeyframes;
 };
 
 class MoveClipCommand final : public EditorCommand {
@@ -2424,8 +2600,25 @@ public:
             return CommandResult::fail(action(), "Clip not found");
         }
 
+        m_originalAudioGainKeyframes = clip->getProperties().audioGainKeyframes;
         clip->setTimelinePosition(std::max<int64_t>(0, m_newStartTimeMs), m_newDurationMs);
         clip->setTrimPoints(std::max<int64_t>(0, m_newSourceInMs), m_newSourceOutMs);
+        const int64_t sourceInDeltaMs = m_newSourceInMs - m_originalSourceInMs;
+        if (sourceInDeltaMs > 0) {
+            clip->getMutableProperties().audioGainKeyframes = shiftedAudioGainKeyframesForRightClip(
+                m_originalAudioGainKeyframes,
+                sourceInDeltaMs,
+                m_newDurationMs);
+        } else if (sourceInDeltaMs < 0) {
+            clip->getMutableProperties().audioGainKeyframes = shiftedAudioGainKeyframesLater(
+                m_originalAudioGainKeyframes,
+                -sourceInDeltaMs,
+                m_newDurationMs);
+        } else {
+            clip->getMutableProperties().audioGainKeyframes = sanitizeAudioGainKeyframes(
+                m_originalAudioGainKeyframes,
+                m_newDurationMs);
+        }
         const bool shouldApplyMagnetic =
             !m_previewOnly &&
             (m_applyMagnetic || clip->getTrackRole() == VideoEngine::Clip::TrackRole::MainVideo);
@@ -2457,6 +2650,9 @@ public:
 
         clip->setTimelinePosition(std::max<int64_t>(0, m_originalStartTimeMs), m_originalDurationMs);
         clip->setTrimPoints(std::max<int64_t>(0, m_originalSourceInMs), m_originalSourceOutMs);
+        clip->getMutableProperties().audioGainKeyframes = sanitizeAudioGainKeyframes(
+            m_originalAudioGainKeyframes,
+            m_originalDurationMs);
         const bool shouldApplyMagnetic =
             m_applyMagnetic || clip->getTrackRole() == VideoEngine::Clip::TrackRole::MainVideo;
         if (shouldApplyMagnetic) {
@@ -2481,6 +2677,7 @@ private:
     int64_t m_originalSourceOutMs;
     bool m_previewOnly = false;
     bool m_applyMagnetic = false;
+    std::vector<AudioGainKeyframe> m_originalAudioGainKeyframes;
 };
 
 class SpeedCommand final : public EditorCommand {
@@ -2593,6 +2790,142 @@ private:
     int m_clipId;
     float m_volume = 1.0f;
     float m_previousVolume = 1.0f;
+};
+
+class SetClipAudioKeyframesCommand final : public EditorCommand {
+public:
+    SetClipAudioKeyframesCommand(int clipId, std::string keyframesCsv)
+        : EditorCommand("SET_CLIP_AUDIO_KEYFRAMES"),
+          m_clipId(clipId),
+          m_keyframesCsv(std::move(keyframesCsv)) {}
+
+    bool canUndo() const override { return true; }
+
+    CommandResult execute(CommandContext& context) override {
+        std::lock_guard<std::mutex> lock(*context.previewMutex);
+        if (!context.preview || !(*context.preview)) {
+            return CommandResult::fail(action(), "Preview not initialized");
+        }
+        auto timeline = (*context.preview)->getTimeline();
+        if (!timeline) {
+            return CommandResult::fail(action(), "Timeline not initialized");
+        }
+        VideoEngine::Clip* clip = findClip(timeline.get(), m_clipId);
+        if (!clip) {
+            return CommandResult::fail(action(), "Clip not found");
+        }
+        m_previousKeyframes = clip->getProperties().audioGainKeyframes;
+        const auto normalized = parseAudioGainKeyframesCsv(m_keyframesCsv, clip->getDuration());
+        clip->getMutableProperties().audioGainKeyframes = normalized;
+        g_pendingScrubMs.store(static_cast<long long>(context.currentTimeMs->load()), std::memory_order_release);
+        return CommandResult::ok(
+            action(),
+            "Clip audio keyframes updated",
+            "{\"clipId\":" + std::to_string(m_clipId) +
+                ",\"pointCount\":" + std::to_string(normalized.size()) +
+                ",\"audioGainKeyframes\":" + audioGainKeyframesToJson(normalized) + "}");
+    }
+
+    CommandResult undo(CommandContext& context) override {
+        std::lock_guard<std::mutex> lock(*context.previewMutex);
+        if (!context.preview || !(*context.preview)) {
+            return CommandResult::fail("UNDO", "Preview not initialized");
+        }
+        auto timeline = (*context.preview)->getTimeline();
+        if (!timeline) {
+            return CommandResult::fail("UNDO", "Timeline not initialized");
+        }
+        VideoEngine::Clip* clip = findClip(timeline.get(), m_clipId);
+        if (!clip) {
+            return CommandResult::fail("UNDO", "Clip not found");
+        }
+        clip->getMutableProperties().audioGainKeyframes = sanitizeAudioGainKeyframes(
+            m_previousKeyframes,
+            clip->getDuration());
+        g_pendingScrubMs.store(static_cast<long long>(context.currentTimeMs->load()), std::memory_order_release);
+        return CommandResult::ok(
+            "UNDO",
+            "Clip audio keyframes reverted",
+            "{\"clipId\":" + std::to_string(m_clipId) +
+                ",\"pointCount\":" + std::to_string(clip->getProperties().audioGainKeyframes.size()) +
+                ",\"audioGainKeyframes\":" + audioGainKeyframesToJson(clip->getProperties().audioGainKeyframes) + "}");
+    }
+
+private:
+    int m_clipId = -1;
+    std::string m_keyframesCsv;
+    std::vector<AudioGainKeyframe> m_previousKeyframes;
+};
+
+class SetClipAudioFadesCommand final : public EditorCommand {
+public:
+    SetClipAudioFadesCommand(int clipId, int64_t fadeInMs, int64_t fadeOutMs)
+        : EditorCommand("SET_CLIP_AUDIO_FADES"),
+          m_clipId(clipId),
+          m_fadeInMs(static_cast<int32_t>(std::max<int64_t>(0, fadeInMs))),
+          m_fadeOutMs(static_cast<int32_t>(std::max<int64_t>(0, fadeOutMs))) {}
+
+    bool canUndo() const override { return true; }
+
+    CommandResult execute(CommandContext& context) override {
+        std::lock_guard<std::mutex> lock(*context.previewMutex);
+        if (!context.preview || !(*context.preview)) {
+            return CommandResult::fail(action(), "Preview not initialized");
+        }
+        auto timeline = (*context.preview)->getTimeline();
+        if (!timeline) {
+            return CommandResult::fail(action(), "Timeline not initialized");
+        }
+        VideoEngine::Clip* clip = findClip(timeline.get(), m_clipId);
+        if (!clip) {
+            return CommandResult::fail(action(), "Clip not found");
+        }
+        auto& props = clip->getMutableProperties();
+        m_previousFadeInMs = props.fadeInMs;
+        m_previousFadeOutMs = props.fadeOutMs;
+        const int64_t maxFadeMs = std::max<int64_t>(0, clip->getDuration());
+        props.fadeInMs = static_cast<int32_t>(std::clamp<int64_t>(m_fadeInMs, 0, maxFadeMs));
+        props.fadeOutMs = static_cast<int32_t>(std::clamp<int64_t>(m_fadeOutMs, 0, maxFadeMs));
+        g_pendingScrubMs.store(static_cast<long long>(context.currentTimeMs->load()), std::memory_order_release);
+        return CommandResult::ok(
+            action(),
+            "Clip audio fades updated",
+            "{\"clipId\":" + std::to_string(m_clipId) +
+                ",\"fadeInMs\":" + std::to_string(props.fadeInMs) +
+                ",\"fadeOutMs\":" + std::to_string(props.fadeOutMs) + "}");
+    }
+
+    CommandResult undo(CommandContext& context) override {
+        std::lock_guard<std::mutex> lock(*context.previewMutex);
+        if (!context.preview || !(*context.preview)) {
+            return CommandResult::fail("UNDO", "Preview not initialized");
+        }
+        auto timeline = (*context.preview)->getTimeline();
+        if (!timeline) {
+            return CommandResult::fail("UNDO", "Timeline not initialized");
+        }
+        VideoEngine::Clip* clip = findClip(timeline.get(), m_clipId);
+        if (!clip) {
+            return CommandResult::fail("UNDO", "Clip not found");
+        }
+        auto& props = clip->getMutableProperties();
+        props.fadeInMs = std::max<int32_t>(0, m_previousFadeInMs);
+        props.fadeOutMs = std::max<int32_t>(0, m_previousFadeOutMs);
+        g_pendingScrubMs.store(static_cast<long long>(context.currentTimeMs->load()), std::memory_order_release);
+        return CommandResult::ok(
+            "UNDO",
+            "Clip audio fades reverted",
+            "{\"clipId\":" + std::to_string(m_clipId) +
+                ",\"fadeInMs\":" + std::to_string(props.fadeInMs) +
+                ",\"fadeOutMs\":" + std::to_string(props.fadeOutMs) + "}");
+    }
+
+private:
+    int m_clipId;
+    int32_t m_fadeInMs = 0;
+    int32_t m_fadeOutMs = 0;
+    int32_t m_previousFadeInMs = 0;
+    int32_t m_previousFadeOutMs = 0;
 };
 
 class AddKeyframeCommand final : public EditorCommand {
@@ -3992,6 +4325,25 @@ std::unique_ptr<EditorCommand> CommandManager::buildCommand(const std::string& a
         extractInt64Value(payloadJson, "clipId", clipId);
         extractDoubleValue(payloadJson, "volume", volume);
         return std::make_unique<SetClipVolumeCommand>(static_cast<int>(clipId), volume);
+    }
+    if (action == "SET_CLIP_AUDIO_KEYFRAMES") {
+        int64_t clipId = -1;
+        extractInt64Value(payloadJson, "clipId", clipId);
+        return std::make_unique<SetClipAudioKeyframesCommand>(
+            static_cast<int>(clipId),
+            extractStringValue(payloadJson, "keyframesCsv"));
+    }
+    if (action == "SET_CLIP_AUDIO_FADES") {
+        int64_t clipId = -1;
+        int64_t fadeInMs = 0;
+        int64_t fadeOutMs = 0;
+        extractInt64Value(payloadJson, "clipId", clipId);
+        extractInt64Value(payloadJson, "fadeInMs", fadeInMs);
+        extractInt64Value(payloadJson, "fadeOutMs", fadeOutMs);
+        return std::make_unique<SetClipAudioFadesCommand>(
+            static_cast<int>(clipId),
+            fadeInMs,
+            fadeOutMs);
     }
     if (action == "DUPLICATE_CLIP") {
         int64_t clipId = -1;

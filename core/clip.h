@@ -17,6 +17,11 @@ namespace VideoEngine {
  */
 class Clip {
 public:
+    struct AudioGainKeyframe {
+        int64_t timeMs = 0;           // Local clip time in milliseconds
+        float gain = 1.0f;            // Envelope multiplier (1.0 = neutral)
+    };
+
     enum class MediaType {
         Video,
         Audio,
@@ -37,6 +42,9 @@ public:
     struct ClipProperties {
         float opacity = 1.0f;           // 0.0 to 1.0
         float volumeGain = 1.0f;        // Audio gain multiplier
+        int32_t fadeInMs = 0;           // Audio fade-in duration on timeline
+        int32_t fadeOutMs = 0;          // Audio fade-out duration on timeline
+        std::vector<AudioGainKeyframe> audioGainKeyframes;
         float playbackSpeed = 1.0f;     // Speed multiplier (1.0 = normal)
         bool reversePlayback = false;   // Reverse playback intent flag
         bool freezeFrameEnabled = false;

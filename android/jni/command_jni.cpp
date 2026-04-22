@@ -8,6 +8,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -18,11 +19,16 @@
 
 namespace {
 
+using AudioGainKeyframe = VideoEngine::Clip::AudioGainKeyframe;
+
 struct PreviewAudioClipSpec {
     std::string path;
     int64_t startTimeMs = 0;
     int64_t durationMs = 0;
     float volume = 1.0f;
+    int32_t fadeInMs = 0;
+    int32_t fadeOutMs = 0;
+    std::vector<AudioGainKeyframe> audioGainKeyframes;
     int layerIndex = 0;
     bool visible = true;
 };
@@ -62,6 +68,78 @@ std::string quote(const std::string& value) {
     return "\"" + jsonEscape(value) + "\"";
 }
 
+std::vector<AudioGainKeyframe> sanitizeAudioGainKeyframes(
+    const std::vector<AudioGainKeyframe>& keyframes,
+    int64_t clipDurationMs) {
+    const int64_t clampedDurationMs = std::max<int64_t>(1, clipDurationMs);
+    std::vector<AudioGainKeyframe> normalized = keyframes;
+    for (auto& keyframe : normalized) {
+        keyframe.timeMs = std::clamp<int64_t>(keyframe.timeMs, 0, clampedDurationMs - 1);
+        keyframe.gain = std::clamp(keyframe.gain, 0.0f, 2.0f);
+    }
+    std::stable_sort(
+        normalized.begin(),
+        normalized.end(),
+        [](const AudioGainKeyframe& left, const AudioGainKeyframe& right) {
+            return left.timeMs < right.timeMs;
+        });
+
+    std::vector<AudioGainKeyframe> deduped;
+    deduped.reserve(normalized.size());
+    for (const auto& keyframe : normalized) {
+        if (!deduped.empty() && deduped.back().timeMs == keyframe.timeMs) {
+            deduped.back() = keyframe;
+        } else {
+            deduped.push_back(keyframe);
+        }
+    }
+    return deduped;
+}
+
+std::vector<AudioGainKeyframe> parseAudioGainKeyframesCsv(
+    const std::string& csv,
+    int64_t clipDurationMs) {
+    std::vector<AudioGainKeyframe> parsed;
+    if (csv.empty()) {
+        return parsed;
+    }
+    std::stringstream stream(csv);
+    std::string token;
+    while (std::getline(stream, token, ',')) {
+        if (token.empty()) {
+            continue;
+        }
+        const size_t colonPos = token.find(':');
+        if (colonPos == std::string::npos) {
+            continue;
+        }
+        try {
+            parsed.push_back(AudioGainKeyframe{
+                std::stoll(token.substr(0, colonPos)),
+                std::stof(token.substr(colonPos + 1)),
+            });
+        } catch (...) {
+        }
+    }
+    return sanitizeAudioGainKeyframes(parsed, clipDurationMs);
+}
+
+std::string audioGainKeyframesToJson(const std::vector<AudioGainKeyframe>& keyframes) {
+    std::ostringstream json;
+    json << "[";
+    for (size_t index = 0; index < keyframes.size(); ++index) {
+        if (index > 0) {
+            json << ",";
+        }
+        json << "{"
+             << "\"timeMs\":" << keyframes[index].timeMs << ","
+             << "\"gain\":" << keyframes[index].gain
+             << "}";
+    }
+    json << "]";
+    return json.str();
+}
+
 std::string buildPreviewAudioSelectionJson(
     const std::string& key,
     const std::string& path,
@@ -70,6 +148,9 @@ std::string buildPreviewAudioSelectionJson(
     int64_t sourceInMs,
     int64_t sourceOutMs,
     float volume,
+    int32_t fadeInMs,
+    int32_t fadeOutMs,
+    const std::vector<AudioGainKeyframe>& audioGainKeyframes,
     float playbackSpeed,
     bool reversePlayback,
     bool freezeFrameEnabled,
@@ -85,6 +166,9 @@ std::string buildPreviewAudioSelectionJson(
         ",\"sourceInMs\":" + std::to_string(sourceInMs) +
         ",\"sourceOutMs\":" + std::to_string(sourceOutMs) +
         ",\"volume\":" + std::to_string(volume) +
+        ",\"fadeInMs\":" + std::to_string(std::max(0, fadeInMs)) +
+        ",\"fadeOutMs\":" + std::to_string(std::max(0, fadeOutMs)) +
+        ",\"audioGainKeyframes\":" + audioGainKeyframesToJson(audioGainKeyframes) +
         ",\"playbackSpeed\":" + std::to_string(playbackSpeed) +
         ",\"reversePlayback\":" + std::string(reversePlayback ? "true" : "false") +
         ",\"freezeFrameEnabled\":" + std::string(freezeFrameEnabled ? "true" : "false") +
@@ -275,6 +359,9 @@ Java_com_video_engine_NativeBridge_nativeSetPreviewAudioClips(
     jlongArray startTimesMs,
     jlongArray durationsMs,
     jfloatArray volumes,
+    jintArray fadeInMs,
+    jintArray fadeOutMs,
+    jobjectArray keyframeCsvArray,
     jintArray layerIndices,
     jbooleanArray visibleFlags) {
     std::vector<PreviewAudioClipSpec> clips;
@@ -284,6 +371,8 @@ Java_com_video_engine_NativeBridge_nativeSetPreviewAudioClips(
         jlong* starts = startTimesMs ? env->GetLongArrayElements(startTimesMs, nullptr) : nullptr;
         jlong* durs = durationsMs ? env->GetLongArrayElements(durationsMs, nullptr) : nullptr;
         jfloat* vols = volumes ? env->GetFloatArrayElements(volumes, nullptr) : nullptr;
+        jint* fadeIns = fadeInMs ? env->GetIntArrayElements(fadeInMs, nullptr) : nullptr;
+        jint* fadeOuts = fadeOutMs ? env->GetIntArrayElements(fadeOutMs, nullptr) : nullptr;
         jint* layers = layerIndices ? env->GetIntArrayElements(layerIndices, nullptr) : nullptr;
         jboolean* visibles = visibleFlags ? env->GetBooleanArrayElements(visibleFlags, nullptr) : nullptr;
 
@@ -298,6 +387,21 @@ Java_com_video_engine_NativeBridge_nativeSetPreviewAudioClips(
             clip.startTimeMs = starts ? starts[i] : 0;
             clip.durationMs = durs ? durs[i] : 0;
             clip.volume = vols ? vols[i] : 1.0f;
+            clip.fadeInMs = fadeIns ? std::max<jint>(0, fadeIns[i]) : 0;
+            clip.fadeOutMs = fadeOuts ? std::max<jint>(0, fadeOuts[i]) : 0;
+            if (keyframeCsvArray && i < env->GetArrayLength(keyframeCsvArray)) {
+                jstring keyframeCsvJ = reinterpret_cast<jstring>(env->GetObjectArrayElement(keyframeCsvArray, i));
+                if (keyframeCsvJ) {
+                    const char* keyframeCsvChars = env->GetStringUTFChars(keyframeCsvJ, nullptr);
+                    clip.audioGainKeyframes = parseAudioGainKeyframesCsv(
+                        keyframeCsvChars ? keyframeCsvChars : "",
+                        clip.durationMs);
+                    if (keyframeCsvChars) {
+                        env->ReleaseStringUTFChars(keyframeCsvJ, keyframeCsvChars);
+                    }
+                    env->DeleteLocalRef(keyframeCsvJ);
+                }
+            }
             clip.layerIndex = layers ? layers[i] : 0;
             clip.visible = visibles ? visibles[i] == JNI_TRUE : true;
             clips.push_back(std::move(clip));
@@ -308,6 +412,8 @@ Java_com_video_engine_NativeBridge_nativeSetPreviewAudioClips(
         if (starts) env->ReleaseLongArrayElements(startTimesMs, starts, JNI_ABORT);
         if (durs) env->ReleaseLongArrayElements(durationsMs, durs, JNI_ABORT);
         if (vols) env->ReleaseFloatArrayElements(volumes, vols, JNI_ABORT);
+        if (fadeIns) env->ReleaseIntArrayElements(fadeInMs, fadeIns, JNI_ABORT);
+        if (fadeOuts) env->ReleaseIntArrayElements(fadeOutMs, fadeOuts, JNI_ABORT);
         if (layers) env->ReleaseIntArrayElements(layerIndices, layers, JNI_ABORT);
         if (visibles) env->ReleaseBooleanArrayElements(visibleFlags, visibles, JNI_ABORT);
     }
@@ -366,6 +472,9 @@ Java_com_video_engine_NativeBridge_nativeResolvePreviewAudioSourceAt(
                 0,
                 bestAudio->durationMs,
                 bestAudio->volume,
+                bestAudio->fadeInMs,
+                bestAudio->fadeOutMs,
+                bestAudio->audioGainKeyframes,
                 1.0f,
                 false,
                 false,
@@ -461,6 +570,11 @@ Java_com_video_engine_NativeBridge_nativeResolvePreviewAudioSourceAt(
         sourceInMs,
         sourceOutMs,
         props.volumeGain,
+        props.fadeInMs,
+        props.fadeOutMs,
+        sanitizeAudioGainKeyframes(
+            props.audioGainKeyframes,
+            std::max<int64_t>(1, bestClip->getDuration())),
         std::max(0.1f, props.playbackSpeed),
         props.reversePlayback,
         props.freezeFrameEnabled,

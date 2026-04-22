@@ -57,6 +57,9 @@ class ProjectStateSerializer(
                     .put("opacity", overlay.opacity.toDouble())
                     .put("color", overlay.color)
                     .put("fontSize", overlay.fontSize.toDouble())
+                    .put("fontName", overlay.fontName)
+                    .put("bold", overlay.bold)
+                    .put("italic", overlay.italic)
                     .put("layerIndex", overlay.layerIndex)
                     .put("visible", overlay.visible),
             )
@@ -145,11 +148,19 @@ class ProjectStateSerializer(
                 opacity = item.optDouble("opacity", 1.0).toFloat(),
                 color = item.optInt("color", 0xFFFFFFFF.toInt()),
                 fontSize = item.optDouble("fontSize", 36.0).toFloat(),
+                fontName = item.optString("fontName").takeIf { it.isNotBlank() && it != "null" },
+                bold = item.optBoolean("bold", false),
+                italic = item.optBoolean("italic", false),
                 layerIndex = item.optInt("layerIndex", editorState?.nextCompositeLayerIndex() ?: 0),
                 visible = item.optBoolean("visible", true),
             )
             OverlayStore.put(overlay)
             onAddOverlayView(overlay)
+            previewView?.let { pv ->
+                NativeBridge.updateTextOverlay(pv, overlay)
+                pv.updateTextOverlayOpacity(overlay.id, overlay.opacity, 0, 0)
+                NativeBridge.setTextOverlayBitmap(pv, overlay)
+            }
         }
 
         val stickers = root.optJSONArray("stickers") ?: JSONArray()

@@ -242,6 +242,9 @@ class ExportController(
                     volumes      = audioClips.map { clip ->
                         if (!clip.visible || clip.muted) 0f else clip.gain.coerceIn(0f, 2f)
                     }.toFloatArray(),
+                    fadeInMs     = audioClips.map { it.fadeInMs.coerceAtLeast(0) }.toIntArray(),
+                    fadeOutMs    = audioClips.map { it.fadeOutMs.coerceAtLeast(0) }.toIntArray(),
+                    keyframeCsvs = audioClips.map { NativeBridge.serializeAudioGainKeyframesCsv(it.gainKeyframes) }.toTypedArray(),
                 )
 
                 Log.d(TAG, "Starting export: $outputPath ($exportWidth x $exportHeight @ ${exportFps}fps, ${exportBitrateMbps}Mbps)")

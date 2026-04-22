@@ -424,6 +424,15 @@
                 <span class="pill" id="build-pill">Build: checking</span>
                 <span class="pill pill-info" id="chain-pill">AI Chain: loading</span>
                 <span class="pill" id="firebase-pill">Firebase: checking</span>
+                <span class="pill pill-warning" id="auth-pill">Access: locked</span>
+            </div>
+            <div class="toolbar" style="margin-top: 18px;">
+                <button type="button" id="auth-sign-in-button" disabled>Sign In With Google</button>
+                <button type="button" class="ghost-button hidden" id="auth-sign-out-button">Sign Out</button>
+                <span class="helper" id="auth-note">Sign in with an allowlisted admin Google account to unlock build, AI, and automation controls.</span>
+            </div>
+            <div class="helper-row" style="margin-top: 10px;">
+                <span class="helper" id="auth-user"></span>
             </div>
         </section>
 
@@ -534,6 +543,17 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js";
         import { getAnalytics, isSupported } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-analytics.js";
+        import {
+            GoogleAuthProvider,
+            browserLocalPersistence,
+            getAuth,
+            getRedirectResult,
+            onAuthStateChanged,
+            setPersistence,
+            signInWithPopup,
+            signInWithRedirect,
+            signOut,
+        } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBTeJHjKC7Ft9H9oAvD525NC8NMBOI4n6w",
@@ -550,6 +570,11 @@
         const settingsButton = document.getElementById("settings-button");
         const settingsStatus = document.getElementById("settings-status");
         const firebasePill = document.getElementById("firebase-pill");
+        const authPill = document.getElementById("auth-pill");
+        const authSignInButton = document.getElementById("auth-sign-in-button");
+        const authSignOutButton = document.getElementById("auth-sign-out-button");
+        const authNote = document.getElementById("auth-note");
+        const authUser = document.getElementById("auth-user");
 
         const buildPill = document.getElementById("build-pill");
         const chainPill = document.getElementById("chain-pill");
@@ -586,6 +611,11 @@
             latestBuild: null,
             latestAutomationRun: null,
             firebaseReady: false,
+            firebaseApp: null,
+            auth: null,
+            currentUser: null,
+            adminSession: null,
+            accessLocked: true,
             providers: [],
             providerOrder: [],
             chatMessages: [],
@@ -604,6 +634,27 @@
             }
         };
 
+        const protectedControls = [
+            sensitivityInput,
+            settingsButton,
+            refreshButton,
+            automationPrompt,
+            automationAttempts,
+            automationRunButton,
+            automationRefreshButton,
+            aiMode,
+            aiProvider,
+            aiButton,
+            aiInput,
+            injectBuildButton,
+            ...quickCommandButtons,
+            chatProvider,
+            chatInput,
+            chatSendButton,
+            chatClearButton,
+            chatBuildButton,
+        ];
+
         function setPill(element, text, tone) {
             element.textContent = text;
             element.className = "pill";
@@ -616,6 +667,252 @@
         function showBlock(element, text) {
             element.classList.remove("hidden");
             element.textContent = text;
+        }
+
+        function resetProviderSelectors() {
+            aiProvider.textContent = "";
+            chatProvider.textContent = "";
+
+            const autoOption = document.createElement("option");
+            autoOption.value = "auto";
+            autoOption.textContent = "Auto Provider Chain";
+            aiProvider.appendChild(autoOption);
+
+            const chatAutoOption = document.createElement("option");
+            chatAutoOption.value = "auto";
+            chatAutoOption.textContent = "Auto Provider Chain";
+            chatProvider.appendChild(chatAutoOption);
+        }
+
+        function setControlsLocked(locked, message) {
+            state.accessLocked = locked;
+            for (const control of protectedControls) {
+                control.disabled = locked;
+            }
+
+            if (!locked) {
+                return;
+            }
+
+            state.latestBuild = null;
+            state.latestAutomationRun = null;
+            providerList.textContent = "";
+            providerNote.textContent = "";
+            buildConfigNote.textContent = "Set STORYLINE_ADMIN_EMAILS or STORYLINE_ADMIN_DOMAIN(S) in Vercel, then sign in with that admin account.";
+            automationNote.textContent = "Admin access is required before this panel can reach GitHub or AI server functions.";
+            aiStatus.textContent = "Locked";
+            chatStatus.textContent = "Locked";
+            aiOutput.classList.add("hidden");
+            aiOutputText.textContent = "";
+            resetProviderSelectors();
+
+            const lockedMessage = message || "Sign in with an allowed admin Google account to unlock the Storyline control surface.";
+            buildStatus.textContent = lockedMessage;
+            automationStatusBlock.textContent = lockedMessage;
+            setPill(buildPill, "Build: locked", "warning");
+            setPill(chainPill, "AI Chain: locked", "warning");
+        }
+
+        function updateAuthButtons() {
+            const hasUser = Boolean(state.currentUser);
+            authSignInButton.classList.toggle("hidden", hasUser);
+            authSignOutButton.classList.toggle("hidden", !hasUser);
+            authSignInButton.disabled = !state.firebaseReady;
+            authSignOutButton.disabled = false;
+        }
+
+        function getFriendlyAuthMessage(error) {
+            const code = error?.code || "";
+
+            if (code === "auth/popup-closed-by-user") {
+                return "Google sign-in was closed before it finished.";
+            }
+            if (code === "auth/popup-blocked") {
+                return "Popup sign-in was blocked by the browser.";
+            }
+            if (code === "auth/operation-not-allowed") {
+                return "Enable Google sign-in in Firebase Authentication first.";
+            }
+            if (code === "auth/unauthorized-domain") {
+                return "Add this Vercel domain to Firebase Authentication authorized domains.";
+            }
+            if (code === "auth/network-request-failed") {
+                return "Network request failed during Google sign-in.";
+            }
+
+            return error?.message || "Admin sign-in failed.";
+        }
+
+        function prefersRedirectSignIn() {
+            return /android|iphone|ipad|ipod/i.test(window.navigator.userAgent);
+        }
+
+        async function authorizedFetch(url, options = {}) {
+            if (!state.currentUser) {
+                throw new Error("Sign in with an allowed admin account first.");
+            }
+
+            const token = await state.currentUser.getIdToken();
+            const headers = new Headers(options.headers || {});
+            headers.set("Authorization", `Bearer ${token}`);
+
+            const response = await fetch(url, {
+                ...options,
+                headers,
+            });
+
+            if ([401, 403, 503].includes(response.status)) {
+                let errorMessage = response.status === 503
+                    ? "Admin allowlist is not configured on the server."
+                    : "Admin access was rejected by the server.";
+
+                try {
+                    const data = await response.clone().json();
+                    if (data?.error) {
+                        errorMessage = data.error;
+                    }
+                } catch (error) {
+                    console.error(error);
+                }
+
+                state.adminSession = null;
+                setControlsLocked(true, errorMessage);
+                setPill(
+                    authPill,
+                    response.status === 503 ? "Access: server setup" : "Access: denied",
+                    response.status === 503 ? "warning" : "failure"
+                );
+                authNote.textContent = errorMessage;
+                authUser.textContent = state.currentUser?.email || "";
+                updateAuthButtons();
+                throw new Error(errorMessage);
+            }
+
+            return response;
+        }
+
+        async function syncAdminSession() {
+            if (!state.currentUser) {
+                state.adminSession = null;
+                setControlsLocked(true, "Sign in with an allowed admin Google account to unlock the Storyline control surface.");
+                setPill(authPill, "Access: locked", "warning");
+                authNote.textContent = "Sign in with an allowlisted admin Google account to unlock build, AI, and automation controls.";
+                authUser.textContent = "";
+                updateAuthButtons();
+                return false;
+            }
+
+            setControlsLocked(true, "Checking admin access...");
+            setPill(authPill, "Access: checking", "warning");
+            authNote.textContent = "Verifying admin access...";
+            authUser.textContent = state.currentUser.email || "";
+            updateAuthButtons();
+
+            try {
+                const token = await state.currentUser.getIdToken();
+                const response = await fetch("/api/admin-auth", {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                });
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    const error = new Error(data?.error || "Admin auth check failed");
+                    error.status = response.status;
+                    throw error;
+                }
+
+                state.adminSession = data.admin;
+                setControlsLocked(false);
+                setPill(authPill, "Access: ready", "success");
+                authNote.textContent = "Admin access granted. Build, AI, and automation controls are live.";
+                authUser.textContent = data.admin.displayName
+                    ? `${data.admin.displayName} • ${data.admin.email}`
+                    : data.admin.email;
+                updateAuthButtons();
+                return true;
+            } catch (error) {
+                console.error(error);
+                state.adminSession = null;
+                setControlsLocked(true, error.message);
+                setPill(
+                    authPill,
+                    error.status === 503 ? "Access: server setup" : "Access: denied",
+                    error.status === 503 ? "warning" : "failure"
+                );
+                authNote.textContent = error.message;
+                authUser.textContent = state.currentUser?.email || "";
+                updateAuthButtons();
+                return false;
+            }
+        }
+
+        async function handleAuthStateChange(user) {
+            state.currentUser = user;
+            state.adminSession = null;
+            updateAuthButtons();
+
+            const authorized = await syncAdminSession();
+            if (!authorized) {
+                return;
+            }
+
+            await Promise.all([
+                loadBuildStatus(),
+                loadAutomationStatus(),
+            ]);
+        }
+
+        async function startGoogleSignIn() {
+            if (!state.auth) {
+                authNote.textContent = "Firebase Auth is not ready in this browser session.";
+                return;
+            }
+
+            const provider = new GoogleAuthProvider();
+            provider.setCustomParameters({ prompt: "select_account" });
+
+            authSignInButton.disabled = true;
+            authNote.textContent = prefersRedirectSignIn()
+                ? "Redirecting to Google sign-in..."
+                : "Opening Google sign-in...";
+
+            try {
+                if (prefersRedirectSignIn()) {
+                    await signInWithRedirect(state.auth, provider);
+                    return;
+                }
+
+                await signInWithPopup(state.auth, provider);
+            } catch (error) {
+                console.error(error);
+                if (["auth/popup-blocked", "auth/cancelled-popup-request", "auth/operation-not-supported-in-this-environment"].includes(error.code)) {
+                    authNote.textContent = "Popup sign-in is not available here. Redirecting instead...";
+                    await signInWithRedirect(state.auth, provider);
+                    return;
+                }
+
+                authNote.textContent = getFriendlyAuthMessage(error);
+            } finally {
+                authSignInButton.disabled = !state.firebaseReady;
+            }
+        }
+
+        async function signOutAdmin() {
+            if (!state.auth) {
+                return;
+            }
+
+            authSignOutButton.disabled = true;
+            try {
+                await signOut(state.auth);
+            } catch (error) {
+                console.error(error);
+                authNote.textContent = getFriendlyAuthMessage(error);
+            } finally {
+                authSignOutButton.disabled = false;
+            }
         }
 
         function formatBuildSummary(data) {
@@ -721,18 +1018,7 @@
             state.providers = providers;
             state.providerOrder = providerOrder;
             providerList.textContent = "";
-            aiProvider.textContent = "";
-            chatProvider.textContent = "";
-
-            const autoOption = document.createElement("option");
-            autoOption.value = "auto";
-            autoOption.textContent = "Auto Provider Chain";
-            aiProvider.appendChild(autoOption);
-
-            const chatAutoOption = document.createElement("option");
-            chatAutoOption.value = "auto";
-            chatAutoOption.textContent = "Auto Provider Chain";
-            chatProvider.appendChild(chatAutoOption);
+            resetProviderSelectors();
 
             const orderedProviders = providerOrder
                 .map((id) => providers.find((provider) => provider.id === id))
@@ -871,24 +1157,48 @@
         async function initFirebase() {
             try {
                 const app = initializeApp(firebaseConfig);
+                state.firebaseApp = app;
+                state.auth = getAuth(app);
+                await setPersistence(state.auth, browserLocalPersistence).catch((error) => {
+                    console.error(error);
+                });
                 if (await isSupported()) {
                     getAnalytics(app);
                 }
                 state.firebaseReady = true;
                 setPill(firebasePill, "Firebase: ready", "success");
+                updateAuthButtons();
+
+                try {
+                    await getRedirectResult(state.auth);
+                } catch (error) {
+                    console.error(error);
+                    authNote.textContent = getFriendlyAuthMessage(error);
+                }
+
+                onAuthStateChanged(state.auth, handleAuthStateChange);
             } catch (error) {
                 console.error(error);
                 setPill(firebasePill, "Firebase: init failed", "failure");
+                setPill(authPill, "Access: offline", "failure");
+                authNote.textContent = "Firebase Auth could not be initialized in this browser session.";
+                updateAuthButtons();
             }
         }
 
         async function loadBuildStatus() {
+            if (!state.adminSession) {
+                buildStatus.textContent = "Sign in with an allowed admin account first.";
+                setPill(buildPill, "Build: locked", "warning");
+                return;
+            }
+
             refreshButton.disabled = true;
             buildStatus.textContent = "Checking latest GitHub Actions run...";
             setPill(buildPill, "Build: checking", "warning");
 
             try {
-                const response = await fetch("/api/status");
+                const response = await authorizedFetch("/api/status");
                 const data = await response.json();
 
                 if (!response.ok) {
@@ -917,19 +1227,26 @@
                 buildConfigNote.textContent = notes.join(" ");
             } catch (error) {
                 console.error(error);
-                buildStatus.textContent = error.message;
-                setPill(buildPill, "Build: unavailable", "failure");
+                if (!state.accessLocked) {
+                    buildStatus.textContent = error.message;
+                    setPill(buildPill, "Build: unavailable", "failure");
+                }
             } finally {
-                refreshButton.disabled = false;
+                refreshButton.disabled = state.accessLocked;
             }
         }
 
         async function loadAutomationStatus() {
+            if (!state.adminSession) {
+                automationStatusBlock.textContent = "Sign in with an allowed admin account first.";
+                return;
+            }
+
             automationRefreshButton.disabled = true;
             automationStatusBlock.textContent = "Checking latest automation workflow...";
 
             try {
-                const response = await fetch("/api/automation-status");
+                const response = await authorizedFetch("/api/automation-status");
                 const data = await response.json();
 
                 if (!response.ok) {
@@ -944,14 +1261,21 @@
                 automationNote.textContent = "This workflow is separate from Android CI Build. It edits code in GitHub Actions and pushes the result back to the repo.";
             } catch (error) {
                 console.error(error);
-                automationStatusBlock.textContent = error.message;
-                automationNote.textContent = "Automation dispatch requires GitHub workflow access and repo automation secrets.";
+                if (!state.accessLocked) {
+                    automationStatusBlock.textContent = error.message;
+                    automationNote.textContent = "Automation dispatch requires GitHub workflow access and repo automation secrets.";
+                }
             } finally {
-                automationRefreshButton.disabled = false;
+                automationRefreshButton.disabled = state.accessLocked;
             }
         }
 
         async function runAutomationBridge() {
+            if (!state.adminSession) {
+                automationNote.textContent = "Sign in with an allowed admin account first.";
+                return;
+            }
+
             const prompt = automationPrompt.value.trim();
             if (!prompt) {
                 automationNote.textContent = "Type an implementation request first.";
@@ -963,7 +1287,7 @@
             automationNote.textContent = "The laptop can stay off after dispatch. GitHub Actions will do the work in the cloud.";
 
             try {
-                const response = await fetch("/api/automation-dispatch", {
+                const response = await authorizedFetch("/api/automation-dispatch", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
@@ -990,7 +1314,7 @@
                 automationStatusBlock.textContent = error.message;
                 automationNote.textContent = "Dispatch failed before any cloud edit started.";
             } finally {
-                automationRunButton.disabled = false;
+                automationRunButton.disabled = state.accessLocked;
             }
         }
 
@@ -1042,6 +1366,11 @@
         }
 
         async function sendChatMessage() {
+            if (!state.adminSession) {
+                chatStatus.textContent = "Sign in with an allowed admin account first";
+                return;
+            }
+
             const message = chatInput.value.trim();
             if (!message) {
                 chatStatus.textContent = "Type a message first";
@@ -1060,7 +1389,7 @@
             chatStatus.textContent = "Sending...";
 
             try {
-                const response = await fetch("/api/ai-chat", {
+                const response = await authorizedFetch("/api/ai-chat", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
@@ -1088,11 +1417,16 @@
                 console.error(error);
                 chatStatus.textContent = error.message;
             } finally {
-                chatSendButton.disabled = false;
+                chatSendButton.disabled = state.accessLocked;
             }
         }
 
         async function runAiAction() {
+            if (!state.adminSession) {
+                aiStatus.textContent = "Sign in with an allowed admin account first";
+                return;
+            }
+
             const mode = aiMode.value;
             const config = modeConfig[mode];
             const endpoint = mode === "fix-build" ? "/api/ai-fix" : "/api/ai-command";
@@ -1118,7 +1452,7 @@
             aiStatus.textContent = config.statusText;
 
             try {
-                const response = await fetch(endpoint, {
+                const response = await authorizedFetch(endpoint, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
@@ -1140,11 +1474,13 @@
                 console.error(error);
                 aiStatus.textContent = error.message;
             } finally {
-                aiButton.disabled = false;
+                aiButton.disabled = state.accessLocked;
             }
         }
 
         sensitivityInput.addEventListener("input", updateSensitivityValue);
+        authSignInButton.addEventListener("click", startGoogleSignIn);
+        authSignOutButton.addEventListener("click", signOutAdmin);
         settingsButton.addEventListener("click", updateSettings);
         refreshButton.addEventListener("click", loadBuildStatus);
         automationRunButton.addEventListener("click", runAutomationBridge);
@@ -1173,9 +1509,9 @@
         loadSavedSensitivity();
         loadChatHistory();
         updateModeUi();
+        setControlsLocked(true, "Sign in with an allowed admin Google account to unlock the Storyline control surface.");
+        updateAuthButtons();
         initFirebase();
-        loadBuildStatus();
-        loadAutomationStatus();
     </script>
 </body>
 </html>

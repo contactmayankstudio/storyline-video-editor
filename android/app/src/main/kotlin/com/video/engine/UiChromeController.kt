@@ -35,6 +35,7 @@ class UiChromeController(
     private val onQuickOverlayImport: () -> Boolean,
     private val onShowAudioPicker: () -> Unit,
     private val onQuickAudioImport: () -> Boolean,
+    private val onShowTextComposer: () -> Unit,
     private val onSplitAudioAtPlayhead: () -> Boolean,
     private val clipEffects: MutableMap<Int, EffectParams>,
     private val onTransitionRequested: (Int, Int) -> Unit = { _, _ -> },
@@ -130,7 +131,7 @@ class UiChromeController(
         }
 
         activity.findViewById<LinearLayout>(R.id.textButton).setOnClickListener {
-            overlayControllerProvider()?.showAddTextDialog()
+            onShowTextComposer()
         }
 
         activity.findViewById<LinearLayout>(R.id.effectsButton).setOnClickListener {

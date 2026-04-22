@@ -27,6 +27,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.RecyclerView
+import com.video.engine.audio.AudioGainKeyframe
 import com.video.engine.audio.AudioClipStore
 import com.video.engine.audio.AudioImportController
 import com.video.engine.audio.VoiceoverController
@@ -125,6 +126,20 @@ class MainActivity : Activity() {
         val label: String,
         val width: Int,
         val height: Int,
+    )
+
+    private data class TextOverlayPreset(
+        val label: String,
+        val hint: String,
+        val x: Float,
+        val y: Float,
+        val fontSize: Float,
+        val color: Int,
+        val bold: Boolean = false,
+        val italic: Boolean = false,
+        val uppercase: Boolean = false,
+        val defaultDurationMs: Int = 3000,
+        val fontName: String? = null,
     )
 
     private enum class UndoDomain {
@@ -246,6 +261,7 @@ class MainActivity : Activity() {
     private val videoClipCurveProfiles = mutableMapOf<Int, String>()
     private val videoClipKeyframes = mutableMapOf<Int, MutableList<Long>>()
     private val stickerClipKeyframes = mutableMapOf<Int, MutableList<Long>>()
+    private val nativeClipAudioGainKeyframes = mutableMapOf<Int, List<AudioGainKeyframe>>()
     private val duckingEnabledForKey = mutableMapOf<String, Boolean>()
     private val hardwareTelemetryHandler = Handler(Looper.getMainLooper())
     private var lastTimelineSeekTelemetryElapsedMs = 0L
@@ -256,6 +272,75 @@ class MainActivity : Activity() {
         AspectRatioOption(label = "1:1", width = 1, height = 1),
         AspectRatioOption(label = "9:16", width = 9, height = 16),
         AspectRatioOption(label = "4:5", width = 4, height = 5),
+    )
+    private val textOverlayPresets = listOf(
+        TextOverlayPreset(
+            label = "Caption",
+            hint = "Tell the next beat",
+            x = 0.5f,
+            y = 0.82f,
+            fontSize = 42f,
+            color = 0xFFFFFFFF.toInt(),
+            bold = true,
+            defaultDurationMs = 2200,
+            fontName = "sans-serif",
+        ),
+        TextOverlayPreset(
+            label = "Title",
+            hint = "OPENING TITLE",
+            x = 0.5f,
+            y = 0.26f,
+            fontSize = 58f,
+            color = 0xFFFFFFFF.toInt(),
+            bold = true,
+            uppercase = true,
+            defaultDurationMs = 2600,
+            fontName = "serif",
+        ),
+        TextOverlayPreset(
+            label = "Lower 3rd",
+            hint = "Name / place",
+            x = 0.28f,
+            y = 0.76f,
+            fontSize = 32f,
+            color = 0xFFFFD54F.toInt(),
+            bold = true,
+            defaultDurationMs = 3800,
+            fontName = "sans-serif",
+        ),
+        TextOverlayPreset(
+            label = "Hook",
+            hint = "STOP THE SCROLL",
+            x = 0.5f,
+            y = 0.18f,
+            fontSize = 54f,
+            color = 0xFF00E5FF.toInt(),
+            bold = true,
+            uppercase = true,
+            defaultDurationMs = 2000,
+            fontName = "sans-serif",
+        ),
+        TextOverlayPreset(
+            label = "Label",
+            hint = "Scene note",
+            x = 0.22f,
+            y = 0.62f,
+            fontSize = 28f,
+            color = 0xFFB2FF59.toInt(),
+            italic = true,
+            defaultDurationMs = 2800,
+            fontName = "monospace",
+        ),
+        TextOverlayPreset(
+            label = "Basic",
+            hint = "Hello World",
+            x = 0.5f,
+            y = 0.30f,
+            fontSize = 36f,
+            color = 0xFFFFFFFF.toInt(),
+            defaultDurationMs = 3000,
+            fontName = "sans-serif",
+        ),
     )
     private var selectedAspectRatioIndex = 0
     private var lastAppliedAspectWidth = -1
@@ -537,7 +622,7 @@ class MainActivity : Activity() {
                 when (trackType) {
                     TrackType.VIDEO -> openVideoTrackImport()
                     TrackType.OVERLAY -> openOverlayTrackImport()
-                    TrackType.TEXT -> overlayController?.showAddTextDialog()
+                    TrackType.TEXT -> showAddTextDialog()
                     TrackType.AUDIO -> audioImportController?.openPicker(PICK_AUDIO_REQUEST)
                 }
             }
@@ -975,6 +1060,7 @@ class MainActivity : Activity() {
                 transitionController?.showTransitionEditor(outgoing, incoming)
             },
             onVoiceoverRequested = { voiceoverController?.showPanel() },
+            onShowTextComposer = { showAddTextDialog() },
         )
         uiChromeController?.setupPlayPauseButton()
         uiChromeController?.setupExportButton()
@@ -1180,12 +1266,158 @@ class MainActivity : Activity() {
                     .put("sourcePath", clip.sourcePath)
                     .put("startTimeMs", clip.startTimeMs)
                     .put("durationMs", clip.durationMs)
+                    .put("fadeInMs", clip.fadeInMs)
+                    .put("fadeOutMs", clip.fadeOutMs)
+                    .put("gainKeyframeCount", clip.gainKeyframes.size)
                     .put("layerIndex", clip.layerIndex)
                     .put("visible", clip.visible)
                     .put("muted", clip.muted),
             )
         }
         return array
+    }
+
+    private fun normalizeAudioGainKeyframes(
+        keyframes: List<AudioGainKeyframe>,
+        clipDurationMs: Long,
+    ): List<AudioGainKeyframe> {
+        val safeDurationMs = clipDurationMs.coerceAtLeast(1L)
+        val normalized = mutableListOf<AudioGainKeyframe>()
+        keyframes.forEach { keyframe ->
+            normalized += AudioGainKeyframe(
+                timeMs = keyframe.timeMs.coerceIn(0L, safeDurationMs - 1L),
+                gain = keyframe.gain.coerceIn(0f, 2f),
+            )
+        }
+        return normalized.sortedBy { it.timeMs }.distinctBy { it.timeMs }
+    }
+
+    private fun sampleAudioGainEnvelope(
+        keyframes: List<AudioGainKeyframe>,
+        localTimeMs: Long,
+    ): Float {
+        if (keyframes.isEmpty()) return 1.0f
+        val normalized = keyframes.sortedBy { it.timeMs }
+        val clampedLocalTimeMs = localTimeMs.coerceAtLeast(0L)
+        if (clampedLocalTimeMs <= normalized.first().timeMs) {
+            return normalized.first().gain.coerceIn(0f, 2f)
+        }
+        if (clampedLocalTimeMs >= normalized.last().timeMs) {
+            return normalized.last().gain.coerceIn(0f, 2f)
+        }
+        for (index in 1 until normalized.size) {
+            val left = normalized[index - 1]
+            val right = normalized[index]
+            if (clampedLocalTimeMs > right.timeMs) continue
+            val spanMs = (right.timeMs - left.timeMs).coerceAtLeast(1L)
+            val progress = (clampedLocalTimeMs - left.timeMs).toFloat() / spanMs.toFloat()
+            return (left.gain + ((right.gain - left.gain) * progress)).coerceIn(0f, 2f)
+        }
+        return 1.0f
+    }
+
+    private fun upsertAudioGainKeyframe(
+        keyframes: List<AudioGainKeyframe>,
+        timeMs: Long,
+        gain: Float,
+        clipDurationMs: Long,
+    ): List<AudioGainKeyframe> {
+        return normalizeAudioGainKeyframes(
+            keyframes.filterNot { it.timeMs == timeMs } + AudioGainKeyframe(timeMs, gain),
+            clipDurationMs,
+        )
+    }
+
+    private fun removeAudioGainKeyframe(
+        keyframes: List<AudioGainKeyframe>,
+        timeMs: Long,
+        clipDurationMs: Long,
+    ): List<AudioGainKeyframe> {
+        return normalizeAudioGainKeyframes(
+            keyframes.filterNot { it.timeMs == timeMs },
+            clipDurationMs,
+        )
+    }
+
+    private fun applyAudioGainKeyframes(
+        audioId: Int,
+        clip: com.video.engine.audio.AudioClip,
+        keyframes: List<AudioGainKeyframe>,
+    ) {
+        val normalized = normalizeAudioGainKeyframes(keyframes, clip.durationMs)
+        clip.gainKeyframes = normalized
+        nativeClipAudioGainKeyframes[audioId] = normalized
+        runCatching {
+            NativeBridge.executeCommand(
+                action = "SET_CLIP_AUDIO_KEYFRAMES",
+                params = mapOf(
+                    "clipId" to audioId,
+                    "keyframesCsv" to NativeBridge.serializeAudioGainKeyframesCsv(normalized),
+                ),
+            )
+        }
+        refreshMainTimelineTracks()
+        previewAudioPlayer?.seekTo(currentTimeMs, continuePlaying = isPlaying)
+    }
+
+    private fun updateAudioKeyframePoint(
+        audioId: Int,
+        clip: com.video.engine.audio.AudioClip,
+        localTimeMs: Long,
+        gain: Float,
+    ) {
+        applyAudioGainKeyframes(
+            audioId,
+            clip,
+            upsertAudioGainKeyframe(clip.gainKeyframes, localTimeMs, gain, clip.durationMs),
+        )
+    }
+
+    private fun deleteAudioKeyframePoint(
+        audioId: Int,
+        clip: com.video.engine.audio.AudioClip,
+        localTimeMs: Long,
+    ) {
+        applyAudioGainKeyframes(
+            audioId,
+            clip,
+            removeAudioGainKeyframe(clip.gainKeyframes, localTimeMs, clip.durationMs),
+        )
+    }
+
+    private fun showAudioKeyframeSheet(
+        audioId: Int,
+        clip: com.video.engine.audio.AudioClip,
+        localTimeMs: Long,
+        initialGain: Float,
+    ) {
+        ModernSheet.show(this, "Audio Keyframe") {
+            slider(
+                "Level",
+                0f,
+                2f,
+                initialGain.coerceIn(0f, 2f),
+                { "%.0f%%".format(it * 100f) },
+            ) { value ->
+                updateAudioKeyframePoint(audioId, clip, localTimeMs, value)
+            }
+            chips("Point", listOf("Delete Point", "100%", "Clear All")) { _, option ->
+                when (option) {
+                    "Delete Point" -> deleteAudioKeyframePoint(audioId, clip, localTimeMs)
+                    "100%" -> updateAudioKeyframePoint(audioId, clip, localTimeMs, 1f)
+                    "Clear All" -> applyAudioGainKeyframes(audioId, clip, emptyList())
+                }
+            }
+        }
+    }
+
+    private fun formatFadeLabel(value: Float): String {
+        val millis = value.toInt().coerceAtLeast(0)
+        return if (millis >= 1000) {
+            String.format(Locale.US, "%.2fs", millis / 1000f)
+        } else {
+            "${millis}ms"
+        }
     }
 
     private fun buildTextClipTelemetry(): JSONArray {
@@ -1316,12 +1548,103 @@ class MainActivity : Activity() {
         setStartScreenVisible(true)
     }
 
+    private fun textOverlayPresetByLabel(label: String): TextOverlayPreset? {
+        return textOverlayPresets.firstOrNull { it.label == label }
+    }
+
+    private fun buildTextOverlayFromPreset(
+        preset: TextOverlayPreset,
+        rawText: String,
+        durationOverrideMs: Int? = null,
+    ): TextOverlay {
+        val startTimeMs = currentPlayheadMs().coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val durationMs = (durationOverrideMs ?: preset.defaultDurationMs).coerceAtLeast(600)
+        val resolvedText = rawText.trim().ifEmpty { preset.hint }
+        val finalText = if (preset.uppercase) resolvedText.uppercase(Locale.getDefault()) else resolvedText
+        val overlayId = nextTextOverlayId++
+        return TextOverlay(
+            id = overlayId,
+            text = finalText,
+            startTimeMs = startTimeMs,
+            endTimeMs = (startTimeMs + durationMs).coerceAtMost(Int.MAX_VALUE),
+            x = preset.x,
+            y = preset.y,
+            scale = 1.0f,
+            rotation = 0.0f,
+            opacity = 1.0f,
+            color = preset.color,
+            fontSize = preset.fontSize,
+            fontName = preset.fontName,
+            bold = preset.bold,
+            italic = preset.italic,
+            layerIndex = editorState?.nextCompositeLayerIndex() ?: 0,
+            visible = true,
+        )
+    }
+
+    private fun addTextOverlay(overlay: TextOverlay, message: String = "Text added") {
+        val preview = previewView
+        if (preview == null) {
+            Log.e(TAG, "PreviewView not available")
+            safeToast("Preview view not available", Toast.LENGTH_SHORT)
+            return
+        }
+        if (isPlaying) {
+            isPlaying = false
+            playbackController?.pauseRendering()
+        }
+        editorState?.recordLayerSnapshot()
+        recordUndoDomain(UndoDomain.EDITOR)
+        OverlayStore.put(overlay)
+        addTextOverlayToPreview(overlay)
+        preview.setActiveTextOverlayId(overlay.id)
+        selectedTimelineClipKey = "text-${overlay.id}"
+        refreshMainTimelineTracks()
+        safeToast(message, Toast.LENGTH_SHORT)
+    }
+
     private fun showAddTextDialog() {
-        overlayController?.showAddTextDialog()
+        var customDurationMs: Int? = null
+        ModernSheet.show(this, "Add Text") {
+            textInput("Text", "Write a title, caption, or label") { }
+            slider("Duration", 1f, 8f, 3f, { "%.1fs".format(it) }) { value ->
+                customDurationMs = (value * 1000f).roundToInt()
+            }
+            divider()
+            chips("Primary", listOf("Caption", "Title", "Lower 3rd"), -1) { _, option ->
+                val preset = textOverlayPresetByLabel(option) ?: return@chips
+                addTextOverlay(
+                    buildTextOverlayFromPreset(
+                        preset = preset,
+                        rawText = getTextInput(),
+                        durationOverrideMs = customDurationMs,
+                    ),
+                    message = "${preset.label} added",
+                )
+            }
+            chips("More", listOf("Hook", "Label", "Basic"), -1) { _, option ->
+                val preset = textOverlayPresetByLabel(option) ?: return@chips
+                addTextOverlay(
+                    buildTextOverlayFromPreset(
+                        preset = preset,
+                        rawText = getTextInput(),
+                        durationOverrideMs = customDurationMs,
+                    ),
+                    message = "${preset.label} added",
+                )
+            }
+        }
     }
 
     private fun addNewTextOverlay(text: String) {
-        overlayController?.addNewTextOverlay(text)
+        val preset = textOverlayPresetByLabel("Basic") ?: return
+        addTextOverlay(
+            buildTextOverlayFromPreset(
+                preset = preset,
+                rawText = text,
+            ),
+            message = "Text added. Drag to move, pinch to scale.",
+        )
     }
 
     private fun maybeHandleAutomationIntent(intent: Intent?) {
@@ -1548,8 +1871,30 @@ class MainActivity : Activity() {
         val newDuckingKey = "audio-${imported.id}"
         val replacementGain = audioClipGainOverrides[targetAudioId] ?: sourceClip.gain
         imported.gain = replacementGain
+        imported.fadeInMs = sourceClip.fadeInMs.coerceAtLeast(0)
+        imported.fadeOutMs = sourceClip.fadeOutMs.coerceAtLeast(0)
+        imported.gainKeyframes = normalizeAudioGainKeyframes(sourceClip.gainKeyframes, imported.durationMs)
         imported.muted = replacementGain <= 0.001f
         audioClipGainOverrides[imported.id] = replacementGain
+        runCatching {
+            NativeBridge.executeCommand(
+                action = "SET_CLIP_AUDIO_FADES",
+                params = mapOf(
+                    "clipId" to imported.id,
+                    "fadeInMs" to imported.fadeInMs,
+                    "fadeOutMs" to imported.fadeOutMs,
+                ),
+            )
+        }
+        runCatching {
+            NativeBridge.executeCommand(
+                action = "SET_CLIP_AUDIO_KEYFRAMES",
+                params = mapOf(
+                    "clipId" to imported.id,
+                    "keyframesCsv" to NativeBridge.serializeAudioGainKeyframesCsv(imported.gainKeyframes),
+                ),
+            )
+        }
         runCatching {
             NativeBridge.executeCommand(
                 action = "DELETE_CLIP",
@@ -1681,11 +2026,7 @@ class MainActivity : Activity() {
             return
         }
         runCatching {
-            val (pixels, width, height) = TextBitmapHelper.createTextPixels(
-                overlay.text,
-                overlay.fontSize,
-                overlay.color,
-            )
+            val (pixels, width, height) = TextBitmapHelper.createTextPixels(overlay)
             preview.setTextOverlayBitmap(overlay.id, pixels, width, height)
         }.onFailure { error ->
             Log.w(TAG, "Text bitmap upload failed: ${error.message}")
@@ -2111,6 +2452,7 @@ class MainActivity : Activity() {
                     nativeClipFreezeFrameDurationMs.keys.retainAll(validClipIds)
                     nativeClipCurveSpeedProfile.keys.retainAll(validClipIds)
                     nativeClipCurveSpeedStrength.keys.retainAll(validClipIds)
+                    nativeClipAudioGainKeyframes.keys.retainAll(validClipIds)
                     return@post
                 }
                 val clipsJson: JSONArray = result.data.optJSONArray("clips") ?: JSONArray()
@@ -2123,6 +2465,8 @@ class MainActivity : Activity() {
                 val nextSourceOutMs = mutableMapOf<Int, Long>()
                 val nextSourcePath = mutableMapOf<Int, String>()
                 val nextVolumeGain = mutableMapOf<Int, Float>()
+                val nextFadeInMs = mutableMapOf<Int, Int>()
+                val nextFadeOutMs = mutableMapOf<Int, Int>()
                 val nextDuckingEnabled = mutableMapOf<Int, Boolean>()
                 val nextPlaybackSpeed = mutableMapOf<Int, Float>()
                 val nextReversePlayback = mutableMapOf<Int, Boolean>()
@@ -2131,6 +2475,7 @@ class MainActivity : Activity() {
                 val nextFreezeFrameDurationMs = mutableMapOf<Int, Long>()
                 val nextCurveSpeedProfile = mutableMapOf<Int, String>()
                 val nextCurveSpeedStrength = mutableMapOf<Int, Float>()
+                val nextAudioGainKeyframes = mutableMapOf<Int, List<AudioGainKeyframe>>()
                 for (index in 0 until clipsJson.length()) {
                     val clipJson = clipsJson.optJSONObject(index) ?: continue
                     val clipId = clipJson.optInt("clipId", -1)
@@ -2148,6 +2493,8 @@ class MainActivity : Activity() {
                     nextSourcePath[clipId] = clipJson.optString("originalSourcePath")
                         .ifBlank { clipJson.optString("sourcePath", "") }
                     nextVolumeGain[clipId] = clipJson.optDouble("volumeGain", 1.0).toFloat().coerceAtLeast(0f)
+                    nextFadeInMs[clipId] = clipJson.optInt("fadeInMs", 0).coerceAtLeast(0)
+                    nextFadeOutMs[clipId] = clipJson.optInt("fadeOutMs", 0).coerceAtLeast(0)
                     nextDuckingEnabled[clipId] = clipJson.optBoolean("duckingEnabled", false)
                     nextPlaybackSpeed[clipId] = clipJson.optDouble("playbackSpeed", 1.0).toFloat().coerceAtLeast(0.1f)
                     nextReversePlayback[clipId] = clipJson.optBoolean("reversePlayback", false)
@@ -2156,6 +2503,19 @@ class MainActivity : Activity() {
                     nextFreezeFrameDurationMs[clipId] = clipJson.optLong("freezeFrameDurationMs", 0L).coerceAtLeast(0L)
                     nextCurveSpeedProfile[clipId] = clipJson.optString("curveSpeedProfile", "linear")
                     nextCurveSpeedStrength[clipId] = clipJson.optDouble("curveSpeedStrength", 1.0).toFloat().coerceAtLeast(0.1f)
+                    val parsedAudioGainKeyframes = mutableListOf<AudioGainKeyframe>()
+                    val keyframesJson = clipJson.optJSONArray("audioGainKeyframes") ?: JSONArray()
+                    for (keyframeIndex in 0 until keyframesJson.length()) {
+                        val keyframeJson = keyframesJson.optJSONObject(keyframeIndex) ?: continue
+                        parsedAudioGainKeyframes += AudioGainKeyframe(
+                            timeMs = keyframeJson.optLong("timeMs", 0L),
+                            gain = keyframeJson.optDouble("gain", 1.0).toFloat(),
+                        )
+                    }
+                    nextAudioGainKeyframes[clipId] = normalizeAudioGainKeyframes(
+                        parsedAudioGainKeyframes,
+                        durationMs,
+                    )
                 }
                 nativeClipTrackType.clear(); nativeClipTrackType.putAll(nextTrackType)
                 nativeClipLane.clear(); nativeClipLane.putAll(nextLane)
@@ -2172,6 +2532,7 @@ class MainActivity : Activity() {
                 nativeClipFreezeFrameDurationMs.clear(); nativeClipFreezeFrameDurationMs.putAll(nextFreezeFrameDurationMs)
                 nativeClipCurveSpeedProfile.clear(); nativeClipCurveSpeedProfile.putAll(nextCurveSpeedProfile)
                 nativeClipCurveSpeedStrength.clear(); nativeClipCurveSpeedStrength.putAll(nextCurveSpeedStrength)
+                nativeClipAudioGainKeyframes.clear(); nativeClipAudioGainKeyframes.putAll(nextAudioGainKeyframes)
                 videoClipGainOverrides.keys
                     .filter { clipId -> nextTrackType[clipId] != TrackType.VIDEO && nextTrackType[clipId] != TrackType.OVERLAY }
                     .toList()
@@ -2209,6 +2570,9 @@ class MainActivity : Activity() {
                     sourcePaths = nextSourcePath,
                     laneIndices = nextLane,
                     volumeGains = nextVolumeGain,
+                    fadeInValues = nextFadeInMs,
+                    fadeOutValues = nextFadeOutMs,
+                    audioGainKeyframes = nextAudioGainKeyframes,
                 )
                 refreshMainTimelineTracks()
             }
@@ -2222,6 +2586,9 @@ class MainActivity : Activity() {
         sourcePaths: Map<Int, String>,
         laneIndices: Map<Int, Int>,
         volumeGains: Map<Int, Float>,
+        fadeInValues: Map<Int, Int>,
+        fadeOutValues: Map<Int, Int>,
+        audioGainKeyframes: Map<Int, List<AudioGainKeyframe>>,
     ) {
         val existingById = AudioClipStore.all().associateBy { it.id }
         val existingByPath = AudioClipStore.all().groupBy { it.sourcePath }
@@ -2242,6 +2609,9 @@ class MainActivity : Activity() {
                 ?: File(sourcePath).nameWithoutExtension.takeIf { it.isNotBlank() }
                 ?: "Audio $clipId"
             val gain = volumeGains[clipId] ?: (if (inherited?.muted == true) 0f else 1f)
+            val fadeInMs = fadeInValues[clipId] ?: inherited?.fadeInMs ?: 0
+            val fadeOutMs = fadeOutValues[clipId] ?: inherited?.fadeOutMs ?: 0
+            val gainKeyframes = audioGainKeyframes[clipId] ?: inherited?.gainKeyframes.orEmpty()
             AudioClipStore.add(
                 com.video.engine.audio.AudioClip(
                     id = clipId,
@@ -2250,12 +2620,15 @@ class MainActivity : Activity() {
                     startTimeMs = startTimesMs[clipId] ?: inherited?.startTimeMs ?: 0L,
                     durationMs = durationsMs[clipId] ?: inherited?.durationMs ?: 1L,
                     gain = gain,
+                    fadeInMs = fadeInMs.coerceAtLeast(0),
+                    fadeOutMs = fadeOutMs.coerceAtLeast(0),
                     layerIndex = laneIndices[clipId] ?: inherited?.layerIndex ?: 0,
                     visible = inherited?.visible ?: true,
                     muted = gain <= 0.001f,
                     peakMapPath = inherited?.peakMapPath,
                     peakBucketMs = inherited?.peakBucketMs ?: 20,
                     peakLevels = inherited?.peakLevels.orEmpty(),
+                    gainKeyframes = gainKeyframes,
                 ),
             )
             audioClipGainOverrides[clipId] = gain
@@ -2530,7 +2903,7 @@ class MainActivity : Activity() {
                 when (trackType) {
                     TrackType.VIDEO -> openVideoTrackImport()
                     TrackType.OVERLAY -> openOverlayTrackImport()
-                    TrackType.TEXT -> overlayController?.showAddTextDialog()
+                    TrackType.TEXT -> showAddTextDialog()
                     TrackType.AUDIO -> audioImportController?.openPicker(PICK_AUDIO_REQUEST)
                 }
             }
@@ -2838,6 +3211,9 @@ class MainActivity : Activity() {
                 clip.startTimeMs.toString(),
                 clip.durationMs.toString(),
                 clip.volume.toString(),
+                clip.fadeInMs.toString(),
+                clip.fadeOutMs.toString(),
+                clip.keyframesCsv,
                 clip.layerIndex.toString(),
                 clip.visible.toString(),
             ).joinToString(separator = "\u0001")
@@ -3559,13 +3935,7 @@ class MainActivity : Activity() {
     private fun deleteSelectedTextClip(): Boolean {
         val anchorTimeMs = currentPlayheadMs().coerceAtLeast(0L)
         val overlayId = selectedTextOverlayId() ?: return false
-        previewView?.removeTextOverlay(overlayId)
-        removeOverlayView(overlayId)
-        OverlayStore.remove(overlayId)
-        selectedTimelineClipKey = null
-        refreshMainTimelineTracks()
-        stabilizeAfterDelete(anchorTimeMs)
-        safeToast("Text deleted", Toast.LENGTH_SHORT)
+        deleteTextOverlayById(overlayId, anchorTimeMs = anchorTimeMs)
         return true
     }
 
@@ -3683,6 +4053,74 @@ class MainActivity : Activity() {
 
     private fun selectedNativeClipLabel(): String {
         return if (selectedClipKind() == ClipKind.OVERLAY) "Overlay" else "Video"
+    }
+
+    private fun deleteTextOverlayById(
+        overlayId: Int,
+        removeFromPreview: Boolean = true,
+        anchorTimeMs: Long = currentPlayheadMs().coerceAtLeast(0L),
+    ) {
+        editorState?.recordLayerSnapshot()
+        recordUndoDomain(UndoDomain.EDITOR)
+        if (removeFromPreview) {
+            previewView?.removeTextOverlay(overlayId)
+        }
+        removeOverlayView(overlayId)
+        OverlayStore.remove(overlayId)
+        if (selectedTimelineClipKey == "text-$overlayId") {
+            selectedTimelineClipKey = null
+        }
+        refreshMainTimelineTracks()
+        stabilizeAfterDelete(anchorTimeMs)
+        safeToast("Text deleted", Toast.LENGTH_SHORT)
+    }
+
+    private fun showSelectedTextStudio() {
+        val overlayId = selectedTextOverlayId() ?: run {
+            safeToast("Select text clip first", Toast.LENGTH_SHORT)
+            return
+        }
+        val overlay = OverlayStore.get(overlayId) ?: return
+        val preview = previewView ?: run {
+            safeToast("Preview unavailable", Toast.LENGTH_SHORT)
+            return
+        }
+        if (isPlaying) {
+            isPlaying = false
+            playbackController?.pauseRendering()
+        }
+        editorState?.recordLayerSnapshot()
+        recordUndoDomain(UndoDomain.EDITOR)
+        TextEditorPanel(
+            activity = this,
+            previewView = preview,
+            overlay = overlay,
+            onDone = { updated ->
+                overlayViews[updated.id]?.setText(updated.text)
+                NativeBridge.setTextOverlayBitmap(preview, updated)
+                applyTextOverlayState(updated)
+                applyTextOverlayPose(updated)
+                selectedTimelineClipKey = "text-${updated.id}"
+                refreshMainTimelineTracks()
+                safeToast("Text updated", Toast.LENGTH_SHORT)
+            },
+            onDuplicate = { source ->
+                val duration = (source.endTimeMs - source.startTimeMs).coerceAtLeast(1)
+                val duplicate = source.copy(
+                    id = nextTextOverlayId++,
+                    startTimeMs = source.endTimeMs + 60,
+                    endTimeMs = source.endTimeMs + 60 + duration,
+                    layerIndex = source.layerIndex + 1,
+                )
+                addTextOverlay(duplicate, "Text duplicated")
+            },
+            onDelete = { source ->
+                deleteTextOverlayById(
+                    overlayId = source.id,
+                    removeFromPreview = false,
+                )
+            },
+        ).show()
     }
 
     private fun isStillImageClip(clipId: Int): Boolean {
@@ -4098,6 +4536,7 @@ class MainActivity : Activity() {
                     R.id.clipDeleteButton,
                     R.id.clipSplitButton,
                     R.id.clipVolumeButton,
+                    R.id.clipBrightnessButton,
                     R.id.clipSpeedButton,
                     R.id.clipTrimButton,
                     R.id.clipReplaceButton,
@@ -4139,6 +4578,7 @@ class MainActivity : Activity() {
             when (kind) {
                 ClipKind.AUDIO -> {
                     labelOverrides[R.id.clipVolumeLabel] = "Gain"
+                    labelOverrides[R.id.clipBrightnessLabel] = "Fade"
                     labelOverrides[R.id.clipSpeedLabel] = "Stretch"
                     labelOverrides[R.id.clipDuckingLabel] = "Ducking"
                 }
@@ -4146,7 +4586,8 @@ class MainActivity : Activity() {
                     labelOverrides[R.id.clipVolumeLabel] = "Opacity"
                     labelOverrides[R.id.clipSpeedLabel] = "Duration"
                     labelOverrides[R.id.clipPanZoomLabel] = "Position"
-                    labelOverrides[R.id.clipGraphicsLabel] = "Color"
+                    labelOverrides[R.id.clipFilterLabel] = "Palette"
+                    labelOverrides[R.id.clipGraphicsLabel] = "Studio"
                     labelOverrides[R.id.clipBrightnessLabel] = "Fade"
                     labelOverrides[R.id.clipReplaceLabel] = "EditText"
                     labelOverrides[R.id.clipRotateMirrorLabel] = "Rotate"
@@ -4690,7 +5131,23 @@ class MainActivity : Activity() {
                 }
                 safeToast("Overlay keyframe @ ${playheadMs}ms", Toast.LENGTH_SHORT)
             }
-            ClipKind.AUDIO -> safeToast("Keyframe for audio next", Toast.LENGTH_SHORT)
+            ClipKind.AUDIO -> {
+                val audioId = selectedAudioClipId() ?: return
+                val clip = AudioClipStore.get(audioId) ?: return
+                val clipEndMs = clip.startTimeMs + clip.durationMs
+                if (playheadMs < clip.startTimeMs || playheadMs >= clipEndMs) {
+                    safeToast("Move playhead inside audio clip", Toast.LENGTH_SHORT)
+                    return
+                }
+                val localTimeMs = (playheadMs - clip.startTimeMs).coerceIn(0L, clip.durationMs.coerceAtLeast(1L) - 1L)
+                val currentKeyframes = normalizeAudioGainKeyframes(clip.gainKeyframes, clip.durationMs)
+                val existingKeyframe = currentKeyframes.firstOrNull { it.timeMs == localTimeMs }
+                val initialGain = existingKeyframe?.gain ?: sampleAudioGainEnvelope(currentKeyframes, localTimeMs)
+                if (existingKeyframe == null) {
+                    applyAudioGainKeyframes(audioId, clip, upsertAudioGainKeyframe(currentKeyframes, localTimeMs, initialGain, clip.durationMs))
+                }
+                showAudioKeyframeSheet(audioId, clip, localTimeMs, initialGain)
+            }
             ClipKind.NONE -> safeToast("Select clip first", Toast.LENGTH_SHORT)
         }
     }
@@ -4929,7 +5386,58 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            ClipKind.AUDIO -> showClipToolPending("Fade")
+            ClipKind.AUDIO -> {
+                val audioId = selectedAudioClipId() ?: return
+                val clip = AudioClipStore.get(audioId) ?: return
+                val maxFadeMsInt = clip.durationMs.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                val maxFadeMs = maxFadeMsInt.toFloat()
+                ModernSheet.show(this@MainActivity, "Audio Fade") {
+                    slider(
+                        "Fade In",
+                        0f,
+                        maxFadeMs,
+                        clip.fadeInMs.toFloat().coerceIn(0f, maxFadeMs),
+                        { formatFadeLabel(it) },
+                    ) { value ->
+                        val fadeInMs = value.toInt().coerceIn(0, maxFadeMsInt)
+                        clip.fadeInMs = fadeInMs
+                        runCatching {
+                            NativeBridge.executeCommand(
+                                action = "SET_CLIP_AUDIO_FADES",
+                                params = mapOf(
+                                    "clipId" to audioId,
+                                    "fadeInMs" to clip.fadeInMs,
+                                    "fadeOutMs" to clip.fadeOutMs,
+                                ),
+                            )
+                        }
+                        refreshMainTimelineTracks()
+                        previewAudioPlayer?.seekTo(currentTimeMs, continuePlaying = isPlaying)
+                    }
+                    slider(
+                        "Fade Out",
+                        0f,
+                        maxFadeMs,
+                        clip.fadeOutMs.toFloat().coerceIn(0f, maxFadeMs),
+                        { formatFadeLabel(it) },
+                    ) { value ->
+                        val fadeOutMs = value.toInt().coerceIn(0, maxFadeMsInt)
+                        clip.fadeOutMs = fadeOutMs
+                        runCatching {
+                            NativeBridge.executeCommand(
+                                action = "SET_CLIP_AUDIO_FADES",
+                                params = mapOf(
+                                    "clipId" to audioId,
+                                    "fadeInMs" to clip.fadeInMs,
+                                    "fadeOutMs" to clip.fadeOutMs,
+                                ),
+                            )
+                        }
+                        refreshMainTimelineTracks()
+                        previewAudioPlayer?.seekTo(currentTimeMs, continuePlaying = isPlaying)
+                    }
+                }
+            }
             ClipKind.NONE -> Toast.makeText(this@MainActivity, "Select clip first", Toast.LENGTH_SHORT).show()
         }
     }
@@ -4939,7 +5447,7 @@ class MainActivity : Activity() {
             ClipKind.VIDEO -> {
                 findViewById<View>(R.id.stickersButton)?.performClick() ?: showClipToolPending("Graphics")
             }
-            ClipKind.TEXT -> performSelectedClipFilterAction()
+            ClipKind.TEXT -> showSelectedTextStudio()
             ClipKind.STICKER -> performSelectedClipReplaceAction()
             ClipKind.AUDIO -> showClipToolPending("Graphics")
             ClipKind.OVERLAY -> performSelectedClipReplaceAction()

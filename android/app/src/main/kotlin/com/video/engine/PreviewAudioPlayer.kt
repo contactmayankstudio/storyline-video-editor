@@ -16,6 +16,7 @@ import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import com.video.engine.audio.AudioGainKeyframe
 import java.io.File
 import java.nio.ByteBuffer
 import kotlin.math.abs
@@ -32,6 +33,9 @@ class PreviewAudioPlayer(
         val sourceInMs: Long,
         val sourceOutMs: Long,
         val volume: Float,
+        val fadeInMs: Int = 0,
+        val fadeOutMs: Int = 0,
+        val gainKeyframes: List<AudioGainKeyframe> = emptyList(),
         val playbackSpeed: Float = 1.0f,
         val reversePlayback: Boolean = false,
         val freezeFrameEnabled: Boolean = false,
@@ -83,7 +87,9 @@ class PreviewAudioPlayer(
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
             AudioManager.AUDIOFOCUS_GAIN -> runOnAudioThread {
-                applyVolume(currentSelection?.volume ?: 1.0f)
+                val selection = currentSelection
+                val timelineMs = currentTimelineTimeMs() ?: pendingTimelineMs
+                applyVolume(selection?.let { effectiveVolumeAt(it, timelineMs) } ?: 1.0f)
                 if (playing && prepared && runCatching { mediaPlayer?.isPlaying == true }.getOrDefault(false).not()) {
                     runCatching { mediaPlayer?.start() }
                     if (runCatching { mediaPlayer?.isPlaying == true }.getOrDefault(false)) {
@@ -99,7 +105,9 @@ class PreviewAudioPlayer(
                 stopTicker()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> runOnAudioThread {
-                val ducked = (currentSelection?.volume ?: 1.0f).coerceIn(0f, 1f) * 0.35f
+                val selection = currentSelection
+                val timelineMs = currentTimelineTimeMs() ?: pendingTimelineMs
+                val ducked = (selection?.let { effectiveVolumeAt(it, timelineMs) } ?: 1.0f).coerceIn(0f, 1f) * 0.35f
                 runCatching { mediaPlayer?.setVolume(ducked, ducked) }
             }
         }
@@ -144,6 +152,9 @@ class PreviewAudioPlayer(
                 if (nextSelectionKey != currentSelection?.key || (nextSelectionKey == null && mediaPlayer == null)) {
                     ensureSelection(timelineMs, autoPlay = true)
                 } else {
+                    currentSelection?.let { selection ->
+                        applyVolume(effectiveVolumeAt(selection, timelineMs))
+                    }
                     dispatchAudioClock(timelineMs)
                 }
             }
@@ -286,7 +297,7 @@ class PreviewAudioPlayer(
             return
         }
 
-        applyVolume(selection.volume)
+        applyVolume(effectiveVolumeAt(selection, pendingTimelineMs))
         applyPlaybackSpeed(selection)
         val shouldStartAfterSeek = autoPlay && !isActuallyPlaying && !duplicateSeek && !shouldSkipSeek
         if (!duplicateSeek && !shouldSkipSeek) {
@@ -373,7 +384,7 @@ class PreviewAudioPlayer(
             if (playerPath != selection.path) {
                 preferredAudioSourcePathByMediaPath[selection.path] = playerPath
             }
-            applyVolume(selection.volume)
+            applyVolume(effectiveVolumeAt(selection, pendingTimelineMs))
             applyPlaybackSpeed(selection)
             val targetMs = timelineToMediaMs(selection, pendingTimelineMs)
                 .coerceIn(0L, Int.MAX_VALUE.toLong())
@@ -677,6 +688,52 @@ class PreviewAudioPlayer(
     private fun applyVolume(volume: Float) {
         val clamped = volume.coerceIn(0f, 1f)
         runCatching { mediaPlayer?.setVolume(clamped, clamped) }
+    }
+
+    private fun effectiveVolumeAt(selection: SourceSelection, timelineMs: Long): Float {
+        val clipDurationMs = (selection.timelineEndMs - selection.timelineStartMs).coerceAtLeast(1L)
+        val localTimelineMs = (timelineMs - selection.timelineStartMs).coerceIn(0L, clipDurationMs - 1L)
+        val fadeInMs = selection.fadeInMs.coerceAtLeast(0).toLong().coerceAtMost(clipDurationMs)
+        val fadeOutMs = selection.fadeOutMs.coerceAtLeast(0).toLong().coerceAtMost(clipDurationMs)
+
+        var fadeGain = 1f
+        if (fadeInMs > 0L && localTimelineMs < fadeInMs) {
+            fadeGain = minOf(fadeGain, localTimelineMs.toFloat() / fadeInMs.toFloat())
+        }
+        if (fadeOutMs > 0L) {
+            val fadeOutStartMs = (clipDurationMs - fadeOutMs).coerceAtLeast(0L)
+            if (localTimelineMs >= fadeOutStartMs) {
+                val remainingMs = ((clipDurationMs - 1L) - localTimelineMs).coerceAtLeast(0L)
+                fadeGain = minOf(fadeGain, remainingMs.toFloat() / fadeOutMs.toFloat())
+            }
+        }
+        val envelopeGain = sampleAudioGainEnvelope(selection.gainKeyframes, localTimelineMs)
+        return (
+            selection.volume.coerceAtLeast(0f) *
+                envelopeGain.coerceIn(0f, 2f) *
+                fadeGain.coerceIn(0f, 1f)
+            ).coerceAtLeast(0f)
+    }
+
+    private fun sampleAudioGainEnvelope(keyframes: List<AudioGainKeyframe>, localTimeMs: Long): Float {
+        if (keyframes.isEmpty()) return 1.0f
+        val normalized = keyframes.sortedBy { it.timeMs }
+        val clampedLocalTimeMs = localTimeMs.coerceAtLeast(0L)
+        if (clampedLocalTimeMs <= normalized.first().timeMs) {
+            return normalized.first().gain.coerceIn(0f, 2f)
+        }
+        if (clampedLocalTimeMs >= normalized.last().timeMs) {
+            return normalized.last().gain.coerceIn(0f, 2f)
+        }
+        for (index in 1 until normalized.size) {
+            val left = normalized[index - 1]
+            val right = normalized[index]
+            if (clampedLocalTimeMs > right.timeMs) continue
+            val spanMs = (right.timeMs - left.timeMs).coerceAtLeast(1L)
+            val progress = (clampedLocalTimeMs - left.timeMs).toFloat() / spanMs.toFloat()
+            return (left.gain + ((right.gain - left.gain) * progress)).coerceIn(0f, 2f)
+        }
+        return 1.0f
     }
 
     private fun applyPlaybackSpeed(selection: SourceSelection) {
