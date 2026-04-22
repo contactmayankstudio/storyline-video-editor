@@ -70,6 +70,16 @@ class ExportController(
             }
     }
 
+    private data class ExportProgressFrame(
+        val progressLabel: String,
+        val etaLabel: String,
+        val statusLabel: String,
+        val notificationTitle: String,
+        val notificationText: String,
+        val notificationProgress: Int,
+        val indeterminate: Boolean,
+    )
+
     companion object {
         private const val TAG = "[UI]"
         private const val EXPORT_NOTIFICATION_CHANNEL_ID = "video_export"
@@ -84,6 +94,7 @@ class ExportController(
     private var progressDialog: android.app.Dialog? = null
     private var isExporting = false
     private var exportStartTimeMs: Long = 0L
+    private var lastForegroundNotificationState: String? = null
 
     private fun beginDirectExportSession(): Boolean {
         if (isExporting) {
@@ -100,12 +111,14 @@ class ExportController(
         activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         isExporting = true
         exportStartTimeMs = System.currentTimeMillis()
+        resetForegroundExportNotificationState()
         return true
     }
 
     private fun finishDirectExportSession() {
         isExporting = false
         activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        resetForegroundExportNotificationState()
     }
 
     fun createNotificationChannel() {
@@ -194,7 +207,12 @@ class ExportController(
 
         showExportProgressDialog(previewView, videoDurationMsProvider(), outputPath)
 
-        activity.startService(Intent(activity, ExportService::class.java))
+        pushForegroundExportNotification(
+            title = "Video Export",
+            text = "Preparing export pipeline...",
+            progress = -1,
+            indeterminate = true,
+        )
 
         Thread {
             val temporaryStickerOverlayIds = mutableListOf<Int>()
@@ -319,6 +337,155 @@ class ExportController(
     private fun stopExportPolling() {
         exportPollRunnable?.let(exportHandler::removeCallbacks)
         exportPollRunnable = null
+    }
+
+    private fun resetForegroundExportNotificationState() {
+        lastForegroundNotificationState = null
+    }
+
+    private fun pushForegroundExportNotification(
+        title: String,
+        text: String,
+        progress: Int,
+        indeterminate: Boolean,
+    ) {
+        val normalizedProgress = if (progress < 0) -1 else progress.coerceIn(0, 100)
+        val stateKey = "$title|$text|$normalizedProgress|$indeterminate"
+        if (stateKey == lastForegroundNotificationState) return
+        lastForegroundNotificationState = stateKey
+        activity.startService(
+            ExportService.buildIntent(
+                context = activity,
+                title = title,
+                text = text,
+                progress = normalizedProgress,
+                indeterminate = indeterminate,
+            ),
+        )
+    }
+
+    private fun formatExportArtifactSize(bytes: Long): String {
+        val kb = bytes / 1024.0
+        val mb = bytes / (1024.0 * 1024.0)
+        return if (mb >= 1.0) {
+            String.format(Locale.US, "%.1f MB", mb)
+        } else {
+            String.format(Locale.US, "%.0f KB", kb.coerceAtLeast(1.0))
+        }
+    }
+
+    private fun buildExportArtifactHint(exportOutputPath: String): String? {
+        val finalFile = File(exportOutputPath)
+        if (finalFile.exists() && finalFile.length() > 0L) {
+            return "Output ${formatExportArtifactSize(finalFile.length())}"
+        }
+        val audioOnlyFile = File("$exportOutputPath.mixed_audio.m4a")
+        if (audioOnlyFile.exists() && audioOnlyFile.length() > 0L) {
+            return "Audio ${formatExportArtifactSize(audioOnlyFile.length())}"
+        }
+        val videoOnlyFile = File("$exportOutputPath.video_only.mp4")
+        if (videoOnlyFile.exists() && videoOnlyFile.length() > 0L) {
+            return "Video ${formatExportArtifactSize(videoOnlyFile.length())}"
+        }
+        return null
+    }
+
+    private fun buildExportProgressFrame(
+        progress: Int,
+        elapsedSec: Long,
+        videoDurationMs: Long,
+        exportOutputPath: String,
+    ): ExportProgressFrame {
+        val artifactHint = buildExportArtifactHint(exportOutputPath)
+        val slowDeviceHint =
+            if (DeviceDetector.isLowEndDevice() && elapsedSec >= 20) {
+                "Slow device: several minutes can be normal."
+            } else {
+                null
+            }
+        return when {
+            progress <= 0 -> {
+                val statusParts = buildList {
+                    add("Preparing sources and overlays...")
+                    artifactHint?.let(::add)
+                    if (videoDurationMs >= 60_000L || DeviceDetector.isLowEndDevice()) {
+                        add("Large timeline warm-up expected.")
+                    }
+                }
+                ExportProgressFrame(
+                    progressLabel = "0%",
+                    etaLabel = if (elapsedSec < 6) "Preparing export..." else "Building export pipeline...",
+                    statusLabel = statusParts.joinToString("  •  "),
+                    notificationTitle = "Video Export",
+                    notificationText = statusParts.joinToString(" • "),
+                    notificationProgress = -1,
+                    indeterminate = true,
+                )
+            }
+            progress < 80 -> {
+                val safeProgress = progress.coerceAtLeast(1)
+                val eta = ((100 - safeProgress) * elapsedSec / safeProgress).coerceAtLeast(0)
+                val statusParts = buildList {
+                    add("Rendering video frames...")
+                    artifactHint?.let(::add)
+                    slowDeviceHint?.let(::add)
+                }
+                ExportProgressFrame(
+                    progressLabel = "$progress%",
+                    etaLabel = "Elapsed: ${elapsedSec}s  •  ETA: ${eta}s",
+                    statusLabel = statusParts.joinToString("  •  "),
+                    notificationTitle = "Video Export $progress%",
+                    notificationText = statusParts.joinToString(" • "),
+                    notificationProgress = progress,
+                    indeterminate = false,
+                )
+            }
+            progress < 90 -> {
+                val statusParts = buildList {
+                    add("Mixing timeline audio...")
+                    artifactHint?.let(::add)
+                }
+                ExportProgressFrame(
+                    progressLabel = "$progress%",
+                    etaLabel = "Elapsed: ${elapsedSec}s  •  Audio pass in progress",
+                    statusLabel = statusParts.joinToString("  •  "),
+                    notificationTitle = "Video Export $progress%",
+                    notificationText = statusParts.joinToString(" • "),
+                    notificationProgress = progress,
+                    indeterminate = false,
+                )
+            }
+            progress < 100 -> {
+                val statusParts = buildList {
+                    add("Muxing final MP4...")
+                    artifactHint?.let(::add)
+                }
+                ExportProgressFrame(
+                    progressLabel = "$progress%",
+                    etaLabel = "Elapsed: ${elapsedSec}s  •  Final container write",
+                    statusLabel = statusParts.joinToString("  •  "),
+                    notificationTitle = "Video Export $progress%",
+                    notificationText = statusParts.joinToString(" • "),
+                    notificationProgress = progress,
+                    indeterminate = false,
+                )
+            }
+            else -> {
+                val statusParts = buildList {
+                    add("Publishing export...")
+                    artifactHint?.let(::add)
+                }
+                ExportProgressFrame(
+                    progressLabel = "Finishing",
+                    etaLabel = "Finalizing output...",
+                    statusLabel = statusParts.joinToString("  •  "),
+                    notificationTitle = "Video Export",
+                    notificationText = statusParts.joinToString(" • "),
+                    notificationProgress = 100,
+                    indeterminate = true,
+                )
+            }
+        }
     }
 
     private fun estimateExportFileSize(durationMs: Long, bitrateMbps: Int): Long {
@@ -702,30 +869,20 @@ class ExportController(
                     val progress = NativeBridge.getExportProgress(previewView)
                     val elapsedSec = (System.currentTimeMillis() - exportStartTimeMs) / 1000
                     if (progress >= 0) {
-                        if (progress <= 0) {
-                            progressBar.isIndeterminate = true
-                            percentText.text = "0%"
-                            etaText.text =
-                                if (elapsedSec < 6) "Processing..."
-                                else "Still processing..."
-                            statusText.text = if (videoDurationMs >= 60_000L) "Working on timeline..." else "Processing..."
-                        } else {
-                            progressBar.isIndeterminate = false
-                            progressBar.progress = progress
-                            percentText.text = "$progress%"
-                            val eta = ((100 - progress) * elapsedSec / progress).coerceAtLeast(0)
-                            etaText.text = "Elapsed: ${elapsedSec}s  •  ETA: ${eta}s"
-                            statusText.text = when {
-                                progress < 90 -> "Processing..."
-                                else -> "Finalizing..."
-                            }
+                        val frame = buildExportProgressFrame(progress, elapsedSec, videoDurationMs, exportOutputPath)
+                        progressBar.isIndeterminate = frame.indeterminate
+                        if (!frame.indeterminate) {
+                            progressBar.progress = frame.notificationProgress
                         }
-                        if (progress >= 100) {
-                            progressBar.isIndeterminate = true
-                            percentText.text = "Finishing"
-                            etaText.text = "Finalizing output..."
-                            statusText.text = "Almost done..."
-                        }
+                        percentText.text = frame.progressLabel
+                        etaText.text = frame.etaLabel
+                        statusText.text = frame.statusLabel
+                        pushForegroundExportNotification(
+                            title = frame.notificationTitle,
+                            text = frame.notificationText,
+                            progress = frame.notificationProgress,
+                            indeterminate = frame.indeterminate,
+                        )
                     }
                 } catch (_: UnsatisfiedLinkError) { exportHandler.removeCallbacks(this); return }
                 exportHandler.postDelayed(this, 500)
