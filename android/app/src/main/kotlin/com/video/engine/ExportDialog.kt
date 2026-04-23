@@ -33,11 +33,30 @@ class ExportDialog(
     private val onRequestWatermarkUnlock: ((callback: (Boolean) -> Unit) -> Unit) = {},
 ) {
     private data class ExportProfile(val label: String, val width: Int, val height: Int)
+    private enum class ExportVideoCodec(
+        val label: String,
+        val shortLabel: String,
+        val nativeValue: String,
+    ) {
+        H264("H.264 Hardware", "H.264", "h264"),
+        HEVC("H.265 / HEVC", "H.265", "hevc"),
+    }
+
+    private data class ExportMode(
+        val label: String,
+        val profileIndex: Int,
+        val fps: Int,
+        val qualityIndex: Int,
+        val codec: ExportVideoCodec,
+        val note: String? = null,
+    )
+
     private data class EffectiveExportSettings(
         val width: Int,
         val height: Int,
         val fps: Int,
         val bitrateMbps: Int,
+        val codec: ExportVideoCodec,
     )
 
     private data class ProjectExportComplexity(
@@ -58,9 +77,7 @@ class ExportDialog(
     }
 
     private data class ExportRecommendation(
-        val profileIndex: Int,
-        val fps: Int,
-        val qualityIndex: Int,
+        val modeIndex: Int,
         val note: String?,
     )
 
@@ -87,7 +104,9 @@ class ExportDialog(
 
     fun show() {
         val complexity = inspectProjectComplexity()
-        val recommendation = recommendExportSettings(complexity)
+        val codecCapabilities = ExportCodecSupport.getCapabilities()
+        val exportModes = buildExportModes(codecCapabilities)
+        val recommendation = recommendExportSettings(complexity, exportModes)
         val dialog = BottomSheetDialog(activity)
         val scroll = ScrollView(activity).apply {
             setBackgroundColor(Color.TRANSPARENT)
@@ -116,12 +135,17 @@ class ExportDialog(
         )
         recommendation.note?.let { root.addView(recommendationBanner(it)) }
 
-        var selectedProfileIndex = recommendation.profileIndex
-        var selectedFps = recommendation.fps
-        var selectedQualityIndex = recommendation.qualityIndex
+        val recommendedMode = exportModes[recommendation.modeIndex]
+        var selectedModeIndex: Int? = recommendation.modeIndex
+        var selectedProfileIndex = recommendedMode.profileIndex
+        var selectedFps = recommendedMode.fps
+        var selectedQualityIndex = recommendedMode.qualityIndex
+        var selectedCodec = recommendedMode.codec
         var watermarkUnlocked = isWatermarkUnlockedProvider()
         var selectedAspectRatioIndex = if (activity is MainActivity) activity.getSelectedAspectRatioIndex() else 0
+        var isApplyingMode = false
 
+        val modeButtons = mutableListOf<TextView>()
         val ratioButtons = mutableListOf<TextView>()
         val resolutionButtons = mutableListOf<TextView>()
         val fpsButtons = mutableListOf<TextView>()
@@ -131,6 +155,90 @@ class ExportDialog(
         lateinit var exportButton: TextView
         lateinit var watermarkStatus: TextView
         lateinit var watermarkAction: TextView
+        lateinit var qualityCurrent: TextView
+        lateinit var bitrateCurrent: TextView
+        lateinit var qualitySeek: SeekBar
+
+        fun refreshUi() {
+            modeButtons.forEachIndexed { index, button ->
+                styleChoiceButton(button, selectedModeIndex == index)
+            }
+            refreshExportSummary(
+                resolutionButtons = resolutionButtons,
+                ratioButtons = ratioButtons,
+                fpsButtons = fpsButtons,
+                qualityLabelsRow = qualityLabelsRow,
+                selectedProfileIndex = selectedProfileIndex,
+                selectedAspectRatioIndex = selectedAspectRatioIndex,
+                selectedFps = selectedFps,
+                selectedQualityIndex = selectedQualityIndex,
+                selectedModeLabel = exportModes.getOrNull(selectedModeIndex ?: -1)?.label,
+                selectedCodec = selectedCodec,
+                watermarkUnlocked = watermarkUnlocked,
+                summaryValue = summaryValue,
+                summaryMeta = summaryMeta,
+                exportButton = exportButton,
+            )
+            val profile = profiles[selectedProfileIndex]
+            val ratio = aspectRatios[selectedAspectRatioIndex]
+            val effective = resolveEffectiveExportSettings(
+                profile = profile,
+                requestedFps = selectedFps,
+                selectedQualityIndex = selectedQualityIndex,
+                selectedCodec = selectedCodec,
+                ratioW = ratio.w,
+                ratioH = ratio.h,
+            )
+            qualityCurrent.text = exportModes.getOrNull(selectedModeIndex ?: -1)?.label ?: "Custom"
+            bitrateCurrent.text = "${effective.bitrateMbps} Mbps • ${effective.codec.shortLabel}"
+            refreshWatermarkState(watermarkUnlocked, watermarkStatus, watermarkAction)
+        }
+
+        fun applyMode(index: Int) {
+            val mode = exportModes[index]
+            selectedModeIndex = index
+            selectedProfileIndex = mode.profileIndex
+            selectedFps = mode.fps
+            selectedQualityIndex = mode.qualityIndex
+            selectedCodec = mode.codec
+            isApplyingMode = true
+            qualitySeek.progress = selectedQualityIndex
+            isApplyingMode = false
+            refreshUi()
+        }
+
+        root.addView(sectionLabel("Export Mode"))
+        val modeScroller = HorizontalScrollView(activity).apply {
+            isHorizontalScrollBarEnabled = false
+        }
+        val modeRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.START
+        }
+        exportModes.forEachIndexed { index, mode ->
+            val button = choiceButton(mode.label).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).also {
+                    it.marginStart = dp(4)
+                    it.marginEnd = dp(4)
+                }
+            }
+            button.setOnClickListener { applyMode(index) }
+            modeButtons += button
+            modeRow.addView(button)
+        }
+        modeScroller.addView(modeRow)
+        root.addView(modeScroller)
+        if (!codecCapabilities.hevcEncoder) {
+            root.addView(
+                subtitleView("Smaller File mode appears only when this device exposes an HEVC encoder.").apply {
+                    gravity = Gravity.START
+                    setPadding(0, dp(6), 0, dp(2))
+                },
+            )
+        }
 
         root.addView(sectionLabel("Resolution"))
         val resolutionRow = LinearLayout(activity).apply {
@@ -141,20 +249,8 @@ class ExportDialog(
             val button = choiceButton(profile.label)
             button.setOnClickListener {
                 selectedProfileIndex = index
-                refreshExportSummary(
-                    resolutionButtons,
-                    ratioButtons,
-                    fpsButtons,
-                    qualityLabelsRow,
-                    selectedProfileIndex,
-                    selectedAspectRatioIndex,
-                    selectedFps,
-                    selectedQualityIndex,
-                    watermarkUnlocked,
-                    summaryValue,
-                    summaryMeta,
-                    exportButton,
-                )
+                selectedModeIndex = null
+                refreshUi()
             }
             resolutionButtons += button
             resolutionRow.addView(button)
@@ -174,11 +270,7 @@ class ExportDialog(
             val button = choiceButton(ratio.label)
             button.setOnClickListener {
                 selectedAspectRatioIndex = index
-                refreshExportSummary(
-                    resolutionButtons, ratioButtons, fpsButtons, qualityLabelsRow,
-                    selectedProfileIndex, selectedAspectRatioIndex, selectedFps, selectedQualityIndex,
-                    watermarkUnlocked, summaryValue, summaryMeta, exportButton,
-                )
+                refreshUi()
             }
             ratioButtons += button
             ratioRow.addView(button)
@@ -194,20 +286,8 @@ class ExportDialog(
             val button = choiceButton("${fps}fps")
             button.setOnClickListener {
                 selectedFps = fps
-                refreshExportSummary(
-                    resolutionButtons,
-                    ratioButtons,
-                    fpsButtons,
-                    qualityLabelsRow,
-                    selectedProfileIndex,
-                    selectedAspectRatioIndex,
-                    selectedFps,
-                    selectedQualityIndex,
-                    watermarkUnlocked,
-                    summaryValue,
-                    summaryMeta,
-                    exportButton,
-                )
+                selectedModeIndex = null
+                refreshUi()
             }
             fpsButtons += button
             fpsRow.addView(button)
@@ -234,13 +314,13 @@ class ExportDialog(
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, 0, 0, dp(8))
         }
-        val qualityCurrent = TextView(activity).apply {
+        qualityCurrent = TextView(activity).apply {
             textSize = 16f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.WHITE)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
-        val bitrateCurrent = TextView(activity).apply {
+        bitrateCurrent = TextView(activity).apply {
             textSize = 14f
             setTextColor(accentWarm())
         }
@@ -248,7 +328,7 @@ class ExportDialog(
         qualityTitleRow.addView(bitrateCurrent)
         root.addView(qualityTitleRow)
 
-        val qualitySeek = SeekBar(activity).apply {
+        qualitySeek = SeekBar(activity).apply {
             max = qualityLabels.lastIndex
             progress = selectedQualityIndex
             progressTintList = android.content.res.ColorStateList.valueOf(accentBlue())
@@ -326,21 +406,7 @@ class ExportDialog(
             onRequestWatermarkUnlock { unlocked ->
                 activity.runOnUiThread {
                     watermarkUnlocked = watermarkUnlocked || unlocked
-                    refreshWatermarkState(watermarkUnlocked, watermarkStatus, watermarkAction)
-                    refreshExportSummary(
-                        resolutionButtons,
-                        ratioButtons,
-                        fpsButtons,
-                        qualityLabelsRow,
-                        selectedProfileIndex,
-                        selectedAspectRatioIndex,
-                        selectedFps,
-                        selectedQualityIndex,
-                        watermarkUnlocked,
-                        summaryValue,
-                        summaryMeta,
-                        exportButton,
-                    )
+                    refreshUi()
                 }
             }
         }
@@ -394,8 +460,17 @@ class ExportDialog(
         fun launchExport() {
             val profile = profiles[selectedProfileIndex]
             val ratio = aspectRatios[selectedAspectRatioIndex]
-            val effectiveSettings = resolveEffectiveExportSettings(profile, selectedFps, selectedQualityIndex, ratio.w, ratio.h)
+            val effectiveSettings = resolveEffectiveExportSettings(
+                profile = profile,
+                requestedFps = selectedFps,
+                selectedQualityIndex = selectedQualityIndex,
+                selectedCodec = selectedCodec,
+                ratioW = ratio.w,
+                ratioH = ratio.h,
+            )
             val exportTitle = titleInput.text?.toString()?.trim().orEmpty().ifBlank { "Storyline" }
+            val requestedProfileLabel =
+                exportModes.getOrNull(selectedModeIndex ?: -1)?.label ?: resolutionLabelFor(effectiveSettings.width, effectiveSettings.height)
             if (activity is MainActivity) {
                 activity.performExport(
                     effectiveSettings.width,
@@ -403,15 +478,16 @@ class ExportDialog(
                     effectiveSettings.fps,
                     effectiveSettings.bitrateMbps,
                     exportTitle,
-                    profile.label,
+                    requestedProfileLabel,
                     includeWatermark = !watermarkUnlocked,
+                    videoCodec = effectiveSettings.codec.nativeValue,
                 )
             } else {
                 val movies = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
                 val appDir = File(movies, "Storyline").also { it.mkdirs() }
                 val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
                 previewView.startExport(
-                    File(appDir, buildRequestedExportFileName(exportTitle, profile.label, ts)).absolutePath,
+                    File(appDir, buildRequestedExportFileName(exportTitle, requestedProfileLabel, ts)).absolutePath,
                     effectiveSettings.width,
                     effectiveSettings.height,
                     effectiveSettings.fps,
@@ -424,48 +500,18 @@ class ExportDialog(
         qualitySeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 selectedQualityIndex = progress.coerceIn(0, qualityLabels.lastIndex)
-                refreshExportSummary(
-                    resolutionButtons,
-                    ratioButtons,
-                    fpsButtons,
-                    qualityLabelsRow,
-                    selectedProfileIndex,
-                    selectedAspectRatioIndex,
-                    selectedFps,
-                    selectedQualityIndex,
-                    watermarkUnlocked,
-                    summaryValue,
-                    summaryMeta,
-                    exportButton,
-                )
-                val profile = profiles[selectedProfileIndex]
-                val bitrateMbps = resolveEffectiveExportSettings(profile, selectedFps, selectedQualityIndex).bitrateMbps
-                qualityCurrent.text = qualityLabels[selectedQualityIndex]
-                bitrateCurrent.text = "${bitrateMbps} Mbps"
+                if (!isApplyingMode) {
+                    selectedModeIndex = null
+                }
+                refreshUi()
             }
 
             override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
             override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
         })
 
-        refreshExportSummary(
-            resolutionButtons,
-            ratioButtons,
-            fpsButtons,
-            qualityLabelsRow,
-            selectedProfileIndex,
-            selectedAspectRatioIndex,
-            selectedFps,
-            selectedQualityIndex,
-            watermarkUnlocked,
-            summaryValue,
-            summaryMeta,
-            exportButton,
-        )
-        val initialProfile = profiles[selectedProfileIndex]
-        qualityCurrent.text = qualityLabels[selectedQualityIndex]
-        bitrateCurrent.text = "${resolveEffectiveExportSettings(initialProfile, selectedFps, selectedQualityIndex).bitrateMbps} Mbps"
-        refreshWatermarkState(watermarkUnlocked, watermarkStatus, watermarkAction)
+        qualitySeek.progress = selectedQualityIndex
+        refreshUi()
 
         dialog.setContentView(scroll)
         dialog.show()
@@ -480,6 +526,8 @@ class ExportDialog(
         selectedAspectRatioIndex: Int,
         selectedFps: Int,
         selectedQualityIndex: Int,
+        selectedModeLabel: String?,
+        selectedCodec: ExportVideoCodec,
         watermarkUnlocked: Boolean,
         summaryValue: TextView,
         summaryMeta: TextView,
@@ -506,13 +554,21 @@ class ExportDialog(
 
         val profile = profiles[selectedProfileIndex]
         val ratio = aspectRatios[selectedAspectRatioIndex]
-        val effectiveSettings = resolveEffectiveExportSettings(profile, selectedFps, selectedQualityIndex, ratio.w, ratio.h)
+        val effectiveSettings = resolveEffectiveExportSettings(
+            profile = profile,
+            requestedFps = selectedFps,
+            selectedQualityIndex = selectedQualityIndex,
+            selectedCodec = selectedCodec,
+            ratioW = ratio.w,
+            ratioH = ratio.h,
+        )
         val estimatedSize = estimateOutputSize(durationMs, effectiveSettings.bitrateMbps)
-        summaryValue.text = "${profile.label} • ${ratio.label} • ${qualityLabels[selectedQualityIndex]}"
+        val resolutionLabel = resolutionLabelFor(effectiveSettings.width, effectiveSettings.height)
+        summaryValue.text = "${selectedModeLabel ?: "Custom"} • $resolutionLabel • ${ratio.label} • ${effectiveSettings.codec.shortLabel}"
         summaryMeta.text =
             "${effectiveSettings.fps}fps  •  ${effectiveSettings.bitrateMbps} Mbps  •  " +
                 "${if (watermarkUnlocked) "No watermark" else "Watermark ON"}  •  ${formatSize(estimatedSize)}"
-        exportButton.text = "Start Export"
+        exportButton.text = if (selectedModeLabel != null) "Start ${selectedModeLabel} Export" else "Start Export"
     }
 
     private fun refreshWatermarkState(
@@ -538,6 +594,7 @@ class ExportDialog(
         profile: ExportProfile,
         requestedFps: Int,
         selectedQualityIndex: Int,
+        selectedCodec: ExportVideoCodec,
         ratioW: Int = 16,
         ratioH: Int = 9,
     ): EffectiveExportSettings {
@@ -555,7 +612,8 @@ class ExportDialog(
             width = lockedWidth,
             height = lockedHeight,
             fps = requestedFps.coerceAtMost(qualityProfile.maxExportFps).coerceAtLeast(24),
-            bitrateMbps = suggestedBitrateMbps(profile, requestedFps, selectedQualityIndex).coerceAtMost(maxBitrateMbps),
+            bitrateMbps = suggestedBitrateMbps(profile, requestedFps, selectedQualityIndex, selectedCodec).coerceAtMost(maxBitrateMbps),
+            codec = selectedCodec,
         )
     }
 
@@ -570,12 +628,21 @@ class ExportDialog(
         return maxOf((width * scale).toInt(), 1) to maxOf((height * scale).toInt(), 1)
     }
 
-    private fun suggestedBitrateMbps(profile: ExportProfile, fps: Int, qualityIndex: Int): Int {
+    private fun suggestedBitrateMbps(
+        profile: ExportProfile,
+        fps: Int,
+        qualityIndex: Int,
+        codec: ExportVideoCodec,
+    ): Int {
         val q = qualityIndex.coerceIn(0, qualityLabels.lastIndex)
-        return when (profile.height) {
+        val baseBitrate = when (profile.height) {
             720 -> if (fps >= 30) intArrayOf(2, 3, 4)[q] else intArrayOf(2, 2, 3)[q]
             1080 -> if (fps >= 30) intArrayOf(4, 6, 8)[q] else intArrayOf(3, 5, 6)[q]
             else -> if (fps >= 30) intArrayOf(12, 16, 24)[q] else intArrayOf(8, 12, 18)[q]
+        }
+        return when (codec) {
+            ExportVideoCodec.H264 -> baseBitrate
+            ExportVideoCodec.HEVC -> maxOf(1, (baseBitrate * 3) / 4)
         }
     }
 
@@ -659,40 +726,85 @@ class ExportDialog(
         )
     }
 
-    private fun recommendExportSettings(complexity: ProjectExportComplexity): ExportRecommendation {
+    private fun recommendExportSettings(
+        complexity: ProjectExportComplexity,
+        exportModes: List<ExportMode>,
+    ): ExportRecommendation {
         val isLowEnd = DeviceDetector.isLowEndDevice()
         val isHighEnd = DeviceDetector.isHighEndDevice()
         val layeredProject = complexity.totalOverlayLayers > 0 || complexity.visualClipCount > 1
         val featureHeavy = complexity.editedClipCount > 0 || complexity.effectsClipCount > 0 || complexity.chromaClipCount > 0
         val shouldUseSafeDefault = isLowEnd || layeredProject || featureHeavy
 
-        val profileIndex = 0
-        val fps = when {
-            shouldUseSafeDefault -> 24
-            isHighEnd -> 30
-            else -> 30
-        }
-        val qualityIndex = when {
-            shouldUseSafeDefault -> 0
-            isHighEnd -> 1
-            else -> 1
-        }
+        val fastModeIndex = exportModes.indexOfFirst { it.label == "Fast" }.coerceAtLeast(0)
+        val standardModeIndex = exportModes.indexOfFirst { it.label == "Standard" }.takeIf { it >= 0 } ?: fastModeIndex
         val note = when {
             isLowEnd && complexity.isComplex ->
-                "Complex layered project on this device: Fast export is recommended."
+                "Complex layered project on this device: H.264 Fast export is the safest default."
             complexity.isComplex ->
-                "Complex layered project detected: Fast export is recommended so overlays, text, chroma key, and effects render faster."
+                "Complex layered project detected: hardware-first H.264 Fast export will finish sooner."
             isLowEnd ->
                 "This device is memory-limited: Fast export is recommended for smoother render."
+            isHighEnd ->
+                "This device can hold Standard export by default, with Smaller File available when HEVC is supported."
             else -> null
         }
 
         return ExportRecommendation(
-            profileIndex = profileIndex,
-            fps = fps,
-            qualityIndex = qualityIndex,
+            modeIndex = if (shouldUseSafeDefault) fastModeIndex else standardModeIndex,
             note = note,
         )
+    }
+
+    private fun buildExportModes(codecCapabilities: ExportCodecSupport.Capabilities): List<ExportMode> {
+        val modes = mutableListOf(
+            ExportMode(
+                label = "Fast",
+                profileIndex = 0,
+                fps = 30,
+                qualityIndex = 0,
+                codec = ExportVideoCodec.H264,
+                note = "Fastest hardware-first H.264 preset.",
+            ),
+            ExportMode(
+                label = "Standard",
+                profileIndex = 0,
+                fps = 30,
+                qualityIndex = if (DeviceDetector.isHighEndDevice()) 2 else 1,
+                codec = ExportVideoCodec.H264,
+                note = "Balanced H.264 preset for everyday delivery.",
+            ),
+        )
+        if (codecCapabilities.hevcEncoder) {
+            modes += ExportMode(
+                label = "Smaller File",
+                profileIndex = 0,
+                fps = 30,
+                qualityIndex = if (DeviceDetector.isLowEndDevice()) 0 else 1,
+                codec = ExportVideoCodec.HEVC,
+                note = "HEVC export for smaller files on supported devices.",
+            )
+        }
+        modes += ExportMode(
+            label = "Master",
+            profileIndex = 0,
+            fps = 30,
+            qualityIndex = 2,
+            codec = ExportVideoCodec.H264,
+            note = "Highest bitrate H.264 preset for strongest devices.",
+        )
+        return modes
+    }
+
+    private fun resolutionLabelFor(width: Int, height: Int): String {
+        val longEdge = maxOf(width, height)
+        val shortEdge = minOf(width, height)
+        return when {
+            longEdge >= 1920 && shortEdge >= 1080 -> "1080p"
+            longEdge >= 1280 && shortEdge >= 720 -> "720p"
+            longEdge >= 854 && shortEdge >= 480 -> "480p"
+            else -> "${width}x${height}"
+        }
     }
 
     private fun estimateOutputSize(durationMs: Long, bitrateMbps: Int): Long {

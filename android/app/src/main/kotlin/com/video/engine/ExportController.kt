@@ -166,6 +166,7 @@ class ExportController(
         exportTitle: String = "Storyline",
         requestedProfileLabel: String = "HD",
         includeWatermark: Boolean = true,
+        videoCodec: String = "h264",
     ) {
         if (!beginDirectExportSession()) {
             return
@@ -265,13 +266,17 @@ class ExportController(
                     keyframeCsvs = audioClips.map { NativeBridge.serializeAudioGainKeyframesCsv(it.gainKeyframes) }.toTypedArray(),
                 )
 
-                Log.d(TAG, "Starting export: $outputPath ($exportWidth x $exportHeight @ ${exportFps}fps, ${exportBitrateMbps}Mbps)")
+                Log.d(
+                    TAG,
+                    "Starting export: $outputPath ($exportWidth x $exportHeight @ ${exportFps}fps, ${exportBitrateMbps}Mbps, codec=$videoCodec)",
+                )
                 val success = previewView.exportToVideo(
                     outputPath = outputPath,
                     width = exportWidth,
                     height = exportHeight,
                     fps = exportFps,
                     bitrateMbps = exportBitrateMbps,
+                    videoCodec = videoCodec,
                 )
                 val sizeMB = String.format("%.1f", outputFile.length() / (1024.0 * 1024.0))
 

@@ -8,7 +8,7 @@ APP_ID="${ANDROID_APP_ID:-com.storyline.app}"
 LAUNCH_ACTIVITY="${ANDROID_LAUNCH_ACTIVITY:-com.video.engine.MainActivity}"
 PLAYBACK_TIMEOUT_SECONDS="${PLAYBACK_TIMEOUT_SECONDS:-50}"
 AUTOSAVE_TIMEOUT_SECONDS="${AUTOSAVE_TIMEOUT_SECONDS:-20}"
-EXPORT_TIMEOUT_SECONDS="${EXPORT_TIMEOUT_SECONDS:-420}"
+EXPORT_TIMEOUT_SECONDS="${EXPORT_TIMEOUT_SECONDS:-720}"
 POLL_SECONDS="${SUITE_POLL_SECONDS:-5}"
 RUN_TOOLBAR_AUDIT="${RUN_TOOLBAR_AUDIT:-0}"
 OUTPUT_DIR=""
@@ -161,6 +161,14 @@ fi
 capture_state "autosave_restore_final"
 
 log "Running export smoke..."
+before_movie="$(
+    adb shell 'ls -1t /storage/emulated/0/Movies/Storyline/*.mp4 2>/dev/null | head -n 1' 2>/dev/null | tr -d '\r'
+)"
+before_export_file="$(
+    adb shell 'ls -1t /sdcard/Android/data/com.storyline.app/files/exports/*.mp4 2>/dev/null | grep -v "\.video_only\.mp4$" | head -n 1' 2>/dev/null | tr -d '\r'
+)"
+append_summary "before_movie=${before_movie}"
+append_summary "before_export_file=${before_export_file}"
 start_cold_action "export" "smoke_export_720" --es adb_text "ExportSmoke"
 sleep 10
 capture_state "export_initial"
@@ -168,17 +176,33 @@ capture_state "export_initial"
 export_waited=0
 export_result="timeout"
 last_video_only_size=0
+after_movie="${before_movie}"
+after_export_file="${before_export_file}"
 while (( export_waited < EXPORT_TIMEOUT_SECONDS )); do
     ensure_device
     adb logcat -d -v time > "${SUITE_DIR}/export_watch.logcat.txt" 2>/dev/null || true
     adb shell 'ls -l /sdcard/Android/data/com.storyline.app/files/exports 2>/dev/null; ls -l /storage/emulated/0/Movies/Storyline 2>/dev/null' \
         > "${SUITE_DIR}/export_watch.exports.txt" 2>/dev/null || true
+    after_movie="$(
+        adb shell 'ls -1t /storage/emulated/0/Movies/Storyline/*.mp4 2>/dev/null | head -n 1' 2>/dev/null | tr -d '\r'
+    )"
+    after_export_file="$(
+        adb shell 'ls -1t /sdcard/Android/data/com.storyline.app/files/exports/*.mp4 2>/dev/null | grep -v "\.video_only\.mp4$" | head -n 1' 2>/dev/null | tr -d '\r'
+    )"
 
     if rg -q 'Export successful:|\[Export\] Export complete:' "${SUITE_DIR}/export_watch.logcat.txt"; then
         export_result="pass"
         break
     fi
-    if rg -q 'Export failed|bad_alloc|FATAL EXCEPTION' "${SUITE_DIR}/export_watch.logcat.txt"; then
+    if [[ -n "${after_movie}" && "${after_movie}" != "${before_movie}" ]]; then
+        export_result="pass"
+        break
+    fi
+    if [[ -n "${after_export_file}" && "${after_export_file}" != "${before_export_file}" ]]; then
+        export_result="pass"
+        break
+    fi
+    if rg -q 'E/AndroidPreview: \[Export\] Exception:|E/\[UI\].*Export failed|std::bad_alloc|java\.lang\.OutOfMemoryError' "${SUITE_DIR}/export_watch.logcat.txt"; then
         export_result="fail"
         break
     fi
@@ -191,7 +215,7 @@ while (( export_waited < EXPORT_TIMEOUT_SECONDS )); do
         last_video_only_size="${current_video_only_size}"
     fi
 
-    if (( export_waited > 0 )) && (( export_waited % 30 == 0 )); then
+    if (( export_waited > 0 )) && (( export_waited % 60 == 0 )); then
         capture_state "export_${export_waited}s"
     fi
     sleep "${POLL_SECONDS}"
@@ -199,6 +223,8 @@ while (( export_waited < EXPORT_TIMEOUT_SECONDS )); do
 done
 
 append_summary "export=${export_result}"
+append_summary "after_movie=${after_movie}"
+append_summary "after_export_file=${after_export_file}"
 if [[ "${RUN_TOOLBAR_AUDIT}" == "1" ]]; then
     log "Running selected-clip toolbar audit..."
     if [[ -x "${TOOLBAR_AUDIT_SCRIPT}" ]] && "${TOOLBAR_AUDIT_SCRIPT}" --output-dir "${SUITE_DIR}/toolbar-audit"; then

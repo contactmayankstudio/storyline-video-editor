@@ -825,9 +825,10 @@ class VideoPreviewView @JvmOverloads constructor(
         width: Int,
         height: Int,
         fps: Int,
-        bitrateMbps: Int
+        bitrateMbps: Int,
+        videoCodec: String = "h264",
     ): Boolean {
-        return nativeExportVideo(outputPath, width, height, fps, bitrateMbps)
+        return nativeExportVideo(outputPath, width, height, fps, bitrateMbps, videoCodec)
     }
 
     /**
@@ -838,7 +839,8 @@ class VideoPreviewView @JvmOverloads constructor(
         width: Int,
         height: Int,
         fps: Int,
-        bitrateMbps: Int
+        bitrateMbps: Int,
+        videoCodec: String,
     ): Boolean
 
     /**

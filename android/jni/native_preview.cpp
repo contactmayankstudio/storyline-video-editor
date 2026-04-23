@@ -803,6 +803,8 @@ void configureRenderThreadPriority() {
         int width,
         int height,
         int fps,
+        int bitrateMbps,
+        const std::string& preferredVideoCodec,
         SimpleVideoEncoderContext& ctx,
         std::string& errorOut) {
 #if defined(VIDEO_ENGINE_FFMPEG_DEMUX_AVAILABLE)
@@ -826,28 +828,58 @@ void configureRenderThreadPriority() {
             const char* name;
         };
         std::vector<EncoderCandidate> candidates;
-        const char* codecNames[] = {
-            "h264_mediacodec",      // Android hardware H264 — fastest
-            "hevc_mediacodec",      // Android hardware HEVC
-            "libx264",
-            "libopenh264",
-            "libopenh264enc",
-            "h264_v4l2m2m_encoder",
-            "mpeg4_v4l2m2m_encoder",
-            "h264",
-            "mpeg4",
-        };
-        for (const char* candidateName : codecNames) {
-            if (const AVCodec* c = avcodec_find_encoder_by_name(candidateName)) {
-                candidates.push_back({c, candidateName});
+        auto appendEncoderByName = [&](const char* candidateName) {
+            if (!candidateName) {
+                return;
             }
+            const AVCodec* codec = avcodec_find_encoder_by_name(candidateName);
+            if (!codec) {
+                return;
+            }
+            const bool exists = std::any_of(
+                candidates.begin(),
+                candidates.end(),
+                [&](const EncoderCandidate& candidate) {
+                    return std::strcmp(candidate.name, candidateName) == 0;
+                });
+            if (!exists) {
+                candidates.push_back({codec, candidateName});
+            }
+        };
+        auto appendEncoderById = [&](AVCodecID codecId, const char* label) {
+            const AVCodec* codec = avcodec_find_encoder(codecId);
+            if (!codec) {
+                return;
+            }
+            const bool exists = std::any_of(
+                candidates.begin(),
+                candidates.end(),
+                [&](const EncoderCandidate& candidate) {
+                    return std::strcmp(candidate.name, label) == 0;
+                });
+            if (!exists) {
+                candidates.push_back({codec, label});
+            }
+        };
+
+        const bool preferHevc = preferredVideoCodec == "hevc";
+        if (preferHevc) {
+            appendEncoderByName("hevc_mediacodec");
+            appendEncoderByName("libx265");
+            appendEncoderByName("hevc");
+            appendEncoderById(AV_CODEC_ID_HEVC, "AV_CODEC_ID_HEVC");
         }
-        if (const AVCodec* c = avcodec_find_encoder(AV_CODEC_ID_H264)) {
-            candidates.push_back({c, "AV_CODEC_ID_H264"});
-        }
-        if (const AVCodec* c = avcodec_find_encoder(AV_CODEC_ID_MPEG4)) {
-            candidates.push_back({c, "AV_CODEC_ID_MPEG4"});
-        }
+
+        appendEncoderByName("h264_mediacodec");
+        appendEncoderByName("libx264");
+        appendEncoderByName("libopenh264");
+        appendEncoderByName("libopenh264enc");
+        appendEncoderByName("h264_v4l2m2m_encoder");
+        appendEncoderByName("mpeg4_v4l2m2m_encoder");
+        appendEncoderByName("h264");
+        appendEncoderByName("mpeg4");
+        appendEncoderById(AV_CODEC_ID_H264, "AV_CODEC_ID_H264");
+        appendEncoderById(AV_CODEC_ID_MPEG4, "AV_CODEC_ID_MPEG4");
         if (candidates.empty()) {
             errorOut = "No video encoder available";
             return false;
@@ -872,7 +904,9 @@ void configureRenderThreadPriority() {
             ctx.codecCtx->height = height;
             ctx.codecCtx->framerate = AVRational{ctx.fps, 1};
             ctx.codecCtx->time_base = AVRational{1, ctx.fps};
-            ctx.codecCtx->bit_rate = chooseEncoderBitrate(width, height, ctx.fps);
+            ctx.codecCtx->bit_rate =
+                bitrateMbps > 0 ? static_cast<int64_t>(bitrateMbps) * 1000LL * 1000LL
+                                : chooseEncoderBitrate(width, height, ctx.fps);
             ctx.codecCtx->gop_size = ctx.fps * 2;
             ctx.codecCtx->max_b_frames = 0;
             ctx.codecCtx->sample_aspect_ratio = AVRational{1, 1};
@@ -1974,6 +2008,8 @@ void configureRenderThreadPriority() {
         int outputWidth,
         int outputHeight,
         int outputFps,
+        int bitrateMbps,
+        const std::string& preferredVideoCodec,
         const std::function<bool(int)>& onProgress,
         std::string& errorOut) {
 #if defined(VIDEO_ENGINE_FFMPEG_DEMUX_AVAILABLE)
@@ -2002,6 +2038,8 @@ void configureRenderThreadPriority() {
                 outputWidth,
                 outputHeight,
                 std::max(1, outputFps),
+                bitrateMbps,
+                preferredVideoCodec,
                 encoder,
                 errorOut)) {
             std::remove(outputPath.c_str());
@@ -2243,7 +2281,15 @@ void configureRenderThreadPriority() {
         for (const auto& size : sizeCandidates) {
             LOGI("[Export] Trying transcode output size %dx%d", size.width, size.height);
             encoder = SimpleVideoEncoderContext{};
-            if (initSimpleVideoEncoder(outputPath, size.width, size.height, outputFps, encoder, lastInitError)) {
+            if (initSimpleVideoEncoder(
+                    outputPath,
+                    size.width,
+                    size.height,
+                    outputFps,
+                    bitrateMbps,
+                    preferredVideoCodec,
+                    encoder,
+                    lastInitError)) {
                 outputWidth = normalizeEven(size.width);
                 outputHeight = normalizeEven(size.height);
                 encoderReady = true;
@@ -2437,6 +2483,8 @@ transcode_clip_done:
         int outputWidth = 1920,
         int outputHeight = 1080,
         int outputFps = 30,
+        int bitrateMbps = 0,
+        const std::string& preferredVideoCodec = "h264",
         const std::vector<TimelineClipExportSpec>* clipSpecs = nullptr) {
 #if defined(VIDEO_ENGINE_FFMPEG_DEMUX_AVAILABLE)
         if (clipSpecs && !clipSpecs->empty()) {
@@ -2446,6 +2494,8 @@ transcode_clip_done:
                 outputWidth,
                 outputHeight,
                 outputFps,
+                bitrateMbps,
+                preferredVideoCodec,
                 onProgress,
                 errorOut);
         }
@@ -5693,6 +5743,8 @@ static bool renderTimelineWithMixedAudioToMp4(
     int width,
     int height,
     int fps,
+    int bitrateMbps,
+    const std::string& preferredVideoCodec,
     const std::function<bool(int)>& onProgress,
     std::string& errorOut) {
     const std::string videoOnlyPath = outputPath + ".video_only.mp4";
@@ -5713,6 +5765,8 @@ static bool renderTimelineWithMixedAudioToMp4(
         width,
         height,
         fps,
+        bitrateMbps,
+        preferredVideoCodec,
         renderClipSpecs.empty() ? nullptr : &renderClipSpecs);
     if (!videoOk) {
         std::remove(videoOnlyPath.c_str());
@@ -5834,6 +5888,8 @@ Java_com_video_engine_VideoPreviewView_nativeStartExport(
             width,
             height,
             fps,
+            0,
+            "h264",
             [](int progress) {
                 if (g_exportCancelled.load(std::memory_order_acquire)) {
                     LOGI("[Export] cancelled");
@@ -6132,11 +6188,20 @@ Java_com_video_engine_VideoPreviewView_nativeExportVideo(
     jint width,
     jint height,
     jint fps,
-    jint bitrateMbps) {
+    jint bitrateMbps,
+    jstring videoCodec) {
     try {
         const char* pathCStr = env->GetStringUTFChars(outputPath, nullptr);
         std::string outputPathStr(pathCStr);
         env->ReleaseStringUTFChars(outputPath, pathCStr);
+        std::string preferredVideoCodec = "h264";
+        if (videoCodec != nullptr) {
+            const char* codecCStr = env->GetStringUTFChars(videoCodec, nullptr);
+            if (codecCStr != nullptr) {
+                preferredVideoCodec.assign(codecCStr);
+                env->ReleaseStringUTFChars(videoCodec, codecCStr);
+            }
+        }
 
         std::vector<std::string> inputPaths;
         std::vector<TimelineClipExportSpec> clipSpecs;
@@ -6170,8 +6235,8 @@ Java_com_video_engine_VideoPreviewView_nativeExportVideo(
             }
         }
 
-        LOGI("[Export] Starting remux export clips=%zu output=%s requested=%dx%d@%dfps bitrate=%dMbps",
-             inputPaths.size(), outputPathStr.c_str(), width, height, fps, bitrateMbps);
+        LOGI("[Export] Starting remux export clips=%zu output=%s requested=%dx%d@%dfps bitrate=%dMbps codec=%s",
+             inputPaths.size(), outputPathStr.c_str(), width, height, fps, bitrateMbps, preferredVideoCodec.c_str());
 
         // Cancel any running async export thread and wait for it
         g_exportCancelled.store(true, std::memory_order_release);
@@ -6251,6 +6316,8 @@ Java_com_video_engine_VideoPreviewView_nativeExportVideo(
             width,
             height,
             fps,
+            bitrateMbps,
+            preferredVideoCodec,
             [](int progress) {
                 if (g_exportCancelled.load(std::memory_order_acquire)) {
                     return false;

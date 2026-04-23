@@ -2804,6 +2804,7 @@ class MainActivity : Activity() {
         exportTitle: String = "Storyline",
         requestedProfileLabel: String = "HD",
         includeWatermark: Boolean = true,
+        videoCodec: String = "h264",
     ) {
         exportController?.performExport(
             width,
@@ -2813,6 +2814,7 @@ class MainActivity : Activity() {
             exportTitle,
             requestedProfileLabel,
             includeWatermark,
+            videoCodec,
         )
     }
 
