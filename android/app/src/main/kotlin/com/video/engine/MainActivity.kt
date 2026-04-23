@@ -1918,19 +1918,26 @@ class MainActivity : Activity() {
         lastAutomationToken = token
         when (action) {
             "show_home" -> {
+                Log.i(TAG, "[Automation] show_home")
                 showEditorHome()
             }
             "tap_toolbar_back" -> {
-                findViewById<View?>(R.id.loadProjectButton)?.performClick()
+                Log.i(TAG, "[Automation] tap_toolbar_back")
+                if (!handleBackNavigationToHome()) {
+                    findViewById<View?>(R.id.loadProjectButton)?.performClick()
+                }
             }
             "open_export" -> {
-                findViewById<View?>(R.id.exportButton)?.performClick()
+                Log.i(TAG, "[Automation] open_export")
+                showExportDialog()
             }
             "open_aspect_ratio" -> {
-                findViewById<View?>(R.id.aspectRatioButton)?.performClick()
+                Log.i(TAG, "[Automation] open_aspect_ratio")
+                showAspectRatioPickerDialog()
             }
             "open_save" -> {
-                findViewById<View?>(R.id.saveProjectButton)?.performClick()
+                Log.i(TAG, "[Automation] open_save")
+                showSaveProjectDialog()
             }
             "open_media" -> {
                 findViewById<View?>(R.id.cutButton)?.performClick()
