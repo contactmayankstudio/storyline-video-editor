@@ -2208,6 +2208,8 @@ void configureRenderThreadPriority() {
         int outputWidth,
         int outputHeight,
         int outputFps,
+        int bitrateMbps,
+        const std::string& preferredVideoCodec,
         const std::function<bool(int)>& onProgress,
         std::string& errorOut) {
 #if defined(VIDEO_ENGINE_FFMPEG_DEMUX_AVAILABLE)
@@ -2469,7 +2471,8 @@ transcode_clip_done:
         }
         return true;
 #else
-        (void)inputPaths; (void)outputPath; (void)outputWidth; (void)outputHeight; (void)outputFps; (void)onProgress;
+        (void)inputPaths; (void)outputPath; (void)outputWidth; (void)outputHeight; (void)outputFps;
+        (void)bitrateMbps; (void)preferredVideoCodec; (void)onProgress;
         errorOut = "FFmpeg transcode not available";
         return false;
 #endif
@@ -2629,6 +2632,8 @@ transcode_clip_done:
                         outputWidth,
                         outputHeight,
                         outputFps,
+                        bitrateMbps,
+                        preferredVideoCodec,
                         onProgress,
                         errorOut);
                 }
