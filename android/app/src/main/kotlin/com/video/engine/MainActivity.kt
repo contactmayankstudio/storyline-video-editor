@@ -598,7 +598,7 @@ class MainActivity : Activity() {
         timelineCurrentTimeText = findViewById(R.id.timelineCurrentTimeText)
         timelineCurrentTimeText?.visibility = View.VISIBLE
         timelineCurrentTimeText?.text = getString(R.string.time_zero)
-        previewAspectRatioText = findViewById(R.id.previewAspectRatioText)
+        previewAspectRatioText = null
         clipToolbarContextLabel?.visibility = View.GONE
         hardwareTelemetrySummaryText = findViewById(R.id.hardwareBufferTelemetrySummary)
         hardwareTelemetryReasonText = findViewById(R.id.hardwareBufferTelemetryReason)
@@ -747,7 +747,6 @@ class MainActivity : Activity() {
         setupAspectRatioButton()
         previewContainer.post { applyPreviewAspectRatio() }
         findViewById<android.view.View?>(R.id.previewHud)?.bringToFront()
-        findViewById<android.view.View?>(R.id.previewTopChromeRow)?.bringToFront()
         findViewById<android.view.View?>(R.id.hardwareBufferTelemetryPanel)?.bringToFront()
         findViewById<android.view.View?>(R.id.playbackUndoRedoRow)?.bringToFront()
         findViewById<android.view.View?>(R.id.previewPlayPauseButton)?.bringToFront()
@@ -1218,7 +1217,6 @@ class MainActivity : Activity() {
         preview.visibility = View.VISIBLE
         overlay.visibility = View.VISIBLE
         overlay.bringToFront()
-        findViewById<View?>(R.id.previewTopChromeRow)?.bringToFront()
         findViewById<View?>(R.id.playbackUndoRedoRow)?.bringToFront()
         findViewById<View?>(R.id.previewPlayPauseButton)?.bringToFront()
     }
