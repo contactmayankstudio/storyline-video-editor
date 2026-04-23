@@ -28,6 +28,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.RecyclerView
+import com.video.engine.audio.AudioClip
 import com.video.engine.audio.AudioGainKeyframe
 import com.video.engine.audio.AudioClipStore
 import com.video.engine.audio.AudioImportController
@@ -3775,42 +3776,43 @@ class MainActivity : Activity() {
         val audioTrack = TrackState(
             id = "main-audio",
             type = TrackType.AUDIO,
-            clips = audioManagerClips.map { clip ->
-                val cachedAudio = AudioClipStore.get(clip.id)
-                val gain = audioClipGainOverrides[clip.id] ?: if (cachedAudio?.muted == true) 0f else 1f
-                val startTimeMs = nativeClipStartMs[clip.id] ?: cachedAudio?.startTimeMs ?: 0L
-                val durationMs = nativeClipDurationMs[clip.id] ?: cachedAudio?.durationMs ?: clip.durationMs
+            clips = AudioClipStore.all()
+                .sortedWith(
+                    compareBy<AudioClip> { it.startTimeMs }
+                        .thenBy { it.layerIndex }
+                        .thenBy { it.id },
+                )
+                .map { clip ->
+                val gain = audioClipGainOverrides[clip.id] ?: if (clip.muted) 0f else clip.gain.coerceIn(0f, 2f)
+                val startTimeMs = nativeClipStartMs[clip.id] ?: clip.startTimeMs
+                val durationMs = nativeClipDurationMs[clip.id] ?: clip.durationMs.coerceAtLeast(1L)
                 val sourceInMs = nativeClipSourceInMs[clip.id] ?: 0L
                 val sourceOutMs = nativeClipSourceOutMs[clip.id] ?: (sourceInMs + durationMs)
                 ClipSegment(
                     id = "audio-${clip.id}",
-                    sourcePath = nativeClipSourcePath[clip.id].orEmpty().ifBlank {
-                        cachedAudio?.sourcePath ?: clip.title
-                    },
+                    sourcePath = nativeClipSourcePath[clip.id].orEmpty().ifBlank { clip.sourcePath },
                     trackType = TrackType.AUDIO,
                     startTimeMs = startTimeMs,
                     durationMs = durationMs,
                     sourceInMs = sourceInMs,
                     sourceOutMs = sourceOutMs,
-                    zOrder = nativeClipZOrder[clip.id] ?: (timelineManager?.getClipLayerIndex(clip.id) ?: 0),
+                    zOrder = nativeClipZOrder[clip.id] ?: clip.layerIndex,
                     isMuted = gain <= 0.001f,
-                    isHidden = !(cachedAudio?.visible ?: (timelineManager?.getClipVisibility(clip.id) ?: true)),
+                    isHidden = !clip.visible,
                     metadata = mapOf(
-                        "displayName" to (cachedAudio?.displayName ?: "Audio ${clip.id}"),
+                        "displayName" to clip.displayName,
                         "isImportedAudio" to "true",
                         "gain" to String.format(Locale.US, "%.2f", gain),
-                        "peakMapPath" to (cachedAudio?.peakMapPath ?: ""),
-                        "peakBucketMs" to (cachedAudio?.peakBucketMs?.toString() ?: "20"),
-                        "peakLevels" to (cachedAudio?.peakLevels?.joinToString(",") ?: ""),
+                        "peakMapPath" to (clip.peakMapPath ?: ""),
+                        "peakBucketMs" to clip.peakBucketMs.toString(),
+                        "peakLevels" to clip.peakLevels.joinToString(","),
                     ),
                 )
             },
             isLocked = resolvedTrackLocked(TrackType.AUDIO),
             isVisible = resolvedTrackVisibility(
                 TrackType.AUDIO,
-                audioManagerClips.any { clip ->
-                    AudioClipStore.get(clip.id)?.visible ?: (timelineManager?.getClipVisibility(clip.id) ?: true)
-                } || audioManagerClips.isEmpty(),
+                AudioClipStore.all().any { it.visible } || AudioClipStore.all().isEmpty(),
             ),
         )
         val trackStates = listOf(topLayerTrack, overlayTrack, layerTrack, videoTrack, audioTrack)
@@ -3858,49 +3860,74 @@ class MainActivity : Activity() {
         NativeBridge.setPreviewAudioClips(clipStates)
     }
 
+    private fun cacheAudioClipLayout(clip: AudioClip) {
+        val durationMs = clip.durationMs.coerceAtLeast(1L)
+        nativeClipTrackType[clip.id] = TrackType.AUDIO
+        nativeClipLane[clip.id] = clip.layerIndex.coerceAtLeast(0)
+        nativeClipZOrder[clip.id] = clip.layerIndex.coerceAtLeast(0)
+        nativeClipStartMs[clip.id] = clip.startTimeMs.coerceAtLeast(0L)
+        nativeClipDurationMs[clip.id] = durationMs
+        nativeClipSourceInMs[clip.id] = 0L
+        nativeClipSourceOutMs[clip.id] = durationMs
+        nativeClipSourcePath[clip.id] = clip.sourcePath
+        nativeClipAudioGainKeyframes[clip.id] = normalizeAudioGainKeyframes(clip.gainKeyframes, durationMs)
+    }
+
     private fun splitAudioAtPlayhead(): Boolean {
-        val targetTimeMs = multiTrackTimelineView?.currentTimeMs() ?: currentTimeMs
-        currentTimeMs = targetTimeMs
-        val targetClip = resolveSplitTargetAudioClip(targetTimeMs)
+        val requestedTimeMs = multiTrackTimelineView?.currentTimeMs() ?: currentTimeMs
+        val targetClip = resolveSplitTargetAudioClip(requestedTimeMs)
         if (targetClip == null) {
             recordTelemetryEvent(
                 "edit",
                 "split_rejected",
                 JSONObject()
                     .put("trackType", TrackType.AUDIO.name)
-                    .put("playheadMs", targetTimeMs)
+                    .put("playheadMs", requestedTimeMs)
                     .put("selectedClipKey", selectedTimelineClipKey ?: JSONObject.NULL),
             )
             return false
         }
-        val result = runCatching {
-            NativeBridge.executeCommand(
-                action = "SPLIT",
-                params = mapOf(
-                    "clipId" to targetClip.id,
-                    "timeMs" to targetTimeMs,
-                ),
-            )
-        }.getOrNull()
-        if (result?.success != true) {
-            Log.w(TAG, "Audio split failed: clip=${targetClip.id} message=${result?.message}")
+        val clipStartMs = targetClip.startTimeMs
+        val clipEndMs = targetClip.startTimeMs + targetClip.durationMs
+        val targetTimeMs = requestedTimeMs.coerceIn(clipStartMs + 1L, clipEndMs - 1L)
+        val nextId = maxOf(
+            nextAudioClipId,
+            (AudioClipStore.all().maxOfOrNull { it.id } ?: 0) + 1,
+        )
+        val splitPair = AudioClipStore.splitAt(
+            clipId = targetClip.id,
+            splitTimeMs = targetTimeMs,
+            nextId = nextId,
+        )
+        if (splitPair == null) {
+            Log.w(TAG, "Audio split rejected in store: clip=${targetClip.id} time=$targetTimeMs")
             return false
         }
-        val leftClipId = result.data.optInt("leftClipId", -1).takeIf { it > 0 } ?: return false
-        val rightClipId = result.data.optInt("rightClipId", -1).takeIf { it > 0 } ?: return false
+        val (leftClip, rightClip) = splitPair
+        val leftClipId = leftClip.id
+        val rightClipId = rightClip.id
+        nextAudioClipId = maxOf(nextAudioClipId, rightClipId + 1)
         val sourceGain = audioClipGainOverrides[targetClip.id] ?: if (targetClip.muted) 0f else 1f
         audioClipGainOverrides.remove(targetClip.id)
         audioClipGainOverrides[leftClipId] = sourceGain
         audioClipGainOverrides[rightClipId] = sourceGain
+        leftClip.gain = sourceGain
+        rightClip.gain = sourceGain
+        leftClip.muted = sourceGain <= 0.001f
+        rightClip.muted = sourceGain <= 0.001f
         val sourceDucking = duckingEnabledForKey["audio-${targetClip.id}"] ?: false
         duckingEnabledForKey.remove("audio-${targetClip.id}")
         duckingEnabledForKey["audio-$leftClipId"] = sourceDucking
         duckingEnabledForKey["audio-$rightClipId"] = sourceDucking
+        cacheAudioClipLayout(leftClip)
+        cacheAudioClipLayout(rightClip)
         selectedTimelineClipKey = "audio-$rightClipId"
         currentTimeMs = targetTimeMs
-        lastLayoutFetchMs = 0L  // force fresh layout fetch after split
+        lastLayoutFetchMs = 0L
+        lastPreviewAudioSyncSignature = ""
+        syncPreviewAudioClipsToNative()
+        refreshMainTimelineTracks()
         playbackController?.scrubTo(targetTimeMs, syncTimelineUi = false)
-        syncTimelineShellFromNative(selectedClipId = rightClipId)
         stabilizeAfterSplit(targetTimeMs, "audio-$rightClipId")
         Toast.makeText(
             this,

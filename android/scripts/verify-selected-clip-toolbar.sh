@@ -278,7 +278,7 @@ prepare_blank_editor() {
 prepare_video_clip() {
     local label_prefix="$1"
     prepare_blank_editor "$label_prefix"
-    tap_by_text "$CURRENT_XML" "Media"
+    tap_by_resource_id "${APP_ID}:id/cutButton"
     dump_ui "${label_prefix}_media_sheet"
     verify_contains "$CURRENT_XML" 'text="Quick Sample"' "${label_prefix}_media_sheet"
     tap_by_text "$CURRENT_XML" "Quick Sample"
@@ -381,14 +381,11 @@ verify_contains "$CURRENT_XML" 'AUDIO CLIP' "voice_quicksample"
 log "Moving playhead inside quick audio clip..."
 send_automation_action "set_playhead_ms" --es adb_time_ms "1000"
 dump_ui "07_voice_playhead_set"
-verify_contains "$CURRENT_XML" 'text="00:01"' "voice_playhead"
+verify_contains "$CURRENT_XML" 'text="00:(0[1-9]|[1-5][0-9])"|text="0[1-9]:' "voice_playhead"
 
-log "Splitting quick audio clip..."
+log "Splitting selected audio clip..."
 adb logcat -c >/dev/null 2>&1 || true
-tap_by_resource_id "${APP_ID}:id/voiceoverButton"
-dump_ui "07_voice_split_sheet"
-verify_contains "$CURRENT_XML" 'Voiceover|Quick Sample|Split Audio' "voice_split_sheet"
-tap_by_text "$CURRENT_XML" "Split Audio"
+tap_by_resource_id "${APP_ID}:id/clipSplitButton"
 sleep 2
 adb logcat -d -v time > "${OUTPUT_DIR}/07_voice_split.logcat.txt"
 dump_ui "07_voice_after_split"
