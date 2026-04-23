@@ -35,6 +35,7 @@ class UiChromeController(
     private val onOpenLayerImportPicker: () -> Unit,
     private val onQuickImport: () -> Boolean,
     private val onQuickOverlayImport: () -> Boolean,
+    private val onQuickLayerImport: () -> Boolean,
     private val onShowAudioPicker: () -> Unit,
     private val onQuickAudioImport: () -> Boolean,
     private val onShowTextComposer: () -> Unit,
@@ -53,6 +54,58 @@ class UiChromeController(
 
     companion object {
         private const val TAG = "[UI]"
+    }
+
+    private fun pausePlaybackForPanel() {
+        if (isPlayingProvider()) {
+            setIsPlaying(false)
+            onPauseRendering()
+        }
+    }
+
+    private fun buildLayerItems(): List<LayerItem> {
+        val layerItems = mutableListOf<LayerItem>()
+        editorStateProvider()?.buildLayerDescriptors().orEmpty().forEach { descriptor ->
+            layerControllerProvider()?.buildLayerItem(descriptor)?.let { item ->
+                layerItems += item
+            }
+        }
+        return layerItems
+    }
+
+    private fun showLayerManager() {
+        LayersPanel(activity, buildLayerItems()).show()
+    }
+
+    private fun showImportSourceSheet(
+        title: String,
+        browseLabel: String,
+        quickLabel: String? = null,
+        quickUnavailableMessage: String,
+        onBrowse: () -> Unit,
+        onQuick: (() -> Boolean)? = null,
+        extraActions: List<Pair<String, () -> Unit>> = emptyList(),
+    ) {
+        pausePlaybackForPanel()
+        val options = mutableListOf<String>()
+        options += browseLabel
+        if (quickLabel != null && onQuick != null) {
+            options += quickLabel
+        }
+        options += extraActions.map { it.first }
+        ModernSheet.show(activity, title) {
+            chips("Source", options, -1) { _, option ->
+                when {
+                    option == browseLabel -> onBrowse()
+                    quickLabel != null && option == quickLabel -> {
+                        if (onQuick?.invoke() != true) {
+                            Toast.makeText(activity, quickUnavailableMessage, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    else -> extraActions.firstOrNull { it.first == option }?.second?.invoke()
+                }
+            }
+        }
     }
 
     fun setupPlayPauseButton() {
@@ -98,7 +151,14 @@ class UiChromeController(
 
         activity.findViewById<LinearLayout>(R.id.cutButton).setOnClickListener {
             Log.d(TAG, "Video import button clicked")
-            onOpenVideoImportPicker()
+            showImportSourceSheet(
+                title = "Media",
+                browseLabel = "Browse Device",
+                quickLabel = "Quick Sample",
+                quickUnavailableMessage = "No quick media found",
+                onBrowse = onOpenVideoImportPicker,
+                onQuick = onQuickImport,
+            )
         }
         activity.findViewById<LinearLayout>(R.id.cutButton).setOnLongClickListener {
             Log.d(TAG, "Video import button long-pressed")
@@ -110,7 +170,14 @@ class UiChromeController(
 
         activity.findViewById<LinearLayout>(R.id.overlayImportButton).setOnClickListener {
             Log.d(TAG, "Overlay import button clicked")
-            onOpenOverlayImportPicker()
+            showImportSourceSheet(
+                title = "Overlay",
+                browseLabel = "Browse Device",
+                quickLabel = "Quick Sample",
+                quickUnavailableMessage = "No quick overlay media found",
+                onBrowse = onOpenOverlayImportPicker,
+                onQuick = onQuickOverlayImport,
+            )
         }
         activity.findViewById<LinearLayout>(R.id.overlayImportButton).setOnLongClickListener {
             Log.d(TAG, "Overlay import button long-pressed")
@@ -122,22 +189,31 @@ class UiChromeController(
 
         activity.findViewById<LinearLayout>(R.id.layersButton).setOnClickListener {
             Log.d(TAG, "Layer import button clicked")
-            onOpenLayerImportPicker()
+            showImportSourceSheet(
+                title = "Layers",
+                browseLabel = "Browse Layer",
+                quickLabel = "Quick Sample",
+                quickUnavailableMessage = "No quick layer media found",
+                onBrowse = onOpenLayerImportPicker,
+                onQuick = onQuickLayerImport,
+                extraActions = listOf("Manage Layers" to { showLayerManager() }),
+            )
         }
         activity.findViewById<LinearLayout>(R.id.layersButton).setOnLongClickListener {
-            val layerItems = mutableListOf<LayerItem>()
-            editorStateProvider()?.buildLayerDescriptors().orEmpty().forEach { descriptor ->
-                layerControllerProvider()?.buildLayerItem(descriptor)?.let { item ->
-                    layerItems += item
-                }
-            }
-            LayersPanel(activity, layerItems).show()
+            showLayerManager()
             true
         }
 
         activity.findViewById<LinearLayout>(R.id.audioButton).setOnClickListener {
             Log.d(TAG, "Audio button clicked")
-            onShowAudioPicker()
+            showImportSourceSheet(
+                title = "Audio",
+                browseLabel = "Browse Device",
+                quickLabel = "Quick Sample",
+                quickUnavailableMessage = "No quick audio found",
+                onBrowse = onShowAudioPicker,
+                onQuick = onQuickAudioImport,
+            )
         }
         activity.findViewById<LinearLayout>(R.id.audioButton).setOnLongClickListener {
             Log.d(TAG, "Audio button long-pressed")

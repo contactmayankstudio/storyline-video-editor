@@ -1136,13 +1136,20 @@ class MainActivity : Activity() {
                     importController?.importQuickSample() == true
                 }
             },
+            onQuickLayerImport = {
+                if (!ensureTrackEditable(TrackType.LAYER, "import")) {
+                    false
+                } else {
+                    importController?.setNextImportTrackType(TrackType.LAYER)
+                    importController?.importQuickSample() == true
+                }
+            },
             onShowAudioPicker = { openAudioTrackImport() },
             onQuickAudioImport = {
                 if (!ensureTrackEditable(TrackType.AUDIO, "import")) {
                     false
                 } else {
-                    audioImportController?.openPickerOrQuickImport(PICK_AUDIO_REQUEST)
-                    true
+                    audioImportController?.importQuickSample() == true
                 }
             },
             onSplitAudioAtPlayhead = { splitAudioAtPlayhead() },
