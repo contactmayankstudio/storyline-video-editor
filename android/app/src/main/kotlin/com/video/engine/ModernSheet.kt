@@ -33,9 +33,9 @@ object ModernSheet {
             overScrollMode = View.OVER_SCROLL_NEVER
             addView(
                 content,
-                ScrollView.LayoutParams(
-                    ScrollView.LayoutParams.MATCH_PARENT,
-                    ScrollView.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
                 ),
             )
         }
