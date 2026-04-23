@@ -390,7 +390,7 @@ tap_by_text "$CURRENT_XML" "Cross 250"
 sleep 2
 adb logcat -d -v time > "${OUTPUT_DIR}/08_transition_apply.logcat.txt"
 dump_ui "08_transition_applied"
-verify_contains "${OUTPUT_DIR}/08_transition_apply.logcat.txt" '\[TRANSITION\] add|\[TRANSITION\] update|\[TRANSITION\] updated' "transition_apply"
+verify_contains "${OUTPUT_DIR}/08_transition_apply.logcat.txt" '\[TRANSITION\].*(add|update|updated)' "transition_apply"
 
 append_summary "finished_at=$(date -Is)"
 log "Toolbar audit complete: ${SUMMARY_FILE}"
