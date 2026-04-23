@@ -309,9 +309,16 @@ class MainActivity : Activity() {
     private var pendingAudioReplaceClipId: Int? = null
     private val aspectRatioOptions = listOf(
         AspectRatioOption(label = "16:9", width = 16, height = 9),
+        AspectRatioOption(label = "21:9", width = 21, height = 9),
         AspectRatioOption(label = "1:1", width = 1, height = 1),
         AspectRatioOption(label = "9:16", width = 9, height = 16),
         AspectRatioOption(label = "4:5", width = 4, height = 5),
+        AspectRatioOption(label = "5:4", width = 5, height = 4),
+        AspectRatioOption(label = "4:3", width = 4, height = 3),
+        AspectRatioOption(label = "3:4", width = 3, height = 4),
+        AspectRatioOption(label = "3:2", width = 3, height = 2),
+        AspectRatioOption(label = "2:3", width = 2, height = 3),
+        AspectRatioOption(label = "2:1", width = 2, height = 1),
     )
     private val textOverlayPresets = listOf(
         TextOverlayPreset(
@@ -1195,8 +1202,8 @@ class MainActivity : Activity() {
 
     private fun showAspectRatioPickerDialog() {
         val labels = aspectRatioOptions.map { it.label }
-        ModernSheet.show(this, "Aspect Ratio") {
-            chips("Select", labels, selectedAspectRatioIndex) { i, _ ->
+        ModernSheet.show(this, "Crop Ratio") {
+            chips("Canvas", labels, selectedAspectRatioIndex) { i, _ ->
                 selectedAspectRatioIndex = i.coerceIn(0, aspectRatioOptions.lastIndex)
                 applyPreviewAspectRatio()
             }

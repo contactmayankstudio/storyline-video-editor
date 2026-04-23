@@ -9,6 +9,7 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.widget.EditText
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -66,9 +67,16 @@ class ExportDialog(
     private data class AspectRatio(val label: String, val w: Int, val h: Int)
     private val aspectRatios = listOf(
         AspectRatio("16:9", 16, 9),
+        AspectRatio("21:9", 21, 9),
         AspectRatio("1:1",  1,  1),
         AspectRatio("9:16", 9, 16),
         AspectRatio("4:5",  4,  5),
+        AspectRatio("5:4",  5,  4),
+        AspectRatio("4:3",  4,  3),
+        AspectRatio("3:4",  3,  4),
+        AspectRatio("3:2",  3,  2),
+        AspectRatio("2:3",  2,  3),
+        AspectRatio("2:1",  2,  1),
     )
 
     private val profiles = listOf(
@@ -155,9 +163,12 @@ class ExportDialog(
 
         // ── Aspect Ratio ──────────────────────────────────────────────────────
         root.addView(sectionLabel("Aspect Ratio"))
+        val ratioScroller = HorizontalScrollView(activity).apply {
+            isHorizontalScrollBarEnabled = false
+        }
         val ratioRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+            gravity = Gravity.START
         }
         aspectRatios.forEachIndexed { index, ratio ->
             val button = choiceButton(ratio.label)
@@ -172,7 +183,8 @@ class ExportDialog(
             ratioButtons += button
             ratioRow.addView(button)
         }
-        root.addView(ratioRow)
+        ratioScroller.addView(ratioRow)
+        root.addView(ratioScroller)
         root.addView(sectionLabel("Frame Rate"))
         val fpsRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL

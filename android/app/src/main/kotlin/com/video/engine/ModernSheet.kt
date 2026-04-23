@@ -138,9 +138,14 @@ object ModernSheet {
                 text = label; textSize = 12f; setTextColor(Color.parseColor("#8E99A5"))
                 setPadding(0, px(context, 8), 0, px(context, 4))
             })
+            val scroller = HorizontalScrollView(context).apply {
+                isHorizontalScrollBarEnabled = false
+                clipToPadding = false
+                setPadding(0, 0, px(context, 8), 0)
+            }
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER
+                gravity = Gravity.START
             }
             options.forEachIndexed { i, opt ->
                 val chip = TextView(context).apply {
@@ -156,7 +161,8 @@ object ModernSheet {
                 }
                 row.addView(chip)
             }
-            root.addView(row)
+            scroller.addView(row)
+            root.addView(scroller)
         }
 
         fun toggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
