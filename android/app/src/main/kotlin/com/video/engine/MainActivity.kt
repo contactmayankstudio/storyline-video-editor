@@ -48,6 +48,7 @@ import com.video.engine.stickers.StickerClipStore
 import com.video.engine.stickers.StickerOverlayView
 import com.video.engine.timeline.MultiClipTimeline
 import com.video.engine.timeline.TimelineManager
+import com.video.engine.transition.TransitionType
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
@@ -1152,11 +1153,17 @@ class MainActivity : Activity() {
                     audioImportController?.importQuickSample() == true
                 }
             },
+            onAddTextPreset = { label -> addTextPresetFromToolbar(label) },
+            onOpenSelectedTextStudio = { showSelectedTextStudio() },
             onSplitAudioAtPlayhead = { splitAudioAtPlayhead() },
             clipEffects = clipEffects,
             onTransitionRequested = { outgoing, incoming ->
                 transitionController?.showTransitionEditor(outgoing, incoming)
             },
+            onApplyTransitionPreset = { type, durationMs ->
+                applyToolbarTransitionPreset(type, durationMs)
+            },
+            onRemoveTransitionPreset = { removeToolbarTransitionPreset() },
             onVoiceoverRequested = { voiceoverController?.showPanel() },
             onShowTextComposer = { showAddTextDialog() },
         )
@@ -1743,6 +1750,39 @@ class MainActivity : Activity() {
         selectedTimelineClipKey = "text-${overlay.id}"
         refreshMainTimelineTracks()
         safeToast(message, Toast.LENGTH_SHORT)
+    }
+
+    private fun addTextPresetFromToolbar(label: String) {
+        if (!ensureTrackEditable(TrackType.TEXT, "text")) return
+        val preset = textOverlayPresetByLabel(label) ?: return
+        addTextOverlay(
+            buildTextOverlayFromPreset(
+                preset = preset,
+                rawText = preset.hint,
+            ),
+            message = "${preset.label} added",
+        )
+    }
+
+    private fun resolveToolbarTransitionPair(): Pair<Int, Int>? {
+        val manager = timelineManager ?: return null
+        val clips = manager.getClips()
+        if (clips.size < 2) return null
+        val selected = manager.getSelectedClipId()
+        val idx = clips.indexOfFirst { it.id == selected }.takeIf { it >= 0 } ?: 0
+        val outgoing = clips.getOrNull(idx)?.id ?: return null
+        val incoming = clips.getOrNull(idx + 1)?.id ?: clips.getOrNull(idx - 1)?.id ?: return null
+        return outgoing to incoming
+    }
+
+    private fun applyToolbarTransitionPreset(type: TransitionType, durationMs: Int): Boolean {
+        val (outgoing, incoming) = resolveToolbarTransitionPair() ?: return false
+        return transitionController?.applyQuickTransition(outgoing, incoming, type, durationMs) == true
+    }
+
+    private fun removeToolbarTransitionPreset(): Boolean {
+        val (outgoing, _) = resolveToolbarTransitionPair() ?: return false
+        return transitionController?.removeTransitionByOutgoingClip(outgoing) == true
     }
 
     private fun showAddTextDialog() {

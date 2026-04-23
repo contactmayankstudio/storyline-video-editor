@@ -10,6 +10,7 @@ import android.widget.Toast
 import com.video.engine.effects.EffectParams
 import com.video.engine.stickers.StickersPanel
 import com.video.engine.timeline.TimelineManager
+import com.video.engine.transition.TransitionType
 import com.video.engine.NativeBridge
 
 class UiChromeController(
@@ -39,9 +40,13 @@ class UiChromeController(
     private val onShowAudioPicker: () -> Unit,
     private val onQuickAudioImport: () -> Boolean,
     private val onShowTextComposer: () -> Unit,
+    private val onAddTextPreset: (String) -> Unit,
+    private val onOpenSelectedTextStudio: () -> Unit = {},
     private val onSplitAudioAtPlayhead: () -> Boolean,
     private val clipEffects: MutableMap<Int, EffectParams>,
     private val onTransitionRequested: (Int, Int) -> Unit = { _, _ -> },
+    private val onApplyTransitionPreset: (TransitionType, Int) -> Boolean = { _, _ -> false },
+    private val onRemoveTransitionPreset: () -> Boolean = { false },
     private val onVoiceoverRequested: () -> Unit = {},
 ) {
     private data class ChromaPanelState(
@@ -104,6 +109,295 @@ class UiChromeController(
                     }
                     else -> extraActions.firstOrNull { it.first == option }?.second?.invoke()
                 }
+            }
+        }
+    }
+
+    private fun resolveActiveClipId(previewView: VideoPreviewView? = previewViewProvider()): Int? {
+        val timelineManager = timelineManagerProvider()
+        val selectedClipId = timelineManager?.getSelectedClipId()
+        if (selectedClipId != null && selectedClipId > 0) {
+            return selectedClipId
+        }
+        val firstTimelineClipId = timelineManager?.getClips()?.firstOrNull()?.id
+        if (firstTimelineClipId != null && firstTimelineClipId > 0) {
+            timelineManager.selectClip(firstTimelineClipId)
+            return firstTimelineClipId
+        }
+        val firstNativeClipId = previewView?.let { NativeBridge.getClipIds(it).firstOrNull() }
+        if (firstNativeClipId != null && firstNativeClipId > 0) {
+            timelineManager?.selectClip(firstNativeClipId)
+            return firstNativeClipId
+        }
+        return null
+    }
+
+    private fun applyEffectPreset(params: EffectParams): Boolean {
+        val previewView = previewViewProvider() ?: run {
+            Toast.makeText(activity, "Preview not ready", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        val clipId = resolveActiveClipId(previewView) ?: run {
+            Toast.makeText(activity, "Select a clip first", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        applyColorPreview(previewView, clipId, params)
+        return true
+    }
+
+    private fun effectPresetByName(name: String): EffectParams {
+        return when (name) {
+            "Vivid" -> EffectParams(brightness = 0.05f, contrast = 1.15f, saturation = 1.40f)
+            "Matte" -> EffectParams(brightness = 0.08f, contrast = 0.85f, saturation = 0.75f)
+            "Warm" -> EffectParams(brightness = 0.06f, contrast = 1.05f, saturation = 1.10f)
+            "Cool" -> EffectParams(brightness = -0.04f, contrast = 1.05f, saturation = 0.90f)
+            "Vintage" -> EffectParams(brightness = 0.04f, contrast = 0.90f, saturation = 0.65f)
+            "B&W" -> EffectParams(brightness = 0.00f, contrast = 1.10f, saturation = 0.00f)
+            "Cinematic" -> EffectParams(brightness = -0.02f, contrast = 1.20f, saturation = 0.85f)
+            "Drama" -> EffectParams(brightness = -0.05f, contrast = 1.35f, saturation = 1.10f)
+            else -> EffectParams()
+        }
+    }
+
+    private fun showEffectsStudio(): Boolean {
+        val previewView = previewViewProvider()
+        if (previewView == null) {
+            Toast.makeText(activity, "Preview view not found", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        val selectedClipId = resolveActiveClipId(previewView)
+        if (selectedClipId == null || selectedClipId <= 0) {
+            Toast.makeText(activity, "Select a clip first", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        val currentParams = clipEffects[selectedClipId] ?: EffectParams()
+        EffectsPanel(activity, previewView, selectedClipId, currentParams) { ep, enabled ->
+            val applied = if (enabled) ep else EffectParams()
+            clipEffects[selectedClipId] = applied
+            persistClipEffectsAsync(selectedClipId, applied)
+        }.show()
+        return true
+    }
+
+    private fun showLutLibrary(): Boolean {
+        val previewView = previewViewProvider() ?: run {
+            Toast.makeText(activity, "Preview not ready", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        val clipId = resolveActiveClipId(previewView) ?: run {
+            Toast.makeText(activity, "Select a clip first", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        val current = clipEffects[clipId] ?: EffectParams()
+        LutPanel.show(activity, clipId, current) { updated ->
+            applyColorPreview(previewView, clipId, updated)
+        }
+        return true
+    }
+
+    private fun openChromaForActiveClip(): Boolean {
+        val clipId = resolveActiveClipId() ?: run {
+            Toast.makeText(activity, "Select a clip first", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        showChromaKeyPanel(clipId)
+        return true
+    }
+
+    private fun showColorStudio(): Boolean {
+        val previewView = previewViewProvider() ?: run {
+            Toast.makeText(activity, "Preview not ready", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        val clipId = resolveActiveClipId(previewView) ?: run {
+            Toast.makeText(activity, "Select a clip first", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        ModernSheet.show(activity, "Color Grading") {
+            val current = clipEffects[clipId] ?: EffectParams()
+            slider("Brightness", -1f, 1f, current.brightness, { "${(it * 100).toInt()}%" }) { v ->
+                val updated = (clipEffects[clipId] ?: current).copy(brightness = v)
+                applyColorPreview(previewView, clipId, updated)
+            }
+            slider("Contrast", 0f, 2f, current.contrast, { "%.1fx".format(it) }) { v ->
+                val updated = (clipEffects[clipId] ?: current).copy(contrast = v)
+                applyColorPreview(previewView, clipId, updated)
+            }
+            slider("Saturation", 0f, 2f, current.saturation, { "%.1fx".format(it) }) { v ->
+                val updated = (clipEffects[clipId] ?: current).copy(saturation = v)
+                applyColorPreview(previewView, clipId, updated)
+            }
+            chips("LUT Presets", listOf("Warm", "Cool", "Vintage", "B&W", "Cinematic"), -1) { _, lut ->
+                applyEffectPreset(effectPresetByName(lut))
+            }
+        }
+        return true
+    }
+
+    private fun addQuickSticker(stickerId: Int, label: String): Boolean {
+        val clip = overlayControllerProvider()?.createStickerClip(stickerId) ?: return false
+        overlayControllerProvider()?.addStickerClip(clip)
+        Log.d("[STICKER]", "added quick=$label id=${clip.stickerId} layer=${clip.layerIndex}")
+        return true
+    }
+
+    private fun showStickerLibrary(): Boolean {
+        pausePlaybackForPanel()
+        StickersPanel(
+            activity,
+            onStickerSelected = { sticker ->
+                val clip = overlayControllerProvider()?.createStickerClip(sticker.id) ?: return@StickersPanel
+                overlayControllerProvider()?.addStickerClip(clip)
+                Log.d("[STICKER]", "added id=${clip.stickerId} layer=${clip.layerIndex}")
+            },
+            onImageSelected = { imagePath ->
+                val clip = overlayControllerProvider()?.createImageStickerClip(imagePath) ?: return@StickersPanel
+                overlayControllerProvider()?.addStickerClip(clip)
+                Log.d("[IMAGE]", "added path=$imagePath")
+            },
+        ).show()
+        return true
+    }
+
+    private fun showTextToolSheet() {
+        pausePlaybackForPanel()
+        ModernSheet.show(activity, "Text") {
+            chips("Create", listOf("Composer", "Caption", "Title", "Lower 3rd"), -1) { _, option ->
+                when (option) {
+                    "Composer" -> onShowTextComposer()
+                    else -> onAddTextPreset(option)
+                }
+            }
+            chips("Quick", listOf("Hook", "Label", "Basic", "Edit Selected"), -1) { _, option ->
+                when (option) {
+                    "Edit Selected" -> onOpenSelectedTextStudio()
+                    else -> onAddTextPreset(option)
+                }
+            }
+        }
+    }
+
+    private fun showEffectsToolSheet() {
+        pausePlaybackForPanel()
+        ModernSheet.show(activity, "Effects") {
+            chips("Studio", listOf("Studio FX", "LUT Library", "Chroma Key", "Reset FX"), -1) { _, option ->
+                when (option) {
+                    "Studio FX" -> showEffectsStudio()
+                    "LUT Library" -> showLutLibrary()
+                    "Chroma Key" -> openChromaForActiveClip()
+                    "Reset FX" -> applyEffectPreset(EffectParams())
+                }
+            }
+            chips("Quick Looks", listOf("Vivid", "Matte", "Warm", "Cool", "B&W", "Drama"), -1) { _, option ->
+                applyEffectPreset(effectPresetByName(option))
+            }
+        }
+    }
+
+    private fun showStickerToolSheet() {
+        pausePlaybackForPanel()
+        ModernSheet.show(activity, "Graphics") {
+            chips("Quick", listOf("Spark", "Flame", "Heart", "Film", "Star"), -1) { _, option ->
+                val success = when (option) {
+                    "Spark" -> addQuickSticker(1, option)
+                    "Flame" -> addQuickSticker(2, option)
+                    "Heart" -> addQuickSticker(3, option)
+                    "Film" -> addQuickSticker(4, option)
+                    "Star" -> addQuickSticker(6, option)
+                    else -> false
+                }
+                if (!success) {
+                    Toast.makeText(activity, "Graphic add failed", Toast.LENGTH_SHORT).show()
+                }
+            }
+            chips("Source", listOf("Sticker Pack", "Overlay Import", "Quick Overlay"), -1) { _, option ->
+                when (option) {
+                    "Sticker Pack" -> showStickerLibrary()
+                    "Overlay Import" -> onOpenOverlayImportPicker()
+                    "Quick Overlay" -> {
+                        if (!onQuickOverlayImport()) {
+                            Toast.makeText(activity, "No quick overlay media found", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun showTransitionToolSheet() {
+        pausePlaybackForPanel()
+        ModernSheet.show(activity, "Transition") {
+            chips("Quick", listOf("Cross 350", "Fade 350", "Wipe 450", "Slide 450"), -1) { _, option ->
+                val success = when (option) {
+                    "Cross 350" -> onApplyTransitionPreset(TransitionType.CROSS, 350)
+                    "Fade 350" -> onApplyTransitionPreset(TransitionType.FADE, 350)
+                    "Wipe 450" -> onApplyTransitionPreset(TransitionType.WIPE, 450)
+                    "Slide 450" -> onApplyTransitionPreset(TransitionType.SLIDE, 450)
+                    else -> false
+                }
+                if (!success) {
+                    Toast.makeText(activity, "Need clips around the cut for transition", Toast.LENGTH_SHORT).show()
+                }
+            }
+            chips("More", listOf("Cross 700", "Fade 700", "Studio Panel", "Remove"), -1) { _, option ->
+                val success = when (option) {
+                    "Cross 700" -> onApplyTransitionPreset(TransitionType.CROSS, 700)
+                    "Fade 700" -> onApplyTransitionPreset(TransitionType.FADE, 700)
+                    "Studio Panel" -> {
+                        val manager = timelineManagerProvider()
+                        val clips = manager?.getClips().orEmpty()
+                        if (clips.size < 2) {
+                            false
+                        } else {
+                            val selected = manager?.getSelectedClipId()
+                            val idx = clips.indexOfFirst { it.id == selected }.takeIf { it >= 0 } ?: 0
+                            val outgoing = clips[idx].id
+                            val incoming = clips.getOrNull(idx + 1)?.id ?: clips[maxOf(0, idx - 1)].id
+                            onTransitionRequested(outgoing, incoming)
+                            true
+                        }
+                    }
+                    "Remove" -> onRemoveTransitionPreset()
+                    else -> false
+                }
+                if (!success) {
+                    Toast.makeText(activity, "No transition target available", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun showVoiceToolSheet() {
+        pausePlaybackForPanel()
+        ModernSheet.show(activity, "Voiceover") {
+            chips("Capture", listOf("Record Voice", "Punch-In"), -1) { _, _ ->
+                onVoiceoverRequested()
+            }
+            chips("Source", listOf("Import Audio", "Quick Sample"), -1) { _, option ->
+                when (option) {
+                    "Import Audio" -> onShowAudioPicker()
+                    "Quick Sample" -> {
+                        if (!onQuickAudioImport()) {
+                            Toast.makeText(activity, "No quick audio found", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun showColorToolSheet() {
+        pausePlaybackForPanel()
+        ModernSheet.show(activity, "Color") {
+            chips("Studio", listOf("Grade Controls", "LUT Library", "Reset Color"), -1) { _, option ->
+                when (option) {
+                    "Grade Controls" -> showColorStudio()
+                    "LUT Library" -> showLutLibrary()
+                    "Reset Color" -> applyEffectPreset(EffectParams())
+                }
+            }
+            chips("Quick Looks", listOf("Warm", "Cool", "Vintage", "B&W", "Vivid", "Cinematic"), -1) { _, option ->
+                applyEffectPreset(effectPresetByName(option))
             }
         }
     }
@@ -224,122 +518,62 @@ class UiChromeController(
         }
 
         activity.findViewById<LinearLayout>(R.id.textButton).setOnClickListener {
+            showTextToolSheet()
+        }
+        activity.findViewById<LinearLayout>(R.id.textButton).setOnLongClickListener {
             onShowTextComposer()
+            true
         }
 
         activity.findViewById<LinearLayout>(R.id.effectsButton).setOnClickListener {
-            val previewView = previewViewProvider()
-            if (previewView == null) {
-                Toast.makeText(activity, "Preview view not found", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-
-            val timelineManager = timelineManagerProvider()
-            val selectedClipId = timelineManager?.getSelectedClipId() ?: run {
-                val selectedFromTimeline = timelineManager?.getClips()?.firstOrNull()?.id
-                if (selectedFromTimeline != null) {
-                    timelineManager.selectClip(selectedFromTimeline)
-                    selectedFromTimeline
-                } else {
-                    val ids = NativeBridge.getClipIds(previewView)
-                    if (ids.isNotEmpty()) ids[0] else 0
-                }
-            }
-
-            if (selectedClipId <= 0) {
-                Toast.makeText(activity, "Select a clip first", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-
-            val currentParams = clipEffects[selectedClipId] ?: EffectParams()
-            EffectsPanel(activity, previewView, selectedClipId, currentParams) { ep, enabled ->
-                val applied = if (enabled) ep else EffectParams()
-                clipEffects[selectedClipId] = applied
-                persistClipEffectsAsync(selectedClipId, applied)
-            }.show()
+            showEffectsToolSheet()
+        }
+        activity.findViewById<LinearLayout>(R.id.effectsButton).setOnLongClickListener {
+            showEffectsStudio()
+            true
         }
 
         bindOptionalLinearButton("stickersButton", "Stickers button not found in layout") {
-            val previewView = previewViewProvider()
-            if (previewView == null) {
-                Toast.makeText(activity, "Preview view not found", Toast.LENGTH_SHORT).show()
-                return@bindOptionalLinearButton
-            }
-            if (isPlayingProvider()) {
-                setIsPlaying(false)
-                onPauseRendering()
-            }
-            StickersPanel(
-                activity,
-                onStickerSelected = { sticker ->
-                    val clip = overlayControllerProvider()?.createStickerClip(sticker.id) ?: return@StickersPanel
-                    overlayControllerProvider()?.addStickerClip(clip)
-                    Log.d("[STICKER]", "added id=${clip.stickerId} layer=${clip.layerIndex}")
-                },
-                onImageSelected = { imagePath ->
-                    val clip = overlayControllerProvider()?.createImageStickerClip(imagePath) ?: return@StickersPanel
-                    overlayControllerProvider()?.addStickerClip(clip)
-                    Log.d("[IMAGE]", "added path=$imagePath")
-                },
-            ).show()
+            showStickerToolSheet()
+        }
+        activity.findViewById<LinearLayout>(R.id.stickersButton).setOnLongClickListener {
+            showStickerLibrary()
+            true
         }
 
         bindOptionalLinearButton("transitionButton", "Transition button not found") {
+            showTransitionToolSheet()
+        }
+        activity.findViewById<LinearLayout>(R.id.transitionButton).setOnLongClickListener {
             val manager = timelineManagerProvider()
             val clips = manager?.getClips().orEmpty()
             if (clips.size < 2) {
                 Toast.makeText(activity, "Need at least 2 clips for transition", Toast.LENGTH_SHORT).show()
-                return@bindOptionalLinearButton
+            } else {
+                val selected = manager?.getSelectedClipId()
+                val idx = clips.indexOfFirst { it.id == selected }.takeIf { it >= 0 } ?: 0
+                val outgoing = clips[idx].id
+                val incoming = clips.getOrNull(idx + 1)?.id ?: clips[maxOf(0, idx - 1)].id
+                onTransitionRequested(outgoing, incoming)
             }
-            val selected = manager?.getSelectedClipId()
-            val idx = clips.indexOfFirst { it.id == selected }.takeIf { it >= 0 } ?: 0
-            val outgoing = clips[idx].id
-            val incoming = clips.getOrNull(idx + 1)?.id ?: clips[maxOf(0, idx - 1)].id
-            onTransitionRequested(outgoing, incoming)
+            true
         }
 
         bindOptionalLinearButton("voiceoverButton", "Voiceover button not found") {
-            if (isPlayingProvider()) {
-                setIsPlaying(false)
-                onPauseRendering()
-            }
+            showVoiceToolSheet()
+        }
+        activity.findViewById<LinearLayout>(R.id.voiceoverButton).setOnLongClickListener {
+            pausePlaybackForPanel()
             onVoiceoverRequested()
+            true
         }
 
         bindOptionalLinearButton("colorGradingButton", "Color Grading button not found") {
-            val previewView = previewViewProvider() ?: run {
-                Toast.makeText(activity, "Preview not ready", Toast.LENGTH_SHORT).show()
-                return@bindOptionalLinearButton
-            }
-            val clipId = timelineManagerProvider()?.getSelectedClipId()
-                ?: NativeBridge.getClipIds(previewView).firstOrNull()
-                ?: run {
-                    Toast.makeText(activity, "Select a clip first", Toast.LENGTH_SHORT).show()
-                    return@bindOptionalLinearButton
-                }
-            ModernSheet.show(activity, "Color Grading") {
-                val current = clipEffects[clipId] ?: EffectParams()
-                slider("Brightness", -1f, 1f, current.brightness, { "${(it * 100).toInt()}%" }) { v ->
-                    val updated = (clipEffects[clipId] ?: current).copy(brightness = v)
-                    applyColorPreview(previewView, clipId, updated)
-                }
-                slider("Contrast", 0f, 2f, current.contrast, { "%.1fx".format(it) }) { v ->
-                    val updated = (clipEffects[clipId] ?: current).copy(contrast = v)
-                    applyColorPreview(previewView, clipId, updated)
-                }
-                slider("Saturation", 0f, 2f, current.saturation, { "%.1fx".format(it) }) { v ->
-                    val updated = (clipEffects[clipId] ?: current).copy(saturation = v)
-                    applyColorPreview(previewView, clipId, updated)
-                }
-                chips("LUT Presets", listOf("None", "Warm", "Cool", "Vintage", "B&W"), -1) { _, lut ->
-                    Thread {
-                        runCatching { NativeBridge.executeCommand("APPLY_LUT", mapOf("clipId" to clipId, "lut" to lut.lowercase())) }
-                        activity.runOnUiThread {
-                            runCatching { NativeBridge.seekToTime(previewView, currentTimeMsProvider().coerceAtLeast(0L)) }
-                        }
-                    }.start()
-                }
-            }
+            showColorToolSheet()
+        }
+        activity.findViewById<LinearLayout>(R.id.colorGradingButton).setOnLongClickListener {
+            showColorStudio()
+            true
         }
     }
 
