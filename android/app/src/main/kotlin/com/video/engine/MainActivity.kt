@@ -4565,13 +4565,15 @@ class MainActivity : Activity() {
 
     private fun selectedClipKind(): ClipKind {
         val key = selectedTimelineClipKey ?: return ClipKind.NONE
+        val nativeClipId = key.toIntOrNull()
         return when {
             key.startsWith("audio-") -> ClipKind.AUDIO
             key.startsWith("text-") -> ClipKind.TEXT
             key.startsWith("sticker-") -> ClipKind.STICKER
             key.startsWith("overlay-") || key.startsWith("layer-") -> ClipKind.OVERLAY
-            key.toIntOrNull()?.let { isOverlayNativeClip(it) || isLayerNativeClip(it) } == true -> ClipKind.OVERLAY
-            key.toIntOrNull() != null -> ClipKind.VIDEO
+            nativeClipId?.let { nativeClipTrackType[it] == TrackType.AUDIO } == true -> ClipKind.AUDIO
+            nativeClipId?.let { isOverlayNativeClip(it) || isLayerNativeClip(it) } == true -> ClipKind.OVERLAY
+            nativeClipId != null -> ClipKind.VIDEO
             else -> ClipKind.NONE
         }
     }
