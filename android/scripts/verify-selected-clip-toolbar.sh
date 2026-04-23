@@ -18,7 +18,7 @@ Runs a portrait adb audit on the currently installed Storyline build:
   - verify selected-clip Color / Effects / Transition / Graphics / Stack
   - verify Stack > Quick Sample selects an overlay layer
   - verify Text preset add
-  - verify Voice quick audio import
+  - verify Voice quick audio import and Split Audio
   - verify Color slider apply
   - verify Transition apply after duplicate
 
@@ -377,6 +377,23 @@ tap_by_text "$CURRENT_XML" "Quick Sample"
 sleep 2
 dump_ui "07_voice_after_quicksample"
 verify_contains "$CURRENT_XML" 'AUDIO CLIP' "voice_quicksample"
+
+log "Moving playhead inside quick audio clip..."
+send_automation_action "set_playhead_ms" --es adb_time_ms "1000"
+dump_ui "07_voice_playhead_set"
+verify_contains "$CURRENT_XML" 'text="00:01"' "voice_playhead"
+
+log "Splitting quick audio clip..."
+adb logcat -c >/dev/null 2>&1 || true
+tap_by_resource_id "${APP_ID}:id/voiceoverButton"
+dump_ui "07_voice_split_sheet"
+verify_contains "$CURRENT_XML" 'Voiceover|Quick Sample|Split Audio' "voice_split_sheet"
+tap_by_text "$CURRENT_XML" "Split Audio"
+sleep 2
+adb logcat -d -v time > "${OUTPUT_DIR}/07_voice_split.logcat.txt"
+dump_ui "07_voice_after_split"
+verify_contains "${OUTPUT_DIR}/07_voice_split.logcat.txt" 'Audio split complete: left=.* right=.* at=' "voice_split_apply"
+verify_contains "$CURRENT_XML" 'AUDIO CLIP' "voice_split_selected"
 
 log "Applying quick transition..."
 prepare_video_clip "08_transition_apply"

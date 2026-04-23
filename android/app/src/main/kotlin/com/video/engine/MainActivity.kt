@@ -1984,6 +1984,12 @@ class MainActivity : Activity() {
             "pause" -> {
                 playbackController?.nativePause()
             }
+            "set_playhead_ms" -> {
+                val requestedMs = intent?.getStringExtra("adb_time_ms")?.toLongOrNull()
+                    ?: intent?.extras?.get("adb_time_ms")?.toString()?.toLongOrNull()
+                    ?: 0L
+                setAutomationPlayhead(requestedMs)
+            }
             "delete_selected" -> {
                 performSelectedClipDeleteAction()
             }
@@ -5155,6 +5161,25 @@ class MainActivity : Activity() {
 
     private fun showClipToolPending(toolName: String) {
         safeToast("$toolName next", Toast.LENGTH_SHORT)
+    }
+
+    private fun formatAutomationTime(timeMs: Long): String {
+        val safeMs = timeMs.coerceAtLeast(0L)
+        val totalSeconds = safeMs / 1000L
+        return String.format(Locale.US, "%02d:%02d", totalSeconds / 60L, totalSeconds % 60L)
+    }
+
+    private fun setAutomationPlayhead(timeMs: Long) {
+        val targetTimeMs = timeMs.coerceAtLeast(0L)
+        currentTimeMs = targetTimeMs
+        playbackController?.scrubTo(targetTimeMs)
+        timelineManager?.updateDisplayedTime(targetTimeMs)
+        multiTrackTimelineView?.setCurrentTimeMs(targetTimeMs)
+        activeCanvasTimelineView()?.setPlayheadMs(targetTimeMs)
+        timelineCurrentTimeText?.text = formatAutomationTime(targetTimeMs)
+        previewAudioPlayer?.seekTo(targetTimeMs, continuePlaying = false)
+        updateBottomToolbarMode()
+        Log.i(TAG, "[Automation] set_playhead_ms=$targetTimeMs")
     }
 
     private fun currentPlayheadMs(): Long {
