@@ -21,6 +21,7 @@ class ImportController(
     private val previewViewProvider: () -> VideoPreviewView?,
     private val timelineProvider: () -> MultiClipTimeline,
     private val timelineManagerProvider: () -> TimelineManager?,
+    private val playheadTimeMsProvider: () -> Long,
     private val onImportedClip: (clipId: Int, importPath: String, importedDurationMs: Long, trackType: TrackType) -> Long,
 ) {
     companion object {
@@ -88,13 +89,15 @@ class ImportController(
             val existingClipCount =
                 timelineManagerProvider()?.getClips()?.size
                     ?: timelineProvider().getClips().size
+            val requestedStartTimeMs = playheadTimeMsProvider().coerceAtLeast(0L)
             val requestedZOrder = resolveImportZOrder(trackType, existingClipCount)
             val requestedTrackLane = resolveImportTrackLane(trackType, requestedZOrder)
-            Log.d(TAG, "Attempting NativeBridge.addClip for: $importPath")
+            Log.d(TAG, "Attempting NativeBridge.addClip for: $importPath at start=$requestedStartTimeMs track=$trackType")
             val clipId = NativeBridge.addClip(
                 previewView = previewView,
                 videoPath = importPath,
                 trackType = trackType.nativeRoleName(),
+                startTimeMs = requestedStartTimeMs,
                 trackLane = requestedTrackLane,
                 zOrder = requestedZOrder,
             )

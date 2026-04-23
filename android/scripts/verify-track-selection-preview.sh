@@ -24,6 +24,26 @@ dump_state() {
   adb logcat -d -v time > "$OUT_ROOT/${prefix}.logcat.txt" || true
 }
 
+format_time_label() {
+  local ms="$1"
+  local total_seconds=$(( ms / 1000 ))
+  printf "%02d:%02d" $(( total_seconds / 60 )) $(( total_seconds % 60 ))
+}
+
+wait_for_time_visible() {
+  local expected="$1"
+  local tmp_xml="$OUT_ROOT/.time_check.xml"
+  local attempt
+  for attempt in $(seq 1 8); do
+    adb exec-out uiautomator dump /dev/tty > "$tmp_xml" 2>/dev/null || true
+    if rg -q "$expected" "$tmp_xml"; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 assert_contains() {
   local file="$1"
   local pattern="$2"
@@ -33,8 +53,16 @@ assert_contains() {
 import_track_at() {
   local playhead_ms="$1"
   local action="$2"
-  start_action set_playhead_ms --es adb_time_ms "$playhead_ms"
-  sleep 2
+  local expected_time
+  expected_time="$(format_time_label "$playhead_ms")"
+  local attempt
+  for attempt in 1 2 3; do
+    start_action set_playhead_ms --es adb_time_ms "$playhead_ms"
+    sleep 1
+    if wait_for_time_visible "$expected_time"; then
+      break
+    fi
+  done
   if [[ "$action" == "add_text" ]]; then
     start_action add_text --es adb_text "TrackProof"
     sleep 4
@@ -103,6 +131,8 @@ main() {
   fi
 
   adb logcat -c || true
+  start_action discard_autosave
+  sleep 1
   start_action reset_to_blank
   sleep 3
 
