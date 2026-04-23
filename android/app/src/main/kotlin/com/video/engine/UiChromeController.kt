@@ -155,6 +155,9 @@ class UiChromeController(
             "B&W" -> EffectParams(brightness = 0.00f, contrast = 1.10f, saturation = 0.00f)
             "Cinematic" -> EffectParams(brightness = -0.02f, contrast = 1.20f, saturation = 0.85f)
             "Drama" -> EffectParams(brightness = -0.05f, contrast = 1.35f, saturation = 1.10f)
+            "Punch" -> EffectParams(brightness = 0.02f, contrast = 1.28f, saturation = 1.22f)
+            "Soft" -> EffectParams(brightness = 0.05f, contrast = 0.92f, saturation = 0.95f)
+            "Neutral" -> EffectParams()
             else -> EffectParams()
         }
     }
@@ -262,17 +265,19 @@ class UiChromeController(
     private fun showTextToolSheet() {
         pausePlaybackForPanel()
         ModernSheet.show(activity, "Text") {
-            chips("Create", listOf("Composer", "Caption", "Title", "Lower 3rd"), -1) { _, option ->
+            chips("Create", listOf("Composer", "Caption", "Title", "Lower 3rd", "Subtitle"), -1) { _, option ->
                 when (option) {
                     "Composer" -> onShowTextComposer()
                     else -> onAddTextPreset(option)
                 }
             }
-            chips("Quick", listOf("Hook", "Label", "Basic", "Edit Selected"), -1) { _, option ->
+            chips("Quick", listOf("Hook", "CTA", "Quote", "Label", "Basic", "Badge"), -1) { _, option ->
                 when (option) {
-                    "Edit Selected" -> onOpenSelectedTextStudio()
                     else -> onAddTextPreset(option)
                 }
+            }
+            chips("Studio", listOf("Edit Selected"), -1) { _, _ ->
+                onOpenSelectedTextStudio()
             }
         }
     }
@@ -288,7 +293,10 @@ class UiChromeController(
                     "Reset FX" -> applyEffectPreset(EffectParams())
                 }
             }
-            chips("Quick Looks", listOf("Vivid", "Matte", "Warm", "Cool", "B&W", "Drama"), -1) { _, option ->
+            chips("Quick Looks", listOf("Vivid", "Matte", "Warm", "Cool", "Vintage", "B&W"), -1) { _, option ->
+                applyEffectPreset(effectPresetByName(option))
+            }
+            chips("Finish", listOf("Cinematic", "Drama", "Punch", "Soft", "Neutral"), -1) { _, option ->
                 applyEffectPreset(effectPresetByName(option))
             }
         }
@@ -297,12 +305,13 @@ class UiChromeController(
     private fun showStickerToolSheet() {
         pausePlaybackForPanel()
         ModernSheet.show(activity, "Graphics") {
-            chips("Quick", listOf("Spark", "Flame", "Heart", "Film", "Star"), -1) { _, option ->
+            chips("Quick", listOf("Spark", "Flame", "Heart", "Film", "Boom", "Star"), -1) { _, option ->
                 val success = when (option) {
                     "Spark" -> addQuickSticker(1, option)
                     "Flame" -> addQuickSticker(2, option)
                     "Heart" -> addQuickSticker(3, option)
                     "Film" -> addQuickSticker(4, option)
+                    "Boom" -> addQuickSticker(5, option)
                     "Star" -> addQuickSticker(6, option)
                     else -> false
                 }
@@ -310,7 +319,7 @@ class UiChromeController(
                     Toast.makeText(activity, "Graphic add failed", Toast.LENGTH_SHORT).show()
                 }
             }
-            chips("Source", listOf("Sticker Pack", "Overlay Import", "Quick Overlay"), -1) { _, option ->
+            chips("Source", listOf("Sticker Pack", "Overlay Import", "Quick Overlay", "Manage Layers"), -1) { _, option ->
                 when (option) {
                     "Sticker Pack" -> showStickerLibrary()
                     "Overlay Import" -> onOpenOverlayImportPicker()
@@ -319,6 +328,7 @@ class UiChromeController(
                             Toast.makeText(activity, "No quick overlay media found", Toast.LENGTH_SHORT).show()
                         }
                     }
+                    "Manage Layers" -> showLayerManager()
                 }
             }
         }
@@ -327,10 +337,12 @@ class UiChromeController(
     private fun showTransitionToolSheet() {
         pausePlaybackForPanel()
         ModernSheet.show(activity, "Transition") {
-            chips("Quick", listOf("Cross 350", "Fade 350", "Wipe 450", "Slide 450"), -1) { _, option ->
+            chips("Quick", listOf("Cross 250", "Fade 250", "Cross 500", "Fade 500", "Wipe 450", "Slide 450"), -1) { _, option ->
                 val success = when (option) {
-                    "Cross 350" -> onApplyTransitionPreset(TransitionType.CROSS, 350)
-                    "Fade 350" -> onApplyTransitionPreset(TransitionType.FADE, 350)
+                    "Cross 250" -> onApplyTransitionPreset(TransitionType.CROSS, 250)
+                    "Fade 250" -> onApplyTransitionPreset(TransitionType.FADE, 250)
+                    "Cross 500" -> onApplyTransitionPreset(TransitionType.CROSS, 500)
+                    "Fade 500" -> onApplyTransitionPreset(TransitionType.FADE, 500)
                     "Wipe 450" -> onApplyTransitionPreset(TransitionType.WIPE, 450)
                     "Slide 450" -> onApplyTransitionPreset(TransitionType.SLIDE, 450)
                     else -> false
@@ -339,10 +351,12 @@ class UiChromeController(
                     Toast.makeText(activity, "Need clips around the cut for transition", Toast.LENGTH_SHORT).show()
                 }
             }
-            chips("More", listOf("Cross 700", "Fade 700", "Studio Panel", "Remove"), -1) { _, option ->
+            chips("More", listOf("Cross 700", "Fade 700", "Wipe 700", "Slide 700", "Studio Panel", "Remove"), -1) { _, option ->
                 val success = when (option) {
                     "Cross 700" -> onApplyTransitionPreset(TransitionType.CROSS, 700)
                     "Fade 700" -> onApplyTransitionPreset(TransitionType.FADE, 700)
+                    "Wipe 700" -> onApplyTransitionPreset(TransitionType.WIPE, 700)
+                    "Slide 700" -> onApplyTransitionPreset(TransitionType.SLIDE, 700)
                     "Studio Panel" -> {
                         val manager = timelineManagerProvider()
                         val clips = manager?.getClips().orEmpty()
@@ -373,12 +387,17 @@ class UiChromeController(
             chips("Capture", listOf("Record Voice", "Punch-In"), -1) { _, _ ->
                 onVoiceoverRequested()
             }
-            chips("Source", listOf("Import Audio", "Quick Sample"), -1) { _, option ->
+            chips("Source", listOf("Import Audio", "Quick Sample", "Split Audio"), -1) { _, option ->
                 when (option) {
                     "Import Audio" -> onShowAudioPicker()
                     "Quick Sample" -> {
                         if (!onQuickAudioImport()) {
                             Toast.makeText(activity, "No quick audio found", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    "Split Audio" -> {
+                        if (!onSplitAudioAtPlayhead()) {
+                            Toast.makeText(activity, "Select an audio clip first", Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
@@ -389,14 +408,18 @@ class UiChromeController(
     private fun showColorToolSheet() {
         pausePlaybackForPanel()
         ModernSheet.show(activity, "Color") {
-            chips("Studio", listOf("Grade Controls", "LUT Library", "Reset Color"), -1) { _, option ->
+            chips("Studio", listOf("Grade Controls", "LUT Library", "Chroma Key", "Reset Color"), -1) { _, option ->
                 when (option) {
                     "Grade Controls" -> showColorStudio()
                     "LUT Library" -> showLutLibrary()
+                    "Chroma Key" -> openChromaForActiveClip()
                     "Reset Color" -> applyEffectPreset(EffectParams())
                 }
             }
             chips("Quick Looks", listOf("Warm", "Cool", "Vintage", "B&W", "Vivid", "Cinematic"), -1) { _, option ->
+                applyEffectPreset(effectPresetByName(option))
+            }
+            chips("Finish", listOf("Drama", "Punch", "Soft", "Neutral"), -1) { _, option ->
                 applyEffectPreset(effectPresetByName(option))
             }
         }

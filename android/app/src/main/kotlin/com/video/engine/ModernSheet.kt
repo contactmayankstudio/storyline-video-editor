@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.view.View
 import android.widget.*
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlin.math.roundToInt
@@ -19,10 +20,26 @@ object ModernSheet {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = sheetRootBackground(context)
-            setPadding(px(context, 20), px(context, 16), px(context, 20), px(context, 30))
+            setPadding(px(context, 20), px(context, 16), px(context, 20), 0)
         }
 
-        // Title
+        val content = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, px(context, 30))
+        }
+        val scroller = ScrollView(context).apply {
+            isFillViewport = true
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            addView(
+                content,
+                ScrollView.LayoutParams(
+                    ScrollView.LayoutParams.MATCH_PARENT,
+                    ScrollView.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+        }
+
         root.addView(TextView(context).apply {
             text = title
             textSize = 18f
@@ -48,8 +65,15 @@ object ModernSheet {
             }
         })
         root.addView(handle, 0)
+        root.addView(
+            scroller,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).also { it.weight = 1f },
+        )
 
-        Builder(context, root, dialog).build()
+        Builder(context, content, dialog).build()
         dialog.setContentView(root)
         dialog.show()
     }

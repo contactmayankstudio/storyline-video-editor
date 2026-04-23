@@ -357,6 +357,17 @@ class MainActivity : Activity() {
             fontName = "sans-serif",
         ),
         TextOverlayPreset(
+            label = "Subtitle",
+            hint = "Explain the moment",
+            x = 0.5f,
+            y = 0.88f,
+            fontSize = 34f,
+            color = 0xFFFFFFFF.toInt(),
+            bold = true,
+            defaultDurationMs = 2600,
+            fontName = "sans-serif",
+        ),
+        TextOverlayPreset(
             label = "Hook",
             hint = "STOP THE SCROLL",
             x = 0.5f,
@@ -369,6 +380,29 @@ class MainActivity : Activity() {
             fontName = "sans-serif",
         ),
         TextOverlayPreset(
+            label = "CTA",
+            hint = "WATCH TILL THE END",
+            x = 0.5f,
+            y = 0.82f,
+            fontSize = 36f,
+            color = 0xFFFFB74D.toInt(),
+            bold = true,
+            uppercase = true,
+            defaultDurationMs = 2200,
+            fontName = "sans-serif",
+        ),
+        TextOverlayPreset(
+            label = "Quote",
+            hint = "\"Your strongest line\"",
+            x = 0.5f,
+            y = 0.34f,
+            fontSize = 40f,
+            color = 0xFFB3E5FC.toInt(),
+            italic = true,
+            defaultDurationMs = 3200,
+            fontName = "serif",
+        ),
+        TextOverlayPreset(
             label = "Label",
             hint = "Scene note",
             x = 0.22f,
@@ -378,6 +412,18 @@ class MainActivity : Activity() {
             italic = true,
             defaultDurationMs = 2800,
             fontName = "monospace",
+        ),
+        TextOverlayPreset(
+            label = "Badge",
+            hint = "NEW",
+            x = 0.18f,
+            y = 0.16f,
+            fontSize = 28f,
+            color = 0xFFFF8A65.toInt(),
+            bold = true,
+            uppercase = true,
+            defaultDurationMs = 2400,
+            fontName = "sans-serif",
         ),
         TextOverlayPreset(
             label = "Basic",
@@ -1794,7 +1840,7 @@ class MainActivity : Activity() {
                 customDurationMs = (value * 1000f).roundToInt()
             }
             divider()
-            chips("Primary", listOf("Caption", "Title", "Lower 3rd"), -1) { _, option ->
+            chips("Primary", listOf("Caption", "Title", "Lower 3rd", "Subtitle"), -1) { _, option ->
                 val preset = textOverlayPresetByLabel(option) ?: return@chips
                 addTextOverlay(
                     buildTextOverlayFromPreset(
@@ -1805,7 +1851,7 @@ class MainActivity : Activity() {
                     message = "${preset.label} added",
                 )
             }
-            chips("More", listOf("Hook", "Label", "Basic"), -1) { _, option ->
+            chips("More", listOf("Hook", "CTA", "Quote", "Label", "Badge", "Basic"), -1) { _, option ->
                 val preset = textOverlayPresetByLabel(option) ?: return@chips
                 addTextOverlay(
                     buildTextOverlayFromPreset(
