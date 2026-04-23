@@ -496,6 +496,20 @@ class MainActivity : Activity() {
         scheduleTopBannerPlacement()
     }
 
+    private fun buildRecentProjectFiles(): List<File> {
+        val baseDir = getExternalFilesDir(null) ?: filesDir
+        val projectFiles = File(baseDir, "projects")
+            .listFiles { file -> file.isFile && file.extension == "vne" }
+            ?.toList()
+            .orEmpty()
+        val autoSaveFile = File(baseDir, "autosave/autosave.vne")
+            .takeIf { it.isFile }
+        return buildList {
+            addAll(projectFiles)
+            if (autoSaveFile != null) add(autoSaveFile)
+        }.sortedByDescending { it.lastModified() }
+    }
+
     private fun refreshTopBannerPlacement() {
         val ads = adsController ?: return
         val showHomeBanner = startScreenOverlayView?.visibility == View.VISIBLE
@@ -521,10 +535,7 @@ class MainActivity : Activity() {
     private fun refreshRecentProjects() {
         val projectsList = startRecentProjectsList ?: return
         Thread {
-            val projectsDir = File(getExternalFilesDir(null), "projects")
-            val projectFiles = projectsDir.listFiles { file -> file.isFile && file.extension == "vne" }
-                ?.sortedByDescending { it.lastModified() }
-                ?: emptyList()
+            val projectFiles = buildRecentProjectFiles()
             projectsList.post {
                 if (isFinishing || isDestroyed) return@post
                 val hasProjects = projectFiles.isNotEmpty()
@@ -1150,6 +1161,14 @@ class MainActivity : Activity() {
         if (intent?.getStringExtra("adb_action").isNullOrBlank()) {
             mainHandler.post { maybePromptAutoSaveRestore() }
         }
+    }
+
+    override fun onBackPressed() {
+        if (startScreenOverlayView?.visibility != View.VISIBLE) {
+            showEditorHome()
+            return
+        }
+        super.onBackPressed()
     }
 
     private fun setupAspectRatioButton() {

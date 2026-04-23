@@ -554,7 +554,7 @@
         android:layout_height="match_parent"
         android:background="@drawable/editor_root_background"
         android:elevation="100dp"
-        android:visibility="visible">
+        android:visibility="gone">
 
         <View
             android:layout_width="0dp"

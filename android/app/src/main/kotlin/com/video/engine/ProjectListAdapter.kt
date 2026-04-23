@@ -16,6 +16,7 @@ class ProjectListAdapter(
 ) : RecyclerView.Adapter<ProjectListAdapter.ViewHolder>() {
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val tag: TextView = view.findViewById(R.id.projectCardTag)
         val name: TextView = view.findViewById(R.id.projectCardName)
         val date: TextView = view.findViewById(R.id.projectCardDate)
         val status: TextView = view.findViewById(R.id.projectCardStatus)
@@ -30,10 +31,20 @@ class ProjectListAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val project = projects[position]
-        holder.name.text = displayName(project)
+        val isAutosave = project.isAutoSaveEntry()
+        holder.tag.text = holder.itemView.context.getString(
+            if (isAutosave) R.string.project_card_tag_autosave else R.string.project_card_tag,
+        )
+        holder.name.text = if (isAutosave) {
+            holder.itemView.context.getString(R.string.project_card_name_autosave)
+        } else {
+            displayName(project)
+        }
         val sdf = SimpleDateFormat("dd MMM yyyy • HH:mm", Locale.getDefault())
         holder.date.text = "Updated ${sdf.format(Date(project.lastModified()))}"
-        holder.status.text = holder.itemView.context.getString(R.string.project_card_status)
+        holder.status.text = holder.itemView.context.getString(
+            if (isAutosave) R.string.project_card_status_resume else R.string.project_card_status,
+        )
         holder.icon.setImageResource(R.drawable.ic_video_clip)
 
         holder.itemView.setOnClickListener { onProjectClick(project) }
@@ -44,5 +55,9 @@ class ProjectListAdapter(
     private fun displayName(project: File): String {
         val rawName = project.nameWithoutExtension
         return rawName.replace(Regex("_[0-9]{8}_[0-9]{6}$"), "")
+    }
+
+    private fun File.isAutoSaveEntry(): Boolean {
+        return name.equals("autosave.vne", ignoreCase = true) || parentFile?.name == "autosave"
     }
 }

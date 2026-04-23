@@ -12,7 +12,10 @@
     <string name="recent_projects_label">Recent Projects</string>
     <string name="recent_projects_empty">Your saved edits will appear here.</string>
     <string name="project_card_tag">LOCAL</string>
+    <string name="project_card_tag_autosave">AUTOSAVE</string>
+    <string name="project_card_name_autosave">Last Session</string>
     <string name="project_card_status">Tap to reopen</string>
+    <string name="project_card_status_resume">Resume</string>
     <string name="activity_preview_label">Preview</string>
 
     <string name="project_title">Storyline</string>
