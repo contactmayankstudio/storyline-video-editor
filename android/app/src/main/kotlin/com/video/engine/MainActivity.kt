@@ -1973,6 +1973,14 @@ class MainActivity : Activity() {
                 importController?.setNextImportTrackType(TrackType.VIDEO)
                 importController?.importQuickSample()
             }
+            "quick_import_overlay" -> {
+                importController?.setNextImportTrackType(TrackType.OVERLAY)
+                importController?.importQuickSample()
+            }
+            "quick_import_layer" -> {
+                importController?.setNextImportTrackType(TrackType.LAYER)
+                importController?.importQuickSample()
+            }
             "reset_to_blank" -> {
                 startBlankProject(showToast = false)
             }
