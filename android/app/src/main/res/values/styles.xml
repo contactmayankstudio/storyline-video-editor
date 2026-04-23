@@ -34,12 +34,12 @@
         <item name="android:background">@drawable/toolbar_item_background</item>
         <item name="android:layout_marginStart">2dp</item>
         <item name="android:layout_marginEnd">2dp</item>
-        <item name="android:layout_marginTop">4dp</item>
-        <item name="android:layout_marginBottom">4dp</item>
-        <item name="android:paddingStart">4dp</item>
-        <item name="android:paddingTop">4dp</item>
-        <item name="android:paddingEnd">4dp</item>
-        <item name="android:paddingBottom">4dp</item>
+        <item name="android:layout_marginTop">3dp</item>
+        <item name="android:layout_marginBottom">3dp</item>
+        <item name="android:paddingStart">3dp</item>
+        <item name="android:paddingTop">3dp</item>
+        <item name="android:paddingEnd">3dp</item>
+        <item name="android:paddingBottom">3dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
     </style>
@@ -58,7 +58,7 @@
         <item name="android:textSize">@dimen/toolbar_text_size</item>
         <item name="android:textStyle">bold</item>
         <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="android:layout_marginTop">3dp</item>
+        <item name="android:layout_marginTop">2dp</item>
         <item name="android:maxLines">1</item>
         <item name="android:letterSpacing">0.04</item>
     </style>
@@ -71,12 +71,12 @@
         <item name="android:background">@drawable/toolbar_item_background</item>
         <item name="android:layout_marginStart">2dp</item>
         <item name="android:layout_marginEnd">2dp</item>
-        <item name="android:layout_marginTop">4dp</item>
-        <item name="android:layout_marginBottom">4dp</item>
-        <item name="android:paddingStart">4dp</item>
-        <item name="android:paddingTop">4dp</item>
-        <item name="android:paddingEnd">4dp</item>
-        <item name="android:paddingBottom">4dp</item>
+        <item name="android:layout_marginTop">3dp</item>
+        <item name="android:layout_marginBottom">3dp</item>
+        <item name="android:paddingStart">3dp</item>
+        <item name="android:paddingTop">3dp</item>
+        <item name="android:paddingEnd">3dp</item>
+        <item name="android:paddingBottom">3dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
     </style>
@@ -88,7 +88,7 @@
         <item name="android:textSize">@dimen/toolbar_text_size</item>
         <item name="android:textStyle">bold</item>
         <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="android:layout_marginTop">3dp</item>
+        <item name="android:layout_marginTop">2dp</item>
         <item name="android:maxLines">1</item>
         <item name="android:letterSpacing">0.03</item>
     </style>
