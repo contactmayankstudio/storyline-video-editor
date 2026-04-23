@@ -842,7 +842,16 @@ class MainActivity : Activity() {
             setIsPlaying = { isPlaying = it },
             setVideoDurationMs = { videoDurationMs = it },
             totalDurationMsProvider = { timelineManager?.getTotalDurationMs() ?: 0L },
-            onSelectionChanged = { selectedClipId ->
+            onSelectionChanged = selectionChanged@{ selectedClipId ->
+                if (selectedClipId == null) {
+                    val existingAudioId = selectedAudioClipId()
+                    if (existingAudioId != null && AudioClipStore.get(existingAudioId) != null) {
+                        Log.d(TAG, "Ignoring null playback selection while audio clip remains selected: $existingAudioId")
+                        updateBottomToolbarMode()
+                        updateUndoRedoButtons()
+                        return@selectionChanged
+                    }
+                }
                 selectedTimelineClipKey = selectedClipId?.let(::selectionKeyForNativeClipId)
                 updateBottomToolbarMode()
                 updateUndoRedoButtons()
