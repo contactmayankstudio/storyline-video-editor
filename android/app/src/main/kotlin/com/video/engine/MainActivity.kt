@@ -719,7 +719,7 @@ class MainActivity : Activity() {
                 runCatching { NativeBridge.setTimelineZoomPxPerSecond(pxPerSecond) }
             }
             override fun onClipSelected(clipId: String?) {
-                selectedTimelineClipKey = clipId
+                selectedTimelineClipKey = normalizeTimelineSelectionKey(clipId)
                 updateBottomToolbarMode()
             }
             override fun onPlayheadScrub(timeMs: Long) {
@@ -747,7 +747,7 @@ class MainActivity : Activity() {
             mainHandler.post { performSelectedClipSplitAction() }
         }
         canvasView?.onClipLongPress = { clipId, _, _ ->
-            selectedTimelineClipKey = clipId
+            selectedTimelineClipKey = normalizeTimelineSelectionKey(clipId)
             updateBottomToolbarMode()
             ModernSheet.show(this, "Clip Actions") {
                 chips("", listOf("Split", "Delete", "Duplicate", "Reverse", "Speed"), -1) { _, opt ->
@@ -3333,7 +3333,7 @@ class MainActivity : Activity() {
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastScrollMs < 300L) return
                 }
-                selectedTimelineClipKey = clipId
+                selectedTimelineClipKey = normalizeTimelineSelectionKey(clipId)
                 updateBottomToolbarMode()
                 parseTimelineManagedClipId(clipId)?.let { timelineManager?.selectClip(it) }
                 if (clipId == null) {
@@ -4548,6 +4548,11 @@ class MainActivity : Activity() {
             TrackType.LAYER -> "layer-$clipId"
             else -> clipId.toString()
         }
+    }
+
+    private fun normalizeTimelineSelectionKey(clipKey: String?): String? {
+        val clipId = parseTimelineManagedClipId(clipKey) ?: return clipKey
+        return selectionKeyForNativeClipId(clipId)
     }
 
     private fun isOverlayNativeClip(clipId: Int): Boolean {

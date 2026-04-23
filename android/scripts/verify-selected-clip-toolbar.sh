@@ -15,9 +15,12 @@ Usage: $(basename "$0") [--output-dir <dir>]
 Runs a portrait adb audit on the currently installed Storyline build:
   - launch app
   - import Media > Quick Sample
-  - reveal selected-clip toolbar actions
-  - verify Color / Effects / Transition / Graphics / Stack
+  - verify selected-clip Color / Effects / Transition / Graphics / Stack
   - verify Stack > Quick Sample selects an overlay layer
+  - verify Text preset add
+  - verify Voice quick audio import
+  - verify Color slider apply
+  - verify Transition apply after duplicate
 
 Writes screenshots, XML dumps, and a summary file under android/build/github-device/.
 EOF
@@ -138,6 +141,17 @@ launch_editor() {
     sleep 2
 }
 
+send_automation_action() {
+    local action="$1"
+    local token="${action}_$(date +%s%N)"
+    shift
+    adb shell am start -n "${APP_ID}/${LAUNCH_ACTIVITY}" \
+        --es adb_action "${action}" \
+        --es adb_token "${token}" \
+        "$@" >/dev/null
+    sleep 2
+}
+
 swipe_toolbar_short() {
     adb shell input swipe 640 1412 420 1412 180
     sleep 1
@@ -145,6 +159,11 @@ swipe_toolbar_short() {
 
 swipe_toolbar_long() {
     adb shell input swipe 680 1412 120 1412 180
+    sleep 1
+}
+
+swipe_toolbar_right() {
+    adb shell input swipe 120 1412 680 1412 180
     sleep 1
 }
 
@@ -177,6 +196,58 @@ verify_contains() {
     fi
 }
 
+verify_not_contains() {
+    local file="$1"
+    local pattern="$2"
+    local label="$3"
+    if rg -q "$pattern" "$file"; then
+        append_summary "${label}=fail"
+        return 1
+    else
+        append_summary "${label}=pass"
+    fi
+}
+
+extract_text_by_resource() {
+    local xml_file="$1"
+    local resource_id="$2"
+    python3 - "$xml_file" "$resource_id" <<'PY'
+import re
+import sys
+
+xml_path, resource_id = sys.argv[1], sys.argv[2]
+text = open(xml_path, "r", encoding="utf-8").read()
+match = re.search(r'text="([^"]*)"[^>]*resource-id="' + re.escape(resource_id) + r'"', text)
+if not match:
+    sys.exit(1)
+print(match.group(1))
+PY
+}
+
+swipe_within_bounds() {
+    local bounds="$1"
+    local start_ratio="$2"
+    local end_ratio="$3"
+    local coords
+    coords="$(
+        python3 - "$bounds" "$start_ratio" "$end_ratio" <<'PY'
+import re
+import sys
+
+bounds = sys.argv[1]
+start_ratio = float(sys.argv[2])
+end_ratio = float(sys.argv[3])
+x1, y1, x2, y2 = map(int, re.findall(r'\d+', bounds))
+y = (y1 + y2) // 2
+start_x = int(x1 + (x2 - x1) * start_ratio)
+end_x = int(x1 + (x2 - x1) * end_ratio)
+print(f"{start_x} {y} {end_x} {y}")
+PY
+    )"
+    adb shell input swipe ${coords} 200
+    sleep 1
+}
+
 ensure_storyline_front() {
     local label_prefix="$1"
     if rg -q 'package="com.storyline.app"' "$CURRENT_XML"; then
@@ -187,12 +258,19 @@ ensure_storyline_front() {
     dump_ui "${label_prefix}_launch_retry"
 }
 
-prepare_video_clip() {
+prepare_blank_editor() {
     local label_prefix="$1"
     launch_editor
     dump_ui "${label_prefix}_launch"
     ensure_storyline_front "$label_prefix"
     clear_resume_dialog_if_needed
+    send_automation_action "reset_to_blank"
+    dump_ui "${label_prefix}_blank"
+}
+
+prepare_video_clip() {
+    local label_prefix="$1"
+    prepare_blank_editor "$label_prefix"
     tap_by_text "$CURRENT_XML" "Media"
     dump_ui "${label_prefix}_media_sheet"
     verify_contains "$CURRENT_XML" 'text="Quick Sample"' "${label_prefix}_media_sheet"
@@ -200,6 +278,27 @@ prepare_video_clip() {
     sleep 2
     dump_ui "${label_prefix}_after_import"
     verify_contains "$CURRENT_XML" 'VIDEO CLIP' "${label_prefix}_video_clip_selected"
+}
+
+reveal_main_toolbar_button() {
+    local resource_id="$1"
+    local label="$2"
+    local attempt
+    for attempt in 1 2 3 4; do
+        dump_ui "${label}_reveal_${attempt}"
+        if rg -q "resource-id=\"${resource_id}\"" "$CURRENT_XML"; then
+            return 0
+        fi
+        swipe_toolbar_long
+    done
+    return 1
+}
+
+open_main_toolbar_button() {
+    local resource_id="$1"
+    local label="$2"
+    reveal_main_toolbar_button "$resource_id" "$label"
+    tap_by_resource_id "$resource_id"
 }
 
 require_cmd
@@ -216,6 +315,12 @@ dump_ui "01_color_reveal"
 tap_by_resource_id "${APP_ID}:id/clipBrightnessButton"
 dump_ui "01_color_open"
 verify_contains "$CURRENT_XML" 'brightnessSeekBar' "color_sheet"
+
+log "Applying Color slider..."
+brightness_bounds="$(find_bounds_by_pattern "$CURRENT_XML" "resource-id=\"${APP_ID}:id/brightnessSeekBar\"")"
+swipe_within_bounds "$brightness_bounds" 0.35 0.75
+dump_ui "01_color_applied"
+verify_not_contains "$CURRENT_XML" 'text="Brightness 0\.00"' "color_apply"
 
 log "Opening Effects sheet..."
 prepare_video_clip "02_effects"
@@ -255,6 +360,45 @@ tap_by_text "$CURRENT_XML" "Quick Sample"
 sleep 2
 dump_ui "05_stack_after_quicksample"
 verify_contains "$CURRENT_XML" 'OVERLAY LAYER' "stack_quicksample"
+
+log "Opening Text sheet..."
+prepare_blank_editor "06_text"
+open_main_toolbar_button "${APP_ID}:id/textButton" "06_text"
+dump_ui "06_text_sheet"
+verify_contains "$CURRENT_XML" 'text="Text"|text="Caption"|text="Basic"' "text_sheet"
+tap_by_text "$CURRENT_XML" "Caption"
+sleep 2
+dump_ui "06_text_added"
+verify_contains "$CURRENT_XML" 'TEXT LAYER|Tell the next beat' "text_add"
+
+log "Opening Voice sheet..."
+prepare_blank_editor "07_voice"
+tap_by_resource_id "${APP_ID}:id/voiceoverButton"
+dump_ui "07_voice_sheet"
+verify_contains "$CURRENT_XML" 'Voiceover|Quick Sample|Split Audio' "voice_sheet"
+tap_by_text "$CURRENT_XML" "Quick Sample"
+sleep 2
+dump_ui "07_voice_after_quicksample"
+verify_contains "$CURRENT_XML" 'AUDIO CLIP' "voice_quicksample"
+
+log "Applying quick transition..."
+prepare_video_clip "08_transition_apply"
+swipe_toolbar_long
+dump_ui "08_transition_duplicate_reveal"
+tap_by_resource_id "${APP_ID}:id/clipDuplicateButton"
+sleep 2
+dump_ui "08_transition_after_duplicate"
+adb logcat -c >/dev/null 2>&1 || true
+swipe_toolbar_right
+swipe_toolbar_short
+dump_ui "08_transition_apply_reveal"
+tap_by_resource_id "${APP_ID}:id/clipTransitionButton"
+dump_ui "08_transition_apply_sheet"
+tap_by_text "$CURRENT_XML" "Cross 250"
+sleep 2
+adb logcat -d -v time > "${OUTPUT_DIR}/08_transition_apply.logcat.txt"
+dump_ui "08_transition_applied"
+verify_contains "${OUTPUT_DIR}/08_transition_apply.logcat.txt" '\\[TRANSITION\\] add|\\[TRANSITION\\] update|\\[TRANSITION\\] updated' "transition_apply"
 
 append_summary "finished_at=$(date -Is)"
 log "Toolbar audit complete: ${SUMMARY_FILE}"
