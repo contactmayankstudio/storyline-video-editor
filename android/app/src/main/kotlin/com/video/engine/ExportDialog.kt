@@ -155,6 +155,7 @@ class ExportDialog(
         lateinit var exportButton: TextView
         lateinit var watermarkStatus: TextView
         lateinit var watermarkAction: TextView
+        lateinit var modeGuidance: TextView
         lateinit var qualityCurrent: TextView
         lateinit var bitrateCurrent: TextView
         lateinit var qualitySeek: SeekBar
@@ -190,8 +191,17 @@ class ExportDialog(
                 ratioW = ratio.w,
                 ratioH = ratio.h,
             )
+            val selectedMode = exportModes.getOrNull(selectedModeIndex ?: -1)
             qualityCurrent.text = exportModes.getOrNull(selectedModeIndex ?: -1)?.label ?: "Custom"
             bitrateCurrent.text = "${effective.bitrateMbps} Mbps • ${effective.codec.shortLabel}"
+            modeGuidance.text = buildModeGuidance(selectedMode, complexity, effective)
+            modeGuidance.setTextColor(
+                when {
+                    DeviceDetector.isLowEndDevice() && selectedMode?.label == "Standard" -> accentWarm()
+                    DeviceDetector.isLowEndDevice() && selectedMode?.label == "Master" -> Color.parseColor("#FF7A6A")
+                    else -> Color.parseColor("#B8C0C8")
+                },
+            )
             refreshWatermarkState(watermarkUnlocked, watermarkStatus, watermarkAction)
         }
 
@@ -232,6 +242,11 @@ class ExportDialog(
         }
         modeScroller.addView(modeRow)
         root.addView(modeScroller)
+        modeGuidance = subtitleView("").apply {
+            gravity = Gravity.START
+            setPadding(0, dp(8), 0, dp(4))
+        }
+        root.addView(modeGuidance)
         if (!codecCapabilities.hevcEncoder) {
             root.addView(
                 subtitleView("Smaller File mode appears only when this device exposes an HEVC encoder.").apply {
@@ -831,6 +846,30 @@ class ExportDialog(
             note = "Highest bitrate H.264 preset for strongest devices.",
         )
         return modes
+    }
+
+    private fun buildModeGuidance(
+        mode: ExportMode?,
+        complexity: ProjectExportComplexity,
+        effectiveSettings: EffectiveExportSettings,
+    ): String {
+        val modeLabel = mode?.label ?: "Custom"
+        val resolution = resolutionLabelFor(effectiveSettings.width, effectiveSettings.height)
+        return when {
+            DeviceDetector.isLowEndDevice() && modeLabel == "Fast" ->
+                "Recommended on low-end phones. Uses $resolution/${effectiveSettings.fps}fps ${effectiveSettings.codec.shortLabel} and finished the 30s layered benchmark on this device in about 4 minutes."
+            DeviceDetector.isLowEndDevice() && modeLabel == "Standard" ->
+                "Sharper output, but roughly 2x slower than Fast on this low-end device. Use when quality matters more than export time."
+            DeviceDetector.isLowEndDevice() && modeLabel == "Master" ->
+                "Highest bitrate H.264. Works on low-end devices too, but expect the longest render time."
+            DeviceDetector.isHighEndDevice() && modeLabel == "Standard" ->
+                "Best default on stronger devices. Keeps $resolution/${effectiveSettings.fps}fps H.264 quality without the low-end delay."
+            modeLabel == "Smaller File" ->
+                "Uses HEVC on supported devices for smaller files. Export speed depends on hardware encoder support."
+            complexity.isComplex && modeLabel == "Fast" ->
+                "Layered edit detected. Fast keeps the quickest hardware-first render path."
+            else -> mode?.note ?: "$modeLabel export uses $resolution/${effectiveSettings.fps}fps ${effectiveSettings.codec.shortLabel}."
+        }
     }
 
     private fun resolutionLabelFor(width: Int, height: Int): String {
