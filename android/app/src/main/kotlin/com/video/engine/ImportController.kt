@@ -29,9 +29,9 @@ class ImportController(
         private const val TAG = "[UI]"
         private const val PROXY_POLL_INTERVAL_MS = 1200L
         private const val PROXY_MAX_POLL_ATTEMPTS = 180
-        private const val LOW_END_PROXY_START_DELAY_MS = 2200L
-        private const val MID_TIER_PROXY_START_DELAY_MS = 1400L
-        private const val HIGH_TIER_PROXY_START_DELAY_MS = 900L
+        private const val LOW_END_PROXY_START_DELAY_MS = 3600L
+        private const val MID_TIER_PROXY_START_DELAY_MS = 2600L
+        private const val HIGH_TIER_PROXY_START_DELAY_MS = 1600L
         private const val PROXY_BUSY_RETRY_DELAY_MS = 1800L
         private val VIDEO_EXTENSIONS = setOf("mp4", "mov", "avi", "mkv", "webm", "m4v", "3gp", "3gpp", "ts", "mts", "m2ts", "mpeg", "mpg")
         private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp", "bmp", "gif", "tif", "tiff")
