@@ -513,8 +513,15 @@ class MainActivity : Activity() {
     private fun refreshTopBannerPlacement() {
         val ads = adsController ?: return
         val showHomeBanner = startScreenOverlayView?.visibility == View.VISIBLE
-        val target = if (showHomeBanner) startTopBannerContainer else editorTopBannerContainer
-        val inactive = if (showHomeBanner) editorTopBannerContainer else startTopBannerContainer
+        if (!showHomeBanner) {
+            startTopBannerContainer?.let(ads::releaseBanner)
+            editorTopBannerContainer?.let(ads::releaseBanner)
+            editorTopBannerContainer?.visibility = View.GONE
+            activeTopBannerHostId = null
+            return
+        }
+        val target = startTopBannerContainer
+        val inactive = editorTopBannerContainer
         if (activeTopBannerHostId == target?.id) {
             target?.visibility = View.VISIBLE
             inactive?.let(ads::releaseBanner)

@@ -146,10 +146,7 @@
             android:id="@+id/previewStageHost"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:layout_marginStart="8dp"
-            android:layout_marginTop="8dp"
-            android:layout_marginEnd="8dp"
-            android:layout_marginBottom="68dp"
+            android:layout_marginBottom="58dp"
             android:background="@drawable/preview_stage_frame_background" />
 
         <!-- HW telemetry (hidden by default) -->
@@ -190,69 +187,72 @@
                 android:textColor="@color/accent_blue" android:textSize="10sp" android:textStyle="bold"/>
         </LinearLayout>
 
-        <LinearLayout
+        <androidx.constraintlayout.widget.ConstraintLayout
             android:id="@+id/playbackUndoRedoRow"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="bottom|center_horizontal"
-            android:layout_marginBottom="10dp"
-            android:background="@drawable/timeline_panel_background"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="4dp"
-            android:paddingTop="4dp"
-            android:paddingEnd="4dp"
-            android:paddingBottom="4dp">
+            android:layout_gravity="bottom"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp"
+            android:layout_marginBottom="8dp">
 
             <ImageButton
                 android:id="@+id/undoButton"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:background="@drawable/toolbar_item_background"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:background="@drawable/playback_control_ghost_background"
                 android:contentDescription="@string/undo_label"
                 android:padding="8dp"
                 android:src="@drawable/ic_undo_toolbar"
-                android:tint="@color/text_secondary" />
+                android:tint="@color/text_secondary"
+                app:layout_constraintBottom_toBottomOf="@id/previewPlayPauseButton"
+                app:layout_constraintEnd_toStartOf="@id/previewPlayPauseButton"
+                android:layout_marginEnd="28dp" />
 
             <ImageButton
                 android:id="@+id/previewPlayPauseButton"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:layout_marginStart="4dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:background="@drawable/playback_control_primary_background"
                 android:contentDescription="@string/play_button"
-                android:padding="9dp"
+                android:padding="12dp"
                 android:src="@drawable/ic_play_toolbar"
-                android:tint="@color/text_primary" />
+                android:tint="@color/text_primary"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent" />
 
             <ImageButton
                 android:id="@+id/redoButton"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:layout_marginStart="4dp"
-                android:background="@drawable/toolbar_item_background"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:background="@drawable/playback_control_ghost_background"
                 android:contentDescription="@string/redo_label"
                 android:padding="8dp"
                 android:rotation="180"
                 android:src="@drawable/ic_undo_toolbar"
-                android:tint="@color/text_secondary" />
+                android:tint="@color/text_secondary"
+                android:layout_marginStart="28dp"
+                app:layout_constraintBottom_toBottomOf="@id/previewPlayPauseButton"
+                app:layout_constraintStart_toEndOf="@id/previewPlayPauseButton" />
 
             <TextView
                 android:id="@+id/timelineCurrentTimeText"
                 android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:layout_marginStart="6dp"
-                android:background="@drawable/toolbar_item_background"
+                android:layout_height="30dp"
+                android:background="@drawable/playback_time_pill_background"
                 android:fontFamily="monospace"
                 android:gravity="center"
-                android:minWidth="74dp"
+                android:minWidth="68dp"
                 android:paddingStart="10dp"
                 android:paddingEnd="10dp"
                 android:text="00:00"
                 android:textColor="@color/text_primary"
-                android:textSize="10sp"
-                android:textStyle="bold" />
-        </LinearLayout>
+                android:textSize="9sp"
+                android:textStyle="bold"
+                app:layout_constraintBottom_toBottomOf="@id/previewPlayPauseButton"
+                app:layout_constraintEnd_toEndOf="parent" />
+        </androidx.constraintlayout.widget.ConstraintLayout>
 
     </FrameLayout>
 
