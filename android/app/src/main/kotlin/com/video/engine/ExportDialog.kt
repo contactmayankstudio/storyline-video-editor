@@ -186,6 +186,7 @@ class ExportDialog(
                 requestedFps = selectedFps,
                 selectedQualityIndex = selectedQualityIndex,
                 selectedCodec = selectedCodec,
+                selectedModeLabel = exportModes.getOrNull(selectedModeIndex ?: -1)?.label,
                 ratioW = ratio.w,
                 ratioH = ratio.h,
             )
@@ -465,6 +466,7 @@ class ExportDialog(
                 requestedFps = selectedFps,
                 selectedQualityIndex = selectedQualityIndex,
                 selectedCodec = selectedCodec,
+                selectedModeLabel = exportModes.getOrNull(selectedModeIndex ?: -1)?.label,
                 ratioW = ratio.w,
                 ratioH = ratio.h,
             )
@@ -559,6 +561,7 @@ class ExportDialog(
             requestedFps = selectedFps,
             selectedQualityIndex = selectedQualityIndex,
             selectedCodec = selectedCodec,
+            selectedModeLabel = selectedModeLabel,
             ratioW = ratio.w,
             ratioH = ratio.h,
         )
@@ -595,49 +598,79 @@ class ExportDialog(
         requestedFps: Int,
         selectedQualityIndex: Int,
         selectedCodec: ExportVideoCodec,
+        selectedModeLabel: String? = null,
         ratioW: Int = 16,
         ratioH: Int = 9,
     ): EffectiveExportSettings {
         val qualityProfile = DeviceDetector.getQualityProfile()
+        val isLowEndFastMode = DeviceDetector.isLowEndDevice() && (selectedModeLabel?.equals("Fast", ignoreCase = true) == true)
         // Derive dimensions from profile's long edge + ratio
-        val longEdge = maxOf(profile.width, profile.height)
+        val longEdge = when {
+            isLowEndFastMode -> minOf(maxOf(profile.width, profile.height), 960)
+            else -> maxOf(profile.width, profile.height)
+        }
         val (baseW, baseH) = if (ratioW >= ratioH) {
             longEdge to (longEdge * ratioH / ratioW)
         } else {
             (longEdge * ratioW / ratioH) to longEdge
         }
-        val (lockedWidth, lockedHeight) = clampExportSize(baseW, baseH)
+        val (lockedWidth, lockedHeight) = clampExportSize(baseW, baseH, selectedModeLabel)
         val maxBitrateMbps = maxOf(1, (qualityProfile.exportBitrate + 999) / 1000)
+        val effectiveFps = if (isLowEndFastMode) {
+            requestedFps.coerceAtMost(24)
+        } else {
+            requestedFps.coerceAtMost(qualityProfile.maxExportFps).coerceAtLeast(24)
+        }
+        val bitrateCapMbps = if (isLowEndFastMode) minOf(maxBitrateMbps, 1) else maxBitrateMbps
         return EffectiveExportSettings(
             width = lockedWidth,
             height = lockedHeight,
-            fps = requestedFps.coerceAtMost(qualityProfile.maxExportFps).coerceAtLeast(24),
-            bitrateMbps = suggestedBitrateMbps(profile, requestedFps, selectedQualityIndex, selectedCodec).coerceAtMost(maxBitrateMbps),
+            fps = effectiveFps,
+            bitrateMbps = suggestedBitrateMbps(
+                width = lockedWidth,
+                height = lockedHeight,
+                fps = effectiveFps,
+                qualityIndex = selectedQualityIndex,
+                codec = selectedCodec,
+                selectedModeLabel = selectedModeLabel,
+            ).coerceAtMost(bitrateCapMbps),
             codec = selectedCodec,
         )
     }
 
-    private fun clampExportSize(width: Int, height: Int): Pair<Int, Int> {
+    private fun clampExportSize(width: Int, height: Int, selectedModeLabel: String? = null): Pair<Int, Int> {
         if (width <= 0 || height <= 0) {
             return 1280 to 720
         }
         val isLandscape = width >= height
-        val maxWidth = if (isLandscape) 1280f else 720f
-        val maxHeight = if (isLandscape) 720f else 1280f
+        val isLowEndFastMode = DeviceDetector.isLowEndDevice() && (selectedModeLabel?.equals("Fast", ignoreCase = true) == true)
+        val (maxWidth, maxHeight) = if (isLowEndFastMode) {
+            if (isLandscape) 960f to 540f else 540f to 960f
+        } else {
+            if (isLandscape) 1280f to 720f else 720f to 1280f
+        }
         val scale = minOf(maxWidth / width.toFloat(), maxHeight / height.toFloat(), 1f)
         return maxOf((width * scale).toInt(), 1) to maxOf((height * scale).toInt(), 1)
     }
 
     private fun suggestedBitrateMbps(
-        profile: ExportProfile,
+        width: Int,
+        height: Int,
         fps: Int,
         qualityIndex: Int,
         codec: ExportVideoCodec,
+        selectedModeLabel: String? = null,
     ): Int {
+        if (DeviceDetector.isLowEndDevice() && (selectedModeLabel?.equals("Fast", ignoreCase = true) == true)) {
+            return if (codec == ExportVideoCodec.HEVC) 1 else 1
+        }
         val q = qualityIndex.coerceIn(0, qualityLabels.lastIndex)
-        val baseBitrate = when (profile.height) {
-            720 -> if (fps >= 30) intArrayOf(2, 3, 4)[q] else intArrayOf(2, 2, 3)[q]
-            1080 -> if (fps >= 30) intArrayOf(4, 6, 8)[q] else intArrayOf(3, 5, 6)[q]
+        val longEdge = maxOf(width, height)
+        val shortEdge = minOf(width, height)
+        val baseBitrate = when {
+            longEdge <= 960 && shortEdge <= 540 -> if (fps >= 30) intArrayOf(2, 2, 3)[q] else intArrayOf(1, 2, 3)[q]
+            longEdge <= 1280 && shortEdge <= 720 -> if (fps >= 30) intArrayOf(2, 3, 4)[q] else intArrayOf(2, 2, 3)[q]
+            longEdge <= 1920 && shortEdge <= 1080 -> if (fps >= 30) intArrayOf(4, 6, 8)[q] else intArrayOf(3, 5, 6)[q]
             else -> if (fps >= 30) intArrayOf(12, 16, 24)[q] else intArrayOf(8, 12, 18)[q]
         }
         return when (codec) {
@@ -740,11 +773,11 @@ class ExportDialog(
         val standardModeIndex = exportModes.indexOfFirst { it.label == "Standard" }.takeIf { it >= 0 } ?: fastModeIndex
         val note = when {
             isLowEnd && complexity.isComplex ->
-                "Complex layered project on this device: H.264 Fast export is the safest default."
+                "Complex layered project on this device: Fast export uses 540p/24fps H.264 so it can finish sooner."
             complexity.isComplex ->
                 "Complex layered project detected: hardware-first H.264 Fast export will finish sooner."
             isLowEnd ->
-                "This device is memory-limited: Fast export is recommended for smoother render."
+                "This device is memory-limited: Fast export uses 540p/24fps H.264 by default."
             isHighEnd ->
                 "This device can hold Standard export by default, with Smaller File available when HEVC is supported."
             else -> null
@@ -761,10 +794,14 @@ class ExportDialog(
             ExportMode(
                 label = "Fast",
                 profileIndex = 0,
-                fps = 30,
+                fps = if (DeviceDetector.isLowEndDevice()) 24 else 30,
                 qualityIndex = 0,
                 codec = ExportVideoCodec.H264,
-                note = "Fastest hardware-first H.264 preset.",
+                note = if (DeviceDetector.isLowEndDevice()) {
+                    "Fastest hardware-first H.264 preset locked to 540p/24fps on low-end devices."
+                } else {
+                    "Fastest hardware-first H.264 preset."
+                },
             ),
             ExportMode(
                 label = "Standard",
@@ -802,6 +839,7 @@ class ExportDialog(
         return when {
             longEdge >= 1920 && shortEdge >= 1080 -> "1080p"
             longEdge >= 1280 && shortEdge >= 720 -> "720p"
+            longEdge >= 960 && shortEdge >= 540 -> "540p"
             longEdge >= 854 && shortEdge >= 480 -> "480p"
             else -> "${width}x${height}"
         }
