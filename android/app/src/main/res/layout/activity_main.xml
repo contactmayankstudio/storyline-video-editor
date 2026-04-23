@@ -480,11 +480,15 @@
                 </LinearLayout>
                 <LinearLayout android:id="@+id/clipBrightnessButton" style="@style/ClipToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_brightness"/>
-                    <TextView android:id="@+id/clipBrightnessLabel" style="@style/ClipToolbarLabel" android:text="Tone"/>
+                    <TextView android:id="@+id/clipBrightnessLabel" style="@style/ClipToolbarLabel" android:text="Color"/>
                 </LinearLayout>
                 <LinearLayout android:id="@+id/clipFilterButton" style="@style/ClipToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_filter"/>
-                    <TextView android:id="@+id/clipFilterLabel" style="@style/ClipToolbarLabel" android:text="Filter"/>
+                    <TextView android:id="@+id/clipFilterLabel" style="@style/ClipToolbarLabel" android:text="Effects"/>
+                </LinearLayout>
+                <LinearLayout android:id="@+id/clipTransitionButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_transition"/>
+                    <TextView android:id="@+id/clipTransitionLabel" style="@style/ClipToolbarLabel" android:text="Transition"/>
                 </LinearLayout>
                 <LinearLayout android:id="@+id/clipPanZoomButton" style="@style/ClipToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_panzoom"/>

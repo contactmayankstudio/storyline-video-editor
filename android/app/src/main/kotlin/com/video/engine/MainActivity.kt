@@ -460,8 +460,9 @@ class MainActivity : Activity() {
         ClipToolbarItem(R.id.clipVolumeButton, R.id.clipVolumeLabel, "Volume"),
         ClipToolbarItem(R.id.clipSpeedButton, R.id.clipSpeedLabel, "Speed"),
         ClipToolbarItem(R.id.clipPanZoomButton, R.id.clipPanZoomLabel, "Motion"),
-        ClipToolbarItem(R.id.clipFilterButton, R.id.clipFilterLabel, "Filter"),
-        ClipToolbarItem(R.id.clipBrightnessButton, R.id.clipBrightnessLabel, "Tone"),
+        ClipToolbarItem(R.id.clipFilterButton, R.id.clipFilterLabel, "Effects"),
+        ClipToolbarItem(R.id.clipBrightnessButton, R.id.clipBrightnessLabel, "Color"),
+        ClipToolbarItem(R.id.clipTransitionButton, R.id.clipTransitionLabel, "Transition"),
         ClipToolbarItem(R.id.clipGraphicsButton, R.id.clipGraphicsLabel, "Graphics"),
         ClipToolbarItem(R.id.clipExtractAudioButton, R.id.clipExtractAudioLabel, "Isolate"),
         ClipToolbarItem(R.id.clipReplaceButton, R.id.clipReplaceLabel, "Replace"),
@@ -5220,10 +5221,11 @@ class MainActivity : Activity() {
             val featuredButtons = when (kind) {
                 ClipKind.VIDEO -> setOf(
                     R.id.clipTrimButton,
-                    R.id.clipVolumeButton,
+                    R.id.clipTransitionButton,
                     R.id.clipPanZoomButton,
                     R.id.clipFilterButton,
-                    R.id.clipKeyframeButton,
+                    R.id.clipBrightnessButton,
+                    R.id.clipVolumeButton,
                 )
                 ClipKind.OVERLAY -> setOf(
                     R.id.clipTrimButton,
@@ -6009,7 +6011,7 @@ class MainActivity : Activity() {
         when (selectedClipKind()) {
             ClipKind.VIDEO, ClipKind.OVERLAY -> {
                 selectedVideoClipId()?.let { timelineManager?.selectClip(it) }
-                findViewById<View>(R.id.effectsButton)?.performClick() ?: showClipToolPending("Filter")
+                uiChromeController?.showEffectsSheet() ?: showClipToolPending("Effects")
             }
             ClipKind.TEXT -> {
                 val overlayId = selectedTextOverlayId() ?: return
@@ -6113,10 +6115,23 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun performSelectedClipTransitionAction() {
+        when (selectedClipKind()) {
+            ClipKind.VIDEO -> {
+                selectedVideoClipId()?.let { timelineManager?.selectClip(it) }
+                uiChromeController?.showTransitionSheet() ?: showClipToolPending("Transition")
+            }
+            ClipKind.OVERLAY -> safeToast("Transitions are for main video cuts", Toast.LENGTH_SHORT)
+            ClipKind.TEXT, ClipKind.STICKER -> safeToast("Transitions are for video clips", Toast.LENGTH_SHORT)
+            ClipKind.AUDIO -> safeToast("Transitions are not for audio clips", Toast.LENGTH_SHORT)
+            ClipKind.NONE -> safeToast("Select clip first", Toast.LENGTH_SHORT)
+        }
+    }
+
     private fun performSelectedClipGraphicsAction() {
         when (selectedClipKind()) {
             ClipKind.VIDEO -> {
-                findViewById<View>(R.id.stickersButton)?.performClick() ?: showClipToolPending("Graphics")
+                uiChromeController?.showGraphicsSheet() ?: showClipToolPending("Graphics")
             }
             ClipKind.TEXT -> showSelectedTextStudio()
             ClipKind.STICKER -> performSelectedClipReplaceAction()
@@ -6141,7 +6156,7 @@ class MainActivity : Activity() {
     private fun performSelectedClipAddLayerAction() {
         when (selectedClipKind()) {
             ClipKind.VIDEO -> {
-                findViewById<View>(R.id.layersButton)?.performClick() ?: showClipToolPending("Add Layer")
+                uiChromeController?.showLayerImportSheet() ?: showClipToolPending("Add Layer")
             }
             ClipKind.TEXT -> {
                 val overlayId = selectedTextOverlayId() ?: return
@@ -6203,6 +6218,7 @@ class MainActivity : Activity() {
         bindClipToolbarAction(R.id.clipPanZoomButton) { performSelectedClipPanZoomAction() }
         bindClipToolbarAction(R.id.clipFilterButton) { performSelectedClipFilterAction() }
         bindClipToolbarAction(R.id.clipBrightnessButton) { performSelectedClipBrightnessAction() }
+        bindClipToolbarAction(R.id.clipTransitionButton) { performSelectedClipTransitionAction() }
         bindClipToolbarAction(R.id.clipGraphicsButton) { performSelectedClipGraphicsAction() }
         bindClipToolbarAction(R.id.clipExtractAudioButton) { performSelectedClipExtractAudioAction() }
         bindClipToolbarAction(R.id.clipReplaceButton) { performSelectedClipReplaceAction() }

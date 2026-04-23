@@ -425,6 +425,30 @@ class UiChromeController(
         }
     }
 
+    fun showEffectsSheet() {
+        showEffectsToolSheet()
+    }
+
+    fun showGraphicsSheet() {
+        showStickerToolSheet()
+    }
+
+    fun showTransitionSheet() {
+        showTransitionToolSheet()
+    }
+
+    fun showLayerImportSheet() {
+        showImportSourceSheet(
+            title = "Layers",
+            browseLabel = "Browse Layer",
+            quickLabel = "Quick Sample",
+            quickUnavailableMessage = "No quick layer media found",
+            onBrowse = onOpenLayerImportPicker,
+            onQuick = onQuickLayerImport,
+            extraActions = listOf("Manage Layers" to { showLayerManager() }),
+        )
+    }
+
     fun setupPlayPauseButton() {
         val playPauseButton = activity.findViewById<ImageButton>(R.id.previewPlayPauseButton)
         fun syncPlayPauseIcon() {
