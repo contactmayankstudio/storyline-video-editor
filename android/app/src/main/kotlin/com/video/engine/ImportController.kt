@@ -85,8 +85,19 @@ class ImportController(
 
         // Heavy JNI (FFmpeg open + probe) — run off main thread
         Thread {
+            val existingClipCount =
+                timelineManagerProvider()?.getClips()?.size
+                    ?: timelineProvider().getClips().size
+            val requestedZOrder = resolveImportZOrder(trackType, existingClipCount)
+            val requestedTrackLane = resolveImportTrackLane(trackType, requestedZOrder)
             Log.d(TAG, "Attempting NativeBridge.addClip for: $importPath")
-            val clipId = NativeBridge.addClip(previewView, importPath, trackType = trackType.nativeRoleName())
+            val clipId = NativeBridge.addClip(
+                previewView = previewView,
+                videoPath = importPath,
+                trackType = trackType.nativeRoleName(),
+                trackLane = requestedTrackLane,
+                zOrder = requestedZOrder,
+            )
             Log.d(TAG, "NativeBridge.addClip result clipId: $clipId")
             if (clipId <= 0) {
                 if (importRetryCount >= maxImportRetries) {
@@ -113,9 +124,7 @@ class ImportController(
                 timeline.syncFromEngine(previewView)
                 val timelineManager = timelineManagerProvider()
                 timelineManager?.syncClips(timeline.getClips())
-                val clipCount = timelineManager?.getClips()?.size ?: 0
-                val layerIndex = trackType.defaultZOrder(clipCount)
-                timelineManager?.setClipLayerIndex(clipId, layerIndex)
+                timelineManager?.setClipLayerIndex(clipId, requestedZOrder)
                 timelineManager?.setClipVisibility(clipId, true)
                 timelineManager?.selectClip(clipId)
 
@@ -140,6 +149,25 @@ class ImportController(
                 maybeStartGhostProxyBuild(clipId, importPath, trackType)
             }
         }.start()
+    }
+
+    private fun resolveImportZOrder(trackType: TrackType, existingClipCount: Int): Int {
+        return when (trackType) {
+            TrackType.LAYER,
+            TrackType.OVERLAY,
+            TrackType.TEXT,
+            -> trackType.defaultZOrder(existingClipCount.coerceAtLeast(0))
+            else -> 0
+        }
+    }
+
+    private fun resolveImportTrackLane(trackType: TrackType, requestedZOrder: Int): Int {
+        return when (trackType) {
+            TrackType.LAYER -> 0
+            TrackType.OVERLAY -> 0
+            TrackType.TEXT -> 0
+            else -> requestedZOrder.coerceAtLeast(0)
+        }
     }
 
     private fun maybeStartGhostProxyBuild(clipId: Int, importPath: String, trackType: TrackType) {
