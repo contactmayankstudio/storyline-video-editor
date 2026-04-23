@@ -3,12 +3,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BRIDGE_SCRIPT="${SCRIPT_DIR}/github-assemble-install-logcat.sh"
+TOOLBAR_AUDIT_SCRIPT="${SCRIPT_DIR}/verify-selected-clip-toolbar.sh"
 APP_ID="${ANDROID_APP_ID:-com.storyline.app}"
 LAUNCH_ACTIVITY="${ANDROID_LAUNCH_ACTIVITY:-com.video.engine.MainActivity}"
 PLAYBACK_TIMEOUT_SECONDS="${PLAYBACK_TIMEOUT_SECONDS:-50}"
 AUTOSAVE_TIMEOUT_SECONDS="${AUTOSAVE_TIMEOUT_SECONDS:-20}"
 EXPORT_TIMEOUT_SECONDS="${EXPORT_TIMEOUT_SECONDS:-420}"
 POLL_SECONDS="${SUITE_POLL_SECONDS:-5}"
+RUN_TOOLBAR_AUDIT="${RUN_TOOLBAR_AUDIT:-0}"
 OUTPUT_DIR=""
 SUITE_DIR=""
 
@@ -31,6 +33,7 @@ Environment overrides:
   AUTOSAVE_TIMEOUT_SECONDS
   EXPORT_TIMEOUT_SECONDS
   SUITE_POLL_SECONDS
+  RUN_TOOLBAR_AUDIT=1
   ANDROID_APP_ID
   ANDROID_LAUNCH_ACTIVITY
 EOF
@@ -196,6 +199,14 @@ while (( export_waited < EXPORT_TIMEOUT_SECONDS )); do
 done
 
 append_summary "export=${export_result}"
+if [[ "${RUN_TOOLBAR_AUDIT}" == "1" ]]; then
+    log "Running selected-clip toolbar audit..."
+    if [[ -x "${TOOLBAR_AUDIT_SCRIPT}" ]] && "${TOOLBAR_AUDIT_SCRIPT}" --output-dir "${SUITE_DIR}/toolbar-audit"; then
+        append_summary "toolbar_audit=pass"
+    else
+        append_summary "toolbar_audit=fail"
+    fi
+fi
 append_summary "finished_at=$(date -Is)"
 capture_state "export_final"
 
