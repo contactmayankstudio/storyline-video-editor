@@ -722,6 +722,7 @@ class MainActivity : Activity() {
             override fun onClipSelected(clipId: String?) {
                 selectedTimelineClipKey = normalizeTimelineSelectionKey(clipId)
                 updateBottomToolbarMode()
+                revealSelectedClipInPreview()
             }
             override fun onPlayheadScrub(timeMs: Long) {
                 currentTimeMs = timeMs
@@ -2005,6 +2006,26 @@ class MainActivity : Activity() {
                     ?: intent?.extras?.get("adb_time_ms")?.toString()?.toLongOrNull()
                     ?: 0L
                 setAutomationPlayhead(requestedMs)
+            }
+            "select_track_clip" -> {
+                val trackType = intent?.getStringExtra("adb_track_type")
+                    ?.trim()
+                    ?.uppercase(Locale.US)
+                    ?.let { raw ->
+                        runCatching { TrackType.valueOf(raw) }.getOrNull()
+                    }
+                val selected = trackType?.let(::selectLatestClipForTrack) == true
+                Log.i(TAG, "[Automation] select_track_clip_result selected=$selected track=${trackType?.name ?: "unknown"}")
+            }
+            "scale_selected_preview" -> {
+                val factor = intent?.getStringExtra("adb_factor")?.toFloatOrNull()
+                    ?: intent?.extras?.get("adb_factor")?.toString()?.toFloatOrNull()
+                    ?: 1.2f
+                val applied = scaleSelectedClipForPreview(factor)
+                Log.i(
+                    TAG,
+                    "[Automation] scale_selected_preview applied=$applied factor=$factor kind=${selectedClipKind().name} key=${selectedTimelineClipKey ?: "none"}",
+                )
             }
             "delete_selected" -> {
                 performSelectedClipDeleteAction()
@@ -3443,6 +3464,7 @@ class MainActivity : Activity() {
                 }
                 selectedTimelineClipKey = normalizeTimelineSelectionKey(clipId)
                 updateBottomToolbarMode()
+                revealSelectedClipInPreview()
                 parseTimelineManagedClipId(clipId)?.let { timelineManager?.selectClip(it) }
                 if (clipId == null) {
                     timelineManager?.selectClip(null)
@@ -5213,7 +5235,10 @@ class MainActivity : Activity() {
         return String.format(Locale.US, "%02d:%02d", totalSeconds / 60L, totalSeconds % 60L)
     }
 
-    private fun setAutomationPlayhead(timeMs: Long) {
+    private fun applyEditorPlayhead(
+        timeMs: Long,
+        continueAudio: Boolean = false,
+    ) {
         val targetTimeMs = timeMs.coerceAtLeast(0L)
         currentTimeMs = targetTimeMs
         playbackController?.scrubTo(targetTimeMs)
@@ -5221,8 +5246,120 @@ class MainActivity : Activity() {
         multiTrackTimelineView?.setCurrentTimeMs(targetTimeMs)
         activeCanvasTimelineView()?.setPlayheadMs(targetTimeMs)
         timelineCurrentTimeText?.text = formatAutomationTime(targetTimeMs)
-        previewAudioPlayer?.seekTo(targetTimeMs, continuePlaying = false)
+        previewAudioPlayer?.seekTo(targetTimeMs, continuePlaying = continueAudio && isPlaying)
         updateBottomToolbarMode()
+    }
+
+    private fun selectedClipTimeRange(): Pair<Long, Long>? {
+        return when (selectedClipKind()) {
+            ClipKind.VIDEO,
+            ClipKind.OVERLAY,
+            -> {
+                val clipId = selectedVideoClipId() ?: return null
+                val timing = selectedVideoTiming(clipId) ?: return null
+                timing.first to (timing.first + timing.second.coerceAtLeast(1L))
+            }
+            ClipKind.TEXT -> {
+                val overlay = selectedTextOverlayId()?.let(OverlayStore::get) ?: return null
+                overlay.startTimeMs.toLong() to overlay.endTimeMs.toLong().coerceAtLeast(overlay.startTimeMs.toLong() + 1L)
+            }
+            ClipKind.STICKER -> {
+                val sticker = StickerClipStore.all().firstOrNull { it.id == selectedStickerClipId() } ?: return null
+                sticker.startTimeMs.toLong() to (sticker.startTimeMs + sticker.durationMs).toLong().coerceAtLeast(sticker.startTimeMs.toLong() + 1L)
+            }
+            ClipKind.AUDIO -> {
+                val audio = selectedAudioClipId()?.let(AudioClipStore::get) ?: return null
+                audio.startTimeMs to (audio.startTimeMs + audio.durationMs).coerceAtLeast(audio.startTimeMs + 1L)
+            }
+            ClipKind.NONE -> null
+        }
+    }
+
+    private fun revealSelectedClipInPreview(force: Boolean = false) {
+        if (isPlaying && !force) return
+        val range = selectedClipTimeRange() ?: return
+        val current = currentPlayheadMs().coerceAtLeast(0L)
+        if (!force && current >= range.first && current < range.second) return
+        applyEditorPlayhead(range.first, continueAudio = false)
+    }
+
+    private fun selectTimelineClipKey(key: String, revealPreview: Boolean = false): Boolean {
+        val normalizedKey = normalizeTimelineSelectionKey(key) ?: key
+        selectedTimelineClipKey = normalizedKey
+        parseTimelineManagedClipId(normalizedKey)?.let { managedId ->
+            timelineManager?.selectClip(managedId)
+        }
+        multiTrackTimelineView?.setSelectedClipId(normalizedKey)
+        multiTrackTimelineView?.revealClip(normalizedKey)
+        activeCanvasTimelineView()?.setSelectedClipId(normalizedKey)
+        updateBottomToolbarMode()
+        if (revealPreview) {
+            revealSelectedClipInPreview(force = true)
+        }
+        return true
+    }
+
+    private fun selectLatestClipForTrack(trackType: TrackType): Boolean {
+        val selectionKey =
+            when (trackType) {
+                TrackType.TEXT -> {
+                    allTextOverlays()
+                        .maxByOrNull { it.id }
+                        ?.let { "text-${it.id}" }
+                }
+                TrackType.AUDIO -> {
+                    AudioClipStore.all()
+                        .maxByOrNull { it.id }
+                        ?.let { "audio-${it.id}" }
+                }
+                else -> {
+                    nativeClipTrackType
+                        .filterValues { it == trackType }
+                        .keys
+                        .maxOrNull()
+                        ?.let(::selectionKeyForNativeClipId)
+                }
+            }
+                ?: return false
+        val selected = selectTimelineClipKey(selectionKey, revealPreview = true)
+        Log.i(
+            TAG,
+            "[Automation] select_track_clip track=${trackType.name} key=$selectionKey selected=$selected playhead=${currentPlayheadMs()}",
+        )
+        return selected
+    }
+
+    private fun scaleSelectedClipForPreview(factor: Float): Boolean {
+        val safeFactor = factor.coerceIn(0.5f, 2.5f)
+        return when (selectedClipKind()) {
+            ClipKind.VIDEO,
+            ClipKind.OVERLAY,
+            -> updateSelectedVideoPreviewTransform { current ->
+                current.copy(zoom = (current.zoom * safeFactor).coerceIn(0.75f, 4.0f))
+            }
+            ClipKind.TEXT -> {
+                val overlayId = selectedTextOverlayId() ?: return false
+                val overlay = OverlayStore.get(overlayId) ?: return false
+                overlay.scale = (overlay.scale * safeFactor).coerceIn(0.35f, 6.0f)
+                applyTextOverlayState(overlay)
+                applyTextOverlayPose(overlay)
+                true
+            }
+            ClipKind.STICKER -> {
+                val stickerId = selectedStickerClipId() ?: return false
+                val clip = StickerClipStore.all().firstOrNull { it.id == stickerId } ?: return false
+                clip.scale = (clip.scale * safeFactor).coerceIn(0.35f, 6.0f)
+                applyStickerLayerState(clip)
+                applyStickerOverlayPose(clip)
+                true
+            }
+            else -> false
+        }
+    }
+
+    private fun setAutomationPlayhead(timeMs: Long) {
+        val targetTimeMs = timeMs.coerceAtLeast(0L)
+        applyEditorPlayhead(targetTimeMs, continueAudio = false)
         Log.i(TAG, "[Automation] set_playhead_ms=$targetTimeMs")
     }
 
