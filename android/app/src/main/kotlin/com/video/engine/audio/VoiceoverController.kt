@@ -8,7 +8,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import android.widget.Toast
+import com.video.engine.UiToast as Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.video.engine.ModernSheet

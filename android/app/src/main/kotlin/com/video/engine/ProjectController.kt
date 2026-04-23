@@ -2,7 +2,7 @@ package com.video.engine
 
 import android.app.Activity
 import android.util.Log
-import android.widget.Toast
+import com.video.engine.UiToast as Toast
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date

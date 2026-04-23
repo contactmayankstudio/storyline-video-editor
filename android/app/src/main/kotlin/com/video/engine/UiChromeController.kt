@@ -6,7 +6,7 @@ import android.view.View
 import android.widget.ImageView
 import android.widget.ImageButton
 import android.widget.LinearLayout
-import android.widget.Toast
+import com.video.engine.UiToast as Toast
 import com.video.engine.effects.EffectParams
 import com.video.engine.stickers.StickersPanel
 import com.video.engine.timeline.TimelineManager

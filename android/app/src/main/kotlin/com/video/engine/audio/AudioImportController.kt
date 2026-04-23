@@ -11,7 +11,7 @@ import android.os.Looper
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.util.Log
-import android.widget.Toast
+import com.video.engine.UiToast as Toast
 import com.video.engine.NativeBridge
 import java.io.File
 import java.io.FileOutputStream

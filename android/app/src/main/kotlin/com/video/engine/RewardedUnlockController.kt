@@ -2,7 +2,7 @@ package com.video.engine
 
 import android.app.Activity
 import android.util.Log
-import android.widget.Toast
+import com.video.engine.UiToast as Toast
 import com.google.android.gms.ads.AdError
 import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.FullScreenContentCallback

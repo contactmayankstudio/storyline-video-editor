@@ -25,7 +25,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
-import android.widget.Toast
+import com.video.engine.UiToast as Toast
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.RecyclerView
 import com.video.engine.audio.AudioClip

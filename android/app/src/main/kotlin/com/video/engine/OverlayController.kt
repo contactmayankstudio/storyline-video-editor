@@ -4,7 +4,7 @@ import android.app.Activity
 import com.video.engine.ModernSheet
 import android.util.Log
 import android.widget.FrameLayout
-import android.widget.Toast
+import com.video.engine.UiToast as Toast
 import com.video.engine.overlay.OverlayStore
 import com.video.engine.overlay.TextOverlay
 import com.video.engine.overlay.TextOverlayView

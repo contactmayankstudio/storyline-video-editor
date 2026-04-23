@@ -24,7 +24,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
-import android.widget.Toast
+import com.video.engine.UiToast as Toast
 import androidx.appcompat.content.res.AppCompatResources
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.video.engine.overlay.OverlayStore

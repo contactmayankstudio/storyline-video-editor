@@ -9,7 +9,7 @@ import android.os.Looper
 import android.provider.OpenableColumns
 import android.util.Log
 import android.webkit.MimeTypeMap
-import android.widget.Toast
+import com.video.engine.UiToast as Toast
 import com.video.engine.pro.model.TrackType
 import com.video.engine.timeline.MultiClipTimeline
 import com.video.engine.timeline.TimelineManager
