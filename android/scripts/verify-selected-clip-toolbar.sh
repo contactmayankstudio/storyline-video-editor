@@ -167,6 +167,13 @@ swipe_toolbar_right() {
     sleep 1
 }
 
+reset_toolbar_to_left() {
+    local attempt
+    for attempt in 1 2 3 4 5; do
+        swipe_toolbar_right
+    done
+}
+
 tap_by_resource_id() {
     local resource_id="$1"
     local bounds
@@ -284,12 +291,13 @@ reveal_main_toolbar_button() {
     local resource_id="$1"
     local label="$2"
     local attempt
-    for attempt in 1 2 3 4; do
+    reset_toolbar_to_left
+    for attempt in 1 2 3 4 5 6 7 8; do
         dump_ui "${label}_reveal_${attempt}"
         if rg -q "resource-id=\"${resource_id}\"" "$CURRENT_XML"; then
             return 0
         fi
-        swipe_toolbar_long
+        swipe_toolbar_short
     done
     return 1
 }
@@ -310,9 +318,7 @@ set_portrait
 prepare_video_clip "01_color"
 
 log "Opening Color sheet..."
-swipe_toolbar_short
-dump_ui "01_color_reveal"
-tap_by_resource_id "${APP_ID}:id/clipBrightnessButton"
+open_main_toolbar_button "${APP_ID}:id/clipBrightnessButton" "01_color"
 dump_ui "01_color_open"
 verify_contains "$CURRENT_XML" 'brightnessSeekBar' "color_sheet"
 
@@ -324,34 +330,25 @@ verify_not_contains "$CURRENT_XML" 'text="Brightness 0\.00"' "color_apply"
 
 log "Opening Effects sheet..."
 prepare_video_clip "02_effects"
-swipe_toolbar_short
-dump_ui "02_effects_reveal"
-tap_by_resource_id "${APP_ID}:id/clipFilterButton"
+open_main_toolbar_button "${APP_ID}:id/clipFilterButton" "02_effects"
 dump_ui "02_effects_open"
 verify_contains "$CURRENT_XML" 'Studio FX|LUT Library|Reset FX' "effects_sheet"
 
 log "Opening Transition sheet..."
 prepare_video_clip "03_transition"
-swipe_toolbar_short
-dump_ui "03_transition_reveal"
-tap_by_resource_id "${APP_ID}:id/clipTransitionButton"
+open_main_toolbar_button "${APP_ID}:id/clipTransitionButton" "03_transition"
 dump_ui "03_transition_open"
 verify_contains "$CURRENT_XML" 'Cross 250|Fade 250|Slide 700' "transition_sheet"
 
 log "Opening Graphics sheet..."
 prepare_video_clip "04_graphics"
-swipe_toolbar_long
-swipe_toolbar_long
-dump_ui "04_graphics_reveal"
-tap_by_resource_id "${APP_ID}:id/clipGraphicsButton"
+open_main_toolbar_button "${APP_ID}:id/clipGraphicsButton" "04_graphics"
 dump_ui "04_graphics_open"
 verify_contains "$CURRENT_XML" 'Sticker Pack|Overlay Import|Quick Overlay' "graphics_sheet"
 
 log "Opening Stack sheet..."
 prepare_video_clip "05_stack"
-swipe_toolbar_long
-dump_ui "05_stack_reveal"
-tap_by_resource_id "${APP_ID}:id/clipAddLayerButton"
+open_main_toolbar_button "${APP_ID}:id/clipAddLayerButton" "05_stack"
 dump_ui "05_stack_open"
 verify_contains "$CURRENT_XML" 'Browse Layer|Quick Sample|Manage Layers' "stack_sheet"
 
@@ -383,16 +380,11 @@ verify_contains "$CURRENT_XML" 'AUDIO CLIP' "voice_quicksample"
 
 log "Applying quick transition..."
 prepare_video_clip "08_transition_apply"
-swipe_toolbar_long
-dump_ui "08_transition_duplicate_reveal"
-tap_by_resource_id "${APP_ID}:id/clipDuplicateButton"
+open_main_toolbar_button "${APP_ID}:id/clipDuplicateButton" "08_transition_duplicate"
 sleep 2
 dump_ui "08_transition_after_duplicate"
 adb logcat -c >/dev/null 2>&1 || true
-swipe_toolbar_right
-swipe_toolbar_short
-dump_ui "08_transition_apply_reveal"
-tap_by_resource_id "${APP_ID}:id/clipTransitionButton"
+open_main_toolbar_button "${APP_ID}:id/clipTransitionButton" "08_transition_apply"
 dump_ui "08_transition_apply_sheet"
 tap_by_text "$CURRENT_XML" "Cross 250"
 sleep 2

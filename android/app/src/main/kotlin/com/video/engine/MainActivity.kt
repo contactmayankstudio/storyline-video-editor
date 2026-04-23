@@ -2962,6 +2962,28 @@ class MainActivity : Activity() {
                         durationMs,
                     )
                 }
+                mergeAudioStateIntoNativeCache(
+                    nextTrackType = nextTrackType,
+                    nextLane = nextLane,
+                    nextZOrder = nextZOrder,
+                    nextStartMs = nextStartMs,
+                    nextDurationMs = nextDurationMs,
+                    nextSourceInMs = nextSourceInMs,
+                    nextSourceOutMs = nextSourceOutMs,
+                    nextSourcePath = nextSourcePath,
+                    nextVolumeGain = nextVolumeGain,
+                    nextFadeInMs = nextFadeInMs,
+                    nextFadeOutMs = nextFadeOutMs,
+                    nextDuckingEnabled = nextDuckingEnabled,
+                    nextPlaybackSpeed = nextPlaybackSpeed,
+                    nextReversePlayback = nextReversePlayback,
+                    nextFreezeFrameEnabled = nextFreezeFrameEnabled,
+                    nextFreezeFrameTimeMs = nextFreezeFrameTimeMs,
+                    nextFreezeFrameDurationMs = nextFreezeFrameDurationMs,
+                    nextCurveSpeedProfile = nextCurveSpeedProfile,
+                    nextCurveSpeedStrength = nextCurveSpeedStrength,
+                    nextAudioGainKeyframes = nextAudioGainKeyframes,
+                )
                 nativeClipTrackType.clear(); nativeClipTrackType.putAll(nextTrackType)
                 nativeClipLane.clear(); nativeClipLane.putAll(nextLane)
                 nativeClipZOrder.clear(); nativeClipZOrder.putAll(nextZOrder)
@@ -3026,6 +3048,56 @@ class MainActivity : Activity() {
                 refreshMainTimelineTracks()
             }
         }.start()
+    }
+
+    private fun mergeAudioStateIntoNativeCache(
+        nextTrackType: MutableMap<Int, TrackType>,
+        nextLane: MutableMap<Int, Int>,
+        nextZOrder: MutableMap<Int, Int>,
+        nextStartMs: MutableMap<Int, Long>,
+        nextDurationMs: MutableMap<Int, Long>,
+        nextSourceInMs: MutableMap<Int, Long>,
+        nextSourceOutMs: MutableMap<Int, Long>,
+        nextSourcePath: MutableMap<Int, String>,
+        nextVolumeGain: MutableMap<Int, Float>,
+        nextFadeInMs: MutableMap<Int, Int>,
+        nextFadeOutMs: MutableMap<Int, Int>,
+        nextDuckingEnabled: MutableMap<Int, Boolean>,
+        nextPlaybackSpeed: MutableMap<Int, Float>,
+        nextReversePlayback: MutableMap<Int, Boolean>,
+        nextFreezeFrameEnabled: MutableMap<Int, Boolean>,
+        nextFreezeFrameTimeMs: MutableMap<Int, Long>,
+        nextFreezeFrameDurationMs: MutableMap<Int, Long>,
+        nextCurveSpeedProfile: MutableMap<Int, String>,
+        nextCurveSpeedStrength: MutableMap<Int, Float>,
+        nextAudioGainKeyframes: MutableMap<Int, List<AudioGainKeyframe>>,
+    ) {
+        AudioClipStore.all().forEach { clip ->
+            val clipId = clip.id
+            if (nextTrackType[clipId] == TrackType.AUDIO) return@forEach
+            if (nextTrackType.containsKey(clipId) && nextTrackType[clipId] != TrackType.AUDIO) return@forEach
+            val durationMs = clip.durationMs.coerceAtLeast(1L)
+            nextTrackType[clipId] = TrackType.AUDIO
+            nextLane[clipId] = clip.layerIndex.coerceAtLeast(0)
+            nextZOrder[clipId] = clip.layerIndex.coerceAtLeast(0)
+            nextStartMs[clipId] = clip.startTimeMs.coerceAtLeast(0L)
+            nextDurationMs[clipId] = durationMs
+            nextSourceInMs[clipId] = 0L
+            nextSourceOutMs[clipId] = durationMs
+            nextSourcePath[clipId] = clip.sourcePath
+            nextVolumeGain[clipId] = audioClipGainOverrides[clipId] ?: clip.gain.coerceAtLeast(0f)
+            nextFadeInMs[clipId] = clip.fadeInMs.coerceAtLeast(0)
+            nextFadeOutMs[clipId] = clip.fadeOutMs.coerceAtLeast(0)
+            nextDuckingEnabled[clipId] = duckingEnabledForKey["audio-$clipId"] ?: false
+            nextPlaybackSpeed[clipId] = 1f
+            nextReversePlayback[clipId] = false
+            nextFreezeFrameEnabled[clipId] = false
+            nextFreezeFrameTimeMs[clipId] = 0L
+            nextFreezeFrameDurationMs[clipId] = 0L
+            nextCurveSpeedProfile[clipId] = "linear"
+            nextCurveSpeedStrength[clipId] = 1f
+            nextAudioGainKeyframes[clipId] = normalizeAudioGainKeyframes(clip.gainKeyframes, durationMs)
+        }
     }
 
     private fun syncAudioClipStoreFromNativeLayout(
@@ -3093,8 +3165,9 @@ class MainActivity : Activity() {
         Thread {
             val nativeClipIds = NativeBridge.getClipIds(pv).toList()
             val nativeClipIdSet = nativeClipIds.toSet()
+            val retainedClipIds = nativeClipIdSet + AudioClipStore.all().map { it.id }
             mainHandler.post {
-            refreshNativeClipLayoutCache(nativeClipIdSet)
+            refreshNativeClipLayoutCache(retainedClipIds)
         val clips = nativeClipIds.mapIndexed { index, clipId ->
             val trackType = nativeClipTrackType[clipId] ?: TrackType.VIDEO
             val title = when (trackType) {
@@ -3119,24 +3192,24 @@ class MainActivity : Activity() {
         videoClipKeyframes.keys.toList().forEach { if (!nativeClipIdSet.contains(it)) videoClipKeyframes.remove(it) }
         videoClipGainOverrides.keys.toList().forEach { if (!nativeClipIdSet.contains(it)) videoClipGainOverrides.remove(it) }
         duckingEnabledForKey.keys
-            .filter { key -> parseTimelineManagedClipId(key)?.let { !nativeClipIdSet.contains(it) } == true }
+            .filter { key -> parseTimelineManagedClipId(key)?.let { !retainedClipIds.contains(it) } == true }
             .toList()
             .forEach { duckingEnabledForKey.remove(it) }
-        nativeClipTrackType.keys.retainAll(nativeClipIdSet)
-        nativeClipLane.keys.retainAll(nativeClipIdSet)
-        nativeClipZOrder.keys.retainAll(nativeClipIdSet)
-        nativeClipStartMs.keys.retainAll(nativeClipIdSet)
-        nativeClipDurationMs.keys.retainAll(nativeClipIdSet)
-        nativeClipSourceInMs.keys.retainAll(nativeClipIdSet)
-        nativeClipSourceOutMs.keys.retainAll(nativeClipIdSet)
-        nativeClipSourcePath.keys.retainAll(nativeClipIdSet)
-        nativeClipPlaybackSpeed.keys.retainAll(nativeClipIdSet)
-        nativeClipReversePlayback.keys.retainAll(nativeClipIdSet)
-        nativeClipFreezeFrameEnabled.keys.retainAll(nativeClipIdSet)
-        nativeClipFreezeFrameTimeMs.keys.retainAll(nativeClipIdSet)
-        nativeClipFreezeFrameDurationMs.keys.retainAll(nativeClipIdSet)
-        nativeClipCurveSpeedProfile.keys.retainAll(nativeClipIdSet)
-        nativeClipCurveSpeedStrength.keys.retainAll(nativeClipIdSet)
+        nativeClipTrackType.keys.retainAll(retainedClipIds)
+        nativeClipLane.keys.retainAll(retainedClipIds)
+        nativeClipZOrder.keys.retainAll(retainedClipIds)
+        nativeClipStartMs.keys.retainAll(retainedClipIds)
+        nativeClipDurationMs.keys.retainAll(retainedClipIds)
+        nativeClipSourceInMs.keys.retainAll(retainedClipIds)
+        nativeClipSourceOutMs.keys.retainAll(retainedClipIds)
+        nativeClipSourcePath.keys.retainAll(retainedClipIds)
+        nativeClipPlaybackSpeed.keys.retainAll(retainedClipIds)
+        nativeClipReversePlayback.keys.retainAll(retainedClipIds)
+        nativeClipFreezeFrameEnabled.keys.retainAll(retainedClipIds)
+        nativeClipFreezeFrameTimeMs.keys.retainAll(retainedClipIds)
+        nativeClipFreezeFrameDurationMs.keys.retainAll(retainedClipIds)
+        nativeClipCurveSpeedProfile.keys.retainAll(retainedClipIds)
+        nativeClipCurveSpeedStrength.keys.retainAll(retainedClipIds)
         videoClipTimingOverrides.clear()
         val manager = timelineManager
         val existingVisibilityByClipId =
@@ -3149,7 +3222,9 @@ class MainActivity : Activity() {
             manager?.setClipVisibility(clip.id, existingVisibilityByClipId[clip.id] ?: defaultVisible)
         }
         if (selectedClipId != null) {
-            manager?.selectClip(selectedClipId)
+            if (nativeClipIdSet.contains(selectedClipId)) {
+                manager?.selectClip(selectedClipId)
+            }
             selectedTimelineClipKey = selectionKeyForNativeClipId(selectedClipId)
         }
         refreshMainTimelineTracks()
