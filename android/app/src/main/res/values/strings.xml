@@ -41,6 +41,9 @@
     <string name="layers_label">Layers</string>
     <string name="timeline_hint">Drag the storyline to scrub with frame control.</string>
     <string name="realtime_preview_label">LIVE CANVAS</string>
+    <string name="preview_empty_badge">Canvas Ready</string>
+    <string name="preview_empty_title">Drop media into the frame</string>
+    <string name="preview_empty_subtitle">Import video to the V1 track, stack layers above it, or tap a track lane to start editing.</string>
 
     <string name="time_zero">00:00</string>
     <string name="time_separator">/</string>

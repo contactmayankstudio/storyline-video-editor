@@ -28,6 +28,9 @@ class ImportController(
         private const val TAG = "[UI]"
         private const val PROXY_POLL_INTERVAL_MS = 1200L
         private const val PROXY_MAX_POLL_ATTEMPTS = 180
+        private const val LOW_END_PROXY_START_DELAY_MS = 2200L
+        private const val MID_TIER_PROXY_START_DELAY_MS = 1400L
+        private const val HIGH_TIER_PROXY_START_DELAY_MS = 900L
         private val VIDEO_EXTENSIONS = setOf("mp4", "mov", "avi", "mkv", "webm", "m4v", "3gp", "3gpp", "ts", "mts", "m2ts", "mpeg", "mpg")
         private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp", "bmp", "gif", "tif", "tiff")
     }
@@ -36,6 +39,7 @@ class ImportController(
     private var pendingImportTrackType: TrackType = TrackType.VIDEO
     private var nextImportTrackType: TrackType = TrackType.VIDEO
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val pendingProxyBuilds = mutableMapOf<Int, Runnable>()
 
     fun setNextImportTrackType(trackType: TrackType) {
         nextImportTrackType = trackType
@@ -134,24 +138,83 @@ class ImportController(
                 val importedDurationMs = NativeBridge.getClipDuration(previewView, clipId)
                 val revealTimeMs = onImportedClip(clipId, importPath, importedDurationMs, trackType)
 
-                // Force first frame render — wait for surface to settle after picker close
-                val pv = previewView
-                if (pv != null) {
-                    Thread {
-                        for (attempt in 0..8) {
-                            Thread.sleep(300L)
-                            val result = runCatching {
-                                NativeBridge.executeCommand("SEEK", mapOf("timeMs" to revealTimeMs))
-                            }.getOrNull()
-                            if (result?.success == true) break
-                            pv.forceNativeSurfaceRebind()
-                        }
-                    }.start()
-                }
+                warmImportedPreview(
+                    previewView = previewView,
+                    revealTimeMs = revealTimeMs,
+                    importedDurationMs = importedDurationMs,
+                    trackType = trackType,
+                )
 
                 maybeStartGhostProxyBuild(clipId, importPath, trackType)
             }
         }.start()
+    }
+
+    private fun warmImportedPreview(
+        previewView: VideoPreviewView,
+        revealTimeMs: Long,
+        importedDurationMs: Long,
+        trackType: TrackType,
+    ) {
+        val isVisualTrack =
+            trackType == TrackType.VIDEO ||
+                trackType == TrackType.LAYER ||
+                trackType == TrackType.OVERLAY ||
+                trackType == TrackType.TEXT
+        if (!isVisualTrack) return
+
+        val profile = DeviceDetector.getQualityProfile()
+        val revealMs = revealTimeMs.coerceAtLeast(0L)
+        val warmStepMs = profile.predictiveSampleStepMs.toLong().coerceIn(90L, 220L)
+        val forwardWarmTargetMs =
+            when {
+                trackType == TrackType.TEXT -> revealMs
+                importedDurationMs <= 1L -> revealMs
+                else -> {
+                    val clipEndMs = (revealMs + importedDurationMs - 1L).coerceAtLeast(revealMs)
+                    (revealMs + maxOf(warmStepMs * 2L, 120L)).coerceAtMost(clipEndMs)
+                }
+            }
+
+        val warmTargets = mutableListOf(revealMs)
+        if (forwardWarmTargetMs > revealMs) {
+            val midTarget = (revealMs + warmStepMs).coerceAtMost(forwardWarmTargetMs)
+            if (midTarget > revealMs) {
+                warmTargets += midTarget
+            }
+            if (forwardWarmTargetMs > midTarget) {
+                warmTargets += forwardWarmTargetMs
+            }
+            warmTargets += revealMs
+        }
+
+        Thread {
+            previewView.ensureNativeSurfaceBinding()
+            warmTargets.forEachIndexed { index, targetMs ->
+                var success = attemptPreviewWarmSeek(targetMs)
+                if (!success) {
+                    previewView.forceNativeSurfaceRebind()
+                    Thread.sleep(70L)
+                    success = attemptPreviewWarmSeek(targetMs)
+                }
+                Log.d(
+                    TAG,
+                    "Import preview warmup step=${index + 1}/${warmTargets.size} track=$trackType target=${targetMs}ms success=$success",
+                )
+                Thread.sleep(if (index == warmTargets.lastIndex) 40L else 70L)
+            }
+        }.start()
+    }
+
+    private fun attemptPreviewWarmSeek(targetTimeMs: Long): Boolean {
+        val result =
+            runCatching {
+                NativeBridge.executeCommand(
+                    action = "SEEK",
+                    params = mapOf("timeMs" to targetTimeMs.coerceAtLeast(0L)),
+                )
+            }.getOrNull()
+        return result?.success == true
     }
 
     private fun resolveImportZOrder(trackType: TrackType, existingClipCount: Int): Int {
@@ -182,12 +245,40 @@ class ImportController(
             return
         }
         val profile = DeviceDetector.getQualityProfile()
-        startProxyBuild(
+        scheduleProxyBuild(
             clipId = clipId,
             importPath = importPath,
             maxLongEdgePx = profile.proxyLongEdgePx,
             targetFps = profile.previewFps.coerceAtMost(30),
         )
+    }
+
+    private fun scheduleProxyBuild(
+        clipId: Int,
+        importPath: String,
+        maxLongEdgePx: Int,
+        targetFps: Int,
+    ) {
+        pendingProxyBuilds.remove(clipId)?.let(mainHandler::removeCallbacks)
+        val delayMs =
+            when (DeviceDetector.getDeviceTier()) {
+                DeviceDetector.DeviceTier.LOW -> LOW_END_PROXY_START_DELAY_MS
+                DeviceDetector.DeviceTier.HIGH -> HIGH_TIER_PROXY_START_DELAY_MS
+                DeviceDetector.DeviceTier.MID -> MID_TIER_PROXY_START_DELAY_MS
+            }
+        val runnable =
+            Runnable {
+                pendingProxyBuilds.remove(clipId)
+                startProxyBuild(
+                    clipId = clipId,
+                    importPath = importPath,
+                    maxLongEdgePx = maxLongEdgePx,
+                    targetFps = targetFps,
+                )
+            }
+        pendingProxyBuilds[clipId] = runnable
+        Log.d(TAG, "Proxy build scheduled clip=$clipId delay=${delayMs}ms path=$importPath")
+        mainHandler.postDelayed(runnable, delayMs)
     }
 
     private fun startProxyBuild(

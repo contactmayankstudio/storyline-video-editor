@@ -214,6 +214,7 @@ class MainActivity : Activity() {
     // UI References
     private var previewView: VideoPreviewView? = null
     private var previewContainerView: FrameLayout? = null
+    private var previewEmptyStateView: View? = null
     private var timelineRecyclerView: RecyclerView? = null
     private var timelineCurrentTimeText: TextView? = null
     private var previewAspectRatioText: TextView? = null
@@ -551,6 +552,7 @@ class MainActivity : Activity() {
             overlay.bringToFront()
         }
         scheduleTopBannerPlacement()
+        updatePreviewEmptyState()
     }
 
     private fun buildRecentProjectFiles(): List<File> {
@@ -657,6 +659,7 @@ class MainActivity : Activity() {
         val previewContainer = findViewById<FrameLayout>(R.id.previewContainer)
         val previewStageHost = findViewById<FrameLayout>(R.id.previewStageHost)
         previewContainerView = previewStageHost
+        previewEmptyStateView = findViewById(R.id.previewEmptyState)
         val bottomContainer = findViewById<View>(R.id.bottomContainer)
         val timelineLayout = findViewById<View>(R.id.timelineLayout)
         timelineCurrentTimeText = findViewById(R.id.timelineCurrentTimeText)
@@ -808,6 +811,7 @@ class MainActivity : Activity() {
         )
         previewStageHost.addView(overlayContainer, overlayLp)
         previewStageHost.clipToOutline = true
+        previewEmptyStateView?.bringToFront()
         setupPreviewTransformGestures()
         setupAspectRatioButton()
         previewContainer.post { applyPreviewAspectRatio() }
@@ -815,6 +819,7 @@ class MainActivity : Activity() {
         findViewById<android.view.View?>(R.id.hardwareBufferTelemetryPanel)?.bringToFront()
         findViewById<android.view.View?>(R.id.playbackUndoRedoRow)?.bringToFront()
         findViewById<android.view.View?>(R.id.previewPlayPauseButton)?.bringToFront()
+        updatePreviewEmptyState()
         findViewById<android.view.View?>(R.id.hardwareBufferTelemetryPanel)?.setOnClickListener {
             previewView?.resetHardwareBufferTelemetry()
             updateHardwareTelemetryPanel()
@@ -1309,14 +1314,27 @@ class MainActivity : Activity() {
         if (needsResize) {
             preview.layoutParams = FrameLayout.LayoutParams(targetWidth, targetHeight, Gravity.CENTER)
             overlay.layoutParams = FrameLayout.LayoutParams(targetWidth, targetHeight, Gravity.CENTER)
+            previewEmptyStateView?.layoutParams = FrameLayout.LayoutParams(targetWidth, targetHeight, Gravity.CENTER)
             lastAppliedAspectWidth = targetWidth
             lastAppliedAspectHeight = targetHeight
         }
         preview.visibility = View.VISIBLE
         overlay.visibility = View.VISIBLE
+        previewEmptyStateView?.bringToFront()
         overlay.bringToFront()
         findViewById<View?>(R.id.playbackUndoRedoRow)?.bringToFront()
         findViewById<View?>(R.id.previewPlayPauseButton)?.bringToFront()
+    }
+
+    private fun updatePreviewEmptyState() {
+        val placeholder = previewEmptyStateView ?: return
+        val showPlaceholder = !hasProjectContent() && startScreenOverlayView?.visibility != View.VISIBLE
+        placeholder.visibility = if (showPlaceholder) View.VISIBLE else View.GONE
+        if (showPlaceholder) {
+            placeholder.bringToFront()
+            findViewById<View?>(R.id.playbackUndoRedoRow)?.bringToFront()
+            findViewById<View?>(R.id.previewPlayPauseButton)?.bringToFront()
+        }
     }
 
     override fun onStart() {
@@ -3874,6 +3892,7 @@ class MainActivity : Activity() {
         syncPreviewAudioClipsToNative()
         NativeBridge.invalidatePreviewAudioResolutionCache()
         updateBottomToolbarMode()
+        updatePreviewEmptyState()
     }
 
     private fun syncPreviewAudioClipsToNative() {
