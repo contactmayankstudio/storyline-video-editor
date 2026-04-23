@@ -215,6 +215,8 @@ class MainActivity : Activity() {
     private var previewView: VideoPreviewView? = null
     private var previewContainerView: FrameLayout? = null
     private var previewEmptyStateView: View? = null
+    private var previewCropOverlayView: View? = null
+    private var previewCropStatusText: TextView? = null
     private var timelineRecyclerView: RecyclerView? = null
     private var timelineCurrentTimeText: TextView? = null
     private var previewAspectRatioText: TextView? = null
@@ -289,6 +291,8 @@ class MainActivity : Activity() {
     private var previewTransformGestureClipId: Int? = null
     private var previewTransformBase = ClipPreviewTransform()
     private var previewTransformScaleAccumulator = 1.0f
+    private var previewCropModeActive = false
+    private var previewCropModeClipKey: String? = null
 
     private val undoDomains = ArrayDeque<UndoDomain>()
     private val redoDomains = ArrayDeque<UndoDomain>()
@@ -461,7 +465,7 @@ class MainActivity : Activity() {
         ClipToolbarItem(R.id.clipSplitButton, R.id.clipSplitLabel, "Split"),
         ClipToolbarItem(R.id.clipVolumeButton, R.id.clipVolumeLabel, "Volume"),
         ClipToolbarItem(R.id.clipSpeedButton, R.id.clipSpeedLabel, "Speed"),
-        ClipToolbarItem(R.id.clipPanZoomButton, R.id.clipPanZoomLabel, "Motion"),
+        ClipToolbarItem(R.id.clipPanZoomButton, R.id.clipPanZoomLabel, "Crop"),
         ClipToolbarItem(R.id.clipFilterButton, R.id.clipFilterLabel, "Effects"),
         ClipToolbarItem(R.id.clipBrightnessButton, R.id.clipBrightnessLabel, "Color"),
         ClipToolbarItem(R.id.clipTransitionButton, R.id.clipTransitionLabel, "Transition"),
@@ -660,6 +664,8 @@ class MainActivity : Activity() {
         val previewStageHost = findViewById<FrameLayout>(R.id.previewStageHost)
         previewContainerView = previewStageHost
         previewEmptyStateView = findViewById(R.id.previewEmptyState)
+        previewCropOverlayView = findViewById(R.id.previewCropOverlay)
+        previewCropStatusText = findViewById(R.id.previewCropStatus)
         val bottomContainer = findViewById<View>(R.id.bottomContainer)
         val timelineLayout = findViewById<View>(R.id.timelineLayout)
         timelineCurrentTimeText = findViewById(R.id.timelineCurrentTimeText)
@@ -812,8 +818,10 @@ class MainActivity : Activity() {
         previewStageHost.addView(overlayContainer, overlayLp)
         previewStageHost.clipToOutline = true
         previewEmptyStateView?.bringToFront()
+        previewCropOverlayView?.bringToFront()
         setupPreviewTransformGestures()
         setupAspectRatioButton()
+        setupPreviewCropControls()
         previewContainer.post { applyPreviewAspectRatio() }
         findViewById<android.view.View?>(R.id.previewHud)?.bringToFront()
         findViewById<android.view.View?>(R.id.hardwareBufferTelemetryPanel)?.bringToFront()
@@ -1315,6 +1323,7 @@ class MainActivity : Activity() {
             preview.layoutParams = FrameLayout.LayoutParams(targetWidth, targetHeight, Gravity.CENTER)
             overlay.layoutParams = FrameLayout.LayoutParams(targetWidth, targetHeight, Gravity.CENTER)
             previewEmptyStateView?.layoutParams = FrameLayout.LayoutParams(targetWidth, targetHeight, Gravity.CENTER)
+            previewCropOverlayView?.layoutParams = FrameLayout.LayoutParams(targetWidth, targetHeight, Gravity.CENTER)
             lastAppliedAspectWidth = targetWidth
             lastAppliedAspectHeight = targetHeight
         }
@@ -1322,6 +1331,7 @@ class MainActivity : Activity() {
         overlay.visibility = View.VISIBLE
         previewEmptyStateView?.bringToFront()
         overlay.bringToFront()
+        previewCropOverlayView?.bringToFront()
         findViewById<View?>(R.id.playbackUndoRedoRow)?.bringToFront()
         findViewById<View?>(R.id.previewPlayPauseButton)?.bringToFront()
     }
@@ -1334,6 +1344,77 @@ class MainActivity : Activity() {
             placeholder.bringToFront()
             findViewById<View?>(R.id.playbackUndoRedoRow)?.bringToFront()
             findViewById<View?>(R.id.previewPlayPauseButton)?.bringToFront()
+        }
+    }
+
+    private fun setupPreviewCropControls() {
+        findViewById<View?>(R.id.previewCropResetButton)?.setOnClickListener {
+            if (!previewCropModeActive) return@setOnClickListener
+            updateSelectedVideoPreviewTransform { ClipPreviewTransform() }
+            refreshPreviewCropStatus()
+        }
+        findViewById<View?>(R.id.previewCropFillButton)?.setOnClickListener {
+            if (!previewCropModeActive) return@setOnClickListener
+            updateSelectedVideoPreviewTransform { current ->
+                current.copy(
+                    zoom = maxOf(current.zoom, 1.15f),
+                    panXPx = 0f,
+                    panYPx = 0f,
+                )
+            }
+            refreshPreviewCropStatus()
+        }
+        findViewById<View?>(R.id.previewCropDoneButton)?.setOnClickListener {
+            setPreviewCropMode(false)
+        }
+        syncPreviewCropModeUi()
+    }
+
+    private fun canUsePreviewCropMode(): Boolean {
+        return selectedClipKind() == ClipKind.VIDEO || selectedClipKind() == ClipKind.OVERLAY
+    }
+
+    private fun setPreviewCropMode(active: Boolean) {
+        val nextActive = active && canUsePreviewCropMode() && startScreenOverlayView?.visibility != View.VISIBLE
+        previewCropModeActive = nextActive
+        previewCropModeClipKey = if (nextActive) selectedTimelineClipKey else null
+        if (nextActive) {
+            playbackController?.nativePause()
+        } else {
+            previewTransformDragging = false
+            previewTransformPinching = false
+            previewTransformGestureClipId = null
+            previewTransformScaleAccumulator = 1.0f
+            previewView?.setLayerType(View.LAYER_TYPE_NONE, null)
+        }
+        syncPreviewCropModeUi()
+        updateBottomToolbarMode()
+    }
+
+    private fun refreshPreviewCropStatus() {
+        val clipId = selectedVideoClipId()
+        val transform = clipId?.let { clipPreviewTransforms[it] } ?: ClipPreviewTransform()
+        val label = selectedNativeClipLabel()
+        previewCropStatusText?.text =
+            "$label Crop • ${"%.2fx".format(Locale.US, transform.zoom.coerceIn(0.75f, 4.0f))} • Drag / Pinch"
+    }
+
+    private fun syncPreviewCropModeUi() {
+        val showCropUi =
+            previewCropModeActive &&
+                canUsePreviewCropMode() &&
+                startScreenOverlayView?.visibility != View.VISIBLE
+        if (!showCropUi) {
+            previewCropModeActive = false
+            previewCropModeClipKey = null
+        } else {
+            previewCropModeClipKey = selectedTimelineClipKey
+        }
+        previewCropOverlayView?.visibility = if (showCropUi) View.VISIBLE else View.GONE
+        findViewById<View?>(R.id.playbackUndoRedoRow)?.visibility = if (showCropUi) View.GONE else View.VISIBLE
+        if (showCropUi) {
+            refreshPreviewCropStatus()
+            previewCropOverlayView?.bringToFront()
         }
     }
 
@@ -1749,6 +1830,7 @@ class MainActivity : Activity() {
     }
 
     private fun showEditorHome() {
+        setPreviewCropMode(false)
         setStartScreenVisible(true)
     }
 
@@ -4685,6 +4767,7 @@ class MainActivity : Activity() {
         timelineManager?.selectClip(null)
         multiTrackTimelineView?.setSelectedClipId(null)
         activeCanvasTimelineView()?.setSelectedClipId(null)
+        setPreviewCropMode(false)
         updateBottomToolbarMode()
     }
 
@@ -5057,6 +5140,9 @@ class MainActivity : Activity() {
         if (preview.translationX != targetTranslationX) preview.translationX = targetTranslationX
         if (preview.translationY != targetTranslationY) preview.translationY = targetTranslationY
         if (preview.rotation != targetRotation) preview.rotation = targetRotation
+        if (previewCropModeActive) {
+            refreshPreviewCropStatus()
+        }
     }
 
     private fun updateSelectedVideoPreviewTransform(
@@ -5117,6 +5203,9 @@ class MainActivity : Activity() {
     }
 
     private fun handlePreviewTransformTouch(event: MotionEvent): Boolean {
+        if (!previewCropModeActive) {
+            return false
+        }
         if (selectedClipKind() != ClipKind.VIDEO && selectedClipKind() != ClipKind.OVERLAY) {
             previewTransformDragging = false
             previewTransformPinching = false
@@ -5528,9 +5617,13 @@ class MainActivity : Activity() {
                     labelOverrides[R.id.clipKeyframeLabel] = "Keyframe"
                 }
                 ClipKind.OVERLAY -> {
+                    labelOverrides[R.id.clipPanZoomLabel] = "Crop"
                     labelOverrides[R.id.clipVolumeLabel] = "Opacity"
                     labelOverrides[R.id.clipBrightnessLabel] = "Adjust"
                     labelOverrides[R.id.clipChromaKeyLabel] = "ChromaKey"
+                }
+                ClipKind.VIDEO -> {
+                    labelOverrides[R.id.clipPanZoomLabel] = "Crop"
                 }
                 else -> Unit
             }
@@ -5579,12 +5672,22 @@ class MainActivity : Activity() {
                 val icon = button?.getChildAt(0) as? ImageView
                 val isDestructive = item.buttonId == R.id.clipDeleteButton
                 val isFeatured = featuredButtons.contains(item.buttonId)
+                val isCropModeButton =
+                    previewCropModeActive &&
+                        item.buttonId == R.id.clipPanZoomButton &&
+                        (kind == ClipKind.VIDEO || kind == ClipKind.OVERLAY)
                 if (button != null) {
                     when {
                         isDestructive -> {
                             button.setBackgroundResource(R.drawable.toolbar_item_danger_background)
                             icon?.setColorFilter(resources.getColor(R.color.accent_cyan))
                             label?.setTextColor(resources.getColor(R.color.accent_cyan))
+                            button.alpha = 1f
+                        }
+                        isCropModeButton -> {
+                            button.setBackgroundResource(R.drawable.toolbar_item_active_background)
+                            icon?.setColorFilter(resources.getColor(R.color.accent_blue))
+                            label?.setTextColor(resources.getColor(R.color.accent_blue))
                             button.alpha = 1f
                         }
                         isFeatured -> {
@@ -5758,32 +5861,9 @@ class MainActivity : Activity() {
     private fun performSelectedClipPanZoomAction() {
         when (selectedClipKind()) {
             ClipKind.VIDEO, ClipKind.OVERLAY -> {
-                val selected = selectedVideoClipId() ?: return
-                val clipLabel = selectedNativeClipLabel()
-                val cur = clipPreviewTransforms[selected] ?: ClipPreviewTransform()
-                val panStep = ((previewView?.width ?: 320) * 0.08f).coerceAtLeast(18f)
-                ModernSheet.show(this, "$clipLabel Transform") {
-                    slider("Zoom", 1f, 3f, cur.zoom, { "%.1fx".format(it) }) { v ->
-                        updateSelectedVideoPreviewTransform { it.copy(zoom = v) }
-                    }
-                    slider("Pan X", -300f, 300f, cur.panXPx, { "${it.toInt()}px" }) { v ->
-                        updateSelectedVideoPreviewTransform { it.copy(panXPx = v) }
-                    }
-                    slider("Pan Y", -300f, 300f, cur.panYPx, { "${it.toInt()}px" }) { v ->
-                        updateSelectedVideoPreviewTransform { it.copy(panYPx = v) }
-                    }
-                    chips("Quick", listOf("Reset", "+10%", "+25%", "+50%")) { _, opt ->
-                        updateSelectedVideoPreviewTransform { c ->
-                            when (opt) {
-                                "Reset" -> ClipPreviewTransform()
-                                "+10%" -> c.copy(zoom = (c.zoom * 1.10f).coerceAtMost(3f))
-                                "+25%" -> c.copy(zoom = (c.zoom * 1.25f).coerceAtMost(3f))
-                                "+50%" -> c.copy(zoom = (c.zoom * 1.50f).coerceAtMost(3f))
-                                else -> c
-                            }
-                        }
-                    }
-                }
+                val shouldActivate =
+                    !(previewCropModeActive && previewCropModeClipKey == selectedTimelineClipKey)
+                setPreviewCropMode(shouldActivate)
             }
             ClipKind.TEXT -> {
                 val overlayId = selectedTextOverlayId() ?: return
@@ -6577,6 +6657,7 @@ class MainActivity : Activity() {
             applyClipToolbarProfile(kind)
         }
         updateClipToolbarHeader(if (showClipEdit) kind else ClipKind.NONE)
+        syncPreviewCropModeUi()
         applySelectedClipPreviewTransform()
     }
 
