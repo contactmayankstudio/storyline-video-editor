@@ -22,6 +22,7 @@ class ImportController(
     private val timelineProvider: () -> MultiClipTimeline,
     private val timelineManagerProvider: () -> TimelineManager?,
     private val playheadTimeMsProvider: () -> Long,
+    private val isPlayingProvider: () -> Boolean,
     private val onImportedClip: (clipId: Int, importPath: String, importedDurationMs: Long, trackType: TrackType) -> Long,
 ) {
     companion object {
@@ -31,6 +32,7 @@ class ImportController(
         private const val LOW_END_PROXY_START_DELAY_MS = 2200L
         private const val MID_TIER_PROXY_START_DELAY_MS = 1400L
         private const val HIGH_TIER_PROXY_START_DELAY_MS = 900L
+        private const val PROXY_BUSY_RETRY_DELAY_MS = 1800L
         private val VIDEO_EXTENSIONS = setOf("mp4", "mov", "avi", "mkv", "webm", "m4v", "3gp", "3gpp", "ts", "mts", "m2ts", "mpeg", "mpg")
         private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp", "bmp", "gif", "tif", "tiff")
     }
@@ -40,6 +42,7 @@ class ImportController(
     private var nextImportTrackType: TrackType = TrackType.VIDEO
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pendingProxyBuilds = mutableMapOf<Int, Runnable>()
+    @Volatile private var latestWarmupGeneration = 0
 
     fun setNextImportTrackType(trackType: TrackType) {
         nextImportTrackType = trackType
@@ -127,6 +130,7 @@ class ImportController(
                 pendingImportPath = null
                 pendingImportTrackType = TrackType.VIDEO
                 nextImportTrackType = TrackType.VIDEO
+                latestWarmupGeneration += 1
                 val timeline = timelineProvider()
                 timeline.syncFromEngine(previewView)
                 val timelineManager = timelineManagerProvider()
@@ -143,6 +147,7 @@ class ImportController(
                     revealTimeMs = revealTimeMs,
                     importedDurationMs = importedDurationMs,
                     trackType = trackType,
+                    generation = latestWarmupGeneration,
                 )
 
                 maybeStartGhostProxyBuild(clipId, importPath, trackType)
@@ -155,6 +160,7 @@ class ImportController(
         revealTimeMs: Long,
         importedDurationMs: Long,
         trackType: TrackType,
+        generation: Int,
     ) {
         val isVisualTrack =
             trackType == TrackType.VIDEO ||
@@ -191,10 +197,18 @@ class ImportController(
         Thread {
             previewView.ensureNativeSurfaceBinding()
             warmTargets.forEachIndexed { index, targetMs ->
+                if (generation != latestWarmupGeneration || isPlayingProvider()) {
+                    Log.d(TAG, "Import preview warmup canceled step=${index + 1} track=$trackType playing=${isPlayingProvider()}")
+                    return@Thread
+                }
                 var success = attemptPreviewWarmSeek(targetMs)
                 if (!success) {
                     previewView.forceNativeSurfaceRebind()
                     Thread.sleep(70L)
+                    if (generation != latestWarmupGeneration || isPlayingProvider()) {
+                        Log.d(TAG, "Import preview warmup canceled after rebind step=${index + 1} track=$trackType")
+                        return@Thread
+                    }
                     success = attemptPreviewWarmSeek(targetMs)
                 }
                 Log.d(
@@ -258,17 +272,30 @@ class ImportController(
         importPath: String,
         maxLongEdgePx: Int,
         targetFps: Int,
+        delayOverrideMs: Long? = null,
     ) {
         pendingProxyBuilds.remove(clipId)?.let(mainHandler::removeCallbacks)
         val delayMs =
-            when (DeviceDetector.getDeviceTier()) {
-                DeviceDetector.DeviceTier.LOW -> LOW_END_PROXY_START_DELAY_MS
-                DeviceDetector.DeviceTier.HIGH -> HIGH_TIER_PROXY_START_DELAY_MS
-                DeviceDetector.DeviceTier.MID -> MID_TIER_PROXY_START_DELAY_MS
-            }
+            delayOverrideMs
+                ?: when (DeviceDetector.getDeviceTier()) {
+                    DeviceDetector.DeviceTier.LOW -> LOW_END_PROXY_START_DELAY_MS
+                    DeviceDetector.DeviceTier.HIGH -> HIGH_TIER_PROXY_START_DELAY_MS
+                    DeviceDetector.DeviceTier.MID -> MID_TIER_PROXY_START_DELAY_MS
+                }
         val runnable =
             Runnable {
                 pendingProxyBuilds.remove(clipId)
+                if (isPlayingProvider()) {
+                    Log.d(TAG, "Proxy build deferred while playback active clip=$clipId")
+                    scheduleProxyBuild(
+                        clipId = clipId,
+                        importPath = importPath,
+                        maxLongEdgePx = maxLongEdgePx,
+                        targetFps = targetFps,
+                        delayOverrideMs = PROXY_BUSY_RETRY_DELAY_MS,
+                    )
+                    return@Runnable
+                }
                 startProxyBuild(
                     clipId = clipId,
                     importPath = importPath,
@@ -316,12 +343,22 @@ class ImportController(
                 Log.d(TAG, "Proxy ready clip=$clipId proxy=${status.proxyPath}")
                 val timelineClips = timelineManagerProvider()?.getClips().orEmpty()
                 if (timelineClips.size == 1 && timelineClips.firstOrNull()?.id == clipId) {
+                    if (isPlayingProvider()) {
+                        Log.d(TAG, "Proxy activation deferred while playback active clip=$clipId")
+                        mainHandler.postDelayed(
+                            { pollProxyStatus(clipId, attempt + 1) },
+                            PROXY_BUSY_RETRY_DELAY_MS,
+                        )
+                        return
+                    }
                     val activated = runCatching { NativeBridge.activateClipProxy(clipId) }.getOrDefault(false)
                     Log.d(TAG, "Proxy activation clip=$clipId activated=$activated")
-                    // Force first frame render after proxy is ready
-                    val pv = previewViewProvider()
-                    if (pv != null) {
-                        Thread { NativeBridge.seekToTime(pv, 0L) }.start()
+                    if (activated) {
+                        // Force first frame render after proxy is ready, but only while idle.
+                        val pv = previewViewProvider()
+                        if (pv != null) {
+                            Thread { NativeBridge.seekToTime(pv, playheadTimeMsProvider().coerceAtLeast(0L)) }.start()
+                        }
                     }
                 }
             }

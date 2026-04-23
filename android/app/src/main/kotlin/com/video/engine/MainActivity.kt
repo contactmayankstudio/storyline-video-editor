@@ -965,6 +965,7 @@ class MainActivity : Activity() {
             timelineProvider = { timeline },
             timelineManagerProvider = { timelineManager },
             playheadTimeMsProvider = { currentPlayheadMs() },
+            isPlayingProvider = { isPlaying },
             onImportedClip = { clipId, importPath, importedDurationMs, trackType ->
                 val fileExtension = importPath.substringAfterLast(".", "mp4").lowercase()
                 videoDurationMs = maxOf(videoDurationMs, importedDurationMs)

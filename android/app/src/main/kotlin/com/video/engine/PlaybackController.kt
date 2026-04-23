@@ -39,9 +39,13 @@ class PlaybackController(
         private const val MIN_UI_FRAME_INTERVAL_MS = 1000L / MAX_UI_TIMELINE_FPS
         private const val NATIVE_PLAYBACK_START_GRACE_MS = 750L
         private const val NATIVE_SEEK_DUPLICATE_TOLERANCE_MS = 8L
+        private const val LOW_END_PLAY_PREROLL_MS = 72L
+        private const val MID_TIER_PLAY_PREROLL_MS = 48L
+        private const val HIGH_END_PLAY_PREROLL_MS = 24L
     }
 
     private val choreographer = Choreographer.getInstance()
+    private val mainHandler = Handler(Looper.getMainLooper())
     // Single-thread executor for scrub seeks — cancels stale seeks automatically
     private val scrubExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
     private var lastRenderedPlaybackTimeMs = Long.MIN_VALUE
@@ -52,6 +56,7 @@ class PlaybackController(
     private var lastNativeSeekTimelineMs = Long.MIN_VALUE
     private var lastScrubTimeMs = Long.MIN_VALUE
     private var nativePlaybackStartGraceDeadlineMs = 0L
+    private var pendingSmoothPlayToken = 0
     var onPlaybackTimeChanged: ((Long) -> Unit)? = null
 
     private val scrubHandler = Handler(Looper.getMainLooper())
@@ -165,22 +170,35 @@ class PlaybackController(
             requestedTimeMs >= availableDurationMs -> 0L
             else -> requestedTimeMs
         }
+        cancelPendingSmoothPlay()
         setCurrentTimeMs(startTimeMs)
         setIsPlaying(true)
-        nativePlaybackStartGraceDeadlineMs = SystemClock.elapsedRealtime() + NATIVE_PLAYBACK_START_GRACE_MS
         lastRenderedPlaybackTimeMs = Long.MIN_VALUE
-        android.util.Log.d(
-            "PlaybackController",
-            "nativePlay: startTimeMs=$startTimeMs requestedTimeMs=$requestedTimeMs isPlaying=${isPlayingProvider()}",
-        )
-        NativeBridge.startPlayback(view, startTimeMs)
-        onPlayRequested(startTimeMs)
         applyPlaybackTime(startTimeMs)
-        schedulePlaybackFrame()
-        android.util.Log.d("PlaybackController", "nativePlay: schedulePlaybackFrame done")
+        view.ensureNativeSurfaceBinding()
+        val prerollDelayMs = resolvePlayPrerollDelayMs()
+        if (prerollDelayMs > 0L && !NativeBridge.isPlaybackActive(view)) {
+            pendingSmoothPlayToken += 1
+            val playToken = pendingSmoothPlayToken
+            Log.d(
+                TAG,
+                "nativePlay preroll: startTimeMs=$startTimeMs requestedTimeMs=$requestedTimeMs delay=${prerollDelayMs}ms",
+            )
+            NativeBridge.seekToTime(view, startTimeMs)
+            mainHandler.postDelayed({
+                if (playToken != pendingSmoothPlayToken || !isPlayingProvider()) {
+                    Log.d(TAG, "nativePlay preroll canceled token=$playToken")
+                    return@postDelayed
+                }
+                startNativePlayback(view, startTimeMs, requestedTimeMs)
+            }, prerollDelayMs)
+            return
+        }
+        startNativePlayback(view, startTimeMs, requestedTimeMs)
     }
 
     fun nativePause() {
+        cancelPendingSmoothPlay()
         setIsPlaying(false)
         nativePlaybackStartGraceDeadlineMs = 0L
         cancelPlaybackFrames()
@@ -196,6 +214,7 @@ class PlaybackController(
     }
 
     private fun onTimelineScrub(timelineMs: Long, syncTimelineUi: Boolean) {
+        cancelPendingSmoothPlay()
         resetPlaybackClock(anchorTimeMs = timelineMs)
         setCurrentTimeMs(timelineMs)
         timelineManagerProvider()?.updateDisplayedTime(timelineMs)
@@ -256,6 +275,7 @@ class PlaybackController(
     }
 
     private fun handleNativePlaybackStopped(previewView: VideoPreviewView) {
+        cancelPendingSmoothPlay()
         val stoppedTimeMs = NativeBridge.getCurrentPlaybackTime(previewView).coerceAtLeast(0L)
         setIsPlaying(false)
         nativePlaybackStartGraceDeadlineMs = 0L
@@ -289,6 +309,27 @@ class PlaybackController(
         lastRenderedPlaybackTimeMs = timeMs
     }
 
+    private fun startNativePlayback(
+        view: VideoPreviewView,
+        startTimeMs: Long,
+        requestedTimeMs: Long,
+    ) {
+        nativePlaybackStartGraceDeadlineMs = SystemClock.elapsedRealtime() + NATIVE_PLAYBACK_START_GRACE_MS
+        Log.d(
+            TAG,
+            "nativePlay: startTimeMs=$startTimeMs requestedTimeMs=$requestedTimeMs isPlaying=${isPlayingProvider()}",
+        )
+        NativeBridge.startPlayback(view, startTimeMs)
+        onPlayRequested(startTimeMs)
+        schedulePlaybackFrame()
+        Log.d(TAG, "nativePlay: schedulePlaybackFrame done")
+    }
+
+    private fun cancelPendingSmoothPlay() {
+        pendingSmoothPlayToken += 1
+        mainHandler.removeCallbacksAndMessages(null)
+    }
+
     private fun resetPlaybackClock(anchorTimeMs: Long = currentTimeMsProvider()) {
         lastRenderedPlaybackTimeMs = Long.MIN_VALUE
         lastLoggedPlaybackTimeMs = Long.MIN_VALUE
@@ -311,5 +352,13 @@ class PlaybackController(
         }
         lastNativeSeekTimelineMs = timelineMs
         return true
+    }
+
+    private fun resolvePlayPrerollDelayMs(): Long {
+        return when (DeviceDetector.getDeviceTier()) {
+            DeviceDetector.DeviceTier.LOW -> LOW_END_PLAY_PREROLL_MS
+            DeviceDetector.DeviceTier.MID -> MID_TIER_PLAY_PREROLL_MS
+            DeviceDetector.DeviceTier.HIGH -> HIGH_END_PLAY_PREROLL_MS
+        }
     }
 }
