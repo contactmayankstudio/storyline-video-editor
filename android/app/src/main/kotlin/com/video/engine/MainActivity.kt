@@ -13,6 +13,7 @@ import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.util.Log
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
@@ -1170,11 +1171,21 @@ class MainActivity : Activity() {
     }
 
     override fun onBackPressed() {
-        if (startScreenOverlayView?.visibility != View.VISIBLE) {
-            showEditorHome()
-            return
-        }
+        if (handleBackNavigationToHome()) return
         super.onBackPressed()
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK && handleBackNavigationToHome()) {
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
+    }
+
+    private fun handleBackNavigationToHome(): Boolean {
+        if (startScreenOverlayView?.visibility == View.VISIBLE) return false
+        showEditorHome()
+        return true
     }
 
     private fun setupAspectRatioButton() {
@@ -1795,6 +1806,51 @@ class MainActivity : Activity() {
 
         lastAutomationToken = token
         when (action) {
+            "show_home" -> {
+                showEditorHome()
+            }
+            "tap_toolbar_back" -> {
+                findViewById<View?>(R.id.loadProjectButton)?.performClick()
+            }
+            "open_export" -> {
+                findViewById<View?>(R.id.exportButton)?.performClick()
+            }
+            "open_aspect_ratio" -> {
+                findViewById<View?>(R.id.aspectRatioButton)?.performClick()
+            }
+            "open_save" -> {
+                findViewById<View?>(R.id.saveProjectButton)?.performClick()
+            }
+            "open_media" -> {
+                findViewById<View?>(R.id.cutButton)?.performClick()
+            }
+            "open_overlay" -> {
+                findViewById<View?>(R.id.overlayImportButton)?.performClick()
+            }
+            "open_layer" -> {
+                findViewById<View?>(R.id.layersButton)?.performClick()
+            }
+            "open_audio" -> {
+                findViewById<View?>(R.id.audioButton)?.performClick()
+            }
+            "open_text" -> {
+                findViewById<View?>(R.id.textButton)?.performClick()
+            }
+            "open_effects" -> {
+                findViewById<View?>(R.id.effectsButton)?.performClick()
+            }
+            "open_stickers" -> {
+                findViewById<View?>(R.id.stickersButton)?.performClick()
+            }
+            "open_transition" -> {
+                findViewById<View?>(R.id.transitionButton)?.performClick()
+            }
+            "open_voiceover" -> {
+                findViewById<View?>(R.id.voiceoverButton)?.performClick()
+            }
+            "open_color" -> {
+                findViewById<View?>(R.id.colorGradingButton)?.performClick()
+            }
             "quick_import_video" -> {
                 importController?.setNextImportTrackType(TrackType.VIDEO)
                 importController?.importQuickSample()
