@@ -1,0 +1,250 @@
+name: Storyline Ops Watchdog
+
+on:
+  workflow_run:
+    workflows:
+      - Android CI Build
+      - CodeQL
+    types:
+      - completed
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+concurrency:
+  group: storyline-ops-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Assess operational health
+        id: assess
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const eventName = context.eventName;
+            const summaryLines = [];
+            const problemLines = [];
+            let prompt = "";
+
+            function addProblem(line) {
+              if (!problemLines.includes(line)) {
+                problemLines.push(line);
+              }
+            }
+
+            if (eventName === "workflow_run") {
+              const run = context.payload.workflow_run;
+              const runUrl = run.html_url || `${context.serverUrl}/${owner}/${repo}/actions/runs/${run.id}`;
+              summaryLines.push(`Triggered by workflow_run: ${run.name} #${run.run_number}`);
+              summaryLines.push(`Branch: ${run.head_branch}`);
+              summaryLines.push(`Conclusion: ${run.conclusion || "unknown"}`);
+              summaryLines.push(`Run URL: ${runUrl}`);
+              if (["failure", "cancelled", "timed_out"].includes(run.conclusion)) {
+                addProblem(`- ${run.name} failed on main. Run: ${runUrl}`);
+                prompt = [
+                  "[Ops Watchdog]",
+                  `Investigate the failed ${run.name} run on main.`,
+                  `Run URL: ${runUrl}`,
+                  "Required:",
+                  "- identify the root cause from workflow metadata/log clues",
+                  "- implement the minimal safe fix in the repo",
+                  "- keep unrelated files untouched",
+                  "- push the fix back to main after verification",
+                ].join("\n");
+              }
+            } else {
+              const watchedNames = [
+                "Android CI Build",
+                "CodeQL",
+                "Storyline Continuous Autopilot",
+                "Storyline AI Automation",
+              ];
+              const runs = await github.rest.actions.listWorkflowRunsForRepo({
+                owner,
+                repo,
+                branch: "main",
+                per_page: 30,
+              });
+              const latestByName = new Map();
+              for (const run of runs.data.workflow_runs || []) {
+                if (!watchedNames.includes(run.name) || latestByName.has(run.name)) continue;
+                latestByName.set(run.name, run);
+              }
+
+              summaryLines.push("Latest main branch workflow status:");
+              for (const name of watchedNames) {
+                const run = latestByName.get(name);
+                if (!run) {
+                  summaryLines.push(`- ${name}: no recent run`);
+                  continue;
+                }
+                summaryLines.push(`- ${name}: ${run.conclusion || run.status} (#${run.run_number}) ${run.html_url}`);
+                if (
+                  ["Android CI Build", "CodeQL", "Storyline AI Automation"].includes(name) &&
+                  ["failure", "cancelled", "timed_out"].includes(run.conclusion)
+                ) {
+                  addProblem(`- ${name} is currently failing on main. Run: ${run.html_url}`);
+                }
+              }
+
+              if (problemLines.length > 0) {
+                prompt = [
+                  "[Ops Watchdog]",
+                  "Investigate the latest failing operational runs on main.",
+                  ...problemLines,
+                  "Required:",
+                  "- identify the highest-signal failure first",
+                  "- implement the smallest safe fix",
+                  "- verify the relevant workflow path",
+                  "- push directly to main only when the fix is coherent",
+                ].join("\n");
+              }
+            }
+
+            const automationRuns = await github.rest.actions.listWorkflowRuns({
+              owner,
+              repo,
+              workflow_id: "automation.yml",
+              branch: "main",
+              per_page: 5,
+            });
+            const activeAutomation = (automationRuns.data.workflow_runs || []).find((run) =>
+              ["queued", "in_progress"].includes(run.status)
+            );
+
+            const issueBody = [
+              "## Storyline Ops Watchdog",
+              "",
+              ...summaryLines,
+              "",
+              problemLines.length > 0 ? "## Problems Detected" : "## Problems Detected",
+              problemLines.length > 0 ? problemLines.join("\n") : "- No active GitHub-side operational problems detected.",
+              "",
+              activeAutomation
+                ? `Active automation run: ${activeAutomation.html_url}`
+                : "Active automation run: none",
+              "",
+              `Generated at: ${new Date().toISOString()}`,
+            ].join("\n");
+
+            const shouldDispatch = problemLines.length > 0 && !activeAutomation;
+
+            core.setOutput("has_problems", problemLines.length > 0 ? "true" : "false");
+            core.setOutput("should_dispatch", shouldDispatch ? "true" : "false");
+            core.setOutput("prompt", prompt);
+            core.setOutput("issue_body", issueBody);
+
+            core.summary
+              .addHeading("Storyline Ops Watchdog")
+              .addRaw(summaryLines.join("\n"), true)
+              .addRaw("\n\n")
+              .addRaw(problemLines.length > 0 ? problemLines.join("\n") : "No active GitHub-side operational problems detected.", true)
+              .addRaw("\n\n")
+              .addRaw(activeAutomation ? `Active automation run: ${activeAutomation.html_url}` : "Active automation run: none", true);
+            await core.summary.write();
+
+      - name: Upsert watchdog issue
+        if: steps.assess.outputs.has_problems == 'true'
+        uses: actions/github-script@v7
+        env:
+          WATCHDOG_BODY: ${{ steps.assess.outputs.issue_body }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = "Ops Watchdog";
+            const body = process.env.WATCHDOG_BODY || "Ops Watchdog detected a problem.";
+            const issues = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              state: "open",
+              per_page: 100,
+            });
+            const existing = (issues.data || []).find((issue) => issue.title === title);
+            if (existing) {
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: existing.number,
+                body,
+              });
+              core.notice(`Updated existing watchdog issue #${existing.number}.`);
+            } else {
+              const created = await github.rest.issues.create({
+                owner,
+                repo,
+                title,
+                body,
+              });
+              core.notice(`Created watchdog issue #${created.data.number}.`);
+            }
+
+      - name: Close resolved watchdog issue
+        if: steps.assess.outputs.has_problems != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = "Ops Watchdog";
+            const issues = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              state: "open",
+              per_page: 100,
+            });
+            const existing = (issues.data || []).find((issue) => issue.title === title);
+            if (!existing) {
+              core.notice("No open watchdog issue to close.");
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: existing.number,
+              body: "Ops Watchdog is healthy again. Closing this tracking issue automatically.",
+            });
+            await github.rest.issues.update({
+              owner,
+              repo,
+              issue_number: existing.number,
+              state: "closed",
+            });
+            core.notice(`Closed watchdog issue #${existing.number}.`);
+
+      - name: Dispatch automation worker
+        if: steps.assess.outputs.should_dispatch == 'true'
+        uses: actions/github-script@v7
+        env:
+          WATCHDOG_PROMPT: ${{ steps.assess.outputs.prompt }}
+        with:
+          script: |
+            const prompt = process.env.WATCHDOG_PROMPT || "";
+            if (!prompt.trim()) {
+              core.notice("Watchdog found no prompt to dispatch.");
+              return;
+            }
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: "automation.yml",
+              ref: "main",
+              inputs: {
+                prompt,
+                target_branch: "main",
+                max_attempts: "2",
+              },
+            });
+            core.notice("Ops Watchdog dispatched the automation worker.");

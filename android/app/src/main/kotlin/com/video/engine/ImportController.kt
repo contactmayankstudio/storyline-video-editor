@@ -23,6 +23,8 @@ class ImportController(
     private val timelineManagerProvider: () -> TimelineManager?,
     private val playheadTimeMsProvider: () -> Long,
     private val isPlayingProvider: () -> Boolean,
+    private val onImportStarted: ((path: String, trackType: TrackType) -> Unit)? = null,
+    private val onImportFinished: ((success: Boolean, path: String, trackType: TrackType, clipId: Int?, importedDurationMs: Long, error: String?) -> Unit)? = null,
     private val onImportedClip: (clipId: Int, importPath: String, importedDurationMs: Long, trackType: TrackType) -> Long,
 ) {
     companion object {
@@ -95,6 +97,9 @@ class ImportController(
             Log.d(TAG, "Skipping duplicate pending import while prior import is still running: $importPath")
             return
         }
+        if (importRetryCount == 0) {
+            onImportStarted?.invoke(importPath, trackType)
+        }
         importInFlight = true
 
         // Heavy JNI (FFmpeg open + probe) — run off main thread
@@ -122,6 +127,14 @@ class ImportController(
                         importRetryCount = 0
                         importInFlight = false
                         pendingImportPath = null
+                        onImportFinished?.invoke(
+                            false,
+                            importPath,
+                            trackType,
+                            null,
+                            0L,
+                            "native_clip_timeout",
+                        )
                         mainHandler.post {
                             Toast.makeText(activity, "Import failed. Please try again.", Toast.LENGTH_SHORT).show()
                         }
@@ -150,6 +163,14 @@ class ImportController(
                     timelineManager?.selectClip(clipId)
 
                     val importedDurationMs = NativeBridge.getClipDuration(previewView, clipId)
+                    onImportFinished?.invoke(
+                        true,
+                        importPath,
+                        trackType,
+                        clipId,
+                        importedDurationMs,
+                        null,
+                    )
                     val revealTimeMs = onImportedClip(clipId, importPath, importedDurationMs, trackType)
 
                     warmImportedPreview(
@@ -164,6 +185,14 @@ class ImportController(
                 }
             } catch (error: Exception) {
                 importInFlight = false
+                onImportFinished?.invoke(
+                    false,
+                    importPath,
+                    trackType,
+                    null,
+                    0L,
+                    error.message ?: "import_exception",
+                )
                 Log.e(TAG, "Import thread failed for $importPath", error)
             }
         }.start()

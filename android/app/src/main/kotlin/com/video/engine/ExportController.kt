@@ -46,6 +46,8 @@ class ExportController(
     private val notificationManagerProvider: () -> NotificationManager?,
     private val isWatermarkUnlockedProvider: () -> Boolean,
     private val onRequestWatermarkUnlock: ((callback: (Boolean) -> Unit) -> Unit),
+    private val onExportStarted: ((profileLabel: String, width: Int, height: Int, fps: Int, bitrateMbps: Int, codec: String) -> Unit)? = null,
+    private val onExportCompleted: ((success: Boolean, outputPath: String?, error: String?) -> Unit)? = null,
     private val onExportSuccess: (() -> Unit)? = null,
 ) {
     private data class ExportComplexity(
@@ -215,6 +217,14 @@ class ExportController(
         }
 
         showExportProgressDialog(previewView, videoDurationMsProvider(), outputPath)
+        onExportStarted?.invoke(
+            requestedProfileLabel,
+            exportWidth,
+            exportHeight,
+            exportFps,
+            exportBitrateMbps,
+            videoCodec,
+        )
 
         pushForegroundExportNotification(
             title = "Video Export",
@@ -308,6 +318,7 @@ class ExportController(
                                 activity.stopService(Intent(activity, ExportService::class.java))
                                 Log.d(TAG, "Export successful: $outputPath")
                                 showExportCompleteDialog(outputPath, sizeMB, null)
+                                onExportCompleted?.invoke(true, outputPath, null)
                                 onExportSuccess?.invoke()
                             },
                             280L,
@@ -318,6 +329,7 @@ class ExportController(
                         activity.stopService(Intent(activity, ExportService::class.java))
                         Log.e(TAG, "Export failed")
                         val nativeReason = previewView.getLastExportError().trim()
+                        onExportCompleted?.invoke(false, null, nativeReason.ifEmpty { "native_export_failed" })
                         showErrorDialog(
                             "Export Failed",
                             if (nativeReason.isNotEmpty()) {
@@ -343,6 +355,7 @@ class ExportController(
                     progressDialog?.dismiss()
                     finishDirectExportSession()
                     activity.stopService(Intent(activity, ExportService::class.java))
+                    onExportCompleted?.invoke(false, null, e.message ?: "export_exception")
                     showErrorDialog("Export Error", e.message ?: "Unknown error")
                 }
             }

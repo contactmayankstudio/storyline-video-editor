@@ -20,6 +20,8 @@ class AudioImportController(
     private val activity: Activity,
     private val nextAudioClipIdProvider: () -> Int,
     private val setNextAudioClipId: (Int) -> Unit,
+    private val onImportStarted: ((path: String) -> Unit)? = null,
+    private val onImportFinished: ((success: Boolean, path: String, clipId: Int?, error: String?) -> Unit)? = null,
     private val onImportedAudio: (AudioClip) -> Unit,
     private val nativeClipCreator: ((path: String, startTimeMs: Long, layerIndex: Int) -> Int?)? = null,
 ) {
@@ -127,10 +129,12 @@ class AudioImportController(
         displayNameOverride: String? = null,
         layerIndexOverride: Int? = null,
     ): AudioClip? {
+        onImportStarted?.invoke(path)
         val probedDurationMs = probeDurationMs(path)
         val durationMs = durationOverrideMs?.takeIf { it > 0L } ?: probedDurationMs
         if (durationMs <= 0L) {
             Log.w(TAG, "Audio duration probe failed for: $path")
+            onImportFinished?.invoke(false, path, null, "duration_probe_failed")
             return null
         }
         val requestedLayerIndex = layerIndexOverride ?: (
@@ -153,6 +157,7 @@ class AudioImportController(
         setNextAudioClipId(maxOf(nextAudioClipIdProvider(), clip.id + 1))
         onImportedAudio(clip)
         startPeakMapBuild(clip)
+        onImportFinished?.invoke(true, path, clip.id, null)
         return clip
     }
 

@@ -87,7 +87,13 @@ class MainActivity : Activity() {
         override fun run() {
             if (isFinishing || isDestroyed) return
             syncAppHealth(force = true)
-            mainHandler.postDelayed(this, 45_000L)
+            val nextIntervalMs =
+                if (::opsReporter.isInitialized) {
+                    opsReporter.heartbeatIntervalMs()
+                } else {
+                    45_000L
+                }
+            mainHandler.postDelayed(this, nextIntervalMs)
         }
     }
 
@@ -266,6 +272,7 @@ class MainActivity : Activity() {
     private var previewAudioPlayer: PreviewAudioPlayer? = null
     private lateinit var debugTelemetryManager: DebugTelemetryManager
     private lateinit var appHealthReporter: AppHealthReporter
+    private lateinit var opsReporter: OpsReporter
 
     // Text overlays
     private var nextTextOverlayId = 1
@@ -660,6 +667,9 @@ class MainActivity : Activity() {
             if (isFinishing || isDestroyed) return@post
         }
         debugTelemetryManager = DebugTelemetryManager(this)
+        opsReporter = OpsReporter(this) {
+            if (::debugTelemetryManager.isInitialized) debugTelemetryManager.sessionId else "unknown"
+        }
         appHealthReporter = AppHealthReporter(this)
         appHealthReporter.bindSession(debugTelemetryManager.sessionId)
         NativeBridge.setTelemetrySink { debugTelemetryManager.recordNativeBridgeTelemetry(it) }
@@ -891,10 +901,24 @@ class MainActivity : Activity() {
             },
             onPlayRequested = { timeMs ->
                 previewAudioPlayer?.playFrom(timeMs)
+                if (::opsReporter.isInitialized) {
+                    opsReporter.startTrace(
+                        slot = "playback_session",
+                        traceName = "ops_playback_session",
+                        attributes = mapOf("screen" to currentHealthScreenName()),
+                    )
+                }
                 noteAppHealthAction("playback_started")
             },
             onPauseRequested = {
                 previewAudioPlayer?.pause()
+                if (::opsReporter.isInitialized) {
+                    opsReporter.stopTrace(
+                        slot = "playback_session",
+                        success = true,
+                        attributes = mapOf("screen" to currentHealthScreenName()),
+                    )
+                }
                 noteAppHealthAction("playback_paused")
             },
             onSeekRequested = { timeMs, continuePlaying -> previewAudioPlayer?.seekTo(timeMs, continuePlaying) },
@@ -984,6 +1008,36 @@ class MainActivity : Activity() {
             timelineManagerProvider = { timelineManager },
             playheadTimeMsProvider = { currentPlayheadMs() },
             isPlayingProvider = { isPlaying },
+            onImportStarted = { path, trackType ->
+                if (::opsReporter.isInitialized) {
+                    opsReporter.startTrace(
+                        slot = "visual_import",
+                        traceName = "ops_visual_import",
+                        attributes = mapOf(
+                            "track" to trackType.name.lowercase(Locale.US),
+                            "ext" to path.substringAfterLast('.', "media").lowercase(Locale.US),
+                        ),
+                    )
+                }
+            },
+            onImportFinished = { success, path, trackType, _, importedDurationMs, error ->
+                if (::opsReporter.isInitialized) {
+                    opsReporter.stopTrace(
+                        slot = "visual_import",
+                        success = success,
+                        attributes = buildMap {
+                            put("track", trackType.name.lowercase(Locale.US))
+                            put("ext", path.substringAfterLast('.', "media").lowercase(Locale.US))
+                            if (!error.isNullOrBlank()) {
+                                put("error", error.take(24))
+                            }
+                        },
+                        metrics = mapOf(
+                            "clip_duration_ms" to importedDurationMs.coerceAtLeast(0L),
+                        ),
+                    )
+                }
+            },
             onImportedClip = { clipId, importPath, importedDurationMs, trackType ->
                 val fileExtension = importPath.substringAfterLast(".", "mp4").lowercase()
                 videoDurationMs = maxOf(videoDurationMs, importedDurationMs)
@@ -1033,6 +1087,31 @@ class MainActivity : Activity() {
             activity = this,
             nextAudioClipIdProvider = { nextAudioClipId },
             setNextAudioClipId = { nextAudioClipId = it },
+            onImportStarted = { path ->
+                if (::opsReporter.isInitialized) {
+                    opsReporter.startTrace(
+                        slot = "audio_import",
+                        traceName = "ops_audio_import",
+                        attributes = mapOf(
+                            "ext" to path.substringAfterLast('.', "audio").lowercase(Locale.US),
+                        ),
+                    )
+                }
+            },
+            onImportFinished = { success, path, _, error ->
+                if (::opsReporter.isInitialized) {
+                    opsReporter.stopTrace(
+                        slot = "audio_import",
+                        success = success,
+                        attributes = buildMap {
+                            put("ext", path.substringAfterLast('.', "audio").lowercase(Locale.US))
+                            if (!error.isNullOrBlank()) {
+                                put("error", error.take(24))
+                            }
+                        },
+                    )
+                }
+            },
             onImportedAudio = { audioClip ->
                 if (isPlaying) {
                     isPlaying = false
@@ -1108,6 +1187,40 @@ class MainActivity : Activity() {
             isWatermarkUnlockedProvider = { rewardedUnlockController?.isWatermarkUnlocked() == true },
             onRequestWatermarkUnlock = { callback ->
                 rewardedUnlockController?.requestWatermarkUnlock(callback) ?: callback(false)
+            },
+            onExportStarted = { profileLabel, width, height, fps, bitrateMbps, codec ->
+                if (::opsReporter.isInitialized) {
+                    opsReporter.startTrace(
+                        slot = "export_job",
+                        traceName = "ops_export_job",
+                        attributes = mapOf(
+                            "profile" to profileLabel.lowercase(Locale.US),
+                            "codec" to codec.lowercase(Locale.US),
+                            "size" to "${width}x$height",
+                            "fps" to fps.toString(),
+                            "bitrate" to bitrateMbps.toString(),
+                        ),
+                    )
+                }
+                noteAppHealthAction("export_started")
+            },
+            onExportCompleted = { success, outputPath, error ->
+                if (::opsReporter.isInitialized) {
+                    opsReporter.stopTrace(
+                        slot = "export_job",
+                        success = success,
+                        attributes = buildMap {
+                            put("has_output", (outputPath != null).toString())
+                            if (!error.isNullOrBlank()) {
+                                put("error", error.take(24))
+                            }
+                        },
+                        metrics = mapOf(
+                            "output_bytes" to (outputPath?.let { File(it).takeIf(File::exists)?.length() } ?: 0L),
+                        ),
+                    )
+                }
+                noteAppHealthAction(if (success) "export_completed" else "export_failed")
             },
             onExportSuccess = {
                 adsController?.showPostExportInterstitial()
@@ -1492,6 +1605,13 @@ class MainActivity : Activity() {
         stopHardwareTelemetryTicker()
         stopAppHealthHeartbeat()
         mainHandler.removeCallbacks(bannerRefreshRunnable)
+        if (::opsReporter.isInitialized) {
+            opsReporter.stopTrace(
+                slot = "playback_session",
+                success = true,
+                attributes = mapOf("screen" to currentHealthScreenName(), "paused" to "true"),
+            )
+        }
         playbackController?.onPause()  // handles previewView.onPause() internally
         exportController?.dismissProgressDialog()
         adsController?.onPause()
@@ -1515,6 +1635,9 @@ class MainActivity : Activity() {
         rewardedUnlockController?.onDestroy()
         captureDebugSnapshot("activity_destroy")
         NativeBridge.setTelemetrySink(null)
+        if (::opsReporter.isInitialized) {
+            opsReporter.close()
+        }
         if (::appHealthReporter.isInitialized) {
             appHealthReporter.close(
                 screen = currentHealthScreenName(),
@@ -1577,7 +1700,19 @@ class MainActivity : Activity() {
     }
 
     private fun noteAppHealthAction(action: String, force: Boolean = true) {
-        syncAppHealth(force = force, action = action.take(120))
+        val actionName = action.take(120)
+        if (::opsReporter.isInitialized) {
+            opsReporter.noteAction(
+                action = actionName,
+                metadata = mapOf(
+                    "screen" to currentHealthScreenName(),
+                    "playing" to isPlaying,
+                    "project_loaded" to hasProjectContent(),
+                ),
+            )
+        }
+        val effectiveForce = force || (::opsReporter.isInitialized && opsReporter.shouldForceFlush(actionName))
+        syncAppHealth(force = effectiveForce, action = actionName)
     }
 
     private fun startAppHealthHeartbeat() {
