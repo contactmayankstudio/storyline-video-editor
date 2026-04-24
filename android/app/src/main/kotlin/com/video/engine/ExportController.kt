@@ -47,6 +47,7 @@ class ExportController(
     private val isWatermarkUnlockedProvider: () -> Boolean,
     private val onRequestWatermarkUnlock: ((callback: (Boolean) -> Unit) -> Unit),
     private val onExportStarted: ((profileLabel: String, width: Int, height: Int, fps: Int, bitrateMbps: Int, codec: String) -> Unit)? = null,
+    private val onExportProgress: ((progress: Int) -> Unit)? = null,
     private val onExportCompleted: ((success: Boolean, outputPath: String?, error: String?) -> Unit)? = null,
     private val onExportSuccess: (() -> Unit)? = null,
 ) {
@@ -916,6 +917,7 @@ class ExportController(
                     val progress = NativeBridge.getExportProgress(previewView)
                     val elapsedSec = (System.currentTimeMillis() - exportStartTimeMs) / 1000
                     if (progress >= 0) {
+                        onExportProgress?.invoke(progress)
                         renderExportProgressFrame(
                             buildExportProgressFrame(
                                 progress = progress,

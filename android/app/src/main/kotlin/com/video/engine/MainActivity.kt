@@ -275,6 +275,7 @@ class MainActivity : Activity() {
     private lateinit var opsReporter: OpsReporter
     private lateinit var problemReportManager: ProblemReportManager
     private lateinit var uiFreezeWatchdog: UiFreezeWatchdog
+    private lateinit var playbackExportIssueDetector: PlaybackExportIssueDetector
     private var latestHealthAction: String = "launch"
 
     // Text overlays
@@ -701,6 +702,15 @@ class MainActivity : Activity() {
         }
         appHealthReporter = AppHealthReporter(this)
         problemReportManager = ProblemReportManager(this)
+        playbackExportIssueDetector = PlaybackExportIssueDetector { reportType, source, description ->
+            if (!isFinishing && !isDestroyed) {
+                submitAutoDetectorIssue(
+                    reportType = reportType,
+                    source = source,
+                    description = description,
+                )
+            }
+        }
         uiFreezeWatchdog = UiFreezeWatchdog { stallMs ->
             mainHandler.post {
                 if (isFinishing || isDestroyed) return@post
@@ -964,6 +974,9 @@ class MainActivity : Activity() {
             },
             onPlayRequested = { timeMs ->
                 previewAudioPlayer?.playFrom(timeMs)
+                if (::playbackExportIssueDetector.isInitialized) {
+                    playbackExportIssueDetector.onPlaybackStarted(timeMs)
+                }
                 if (::opsReporter.isInitialized) {
                     opsReporter.startTrace(
                         slot = "playback_session",
@@ -975,6 +988,9 @@ class MainActivity : Activity() {
             },
             onPauseRequested = {
                 previewAudioPlayer?.pause()
+                if (::playbackExportIssueDetector.isInitialized) {
+                    playbackExportIssueDetector.onPlaybackPaused()
+                }
                 if (::opsReporter.isInitialized) {
                     opsReporter.stopTrace(
                         slot = "playback_session",
@@ -991,6 +1007,9 @@ class MainActivity : Activity() {
         playbackController?.onPlaybackTimeChanged = { timeMs ->
             activeCanvasTimelineView()?.setPlayheadMs(timeMs)
             previewAudioPlayer?.syncToVideoClock(timeMs, continuePlaying = isPlaying)
+            if (::playbackExportIssueDetector.isInitialized) {
+                playbackExportIssueDetector.onPlaybackTimeChanged(timeMs)
+            }
         }
         // On surface recreate (after picker), seek to restore frame
         previewView?.onSurfaceReady = {
@@ -1252,6 +1271,9 @@ class MainActivity : Activity() {
                 rewardedUnlockController?.requestWatermarkUnlock(callback) ?: callback(false)
             },
             onExportStarted = { profileLabel, width, height, fps, bitrateMbps, codec ->
+                if (::playbackExportIssueDetector.isInitialized) {
+                    playbackExportIssueDetector.onExportStarted()
+                }
                 if (::opsReporter.isInitialized) {
                     opsReporter.startTrace(
                         slot = "export_job",
@@ -1267,7 +1289,15 @@ class MainActivity : Activity() {
                 }
                 noteAppHealthAction("export_started")
             },
+            onExportProgress = { progress ->
+                if (::playbackExportIssueDetector.isInitialized) {
+                    playbackExportIssueDetector.onExportProgress(progress)
+                }
+            },
             onExportCompleted = { success, outputPath, error ->
+                if (::playbackExportIssueDetector.isInitialized) {
+                    playbackExportIssueDetector.onExportCompleted(success, error)
+                }
                 if (::opsReporter.isInitialized) {
                     opsReporter.stopTrace(
                         slot = "export_job",
@@ -1686,6 +1716,9 @@ class MainActivity : Activity() {
         if (::uiFreezeWatchdog.isInitialized) {
             uiFreezeWatchdog.stop()
         }
+        if (::playbackExportIssueDetector.isInitialized) {
+            playbackExportIssueDetector.onPlaybackPaused()
+        }
         mainHandler.removeCallbacks(bannerRefreshRunnable)
         if (::opsReporter.isInitialized) {
             opsReporter.stopTrace(
@@ -1722,6 +1755,9 @@ class MainActivity : Activity() {
         }
         if (::uiFreezeWatchdog.isInitialized) {
             uiFreezeWatchdog.close()
+        }
+        if (::playbackExportIssueDetector.isInitialized) {
+            playbackExportIssueDetector.close()
         }
         if (::problemReportManager.isInitialized) {
             problemReportManager.close()
@@ -1874,6 +1910,54 @@ class MainActivity : Activity() {
                 }
             }
             .show()
+    }
+
+    private fun submitAutoDetectorIssue(
+        reportType: String,
+        source: String,
+        description: String,
+    ) {
+        if (!::problemReportManager.isInitialized || !::debugTelemetryManager.isInitialized) return
+        recordTelemetryEvent(
+            category = "ops",
+            name = "auto_issue_detected",
+            payload = JSONObject()
+                .put("reportType", reportType)
+                .put("source", source)
+                .put("screen", currentHealthScreenName())
+                .put("lastAction", latestHealthAction)
+                .put("description", description.take(160)),
+        )
+        if (::opsReporter.isInitialized) {
+            opsReporter.noteAction(
+                action = "auto_issue_detected",
+                metadata = mapOf(
+                    "report_type" to reportType,
+                    "source" to source,
+                    "screen" to currentHealthScreenName(),
+                    "last_action" to latestHealthAction,
+                ),
+            )
+        }
+        problemReportManager.submitAutoDetectedReport(
+            reportType = reportType,
+            description = description,
+            source = source,
+            cooldownKey = "${reportType}:${source}",
+            sessionId = debugTelemetryManager.sessionId,
+            currentScreen = currentHealthScreenName(),
+            lastAction = latestHealthAction,
+            hasProjectContent = hasProjectContent(),
+            isPlaying = isPlaying,
+            versionName = appVersionName(),
+            versionCode = appVersionCode(),
+        ) { success ->
+            if (success) {
+                mainHandler.post {
+                    noteAppHealthAction("${reportType}_issue_reported")
+                }
+            }
+        }
     }
 
     private fun startAppHealthHeartbeat() {

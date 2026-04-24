@@ -7,6 +7,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 
@@ -17,6 +18,7 @@ class ProblemReportManager(
         private const val TAG = "[ProblemReport]"
         private const val MAX_RECENT_UI_TAPS = 24
         private const val AUTO_FREEZE_REPORT_WINDOW_MS = 120_000L
+        private const val AUTO_DETECTOR_REPORT_WINDOW_MS = 90_000L
     }
 
     private val appContext = context.applicationContext
@@ -26,6 +28,7 @@ class ProblemReportManager(
     }
     private val recentUiTaps = ArrayBlockingQueue<String>(MAX_RECENT_UI_TAPS)
     private val lastFreezeReportAtMs = AtomicLong(0L)
+    private val lastAutoReportAtMs = ConcurrentHashMap<String, AtomicLong>()
 
     fun noteUiTap(control: String, surface: String, mode: String = "tap") {
         val entry = listOf(
@@ -100,6 +103,41 @@ class ProblemReportManager(
         )
     }
 
+    fun submitAutoDetectedReport(
+        reportType: String,
+        description: String,
+        source: String,
+        cooldownKey: String,
+        sessionId: String,
+        currentScreen: String,
+        lastAction: String,
+        hasProjectContent: Boolean,
+        isPlaying: Boolean,
+        versionName: String,
+        versionCode: Int,
+        cooldownWindowMs: Long = AUTO_DETECTOR_REPORT_WINDOW_MS,
+        onComplete: (Boolean) -> Unit = {},
+    ) {
+        if (shouldSkipAutoReport(cooldownKey, cooldownWindowMs)) {
+            onComplete(false)
+            return
+        }
+        submitReport(
+            reportType = reportType,
+            description = description,
+            source = source,
+            sessionId = sessionId,
+            currentScreen = currentScreen,
+            lastAction = lastAction,
+            hasProjectContent = hasProjectContent,
+            isPlaying = isPlaying,
+            versionName = versionName,
+            versionCode = versionCode,
+            metadata = emptyMap(),
+            onComplete = onComplete,
+        )
+    }
+
     fun close() {
         writerExecutor.shutdown()
     }
@@ -158,6 +196,20 @@ class ProblemReportManager(
                     Log.w(TAG, "Problem report failed: ${error.message}")
                     onComplete(false)
                 }
+        }
+    }
+
+    private fun shouldSkipAutoReport(cooldownKey: String, cooldownWindowMs: Long): Boolean {
+        val now = System.currentTimeMillis()
+        val bucket = lastAutoReportAtMs.getOrPut(cooldownKey) { AtomicLong(0L) }
+        while (true) {
+            val previous = bucket.get()
+            if (now - previous < cooldownWindowMs) {
+                return true
+            }
+            if (bucket.compareAndSet(previous, now)) {
+                return false
+            }
         }
     }
 
