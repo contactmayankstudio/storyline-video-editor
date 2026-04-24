@@ -4916,25 +4916,35 @@ Java_com_video_engine_VideoPreviewView_nativeSetExportAudioClips(
 }
 
 #if defined(VIDEO_ENGINE_FFMPEG_DEMUX_AVAILABLE)
-static int64_t mapAudioClipTimelineToSourceMs(
-    const AudioExportClip& clip,
-    int64_t timelineMs) {
-    const int64_t clipStart = clip.startTimeMs;
-    const int64_t clipDuration = std::max<int64_t>(1, clip.durationMs);
-    const int64_t clipEndExclusive = clipStart + clipDuration;
-    int64_t sourceInMs = std::max<int64_t>(0, clip.sourceInMs);
-    int64_t sourceOutMs = clip.sourceOutMs;
-    if (sourceOutMs <= sourceInMs) {
-        sourceOutMs = sourceInMs + clipDuration;
+static int64_t millisToSamplePosition(int64_t millis, int sampleRate) {
+    if (millis <= 0 || sampleRate <= 0) {
+        return 0;
     }
-    if (sourceOutMs <= sourceInMs) {
-        sourceOutMs = sourceInMs + 1;
+    return static_cast<int64_t>(
+        std::llround((static_cast<double>(millis) * static_cast<double>(sampleRate)) / 1000.0));
+}
+
+static int64_t mapAudioClipTimelineToSourceSample(
+    const AudioExportClip& clip,
+    int64_t localTimelineSample,
+    int outputSampleRate) {
+    const int64_t clipDurationSamples = std::max<int64_t>(
+        1,
+        millisToSamplePosition(std::max<int64_t>(1, clip.durationMs), outputSampleRate));
+    const int64_t sourceInSample = std::max<int64_t>(0, millisToSamplePosition(clip.sourceInMs, outputSampleRate));
+    int64_t sourceOutSample = millisToSamplePosition(clip.sourceOutMs, outputSampleRate);
+    if (sourceOutSample <= sourceInSample) {
+        sourceOutSample = sourceInSample + clipDurationSamples;
+    }
+    if (sourceOutSample <= sourceInSample) {
+        sourceOutSample = sourceInSample + 1;
     }
 
-    auto mapWithoutFreeze = [&](int64_t localTimelineMs) -> int64_t {
-        const int64_t clampedLocalMs = std::clamp<int64_t>(localTimelineMs, 0, clipDuration - 1);
-        const double localProgress = clipDuration > 1
-            ? static_cast<double>(clampedLocalMs) / static_cast<double>(clipDuration - 1)
+    auto mapWithoutFreeze = [&](int64_t localSample) -> int64_t {
+        const int64_t clampedLocalSample =
+            std::clamp<int64_t>(localSample, 0, clipDurationSamples - 1);
+        const double localProgress = clipDurationSamples > 1
+            ? static_cast<double>(clampedLocalSample) / static_cast<double>(clipDurationSamples - 1)
             : 0.0;
         const double t = std::clamp(localProgress, 0.0, 1.0);
 
@@ -4953,45 +4963,48 @@ static int64_t mapAudioClipTimelineToSourceMs(
             shaped = std::pow(t, alpha);
         }
 
-        const int64_t trimmedSpanMs = std::max<int64_t>(1, sourceOutMs - sourceInMs);
-        const int64_t curveSourceMs = sourceInMs + static_cast<int64_t>(
-            std::llround(shaped * static_cast<double>(trimmedSpanMs - 1)));
+        const int64_t trimmedSpanSamples = std::max<int64_t>(1, sourceOutSample - sourceInSample);
+        const int64_t curveSourceSample = sourceInSample + static_cast<int64_t>(
+            std::llround(shaped * static_cast<double>(trimmedSpanSamples - 1)));
         const double playbackSpeed = std::max(0.1f, clip.playbackSpeed);
-        const int64_t speedSourceMs = sourceInMs + static_cast<int64_t>(
-            std::llround(static_cast<double>(clampedLocalMs) * playbackSpeed));
+        const int64_t speedSourceSample = sourceInSample + static_cast<int64_t>(
+            std::llround(static_cast<double>(clampedLocalSample) * playbackSpeed));
 
-        int64_t mappedSourceMs = speedSourceMs;
+        int64_t mappedSourceSample = speedSourceSample;
         if (clip.curveSpeedProfile != "linear") {
             const double blend = std::clamp(
                 static_cast<double>(clampedCurveStrength - 0.1f) / 3.9,
                 0.15,
                 0.9);
-            mappedSourceMs = static_cast<int64_t>(
-                std::llround((1.0 - blend) * static_cast<double>(speedSourceMs) +
-                             blend * static_cast<double>(curveSourceMs)));
+            mappedSourceSample = static_cast<int64_t>(
+                std::llround((1.0 - blend) * static_cast<double>(speedSourceSample) +
+                             blend * static_cast<double>(curveSourceSample)));
         }
-        mappedSourceMs = std::clamp<int64_t>(mappedSourceMs, sourceInMs, sourceOutMs - 1);
+        mappedSourceSample = std::clamp<int64_t>(mappedSourceSample, sourceInSample, sourceOutSample - 1);
         if (clip.reversePlayback) {
-            mappedSourceMs = sourceOutMs - 1 - (mappedSourceMs - sourceInMs);
-            mappedSourceMs = std::clamp<int64_t>(mappedSourceMs, sourceInMs, sourceOutMs - 1);
+            mappedSourceSample = sourceOutSample - 1 - (mappedSourceSample - sourceInSample);
+            mappedSourceSample = std::clamp<int64_t>(mappedSourceSample, sourceInSample, sourceOutSample - 1);
         }
-        return mappedSourceMs;
+        return mappedSourceSample;
     };
 
     if (clip.freezeFrameEnabled && clip.freezeFrameDurationMs > 0) {
-        const int64_t freezeStartMs = std::clamp<int64_t>(
-            clip.freezeFrameTimeMs,
-            clipStart,
-            std::max<int64_t>(clipStart, clipEndExclusive - 1));
-        const int64_t freezeEndMs = freezeStartMs + std::max<int64_t>(100, clip.freezeFrameDurationMs);
-        if (timelineMs >= freezeStartMs && timelineMs < freezeEndMs) {
-            const int64_t freezeLocalMs = std::clamp<int64_t>(freezeStartMs - clipStart, 0, clipDuration - 1);
-            return mapWithoutFreeze(freezeLocalMs);
+        const int64_t freezeLocalMs = std::clamp<int64_t>(
+            clip.freezeFrameTimeMs - clip.startTimeMs,
+            0,
+            std::max<int64_t>(0, clip.durationMs - 1));
+        const int64_t freezeStartSample =
+            std::clamp<int64_t>(millisToSamplePosition(freezeLocalMs, outputSampleRate), 0, clipDurationSamples - 1);
+        const int64_t freezeDurationSamples = std::max<int64_t>(
+            millisToSamplePosition(std::max<int64_t>(100, clip.freezeFrameDurationMs), outputSampleRate),
+            1);
+        const int64_t freezeEndSample = freezeStartSample + freezeDurationSamples;
+        if (localTimelineSample >= freezeStartSample && localTimelineSample < freezeEndSample) {
+            return mapWithoutFreeze(freezeStartSample);
         }
     }
 
-    const int64_t localTimelineMs = std::clamp<int64_t>(timelineMs - clipStart, 0, clipDuration - 1);
-    return mapWithoutFreeze(localTimelineMs);
+    return mapWithoutFreeze(localTimelineSample);
 }
 
 static bool decodeAudioClipToStereoFloat(
@@ -5435,6 +5448,7 @@ static bool mixAudioClipsToAac(
     const std::vector<AudioExportClip>& audioClips,
     const std::string& outputPath,
     int64_t totalDurationMs,
+    bool preserveSourceDynamics,
     std::string& errorOut) {
     constexpr int kOutputSampleRate = 48000;
     constexpr int kOutputChannels = 2;
@@ -5503,12 +5517,13 @@ static bool mixAudioClipsToAac(
             const int64_t writeSampleCount = std::min<int64_t>(
                 totalSamples - writeStartSample,
                 std::max<int64_t>(1, (clip.durationMs * kOutputSampleRate + 999) / 1000));
+            const int64_t sourceDecodeStartSample = millisToSamplePosition(sourceDecodeStartMs, kOutputSampleRate);
             for (int64_t outSampleOffset = 0; outSampleOffset < writeSampleCount; ++outSampleOffset) {
                 const int64_t timelineMs = clip.startTimeMs + ((outSampleOffset * 1000) / kOutputSampleRate);
-                const int64_t sourceMs = mapAudioClipTimelineToSourceMs(clip, timelineMs);
-                const int64_t relativeSourceMs = std::max<int64_t>(0, sourceMs - sourceDecodeStartMs);
-                const int64_t sourceSample =
-                    std::clamp<int64_t>((relativeSourceMs * kOutputSampleRate) / 1000, 0, sourceSampleCount - 1);
+                const int64_t sourceSample = std::clamp<int64_t>(
+                    mapAudioClipTimelineToSourceSample(clip, outSampleOffset, kOutputSampleRate) - sourceDecodeStartSample,
+                    0,
+                    sourceSampleCount - 1);
                 const float fadeGain = computeTimelineFadeMultiplier(
                     clip.startTimeMs,
                     clip.durationMs,
@@ -5538,38 +5553,50 @@ static bool mixAudioClipsToAac(
         for (float sample : mixedPcm) {
             peakSample = std::max(peakSample, std::fabs(sample));
         }
-        if (peakSample > 0.0001f) {
-            constexpr float kTargetPeak = 0.86f;
-            constexpr float kMaxBoostScale = 4.0f;
-            constexpr float kMinTrimScale = 0.75f;
-            float scale = kTargetPeak / peakSample;
-            if (scale > 1.0f) {
-                scale = std::min(scale, kMaxBoostScale);
-            } else {
-                scale = std::max(scale, kMinTrimScale);
-            }
-            if (std::fabs(scale - 1.0f) >= 0.03f) {
-                LOGI("[Export] applying audio normalization scale=%.3f peak=%.3f", scale, peakSample);
+        if (preserveSourceDynamics) {
+            LOGI("[Export] preserving source dynamics for single clean video clip peak=%.3f", peakSample);
+            if (peakSample > 1.0f) {
+                const float scale = 0.99f / peakSample;
+                LOGI("[Export] applying clip-safe trim scale=%.3f peak=%.3f", scale, peakSample);
                 for (float& sample : mixedPcm) {
                     sample *= scale;
                 }
                 peakSample *= scale;
             }
-        }
-        constexpr float kLimiterHeadroomPeak = 0.92f;
-        if (peakSample > kLimiterHeadroomPeak) {
-            const float scale = kLimiterHeadroomPeak / peakSample;
-            LOGI("[Export] applying audio headroom scale=%.3f peak=%.3f", scale, peakSample);
-            for (float& sample : mixedPcm) {
-                sample *= scale;
+        } else {
+            if (peakSample > 0.0001f) {
+                constexpr float kTargetPeak = 0.86f;
+                constexpr float kMaxBoostScale = 4.0f;
+                constexpr float kMinTrimScale = 0.75f;
+                float scale = kTargetPeak / peakSample;
+                if (scale > 1.0f) {
+                    scale = std::min(scale, kMaxBoostScale);
+                } else {
+                    scale = std::max(scale, kMinTrimScale);
+                }
+                if (std::fabs(scale - 1.0f) >= 0.03f) {
+                    LOGI("[Export] applying audio normalization scale=%.3f peak=%.3f", scale, peakSample);
+                    for (float& sample : mixedPcm) {
+                        sample *= scale;
+                    }
+                    peakSample *= scale;
+                }
             }
-            peakSample *= scale;
-        }
-        if (peakSample > 0.72f) {
-            const float limiterDrive = 1.15f;
-            const float limiterNorm = std::tanh(limiterDrive);
-            for (float& sample : mixedPcm) {
-                sample = std::tanh(sample * limiterDrive) / limiterNorm;
+            constexpr float kLimiterHeadroomPeak = 0.92f;
+            if (peakSample > kLimiterHeadroomPeak) {
+                const float scale = kLimiterHeadroomPeak / peakSample;
+                LOGI("[Export] applying audio headroom scale=%.3f peak=%.3f", scale, peakSample);
+                for (float& sample : mixedPcm) {
+                    sample *= scale;
+                }
+                peakSample *= scale;
+            }
+            if (peakSample > 0.72f) {
+                const float limiterDrive = 1.15f;
+                const float limiterNorm = std::tanh(limiterDrive);
+                for (float& sample : mixedPcm) {
+                    sample = std::tanh(sample * limiterDrive) / limiterNorm;
+                }
             }
         }
         for (float& sample : mixedPcm) {
@@ -5789,6 +5816,64 @@ static std::vector<AudioExportClip> buildExportAudioClips(
     return audioClips;
 }
 
+static bool shouldPreserveSingleVideoSourceDynamics(
+    const std::vector<TimelineClipExportSpec>& clipSpecs,
+    const std::vector<AudioExportClip>& audioClips) {
+    if (audioClips.size() != 1) {
+        return false;
+    }
+
+    const TimelineClipExportSpec* enabledSpec = nullptr;
+    for (const auto& spec : clipSpecs) {
+        if (!spec.enabled ||
+            spec.path.empty() ||
+            spec.volumeGain <= 0.0001f ||
+            isStillImagePath(spec.path)) {
+            continue;
+        }
+        if (enabledSpec != nullptr) {
+            return false;
+        }
+        enabledSpec = &spec;
+    }
+    if (enabledSpec == nullptr) {
+        return false;
+    }
+
+    const AudioExportClip& clip = audioClips.front();
+    if (enabledSpec->trackRole != Clip::TrackRole::MainVideo) {
+        return false;
+    }
+    if (enabledSpec->path != clip.path) {
+        return false;
+    }
+    if (enabledSpec->startTimeMs != 0 || clip.startTimeMs != 0) {
+        return false;
+    }
+    if (std::fabs(enabledSpec->volumeGain - 1.0f) > 0.02f || std::fabs(clip.volume - 1.0f) > 0.02f) {
+        return false;
+    }
+    if (enabledSpec->fadeInMs > 0 || enabledSpec->fadeOutMs > 0 ||
+        clip.fadeInMs > 0 || clip.fadeOutMs > 0) {
+        return false;
+    }
+    if (!enabledSpec->audioGainKeyframes.empty() || !clip.audioGainKeyframes.empty()) {
+        return false;
+    }
+    if (enabledSpec->reversePlayback || enabledSpec->freezeFrameEnabled ||
+        clip.reversePlayback || clip.freezeFrameEnabled) {
+        return false;
+    }
+    if (std::fabs(enabledSpec->playbackSpeed - 1.0f) > 0.01f ||
+        std::fabs(clip.playbackSpeed - 1.0f) > 0.01f) {
+        return false;
+    }
+    if (enabledSpec->curveSpeedProfile != "linear" || clip.curveSpeedProfile != "linear") {
+        return false;
+    }
+    return true;
+}
+
 static bool renderTimelineWithMixedAudioToMp4(
     const std::vector<std::string>& inputPaths,
     const std::vector<TimelineClipExportSpec>& renderClipSpecs,
@@ -5857,12 +5942,22 @@ static bool renderTimelineWithMixedAudioToMp4(
     }
 
     const int64_t audioDurationMs = computeAudioExportDurationMs(audioSourceSpecs, audioClips);
+    const bool preserveSourceDynamics =
+        shouldPreserveSingleVideoSourceDynamics(audioSourceSpecs, audioClips);
+    LOGI("[Export] preserveSourceDynamics=%d audioClips=%zu",
+         preserveSourceDynamics,
+         audioClips.size());
     if (onProgress && !onProgress(84)) {
         errorOut = "Export cancelled";
         std::remove(videoOnlyPath.c_str());
         return false;
     }
-    if (!mixAudioClipsToAac(audioClips, audioOnlyPath, audioDurationMs, errorOut)) {
+    if (!mixAudioClipsToAac(
+            audioClips,
+            audioOnlyPath,
+            audioDurationMs,
+            preserveSourceDynamics,
+            errorOut)) {
         LOGE("[Export] audio mix failed: %s", errorOut.c_str());
         std::remove(videoOnlyPath.c_str());
         return false;
