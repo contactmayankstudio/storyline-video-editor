@@ -83,6 +83,7 @@ class PreviewAudioPlayer(
     private var lastAppliedSelectionKey: String? = null
     private var lastAppliedMediaSeekMs = Int.MIN_VALUE
     private var lastAppliedAutoPlay = false
+    private var lastAppliedVolume = Float.NaN
     private var audioMasterClockEnabled = false
     private var requestedTimelineMs = 0L
     private var requestedAutoPlay = false
@@ -530,6 +531,7 @@ class PreviewAudioPlayer(
         currentPlayerPath = null
         prepared = false
         preparing = false
+        lastAppliedVolume = Float.NaN
         audioHandler.removeCallbacks(seekCompletionFallback)
         lastAppliedSelectionKey = null
         lastAppliedMediaSeekMs = Int.MIN_VALUE
@@ -731,6 +733,10 @@ class PreviewAudioPlayer(
 
     private fun applyVolume(volume: Float) {
         val clamped = volume.coerceIn(0f, 1f)
+        if (!lastAppliedVolume.isNaN() && abs(lastAppliedVolume - clamped) < 0.02f) {
+            return
+        }
+        lastAppliedVolume = clamped
         runCatching { mediaPlayer?.setVolume(clamped, clamped) }
     }
 
