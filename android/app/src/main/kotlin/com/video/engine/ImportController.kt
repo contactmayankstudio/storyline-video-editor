@@ -29,10 +29,10 @@ class ImportController(
         private const val TAG = "[UI]"
         private const val PROXY_POLL_INTERVAL_MS = 1200L
         private const val PROXY_MAX_POLL_ATTEMPTS = 180
-        private const val LOW_END_PROXY_START_DELAY_MS = 3600L
-        private const val MID_TIER_PROXY_START_DELAY_MS = 2600L
-        private const val HIGH_TIER_PROXY_START_DELAY_MS = 1600L
-        private const val PROXY_BUSY_RETRY_DELAY_MS = 1800L
+        private const val LOW_END_PROXY_START_DELAY_MS = 5200L
+        private const val MID_TIER_PROXY_START_DELAY_MS = 3200L
+        private const val HIGH_TIER_PROXY_START_DELAY_MS = 1800L
+        private const val PROXY_BUSY_RETRY_DELAY_MS = 2200L
         private val VIDEO_EXTENSIONS = setOf("mp4", "mov", "avi", "mkv", "webm", "m4v", "3gp", "3gpp", "ts", "mts", "m2ts", "mpeg", "mpg")
         private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp", "bmp", "gif", "tif", "tiff")
     }
@@ -198,14 +198,18 @@ class ImportController(
 
         val warmTargets = mutableListOf(revealMs)
         if (forwardWarmTargetMs > revealMs) {
-            val midTarget = (revealMs + warmStepMs).coerceAtMost(forwardWarmTargetMs)
-            if (midTarget > revealMs) {
-                warmTargets += midTarget
-            }
-            if (forwardWarmTargetMs > midTarget) {
+            if (DeviceDetector.getDeviceTier() == DeviceDetector.DeviceTier.LOW) {
                 warmTargets += forwardWarmTargetMs
+            } else {
+                val midTarget = (revealMs + warmStepMs).coerceAtMost(forwardWarmTargetMs)
+                if (midTarget > revealMs) {
+                    warmTargets += midTarget
+                }
+                if (forwardWarmTargetMs > midTarget) {
+                    warmTargets += forwardWarmTargetMs
+                }
+                warmTargets += revealMs
             }
-            warmTargets += revealMs
         }
 
         Thread {
@@ -229,7 +233,7 @@ class ImportController(
                     TAG,
                     "Import preview warmup step=${index + 1}/${warmTargets.size} track=$trackType target=${targetMs}ms success=$success",
                 )
-                Thread.sleep(if (index == warmTargets.lastIndex) 40L else 70L)
+                Thread.sleep(if (index == warmTargets.lastIndex) 24L else 36L)
             }
         }.start()
     }

@@ -39,9 +39,9 @@ class PlaybackController(
         private const val MIN_UI_FRAME_INTERVAL_MS = 1000L / MAX_UI_TIMELINE_FPS
         private const val NATIVE_PLAYBACK_START_GRACE_MS = 750L
         private const val NATIVE_SEEK_DUPLICATE_TOLERANCE_MS = 8L
-        private const val LOW_END_PLAY_PREROLL_MS = 72L
-        private const val MID_TIER_PLAY_PREROLL_MS = 48L
-        private const val HIGH_END_PLAY_PREROLL_MS = 24L
+        private const val LOW_END_PLAY_PREROLL_MS = 54L
+        private const val MID_TIER_PLAY_PREROLL_MS = 32L
+        private const val HIGH_END_PLAY_PREROLL_MS = 16L
     }
 
     private val choreographer = Choreographer.getInstance()
