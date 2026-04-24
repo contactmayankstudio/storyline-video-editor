@@ -889,8 +889,14 @@ class MainActivity : Activity() {
             onTransitionRequested = { outgoingClipId, incomingClipId ->
                 transitionController?.showTransitionEditor(outgoingClipId, incomingClipId)
             },
-            onPlayRequested = { timeMs -> previewAudioPlayer?.playFrom(timeMs) },
-            onPauseRequested = { previewAudioPlayer?.pause() },
+            onPlayRequested = { timeMs ->
+                previewAudioPlayer?.playFrom(timeMs)
+                noteAppHealthAction("playback_started")
+            },
+            onPauseRequested = {
+                previewAudioPlayer?.pause()
+                noteAppHealthAction("playback_paused")
+            },
             onSeekRequested = { timeMs, continuePlaying -> previewAudioPlayer?.seekTo(timeMs, continuePlaying) },
         )
         playbackController?.setupTimeline()
@@ -1013,6 +1019,13 @@ class MainActivity : Activity() {
                     -> previewAudioPlayer?.prewarmSource(importPath)
                     else -> Unit
                 }
+                noteAppHealthAction(
+                    when (trackType) {
+                        TrackType.LAYER -> "layer_clip_imported"
+                        TrackType.OVERLAY -> "overlay_clip_imported"
+                        else -> "video_clip_imported"
+                    },
+                )
                 revealTimeMs
             },
         )
@@ -1054,6 +1067,7 @@ class MainActivity : Activity() {
                 if (audioClip.peakLevels.isEmpty()) {
                     safeToast("Audio lane updated: ${audioClip.displayName}", Toast.LENGTH_SHORT)
                 }
+                noteAppHealthAction("audio_clip_imported")
             },
             nativeClipCreator = { path, startTimeMs, layerIndex ->
                 previewView?.let { pv ->
@@ -1395,6 +1409,7 @@ class MainActivity : Activity() {
     }
 
     private fun setPreviewCropMode(active: Boolean) {
+        val wasActive = previewCropModeActive
         val nextActive = active && canUsePreviewCropMode() && startScreenOverlayView?.visibility != View.VISIBLE
         previewCropModeActive = nextActive
         previewCropModeClipKey = if (nextActive) selectedTimelineClipKey else null
@@ -1409,6 +1424,9 @@ class MainActivity : Activity() {
         }
         syncPreviewCropModeUi()
         updateBottomToolbarMode()
+        if (wasActive != previewCropModeActive) {
+            noteAppHealthAction(if (previewCropModeActive) "crop_opened" else "crop_closed")
+        }
     }
 
     private fun refreshPreviewCropStatus() {
@@ -1556,6 +1574,10 @@ class MainActivity : Activity() {
             playing = isPlaying,
             force = force,
         )
+    }
+
+    private fun noteAppHealthAction(action: String, force: Boolean = true) {
+        syncAppHealth(force = force, action = action.take(120))
     }
 
     private fun startAppHealthHeartbeat() {
@@ -1914,6 +1936,7 @@ class MainActivity : Activity() {
     }
 
     private fun showExportDialog() {
+        noteAppHealthAction("export_dialog_opened")
         exportController?.showExportDialog()
     }
 
@@ -2034,6 +2057,7 @@ class MainActivity : Activity() {
 
     private fun showAddTextDialog() {
         if (!ensureTrackEditable(TrackType.TEXT, "text")) return
+        noteAppHealthAction("text_composer_opened")
         var customDurationMs: Int? = null
         ModernSheet.show(this, "Add Text") {
             textInput("Text", "Write a title, caption, or label") { }
@@ -2965,6 +2989,7 @@ class MainActivity : Activity() {
     private fun saveUiState(projectFile: File, projectName: String) {
         projectStateSerializer?.saveUiState(projectFile, projectName)
         refreshRecentProjects()
+        noteAppHealthAction("project_saved")
         recordTelemetryEvent(
             "project",
             "save_ui_state",
@@ -3000,6 +3025,7 @@ class MainActivity : Activity() {
             activeCanvasTimelineView()?.setPlayheadMs(restoredTimeMs)
             multiTrackTimelineView?.setCurrentTimeMs(restoredTimeMs)
         }
+        noteAppHealthAction("project_loaded")
         recordTelemetryEvent(
             "project",
             "load_ui_state",
@@ -3086,6 +3112,7 @@ class MainActivity : Activity() {
      * User can enter project name and choose location.
      */
     private fun showSaveProjectDialog() {
+        noteAppHealthAction("save_dialog_opened")
         projectController?.showSaveProjectDialog()
     }
 
@@ -3094,6 +3121,7 @@ class MainActivity : Activity() {
      * Lists all saved projects and allows selection.
      */
     private fun showLoadProjectDialog() {
+        noteAppHealthAction("load_dialog_opened")
         projectController?.showLoadProjectDialog()
     }
 
@@ -3752,6 +3780,7 @@ class MainActivity : Activity() {
     private fun openVideoTrackImport() {
         if (!ensureTrackEditable(TrackType.VIDEO, "import")) return
         importController?.setNextImportTrackType(TrackType.VIDEO)
+        noteAppHealthAction("video_import_picker_opened")
         val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
             type = "*/*"
             putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("video/*", "image/*"))
@@ -3763,6 +3792,7 @@ class MainActivity : Activity() {
     private fun openOverlayTrackImport() {
         if (!ensureTrackEditable(TrackType.OVERLAY, "import")) return
         importController?.setNextImportTrackType(TrackType.OVERLAY)
+        noteAppHealthAction("overlay_import_picker_opened")
         val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
             type = "*/*"
             putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("video/*", "image/*"))
@@ -3774,6 +3804,7 @@ class MainActivity : Activity() {
     private fun openLayerTrackImport() {
         if (!ensureTrackEditable(TrackType.LAYER, "import")) return
         importController?.setNextImportTrackType(TrackType.LAYER)
+        noteAppHealthAction("layer_import_picker_opened")
         val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
             type = "*/*"
             putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("video/*", "image/*"))
@@ -3784,6 +3815,7 @@ class MainActivity : Activity() {
 
     private fun openAudioTrackImport() {
         if (!ensureTrackEditable(TrackType.AUDIO, "import")) return
+        noteAppHealthAction("audio_import_picker_opened")
         audioImportController?.openPicker(PICK_AUDIO_REQUEST)
     }
 
@@ -4216,6 +4248,7 @@ class MainActivity : Activity() {
                 .put("leftClipId", leftClipId)
                 .put("rightClipId", rightClipId),
         )
+        noteAppHealthAction("audio_clip_split")
         captureDebugSnapshot("split_audio_success")
         Log.d(TAG, "Audio split complete: left=$leftClipId right=$rightClipId at=${targetTimeMs}ms")
         return true
@@ -4369,6 +4402,13 @@ class MainActivity : Activity() {
                 .put("leftClipId", result.data.optInt("leftClipId", -1))
                 .put("rightClipId", result.data.optInt("rightClipId", -1)),
         )
+        noteAppHealthAction(
+            when (clipTrackType) {
+                TrackType.LAYER -> "layer_clip_split"
+                TrackType.OVERLAY -> "overlay_clip_split"
+                else -> "video_clip_split"
+            },
+        )
         captureDebugSnapshot("split_native_success")
         Log.d(
             TAG,
@@ -4441,6 +4481,7 @@ class MainActivity : Activity() {
                 .put("leftClipId", overlay.id)
                 .put("rightClipId", rightOverlay.id),
         )
+        noteAppHealthAction("text_clip_split")
         captureDebugSnapshot("split_text_success")
         return true
     }
@@ -4492,6 +4533,7 @@ class MainActivity : Activity() {
                 .put("leftClipId", clip.id)
                 .put("rightClipId", rightClip.id),
         )
+        noteAppHealthAction("sticker_clip_split")
         captureDebugSnapshot("split_overlay_success")
         return true
     }
@@ -4804,6 +4846,7 @@ class MainActivity : Activity() {
         stabilizeAfterDelete(revealTimeMs)
         recordUndoDomain(UndoDomain.TIMELINE)
         safeToast("Audio deleted", Toast.LENGTH_SHORT)
+        noteAppHealthAction("audio_clip_deleted")
         Log.d(TAG, "Audio deleted: id=$audioId")
         return true
     }
@@ -4851,6 +4894,7 @@ class MainActivity : Activity() {
         }
         recordUndoDomain(UndoDomain.TIMELINE)
         safeToast("Video deleted", Toast.LENGTH_SHORT)
+        noteAppHealthAction("video_clip_deleted")
         Log.d(TAG, "Video deleted: id=$clipId")
         return true
     }
@@ -4873,6 +4917,7 @@ class MainActivity : Activity() {
         val anchorTimeMs = currentPlayheadMs().coerceAtLeast(0L)
         val overlayId = selectedTextOverlayId() ?: return false
         deleteTextOverlayById(overlayId, anchorTimeMs = anchorTimeMs)
+        noteAppHealthAction("text_clip_deleted")
         return true
     }
 
@@ -4887,6 +4932,7 @@ class MainActivity : Activity() {
         refreshMainTimelineTracks()
         stabilizeAfterDelete(anchorTimeMs)
         safeToast("Overlay deleted", Toast.LENGTH_SHORT)
+        noteAppHealthAction("sticker_clip_deleted")
         return true
     }
 

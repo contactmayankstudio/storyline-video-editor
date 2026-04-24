@@ -824,24 +824,44 @@
             return `${Math.round(deltaHr / 24)}d ago`;
         }
 
+        function classifyHealthFreshness(timestampMs, appState) {
+            if (!timestampMs) return "unknown";
+            const deltaMs = Math.max(0, Date.now() - timestampMs);
+            if (appState === "foreground" && deltaMs <= 90_000) return "live";
+            if (deltaMs <= 10 * 60_000) return "recent";
+            return "stale";
+        }
+
         function renderInstallationHealthFeed(snapshot) {
             if (!snapshot?.docs?.length) {
                 healthInstallationsBlock.textContent = "No live app-open signals yet. Once Storyline launches on a device, the latest installation health feed will appear here.";
                 return;
             }
 
-            const lines = ["Recent device health:"];
-            for (const doc of snapshot.docs) {
-                const data = doc.data() || {};
+            const docs = snapshot.docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
+            const counts = { live: 0, recent: 0, stale: 0, unknown: 0 };
+            for (const { data } of docs) {
+                const freshness = classifyHealthFreshness(data.updatedAtMs, data.appState);
+                counts[freshness] = (counts[freshness] || 0) + 1;
+            }
+
+            const lines = [`Recent device health: ${counts.live} live | ${counts.recent} recent | ${counts.stale} stale`];
+            for (const { data } of docs) {
+                const freshness = classifyHealthFreshness(data.updatedAtMs, data.appState).toUpperCase();
+                const versionLabel = `${data.versionName || "v?"} (${data.versionCode || "?"})`;
+                const stateLabel = `${data.currentScreen || "unknown"} / ${data.appState || "unknown"}`;
+                const flags = [
+                    data.isPlaying ? "playing" : null,
+                    data.hasProjectContent ? "project-loaded" : "blank",
+                ].filter(Boolean).join(", ");
                 lines.push(
                     [
-                        `- ${data.deviceManufacturer || "Unknown"} ${data.deviceModel || "Device"}`,
-                        `${data.versionName || "v?"} (${data.versionCode || "?"})`,
-                        `screen=${data.currentScreen || "unknown"}`,
-                        `state=${data.appState || "unknown"}`,
-                        `playing=${Boolean(data.isPlaying)}`,
-                        `project=${Boolean(data.hasProjectContent)}`,
-                        `lastAction=${data.lastAction || "unknown"}`,
+                        `- ${freshness}`,
+                        `${data.deviceManufacturer || "Unknown"} ${data.deviceModel || "Device"}`,
+                        versionLabel,
+                        stateLabel,
+                        `action=${data.lastAction || "unknown"}`,
+                        `flags=${flags || "none"}`,
                         `seen=${formatRelativeTime(data.updatedAtMs)}`,
                     ].join(" | ")
                 );
@@ -851,7 +871,7 @@
 
         function renderCrashFeed(snapshot) {
             if (!snapshot?.docs?.length) {
-                healthCrashesBlock.textContent = "No Crashlytics triage documents yet. If Blaze/functions are not live, this feed will stay empty until server-side crash ingestion starts writing records.";
+                healthCrashesBlock.textContent = "No normalized crash records yet. This feed will populate once Crashlytics/functions start writing ops_crashes documents.";
                 return;
             }
 
@@ -860,12 +880,13 @@
                 const data = doc.data() || {};
                 const githubIssue = data.githubIssue?.url ? `issue=${data.githubIssue.url}` : "issue=pending";
                 const updatedAtMs = data.updatedAt?.toMillis?.() || data.createdAt?.toMillis?.() || 0;
+                const severity = data.severity || data.fix?.severity || "unknown";
                 lines.push(
                     [
                         `- ${data.issueTitle || doc.id}`,
                         `version=${data.appVersion || "unknown"}`,
                         `status=${data.status || "unknown"}`,
-                        `severity=${data.fix?.severity || "unknown"}`,
+                        `severity=${severity}`,
                         githubIssue,
                         `updated=${formatRelativeTime(updatedAtMs)}`,
                     ].join(" | ")
@@ -1684,8 +1705,8 @@
 
             try {
                 const crashesQuery = query(
-                    collection(state.firestore, "crash_fixes"),
-                    orderBy("createdAt", "desc"),
+                    collection(state.firestore, "ops_crashes"),
+                    orderBy("updatedAt", "desc"),
                     limit(8)
                 );
 
@@ -1694,7 +1715,7 @@
                 }, (error) => {
                     console.error(error);
                     healthCrashesBlock.textContent = error.message;
-                    healthNote.textContent = "Crash feed stays empty until Crashlytics/functions or another server-side crash writer stores triage docs in Firestore.";
+                    healthNote.textContent = "Crash feed stays empty until Crashlytics/functions or another server-side crash writer stores normalized ops_crashes docs in Firestore.";
                 });
             } catch (error) {
                 console.error(error);

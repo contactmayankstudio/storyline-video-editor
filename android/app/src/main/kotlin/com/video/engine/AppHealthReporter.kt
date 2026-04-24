@@ -103,16 +103,22 @@ class AppHealthReporter(
             return
         }
         lastUpdatedAtMs = now
+        val sessionSnapshot = sessionId
+        val screenSnapshot = lastScreen
+        val actionSnapshot = lastAction
+        val appStateSnapshot = appState
+        val hasProjectContentSnapshot = hasProjectContent
+        val isPlayingSnapshot = isPlaying
         val payload = hashMapOf<String, Any>(
             "installationId" to installationId,
-            "sessionId" to sessionId,
+            "sessionId" to sessionSnapshot,
             "updatedAt" to FieldValue.serverTimestamp(),
             "updatedAtMs" to now,
-            "appState" to appState,
-            "currentScreen" to lastScreen,
-            "lastAction" to lastAction,
-            "hasProjectContent" to hasProjectContent,
-            "isPlaying" to isPlaying,
+            "appState" to appStateSnapshot,
+            "currentScreen" to screenSnapshot,
+            "lastAction" to actionSnapshot,
+            "hasProjectContent" to hasProjectContentSnapshot,
+            "isPlaying" to isPlayingSnapshot,
             "versionName" to (packageInfo()?.versionName ?: "unknown"),
             "versionCode" to packageVersionCode().toInt(),
             "packageName" to appContext.packageName,
@@ -127,6 +133,12 @@ class AppHealthReporter(
                 firestore.collection("ops_installations")
                     .document(installationId)
                     .set(payload, SetOptions.merge())
+                    .addOnSuccessListener {
+                        Log.d(
+                            TAG,
+                            "Health ping updated state=$appStateSnapshot screen=$screenSnapshot action=$actionSnapshot session=$sessionSnapshot",
+                        )
+                    }
                     .addOnFailureListener { error ->
                         Log.w(TAG, "Failed to write health ping: ${error.message}")
                     }
