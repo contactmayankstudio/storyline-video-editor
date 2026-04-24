@@ -273,6 +273,9 @@ class MainActivity : Activity() {
     private lateinit var debugTelemetryManager: DebugTelemetryManager
     private lateinit var appHealthReporter: AppHealthReporter
     private lateinit var opsReporter: OpsReporter
+    private lateinit var problemReportManager: ProblemReportManager
+    private lateinit var uiFreezeWatchdog: UiFreezeWatchdog
+    private var latestHealthAction: String = "launch"
 
     // Text overlays
     private var nextTextOverlayId = 1
@@ -540,14 +543,17 @@ class MainActivity : Activity() {
         clipToolbarContextLabel = findViewById(R.id.audioEditLabel)
 
         newProjectBtn.setOnClickListener {
+            noteUiButtonTap("start_new_project", "start_screen")
             startBlankProject(showToast = true)
         }
 
         openProjectBtn.setOnClickListener {
+            noteUiButtonTap("start_open_project", "start_screen")
             projectController?.showLoadProjectDialog()
         }
 
         importMediaBtn.setOnClickListener {
+            noteUiButtonTap("start_import_media", "start_screen")
             setStartScreenVisible(false)
             NativeBridge.executeCommand("RESET_TIMELINE", emptyMap())
             clearEditorShellState()
@@ -694,6 +700,40 @@ class MainActivity : Activity() {
             }
         }
         appHealthReporter = AppHealthReporter(this)
+        problemReportManager = ProblemReportManager(this)
+        uiFreezeWatchdog = UiFreezeWatchdog { stallMs ->
+            mainHandler.post {
+                if (isFinishing || isDestroyed) return@post
+                recordTelemetryEvent(
+                    category = "ops",
+                    name = "ui_freeze_detected",
+                    payload = JSONObject()
+                        .put("stallMs", stallMs)
+                        .put("screen", currentHealthScreenName())
+                        .put("lastAction", latestHealthAction),
+                )
+                if (::opsReporter.isInitialized) {
+                    opsReporter.noteAction(
+                        action = "ui_freeze_detected",
+                        metadata = mapOf(
+                            "stall_ms" to stallMs,
+                            "screen" to currentHealthScreenName(),
+                            "last_action" to latestHealthAction,
+                        ),
+                    )
+                }
+                problemReportManager.submitFreezeReport(
+                    stallMs = stallMs,
+                    sessionId = debugTelemetryManager.sessionId,
+                    currentScreen = currentHealthScreenName(),
+                    lastAction = latestHealthAction,
+                    hasProjectContent = hasProjectContent(),
+                    isPlaying = isPlaying,
+                    versionName = appVersionName(),
+                    versionCode = appVersionCode(),
+                )
+            }
+        }
         appHealthReporter.bindSession(debugTelemetryManager.sessionId)
         NativeBridge.setTelemetrySink { debugTelemetryManager.recordNativeBridgeTelemetry(it) }
         NativeBridge.clearNativeCommandTelemetry()
@@ -1398,6 +1438,8 @@ class MainActivity : Activity() {
             onAddTextPreset = { label -> addTextPresetFromToolbar(label) },
             onOpenSelectedTextStudio = { showSelectedTextStudio() },
             onSplitAudioAtPlayhead = { splitAudioAtPlayhead() },
+            onUiButtonTap = { control, surface, mode -> noteUiButtonTap(control, surface, mode) },
+            onShowProblemReportDialog = { source -> showProblemReportDialog(source) },
             clipEffects = clipEffects,
             onTransitionRequested = { outgoing, incoming ->
                 transitionController?.showTransitionEditor(outgoing, incoming)
@@ -1453,7 +1495,15 @@ class MainActivity : Activity() {
 
     private fun setupAspectRatioButton() {
         val aspectButton = findViewById<ImageView?>(R.id.aspectRatioButton) ?: return
-        aspectButton.setOnClickListener { showAspectRatioPickerDialog() }
+        aspectButton.setOnClickListener {
+            noteUiButtonTap("aspect_ratio", "top_bar")
+            showAspectRatioPickerDialog()
+        }
+        aspectButton.setOnLongClickListener {
+            noteUiButtonTap("aspect_ratio_report", "top_bar", mode = "long_press")
+            showProblemReportDialog("aspect_ratio_button")
+            true
+        }
     }
 
     private fun showAspectRatioPickerDialog() {
@@ -1520,11 +1570,13 @@ class MainActivity : Activity() {
     private fun setupPreviewCropControls() {
         findViewById<View?>(R.id.previewCropResetButton)?.setOnClickListener {
             if (!previewCropModeActive) return@setOnClickListener
+            noteUiButtonTap("crop_reset", "preview_crop")
             updateSelectedVideoPreviewTransform { ClipPreviewTransform() }
             refreshPreviewCropStatus()
         }
         findViewById<View?>(R.id.previewCropFillButton)?.setOnClickListener {
             if (!previewCropModeActive) return@setOnClickListener
+            noteUiButtonTap("crop_fill", "preview_crop")
             updateSelectedVideoPreviewTransform { current ->
                 current.copy(
                     zoom = maxOf(current.zoom, 1.15f),
@@ -1535,6 +1587,7 @@ class MainActivity : Activity() {
             refreshPreviewCropStatus()
         }
         findViewById<View?>(R.id.previewCropDoneButton)?.setOnClickListener {
+            noteUiButtonTap("crop_done", "preview_crop")
             setPreviewCropMode(false)
         }
         syncPreviewCropModeUi()
@@ -1614,6 +1667,9 @@ class MainActivity : Activity() {
         adsController?.onResume()
         scheduleTopBannerPlacement(delayMs = 1200L)
         startAppHealthHeartbeat()
+        if (::uiFreezeWatchdog.isInitialized) {
+            uiFreezeWatchdog.start()
+        }
         if (::appHealthReporter.isInitialized) {
             appHealthReporter.recordForeground(
                 screen = currentHealthScreenName(),
@@ -1627,6 +1683,9 @@ class MainActivity : Activity() {
         Log.d(TAG, "onPause")
         stopHardwareTelemetryTicker()
         stopAppHealthHeartbeat()
+        if (::uiFreezeWatchdog.isInitialized) {
+            uiFreezeWatchdog.stop()
+        }
         mainHandler.removeCallbacks(bannerRefreshRunnable)
         if (::opsReporter.isInitialized) {
             opsReporter.stopTrace(
@@ -1660,6 +1719,12 @@ class MainActivity : Activity() {
         NativeBridge.setTelemetrySink(null)
         if (::opsReporter.isInitialized) {
             opsReporter.close()
+        }
+        if (::uiFreezeWatchdog.isInitialized) {
+            uiFreezeWatchdog.close()
+        }
+        if (::problemReportManager.isInitialized) {
+            problemReportManager.close()
         }
         if (::appHealthReporter.isInitialized) {
             appHealthReporter.close(
@@ -1705,6 +1770,7 @@ class MainActivity : Activity() {
     private fun syncAppHealth(force: Boolean = false, action: String? = null) {
         if (!::appHealthReporter.isInitialized) return
         if (!action.isNullOrBlank()) {
+            latestHealthAction = action.take(120)
             appHealthReporter.noteAction(
                 action = action,
                 screen = currentHealthScreenName(),
@@ -1724,6 +1790,7 @@ class MainActivity : Activity() {
 
     private fun noteAppHealthAction(action: String, force: Boolean = true) {
         val actionName = action.take(120)
+        latestHealthAction = actionName
         if (::opsReporter.isInitialized) {
             opsReporter.noteAction(
                 action = actionName,
@@ -1736,6 +1803,77 @@ class MainActivity : Activity() {
         }
         val effectiveForce = force || (::opsReporter.isInitialized && opsReporter.shouldForceFlush(actionName))
         syncAppHealth(force = effectiveForce, action = actionName)
+    }
+
+    private fun noteUiButtonTap(control: String, surface: String, mode: String = "tap") {
+        if (::problemReportManager.isInitialized) {
+            problemReportManager.noteUiTap(control = control, surface = surface, mode = mode)
+        }
+        if (::opsReporter.isInitialized) {
+            opsReporter.noteAction(
+                action = "ui_button_tap",
+                metadata = mapOf(
+                    "control" to control,
+                    "surface" to surface,
+                    "mode" to mode,
+                    "screen" to currentHealthScreenName(),
+                ),
+            )
+        }
+        if (::debugTelemetryManager.isInitialized) {
+            recordTelemetryEvent(
+                category = "ui",
+                name = "button_tap",
+                payload = JSONObject()
+                    .put("control", control)
+                    .put("surface", surface)
+                    .put("mode", mode)
+                    .put("screen", currentHealthScreenName()),
+            )
+        }
+    }
+
+    private fun showProblemReportDialog(source: String) {
+        if (!::problemReportManager.isInitialized || !::debugTelemetryManager.isInitialized) return
+        val input = EditText(this).apply {
+            hint = "What went wrong? lag, import, export, playback, UI..."
+            minLines = 3
+            maxLines = 6
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Report Problem")
+            .setMessage("This sends current screen, last action, recent button taps, and device info.")
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Send") { _, _ ->
+                val description = input.text?.toString().orEmpty().trim()
+                if (description.isBlank()) {
+                    safeToast("Write a short problem note", Toast.LENGTH_SHORT)
+                    return@setPositiveButton
+                }
+                noteUiButtonTap("report_problem_send", source, mode = "dialog")
+                problemReportManager.submitManualReport(
+                    description = description,
+                    source = source,
+                    sessionId = debugTelemetryManager.sessionId,
+                    currentScreen = currentHealthScreenName(),
+                    lastAction = latestHealthAction,
+                    hasProjectContent = hasProjectContent(),
+                    isPlaying = isPlaying,
+                    versionName = appVersionName(),
+                    versionCode = appVersionCode(),
+                ) { success ->
+                    mainHandler.post {
+                        if (success) {
+                            noteAppHealthAction("problem_report_submitted")
+                            safeToast("Problem report sent", Toast.LENGTH_SHORT)
+                        } else {
+                            safeToast("Problem report failed", Toast.LENGTH_SHORT)
+                        }
+                    }
+                }
+            }
+            .show()
     }
 
     private fun startAppHealthHeartbeat() {
@@ -5118,7 +5256,25 @@ class MainActivity : Activity() {
             if (trackType != null && !ensureTrackEditable(trackType)) {
                 return@setOnClickListener
             }
+            noteUiButtonTap(
+                control = resources.getResourceEntryName(buttonId),
+                surface = "clip_toolbar",
+            )
             action()
+        }
+    }
+
+    private fun appVersionName(): String =
+        runCatching { packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown" }
+            .getOrDefault("unknown")
+
+    private fun appVersionCode(): Int {
+        val packageInfo = runCatching { packageManager.getPackageInfo(packageName, 0) }.getOrNull() ?: return 0
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            packageInfo.longVersionCode.toInt()
+        } else {
+            @Suppress("DEPRECATION")
+            packageInfo.versionCode
         }
     }
 

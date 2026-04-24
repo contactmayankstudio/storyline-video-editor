@@ -43,6 +43,8 @@ class UiChromeController(
     private val onAddTextPreset: (String) -> Unit,
     private val onOpenSelectedTextStudio: () -> Unit = {},
     private val onSplitAudioAtPlayhead: () -> Boolean,
+    private val onUiButtonTap: (String, String, String) -> Unit = { _, _, _ -> },
+    private val onShowProblemReportDialog: (String) -> Unit = {},
     private val clipEffects: MutableMap<Int, EffectParams>,
     private val onTransitionRequested: (Int, Int) -> Unit = { _, _ -> },
     private val onApplyTransitionPreset: (TransitionType, Int) -> Boolean = { _, _ -> false },
@@ -459,6 +461,7 @@ class UiChromeController(
         }
         syncPlayPauseIcon()
         playPauseButton?.setOnClickListener {
+            onUiButtonTap("play_pause", "preview_controls", "tap")
             if (isPlayingProvider()) {
                 onNativePause()
                 Log.d(TAG, "Pause pressed")
@@ -468,29 +471,63 @@ class UiChromeController(
             }
             syncPlayPauseIcon()
         }
+        playPauseButton?.setOnLongClickListener {
+            onUiButtonTap("play_pause_report", "preview_controls", "long_press")
+            onShowProblemReportDialog("preview_play_button")
+            true
+        }
     }
 
     fun setupExportButton() {
         activity.findViewById<View>(R.id.exportButton)?.setOnClickListener {
+            onUiButtonTap("export", "top_bar", "tap")
             onShowExportDialog()
         }
         activity.findViewById<LinearLayout?>(R.id.exportButtonContainer)?.setOnClickListener {
+            onUiButtonTap("export_container", "top_bar", "tap")
             onShowExportDialog()
+        }
+        activity.findViewById<View>(R.id.exportButton)?.setOnLongClickListener {
+            onUiButtonTap("export_report", "top_bar", "long_press")
+            onShowProblemReportDialog("export_button")
+            true
+        }
+        activity.findViewById<LinearLayout?>(R.id.exportButtonContainer)?.setOnLongClickListener {
+            onUiButtonTap("export_container_report", "top_bar", "long_press")
+            onShowProblemReportDialog("export_button")
+            true
         }
     }
 
     fun setupToolbarButtons() {
-        bindOptionalImageButton("saveProjectButton", onShowSaveProjectDialog, "Save project button not found")
-        bindOptionalImageButton("loadProjectButton", onShowLoadProjectDialog, "Load project button not found")
+        bindOptionalImageButton("saveProjectButton", {
+            onUiButtonTap("save_project", "top_bar", "tap")
+            onShowSaveProjectDialog()
+        }, "Save project button not found")
+        bindOptionalImageButton("loadProjectButton", {
+            onUiButtonTap("toolbar_back", "top_bar", "tap")
+            onShowLoadProjectDialog()
+        }, "Load project button not found")
+        bindOptionalImageButtonLongClick("saveProjectButton", {
+            onUiButtonTap("save_project_report", "top_bar", "long_press")
+            onShowProblemReportDialog("save_project_button")
+        }, "Save project button not found")
 
         try {
-            activity.findViewById<ImageView>(R.id.undoButton)?.setOnClickListener { onUndo() }
-            activity.findViewById<ImageView>(R.id.redoButton)?.setOnClickListener { onRedo() }
+            activity.findViewById<ImageView>(R.id.undoButton)?.setOnClickListener {
+                onUiButtonTap("undo", "preview_controls", "tap")
+                onUndo()
+            }
+            activity.findViewById<ImageView>(R.id.redoButton)?.setOnClickListener {
+                onUiButtonTap("redo", "preview_controls", "tap")
+                onRedo()
+            }
         } catch (e: Exception) {
             Log.d(TAG, "Undo/redo buttons not found: ${e.message}")
         }
 
         activity.findViewById<LinearLayout>(R.id.cutButton).setOnClickListener {
+            onUiButtonTap("media", "main_toolbar", "tap")
             Log.d(TAG, "Video import button clicked")
             showImportSourceSheet(
                 title = "Media",
@@ -502,6 +539,7 @@ class UiChromeController(
             )
         }
         activity.findViewById<LinearLayout>(R.id.cutButton).setOnLongClickListener {
+            onUiButtonTap("media_quick", "main_toolbar", "long_press")
             Log.d(TAG, "Video import button long-pressed")
             if (!onQuickImport()) {
                 Toast.makeText(activity, "No quick media found", Toast.LENGTH_SHORT).show()
@@ -510,6 +548,7 @@ class UiChromeController(
         }
 
         activity.findViewById<LinearLayout>(R.id.overlayImportButton).setOnClickListener {
+            onUiButtonTap("overlay", "main_toolbar", "tap")
             Log.d(TAG, "Overlay import button clicked")
             showImportSourceSheet(
                 title = "Overlay",
@@ -521,6 +560,7 @@ class UiChromeController(
             )
         }
         activity.findViewById<LinearLayout>(R.id.overlayImportButton).setOnLongClickListener {
+            onUiButtonTap("overlay_quick", "main_toolbar", "long_press")
             Log.d(TAG, "Overlay import button long-pressed")
             if (!onQuickOverlayImport()) {
                 Toast.makeText(activity, "No quick overlay media found", Toast.LENGTH_SHORT).show()
@@ -529,6 +569,7 @@ class UiChromeController(
         }
 
         activity.findViewById<LinearLayout>(R.id.layersButton).setOnClickListener {
+            onUiButtonTap("layers", "main_toolbar", "tap")
             Log.d(TAG, "Layer import button clicked")
             showImportSourceSheet(
                 title = "Layers",
@@ -541,11 +582,13 @@ class UiChromeController(
             )
         }
         activity.findViewById<LinearLayout>(R.id.layersButton).setOnLongClickListener {
+            onUiButtonTap("layers_manage", "main_toolbar", "long_press")
             showLayerManager()
             true
         }
 
         activity.findViewById<LinearLayout>(R.id.audioButton).setOnClickListener {
+            onUiButtonTap("audio", "main_toolbar", "tap")
             Log.d(TAG, "Audio button clicked")
             showImportSourceSheet(
                 title = "Audio",
@@ -557,6 +600,7 @@ class UiChromeController(
             )
         }
         activity.findViewById<LinearLayout>(R.id.audioButton).setOnLongClickListener {
+            onUiButtonTap("audio_quick", "main_toolbar", "long_press")
             Log.d(TAG, "Audio button long-pressed")
             if (!onQuickAudioImport()) {
                 Toast.makeText(activity, "No quick audio found", Toast.LENGTH_SHORT).show()
@@ -565,33 +609,41 @@ class UiChromeController(
         }
 
         activity.findViewById<LinearLayout>(R.id.textButton).setOnClickListener {
+            onUiButtonTap("text", "main_toolbar", "tap")
             showTextToolSheet()
         }
         activity.findViewById<LinearLayout>(R.id.textButton).setOnLongClickListener {
+            onUiButtonTap("text_composer", "main_toolbar", "long_press")
             onShowTextComposer()
             true
         }
 
         activity.findViewById<LinearLayout>(R.id.effectsButton).setOnClickListener {
+            onUiButtonTap("effects", "main_toolbar", "tap")
             showEffectsToolSheet()
         }
         activity.findViewById<LinearLayout>(R.id.effectsButton).setOnLongClickListener {
+            onUiButtonTap("effects_studio", "main_toolbar", "long_press")
             showEffectsStudio()
             true
         }
 
         bindOptionalLinearButton("stickersButton", "Stickers button not found in layout") {
+            onUiButtonTap("graphics", "main_toolbar", "tap")
             showStickerToolSheet()
         }
         activity.findViewById<LinearLayout>(R.id.stickersButton).setOnLongClickListener {
+            onUiButtonTap("graphics_pack", "main_toolbar", "long_press")
             showStickerLibrary()
             true
         }
 
         bindOptionalLinearButton("transitionButton", "Transition button not found") {
+            onUiButtonTap("transition", "main_toolbar", "tap")
             showTransitionToolSheet()
         }
         activity.findViewById<LinearLayout>(R.id.transitionButton).setOnLongClickListener {
+            onUiButtonTap("transition_studio", "main_toolbar", "long_press")
             val manager = timelineManagerProvider()
             val clips = manager?.getClips().orEmpty()
             if (clips.size < 2) {
@@ -607,18 +659,22 @@ class UiChromeController(
         }
 
         bindOptionalLinearButton("voiceoverButton", "Voiceover button not found") {
+            onUiButtonTap("voiceover", "main_toolbar", "tap")
             showVoiceToolSheet()
         }
         activity.findViewById<LinearLayout>(R.id.voiceoverButton).setOnLongClickListener {
+            onUiButtonTap("voiceover_record", "main_toolbar", "long_press")
             pausePlaybackForPanel()
             onVoiceoverRequested()
             true
         }
 
         bindOptionalLinearButton("colorGradingButton", "Color Grading button not found") {
+            onUiButtonTap("color", "main_toolbar", "tap")
             showColorToolSheet()
         }
         activity.findViewById<LinearLayout>(R.id.colorGradingButton).setOnLongClickListener {
+            onUiButtonTap("color_studio", "main_toolbar", "long_press")
             showColorStudio()
             true
         }
@@ -652,6 +708,20 @@ class UiChromeController(
             val id = activity.resources.getIdentifier(name, "id", activity.packageName)
             if (id != 0) {
                 activity.findViewById<ImageView>(id)?.setOnClickListener { onClick() }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "$missingMessage: ${e.message}")
+        }
+    }
+
+    private fun bindOptionalImageButtonLongClick(name: String, onClick: () -> Unit, missingMessage: String) {
+        try {
+            val id = activity.resources.getIdentifier(name, "id", activity.packageName)
+            if (id != 0) {
+                activity.findViewById<ImageView>(id)?.setOnLongClickListener {
+                    onClick()
+                    true
+                }
             }
         } catch (e: Exception) {
             Log.d(TAG, "$missingMessage: ${e.message}")

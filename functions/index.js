@@ -67,6 +67,22 @@ exports.onCrashDetected = functions.crashlytics.issue().onNew(async (issue) => {
   }
 });
 
+exports.onOpsReportCreated = functions.firestore
+  .document('ops_reports/{reportId}')
+  .onCreate(async (snapshot, context) => {
+    const report = snapshot.data() || {};
+    const reportId = context.params.reportId;
+
+    const githubIssue = await createGitHubIssueForOpsReport(reportId, report);
+    if (githubIssue) {
+      await snapshot.ref.set({
+        githubIssue,
+        status: 'triaged',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
+  });
+
 // ── 2. Manual HTTP trigger (testing ke liye) ──────────────────────────────
 exports.analyzeCrashHttp = functions.https.onRequest(async (req, res) => {
   if (req.method !== 'POST') return res.status(405).end();
@@ -155,6 +171,42 @@ function buildIssueBody(issueId, crashInfo, fix) {
   ].join('\n');
 }
 
+function buildOpsReportIssueBody(reportId, report) {
+  const recentTaps = Array.isArray(report.recentUiTaps) && report.recentUiTaps.length
+    ? report.recentUiTaps.slice(-12).join('\n')
+    : 'No recent UI taps captured.';
+
+  return [
+    '## App Problem Report',
+    '',
+    `- Report ID: ${reportId}`,
+    `- Type: ${report.reportType || 'manual'}`,
+    `- Source: ${report.source || 'android-client'}`,
+    `- Screen: ${report.currentScreen || 'unknown'}`,
+    `- Last action: ${report.lastAction || 'unknown'}`,
+    `- Version: ${report.versionName || 'unknown'} (${report.versionCode || '?'})`,
+    `- Device: ${report.deviceManufacturer || 'Unknown'} ${report.deviceModel || 'Device'}`,
+    `- Android: ${report.androidVersion || 'unknown'}`,
+    `- Playing: ${report.isPlaying ? 'true' : 'false'}`,
+    `- Project loaded: ${report.hasProjectContent ? 'true' : 'false'}`,
+    report.stallMs ? `- Stall: ${report.stallMs}ms` : null,
+    '',
+    '## User Note',
+    '',
+    '```text',
+    report.description || 'No description provided.',
+    '```',
+    '',
+    '## Recent UI Taps',
+    '',
+    '```text',
+    recentTaps,
+    '```',
+    '',
+    '> Created automatically from Storyline app telemetry.',
+  ].filter(Boolean).join('\n');
+}
+
 async function createGitHubIssue(issueId, crashInfo, fix) {
   const github = getOctokitConfig();
   if (!github) {
@@ -188,6 +240,43 @@ async function createGitHubIssue(issueId, crashInfo, fix) {
     };
   } catch (e) {
     functions.logger.error('GitHub issue error', e.message);
+    return null;
+  }
+}
+
+async function createGitHubIssueForOpsReport(reportId, report) {
+  const github = getOctokitConfig();
+  if (!github) {
+    return null;
+  }
+
+  const { octokit, owner, repo } = github;
+  try {
+    const issue = await octokit.issues.create({
+      owner,
+      repo,
+      title: `[App Report] ${report.reportType || 'problem'} ${report.currentScreen || 'screen'} ${reportId}`.slice(0, 240),
+      body: buildOpsReportIssueBody(reportId, report),
+      labels: [
+        'app-report',
+        report.reportType || 'needs-triage',
+        report.reportType === 'freeze' ? 'performance' : 'user-report',
+      ],
+    });
+
+    functions.logger.info('GitHub issue created for ops report', {
+      reportId,
+      number: issue.data.number,
+      url: issue.data.html_url,
+    });
+
+    return {
+      number: issue.data.number,
+      url: issue.data.html_url,
+      title: issue.data.title,
+    };
+  } catch (e) {
+    functions.logger.error('GitHub ops report issue error', e.message);
     return null;
   }
 }

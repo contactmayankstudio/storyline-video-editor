@@ -553,6 +553,7 @@
                 <p>Recent device opens and last-seen state come straight from Firebase Firestore. Once the installed app launches, this panel will show which device was active, which screen was open, and whether the editor was in foreground or background.</p>
                 <div class="status-block" id="health-installations-block">Waiting for admin sign-in before starting the live device feed.</div>
                 <div class="status-block" id="health-crashes-block">Crash feed is waiting for Firestore or Crashlytics records.</div>
+                <div class="status-block" id="health-reports-block">Problem reports are waiting for app-side report or freeze events.</div>
                 <div class="helper-row">
                     <span class="helper" id="health-note"></span>
                 </div>
@@ -720,6 +721,7 @@
         const automationNote = document.getElementById("automation-note");
         const healthInstallationsBlock = document.getElementById("health-installations-block");
         const healthCrashesBlock = document.getElementById("health-crashes-block");
+        const healthReportsBlock = document.getElementById("health-reports-block");
         const healthNote = document.getElementById("health-note");
         const autopilotPrompt = document.getElementById("autopilot-prompt");
         const autopilotAttempts = document.getElementById("autopilot-attempts");
@@ -763,6 +765,7 @@
             chatMessages: [],
             healthUnsubscribeInstallations: null,
             healthUnsubscribeCrashes: null,
+            healthUnsubscribeReports: null,
         };
 
         function renderAuthDiagnostics(details = {}) {
@@ -808,8 +811,12 @@
             if (typeof state.healthUnsubscribeCrashes === "function") {
                 state.healthUnsubscribeCrashes();
             }
+            if (typeof state.healthUnsubscribeReports === "function") {
+                state.healthUnsubscribeReports();
+            }
             state.healthUnsubscribeInstallations = null;
             state.healthUnsubscribeCrashes = null;
+            state.healthUnsubscribeReports = null;
         }
 
         function formatRelativeTime(timestampMs) {
@@ -893,6 +900,35 @@
                 );
             }
             healthCrashesBlock.textContent = lines.join("\n");
+        }
+
+        function renderProblemReportsFeed(snapshot) {
+            if (!snapshot?.docs?.length) {
+                healthReportsBlock.textContent = "No problem reports yet. Long-press export/save/aspect in the app or wait for a freeze watchdog event.";
+                return;
+            }
+
+            const lines = ["Recent problem reports:"];
+            for (const doc of snapshot.docs) {
+                const data = doc.data() || {};
+                const createdAtMs = data.createdAt?.toMillis?.() || data.createdAtMs || 0;
+                const tapCount = Array.isArray(data.recentUiTaps) ? data.recentUiTaps.length : 0;
+                lines.push(
+                    [
+                        `- ${data.reportType || "report"}`,
+                        `${data.deviceManufacturer || "Unknown"} ${data.deviceModel || "Device"}`,
+                        `screen=${data.currentScreen || "unknown"}`,
+                        `action=${data.lastAction || "unknown"}`,
+                        `source=${data.source || "unknown"}`,
+                        `status=${data.status || "open"}`,
+                        data.stallMs ? `stall=${data.stallMs}ms` : null,
+                        `taps=${tapCount}`,
+                        `note=${(data.description || "").slice(0, 120) || "n/a"}`,
+                        `created=${formatRelativeTime(createdAtMs)}`,
+                    ].filter(Boolean).join(" | ")
+                );
+            }
+            healthReportsBlock.textContent = lines.join("\n");
         }
 
         const modeConfig = {
@@ -996,6 +1032,7 @@
             autopilotStatusBlock.textContent = lockedMessage;
             healthInstallationsBlock.textContent = lockedMessage;
             healthCrashesBlock.textContent = lockedMessage;
+            healthReportsBlock.textContent = lockedMessage;
             setPill(buildPill, "Build: locked", "warning");
             setPill(chainPill, "AI Chain: locked", "warning");
             renderAuthDiagnostics({ statusText: lockedMessage });
@@ -1678,6 +1715,7 @@
             if (!state.firestore || !state.currentUser || !state.adminSession) {
                 healthInstallationsBlock.textContent = "Firebase auth or Firestore is not ready yet.";
                 healthCrashesBlock.textContent = "Crash feed is waiting for Firebase auth and Firestore.";
+                healthReportsBlock.textContent = "Problem reports are waiting for Firebase auth and Firestore.";
                 return;
             }
 
@@ -1720,6 +1758,25 @@
             } catch (error) {
                 console.error(error);
                 healthCrashesBlock.textContent = error.message;
+            }
+
+            try {
+                const reportsQuery = query(
+                    collection(state.firestore, "ops_reports"),
+                    orderBy("createdAt", "desc"),
+                    limit(8)
+                );
+
+                state.healthUnsubscribeReports = onSnapshot(reportsQuery, (snapshot) => {
+                    renderProblemReportsFeed(snapshot);
+                }, (error) => {
+                    console.error(error);
+                    healthReportsBlock.textContent = error.message;
+                    healthNote.textContent = "Problem report feed needs the latest Firestore rules plus app writes into ops_reports.";
+                });
+            } catch (error) {
+                console.error(error);
+                healthReportsBlock.textContent = error.message;
             }
         }
 

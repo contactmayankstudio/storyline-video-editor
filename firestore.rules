@@ -51,6 +51,56 @@ service cloud.firestore {
         && request.resource.data.appState in ["launching", "foreground", "background"];
     }
 
+    function isSafeOpsReportWrite(docId) {
+      return request.resource.data.keys().hasOnly([
+          "reportId",
+          "reportType",
+          "description",
+          "source",
+          "sessionId",
+          "currentScreen",
+          "lastAction",
+          "hasProjectContent",
+          "isPlaying",
+          "versionName",
+          "versionCode",
+          "packageName",
+          "deviceModel",
+          "deviceManufacturer",
+          "androidVersion",
+          "recentUiTaps",
+          "createdAtMs",
+          "createdAt",
+          "status",
+          "stallMs",
+        ])
+        && request.resource.data.reportId == docId
+        && validStringField("reportId", 64)
+        && validStringField("reportType", 24)
+        && validStringField("description", 800)
+        && validStringField("source", 48)
+        && validStringField("sessionId", 64)
+        && validStringField("currentScreen", 48)
+        && validStringField("lastAction", 120)
+        && validStringField("versionName", 32)
+        && validStringField("packageName", 80)
+        && validStringField("deviceModel", 80)
+        && validStringField("deviceManufacturer", 80)
+        && validStringField("androidVersion", 24)
+        && request.resource.data.hasProjectContent is bool
+        && request.resource.data.isPlaying is bool
+        && request.resource.data.versionCode is int
+        && request.resource.data.createdAtMs is int
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.status == "open"
+        && request.resource.data.recentUiTaps is list
+        && request.resource.data.recentUiTaps.size() <= 24
+        && (
+          !("stallMs" in request.resource.data)
+          || request.resource.data.stallMs is int
+        );
+    }
+
     match /ops_installations/{installationId} {
       allow get, list: if isVerifiedGoogleReader();
       allow create, update: if isSafeInstallationWrite(installationId);
@@ -65,6 +115,12 @@ service cloud.firestore {
     match /ops_crashes/{issueId} {
       allow get, list: if isVerifiedGoogleReader();
       allow write: if false;
+    }
+
+    match /ops_reports/{reportId} {
+      allow get, list: if isVerifiedGoogleReader();
+      allow create: if isSafeOpsReportWrite(reportId);
+      allow update, delete: if false;
     }
   }
 }
