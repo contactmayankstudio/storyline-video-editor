@@ -5538,13 +5538,32 @@ static bool mixAudioClipsToAac(
         for (float sample : mixedPcm) {
             peakSample = std::max(peakSample, std::fabs(sample));
         }
-        constexpr float kTargetPeak = 0.90f;
-        if (peakSample > kTargetPeak) {
-            const float scale = kTargetPeak / peakSample;
+        if (peakSample > 0.0001f) {
+            constexpr float kTargetPeak = 0.86f;
+            constexpr float kMaxBoostScale = 4.0f;
+            constexpr float kMinTrimScale = 0.75f;
+            float scale = kTargetPeak / peakSample;
+            if (scale > 1.0f) {
+                scale = std::min(scale, kMaxBoostScale);
+            } else {
+                scale = std::max(scale, kMinTrimScale);
+            }
+            if (std::fabs(scale - 1.0f) >= 0.03f) {
+                LOGI("[Export] applying audio normalization scale=%.3f peak=%.3f", scale, peakSample);
+                for (float& sample : mixedPcm) {
+                    sample *= scale;
+                }
+                peakSample *= scale;
+            }
+        }
+        constexpr float kLimiterHeadroomPeak = 0.92f;
+        if (peakSample > kLimiterHeadroomPeak) {
+            const float scale = kLimiterHeadroomPeak / peakSample;
             LOGI("[Export] applying audio headroom scale=%.3f peak=%.3f", scale, peakSample);
             for (float& sample : mixedPcm) {
                 sample *= scale;
             }
+            peakSample *= scale;
         }
         if (peakSample > 0.72f) {
             const float limiterDrive = 1.15f;
@@ -5807,6 +5826,11 @@ static bool renderTimelineWithMixedAudioToMp4(
         std::remove(videoOnlyPath.c_str());
         return false;
     }
+    if (onProgress && !onProgress(82)) {
+        errorOut = "Export cancelled";
+        std::remove(videoOnlyPath.c_str());
+        return false;
+    }
 
     std::vector<AudioExportClip> audioClips;
     {
@@ -5819,6 +5843,11 @@ static bool renderTimelineWithMixedAudioToMp4(
             std::remove(videoOnlyPath.c_str());
             return false;
         }
+        if (onProgress && !onProgress(96)) {
+            errorOut = "Export cancelled";
+            std::remove(outputPath.c_str());
+            return false;
+        }
         if (onProgress && !onProgress(100)) {
             errorOut = "Export cancelled";
             std::remove(outputPath.c_str());
@@ -5828,12 +5857,23 @@ static bool renderTimelineWithMixedAudioToMp4(
     }
 
     const int64_t audioDurationMs = computeAudioExportDurationMs(audioSourceSpecs, audioClips);
+    if (onProgress && !onProgress(84)) {
+        errorOut = "Export cancelled";
+        std::remove(videoOnlyPath.c_str());
+        return false;
+    }
     if (!mixAudioClipsToAac(audioClips, audioOnlyPath, audioDurationMs, errorOut)) {
         LOGE("[Export] audio mix failed: %s", errorOut.c_str());
         std::remove(videoOnlyPath.c_str());
         return false;
     }
-    if (onProgress && !onProgress(90)) {
+    if (onProgress && !onProgress(92)) {
+        errorOut = "Export cancelled";
+        std::remove(videoOnlyPath.c_str());
+        std::remove(audioOnlyPath.c_str());
+        return false;
+    }
+    if (onProgress && !onProgress(96)) {
         errorOut = "Export cancelled";
         std::remove(videoOnlyPath.c_str());
         std::remove(audioOnlyPath.c_str());

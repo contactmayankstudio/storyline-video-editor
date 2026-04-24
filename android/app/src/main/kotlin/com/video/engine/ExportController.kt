@@ -92,6 +92,10 @@ class ExportController(
     private val exportHandler = Handler(Looper.getMainLooper())
     private var exportPollRunnable: Runnable? = null
     private var progressDialog: android.app.Dialog? = null
+    private var exportProgressBar: ProgressBar? = null
+    private var exportPercentText: TextView? = null
+    private var exportEtaText: TextView? = null
+    private var exportStatusText: TextView? = null
     private var isExporting = false
     private var exportStartTimeMs: Long = 0L
     private var lastForegroundNotificationState: String? = null
@@ -119,6 +123,10 @@ class ExportController(
         isExporting = false
         activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         resetForegroundExportNotificationState()
+        exportProgressBar = null
+        exportPercentText = null
+        exportEtaText = null
+        exportStatusText = null
     }
 
     fun createNotificationChannel() {
@@ -281,15 +289,33 @@ class ExportController(
                 val sizeMB = String.format("%.1f", outputFile.length() / (1024.0 * 1024.0))
 
                 activity.runOnUiThread {
-                    stopExportPolling()
-                    progressDialog?.dismiss()
-                    finishDirectExportSession()
-                    activity.stopService(Intent(activity, ExportService::class.java))
                     if (success) {
-                        Log.d(TAG, "Export successful: $outputPath")
-                        showExportCompleteDialog(outputPath, sizeMB, null)
-                        onExportSuccess?.invoke()
+                        renderExportProgressFrame(
+                            buildExportProgressFrame(
+                                progress = 100,
+                                elapsedSec = (System.currentTimeMillis() - exportStartTimeMs) / 1000,
+                                videoDurationMs = durationMs,
+                                exportOutputPath = outputPath,
+                            ),
+                        )
+                    }
+                    stopExportPolling()
+                    if (success) {
+                        exportHandler.postDelayed(
+                            {
+                                progressDialog?.dismiss()
+                                finishDirectExportSession()
+                                activity.stopService(Intent(activity, ExportService::class.java))
+                                Log.d(TAG, "Export successful: $outputPath")
+                                showExportCompleteDialog(outputPath, sizeMB, null)
+                                onExportSuccess?.invoke()
+                            },
+                            280L,
+                        )
                     } else {
+                        progressDialog?.dismiss()
+                        finishDirectExportSession()
+                        activity.stopService(Intent(activity, ExportService::class.java))
                         Log.e(TAG, "Export failed")
                         val nativeReason = previewView.getLastExportError().trim()
                         showErrorDialog(
@@ -477,20 +503,38 @@ class ExportController(
             }
             else -> {
                 val statusParts = buildList {
-                    add("Publishing export...")
+                    add("Export complete")
                     artifactHint?.let(::add)
                 }
                 ExportProgressFrame(
-                    progressLabel = "Finishing",
-                    etaLabel = "Finalizing output...",
+                    progressLabel = "100%",
+                    etaLabel = "Export ready",
                     statusLabel = statusParts.joinToString("  •  "),
-                    notificationTitle = "Video Export",
+                    notificationTitle = "Video Export 100%",
                     notificationText = statusParts.joinToString(" • "),
                     notificationProgress = 100,
-                    indeterminate = true,
+                    indeterminate = false,
                 )
             }
         }
+    }
+
+    private fun renderExportProgressFrame(frame: ExportProgressFrame) {
+        exportProgressBar?.let { progressBar ->
+            progressBar.isIndeterminate = frame.indeterminate
+            if (!frame.indeterminate) {
+                progressBar.progress = frame.notificationProgress
+            }
+        }
+        exportPercentText?.text = frame.progressLabel
+        exportEtaText?.text = frame.etaLabel
+        exportStatusText?.text = frame.statusLabel
+        pushForegroundExportNotification(
+            title = frame.notificationTitle,
+            text = frame.notificationText,
+            progress = frame.notificationProgress,
+            indeterminate = frame.indeterminate,
+        )
     }
 
     private fun estimateExportFileSize(durationMs: Long, bitrateMbps: Int): Long {
@@ -847,6 +891,10 @@ class ExportController(
 
         dialog.setContentView(root)
         progressDialog = dialog
+        exportProgressBar = progressBar
+        exportPercentText = percentText
+        exportEtaText = etaText
+        exportStatusText = statusText
         dialog.show()
 
         val runnable = object : Runnable {
@@ -855,19 +903,13 @@ class ExportController(
                     val progress = NativeBridge.getExportProgress(previewView)
                     val elapsedSec = (System.currentTimeMillis() - exportStartTimeMs) / 1000
                     if (progress >= 0) {
-                        val frame = buildExportProgressFrame(progress, elapsedSec, videoDurationMs, exportOutputPath)
-                        progressBar.isIndeterminate = frame.indeterminate
-                        if (!frame.indeterminate) {
-                            progressBar.progress = frame.notificationProgress
-                        }
-                        percentText.text = frame.progressLabel
-                        etaText.text = frame.etaLabel
-                        statusText.text = frame.statusLabel
-                        pushForegroundExportNotification(
-                            title = frame.notificationTitle,
-                            text = frame.notificationText,
-                            progress = frame.notificationProgress,
-                            indeterminate = frame.indeterminate,
+                        renderExportProgressFrame(
+                            buildExportProgressFrame(
+                                progress = progress,
+                                elapsedSec = elapsedSec,
+                                videoDurationMs = videoDurationMs,
+                                exportOutputPath = exportOutputPath,
+                            ),
                         )
                     }
                 } catch (_: UnsatisfiedLinkError) { exportHandler.removeCallbacks(this); return }
