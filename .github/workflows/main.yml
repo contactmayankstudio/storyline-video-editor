@@ -138,7 +138,7 @@ jobs:
 
       - name: Deploy admin panel to Vercel
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        working-directory: admin-panel
+        working-directory: .
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
@@ -146,10 +146,12 @@ jobs:
             echo "::warning::Missing VERCEL_TOKEN. Skipping admin panel deploy."
             exit 0
           fi
-          if [ ! -f ".vercel/project.json" ]; then
+          if [ ! -f "admin-panel/.vercel/project.json" ]; then
             echo "::warning::admin-panel/.vercel/project.json not found. Skipping admin panel deploy."
             exit 0
           fi
+          mkdir -p .vercel
+          cp admin-panel/.vercel/project.json .vercel/project.json
           if ! vercel deploy --prod --yes --token "${VERCEL_TOKEN}"; then
             echo "::warning::Admin panel Vercel deploy failed."
           fi
