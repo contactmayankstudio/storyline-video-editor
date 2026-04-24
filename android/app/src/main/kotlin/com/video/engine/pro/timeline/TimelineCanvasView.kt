@@ -53,9 +53,11 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     // ── Layout constants ──────────────────────────────────────────────────────
     private val rulerHeightPx = dp(20)
-    private val trackHeightPx = dp(31)
+    private val minTrackHeightBasePx = dp(31)
+    private val maxTrackHeightBasePx = dp(42)
     private val trackGapPx = dp(2)
     private val headerWidthPx = dp(46)
+    private val timelineBottomInsetPx = dp(6)
     private val handleWidthPx = dp(10)
     private val snapThresholdPx = dp(12).toFloat()
     private val minClipWidthPx = dp(4).toFloat()
@@ -253,6 +255,19 @@ class TimelineCanvasView @JvmOverloads constructor(
         tracks.forEach { t -> t.clips.forEach { c -> maxEndMs = max(maxEndMs, c.startTimeMs + c.durationMs) } }
         totalContentWidthPx = headerWidthPx + maxEndMs * pxPerMs + width * 0.5f
     }
+
+    private val layoutTrackCount: Int
+        get() = tracks.size.coerceAtLeast(5)
+
+    private val trackHeightPx: Int
+        get() {
+            val count = layoutTrackCount
+            if (height <= 0 || count <= 0) return minTrackHeightBasePx
+            val availableHeight =
+                (height - rulerHeightPx - timelineBottomInsetPx - (count - 1) * trackGapPx)
+                    .coerceAtLeast(count * minTrackHeightBasePx)
+            return (availableHeight / count).coerceIn(minTrackHeightBasePx, maxTrackHeightBasePx)
+        }
 
     private fun trackTop(trackIndex: Int) =
         rulerHeightPx + trackIndex * (trackHeightPx + trackGapPx)
@@ -1092,8 +1107,8 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     // Preferred height = ruler + all tracks
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val trackCount = tracks.size.coerceAtLeast(4)
-        val preferred = rulerHeightPx + trackCount * (trackHeightPx + trackGapPx) + dp(8)
+        val trackCount = layoutTrackCount
+        val preferred = rulerHeightPx + trackCount * (minTrackHeightBasePx + trackGapPx) + timelineBottomInsetPx
         val h = when (MeasureSpec.getMode(heightMeasureSpec)) {
             MeasureSpec.EXACTLY -> MeasureSpec.getSize(heightMeasureSpec)
             MeasureSpec.AT_MOST -> minOf(preferred, MeasureSpec.getSize(heightMeasureSpec))
