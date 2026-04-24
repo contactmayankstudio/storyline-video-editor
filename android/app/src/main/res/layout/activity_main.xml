@@ -379,14 +379,12 @@
             android:layout_marginEnd="4dp"
             android:layout_marginBottom="1dp">
 
-            <LinearLayout
+            <androidx.constraintlayout.widget.ConstraintLayout
                 android:id="@+id/playbackControlRail"
-                android:layout_width="wrap_content"
+                android:layout_width="128dp"
                 android:layout_height="42dp"
                 android:layoutDirection="ltr"
                 android:background="@drawable/playback_control_cluster_background"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
                 android:paddingStart="4dp"
                 android:paddingTop="3dp"
                 android:paddingEnd="4dp"
@@ -403,32 +401,40 @@
                     android:contentDescription="@string/undo_label"
                     android:padding="9dp"
                     android:src="@drawable/ic_undo_toolbar"
-                    android:tint="@color/text_secondary" />
+                    android:tint="@color/text_secondary"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintBottom_toBottomOf="parent" />
 
                 <ImageButton
                     android:id="@+id/previewPlayPauseButton"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
-                    android:layout_marginStart="4dp"
                     android:background="@drawable/playback_control_primary_chip_background"
                     android:contentDescription="@string/play_button"
                     android:padding="9dp"
                     android:src="@drawable/ic_play_toolbar"
-                    android:tint="@color/text_primary" />
+                    android:tint="@color/text_primary"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintBottom_toBottomOf="parent" />
 
                 <ImageButton
                     android:id="@+id/redoButton"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
-                    android:layout_marginStart="4dp"
                     android:background="@drawable/playback_control_secondary_background"
                     android:contentDescription="@string/redo_label"
                     android:padding="9dp"
                     android:rotation="180"
                     android:src="@drawable/ic_undo_toolbar"
-                    android:tint="@color/text_secondary" />
+                    android:tint="@color/text_secondary"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintBottom_toBottomOf="parent" />
 
-            </LinearLayout>
+            </androidx.constraintlayout.widget.ConstraintLayout>
 
             <TextView
                 android:id="@+id/timelineCurrentTimeText"
