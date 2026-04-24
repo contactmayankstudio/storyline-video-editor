@@ -276,6 +276,7 @@ class MainActivity : Activity() {
     private lateinit var problemReportManager: ProblemReportManager
     private lateinit var uiFreezeWatchdog: UiFreezeWatchdog
     private lateinit var playbackExportIssueDetector: PlaybackExportIssueDetector
+    private lateinit var uiActionExpectationDetector: UiActionExpectationDetector
     private var latestHealthAction: String = "launch"
 
     // Text overlays
@@ -703,6 +704,15 @@ class MainActivity : Activity() {
         appHealthReporter = AppHealthReporter(this)
         problemReportManager = ProblemReportManager(this)
         playbackExportIssueDetector = PlaybackExportIssueDetector { reportType, source, description ->
+            if (!isFinishing && !isDestroyed) {
+                submitAutoDetectorIssue(
+                    reportType = reportType,
+                    source = source,
+                    description = description,
+                )
+            }
+        }
+        uiActionExpectationDetector = UiActionExpectationDetector { reportType, source, description ->
             if (!isFinishing && !isDestroyed) {
                 submitAutoDetectorIssue(
                     reportType = reportType,
@@ -1537,6 +1547,7 @@ class MainActivity : Activity() {
     }
 
     private fun showAspectRatioPickerDialog() {
+        noteAppHealthAction("aspect_ratio_picker_opened")
         val labels = aspectRatioOptions.map { it.label }
         ModernSheet.show(this, "Crop Ratio") {
             chips("Canvas", labels, selectedAspectRatioIndex) { i, _ ->
@@ -1759,6 +1770,9 @@ class MainActivity : Activity() {
         if (::playbackExportIssueDetector.isInitialized) {
             playbackExportIssueDetector.close()
         }
+        if (::uiActionExpectationDetector.isInitialized) {
+            uiActionExpectationDetector.close()
+        }
         if (::problemReportManager.isInitialized) {
             problemReportManager.close()
         }
@@ -1827,6 +1841,9 @@ class MainActivity : Activity() {
     private fun noteAppHealthAction(action: String, force: Boolean = true) {
         val actionName = action.take(120)
         latestHealthAction = actionName
+        if (::uiActionExpectationDetector.isInitialized) {
+            uiActionExpectationDetector.noteHealthAction(actionName)
+        }
         if (::opsReporter.isInitialized) {
             opsReporter.noteAction(
                 action = actionName,
@@ -1842,6 +1859,14 @@ class MainActivity : Activity() {
     }
 
     private fun noteUiButtonTap(control: String, surface: String, mode: String = "tap") {
+        if (::uiActionExpectationDetector.isInitialized) {
+            uiActionExpectationDetector.noteUiButtonTap(
+                control = control,
+                surface = surface,
+                mode = mode,
+                screen = currentHealthScreenName(),
+            )
+        }
         if (::problemReportManager.isInitialized) {
             problemReportManager.noteUiTap(control = control, surface = surface, mode = mode)
         }
