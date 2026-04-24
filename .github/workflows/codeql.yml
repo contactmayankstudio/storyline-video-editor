@@ -1,0 +1,69 @@
+name: CodeQL
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: "27 2 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - java-kotlin
+          - javascript-typescript
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
+
+      - name: Restore google-services.json
+        if: matrix.language == 'java-kotlin' && secrets.ANDROID_GOOGLE_SERVICES_JSON != ''
+        working-directory: android
+        run: |
+          printf '%s' '${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}' > app/google-services.json
+
+      - name: Make Gradle wrapper executable
+        if: matrix.language == 'java-kotlin'
+        working-directory: android
+        run: chmod +x gradlew
+
+      - name: Skip Android build when secret is unavailable
+        if: matrix.language == 'java-kotlin' && secrets.ANDROID_GOOGLE_SERVICES_JSON == ''
+        run: echo "::warning::Skipping Android CodeQL build because ANDROID_GOOGLE_SERVICES_JSON is unavailable for this run."
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+
+      - name: Build Android sources for CodeQL
+        if: matrix.language == 'java-kotlin' && secrets.ANDROID_GOOGLE_SERVICES_JSON != ''
+        working-directory: android
+        run: ./gradlew assembleDebug --console=plain
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
