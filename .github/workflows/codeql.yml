@@ -40,19 +40,21 @@ jobs:
           cache: gradle
 
       - name: Restore google-services.json
-        if: matrix.language == 'java-kotlin' && secrets.ANDROID_GOOGLE_SERVICES_JSON != ''
+        if: matrix.language == 'java-kotlin'
         working-directory: android
+        env:
+          ANDROID_GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
         run: |
-          printf '%s' '${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}' > app/google-services.json
+          if [ -z "${ANDROID_GOOGLE_SERVICES_JSON}" ]; then
+            echo "::warning::ANDROID_GOOGLE_SERVICES_JSON is unavailable for this run."
+            exit 0
+          fi
+          printf '%s' "${ANDROID_GOOGLE_SERVICES_JSON}" > app/google-services.json
 
       - name: Make Gradle wrapper executable
         if: matrix.language == 'java-kotlin'
         working-directory: android
         run: chmod +x gradlew
-
-      - name: Skip Android build when secret is unavailable
-        if: matrix.language == 'java-kotlin' && secrets.ANDROID_GOOGLE_SERVICES_JSON == ''
-        run: echo "::warning::Skipping Android CodeQL build because ANDROID_GOOGLE_SERVICES_JSON is unavailable for this run."
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -61,9 +63,16 @@ jobs:
           queries: security-extended,security-and-quality
 
       - name: Build Android sources for CodeQL
-        if: matrix.language == 'java-kotlin' && secrets.ANDROID_GOOGLE_SERVICES_JSON != ''
+        if: matrix.language == 'java-kotlin'
         working-directory: android
-        run: ./gradlew assembleDebug --console=plain
+        env:
+          ANDROID_GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "${ANDROID_GOOGLE_SERVICES_JSON}" ]; then
+            echo "::warning::Skipping Android CodeQL build because ANDROID_GOOGLE_SERVICES_JSON is unavailable for this run."
+            exit 0
+          fi
+          ./gradlew assembleDebug --console=plain
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
