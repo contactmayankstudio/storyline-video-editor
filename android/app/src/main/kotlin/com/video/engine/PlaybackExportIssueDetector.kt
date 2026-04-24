@@ -13,6 +13,11 @@ class PlaybackExportIssueDetector(
         private const val PLAYBACK_STALL_TIMEOUT_MS = 3_600L
         private const val PLAYBACK_STALL_CHECK_INTERVAL_MS = 1_200L
         private const val PLAYBACK_PROGRESS_TOLERANCE_MS = 90L
+        private const val PLAYBACK_JANK_GAP_MS = 420L
+        private const val PLAYBACK_JANK_SOFT_GAP_MS = 260L
+        private const val PLAYBACK_JANK_LOW_PROGRESS_MS = 120L
+        private const val PLAYBACK_JANK_WINDOW_MS = 8_000L
+        private const val PLAYBACK_JANK_STRIKES_THRESHOLD = 3
         private const val EXPORT_START_TIMEOUT_MS = 20_000L
         private const val EXPORT_STALL_TIMEOUT_MS = 45_000L
         private const val EXPORT_FINALIZE_TIMEOUT_MS = 35_000L
@@ -24,9 +29,14 @@ class PlaybackExportIssueDetector(
     private var playbackAnchorTimeMs = 0L
     private var playbackLastAdvancedAtElapsedMs = 0L
     private var playbackLastTimeMs = Long.MIN_VALUE
+    private var playbackLastSampleAtElapsedMs = 0L
     private var playbackHasMoved = false
     private var playbackStartIssueReported = false
     private var playbackStallIssueReported = false
+    private var playbackJankIssueReported = false
+    private var playbackJankWindowStartedAtElapsedMs = 0L
+    private var playbackJankStrikeCount = 0
+    private var playbackWorstJankGapMs = 0L
 
     private var exportSessionActive = false
     private var exportStartedAtElapsedMs = 0L
@@ -94,9 +104,14 @@ class PlaybackExportIssueDetector(
         playbackAnchorTimeMs = anchorTimeMs.coerceAtLeast(0L)
         playbackLastAdvancedAtElapsedMs = playbackRequestedAtElapsedMs
         playbackLastTimeMs = playbackAnchorTimeMs
+        playbackLastSampleAtElapsedMs = playbackRequestedAtElapsedMs
         playbackHasMoved = false
         playbackStartIssueReported = false
         playbackStallIssueReported = false
+        playbackJankIssueReported = false
+        playbackJankWindowStartedAtElapsedMs = 0L
+        playbackJankStrikeCount = 0
+        playbackWorstJankGapMs = 0L
         mainHandler.removeCallbacks(playbackStartTimeoutRunnable)
         mainHandler.removeCallbacks(playbackStallCheckRunnable)
         mainHandler.postDelayed(playbackStartTimeoutRunnable, PLAYBACK_START_TIMEOUT_MS)
@@ -105,21 +120,67 @@ class PlaybackExportIssueDetector(
 
     fun onPlaybackTimeChanged(timeMs: Long) {
         if (!playbackSessionActive) return
+        val nowElapsedMs = SystemClock.elapsedRealtime()
         val normalizedTimeMs = timeMs.coerceAtLeast(0L)
+        val previousTimeMs = playbackLastTimeMs.coerceAtLeast(playbackAnchorTimeMs)
+        val previousSampleAtElapsedMs = playbackLastSampleAtElapsedMs
+        val wasMoved = playbackHasMoved
         if (!playbackHasMoved && normalizedTimeMs >= playbackAnchorTimeMs + PLAYBACK_PROGRESS_TOLERANCE_MS) {
             playbackHasMoved = true
-            playbackLastAdvancedAtElapsedMs = SystemClock.elapsedRealtime()
+            playbackLastAdvancedAtElapsedMs = nowElapsedMs
             mainHandler.removeCallbacks(playbackStartTimeoutRunnable)
         } else if (playbackHasMoved && normalizedTimeMs > playbackLastTimeMs + 8L) {
-            playbackLastAdvancedAtElapsedMs = SystemClock.elapsedRealtime()
+            playbackLastAdvancedAtElapsedMs = nowElapsedMs
+        }
+        if (wasMoved && previousSampleAtElapsedMs > 0L) {
+            val wallDeltaMs = nowElapsedMs - previousSampleAtElapsedMs
+            val playbackDeltaMs = (normalizedTimeMs - previousTimeMs).coerceAtLeast(0L)
+            val isHardGap = wallDeltaMs >= PLAYBACK_JANK_GAP_MS
+            val isSoftGap = wallDeltaMs >= PLAYBACK_JANK_SOFT_GAP_MS && playbackDeltaMs <= PLAYBACK_JANK_LOW_PROGRESS_MS
+            if (isHardGap || isSoftGap) {
+                notePlaybackJankStrike(
+                    nowElapsedMs = nowElapsedMs,
+                    wallDeltaMs = wallDeltaMs,
+                    playbackDeltaMs = playbackDeltaMs,
+                    timelineTimeMs = normalizedTimeMs,
+                )
+            }
         }
         playbackLastTimeMs = maxOf(playbackLastTimeMs, normalizedTimeMs)
+        playbackLastSampleAtElapsedMs = nowElapsedMs
     }
 
     fun onPlaybackPaused() {
         playbackSessionActive = false
         mainHandler.removeCallbacks(playbackStartTimeoutRunnable)
         mainHandler.removeCallbacks(playbackStallCheckRunnable)
+    }
+
+    private fun notePlaybackJankStrike(
+        nowElapsedMs: Long,
+        wallDeltaMs: Long,
+        playbackDeltaMs: Long,
+        timelineTimeMs: Long,
+    ) {
+        if (playbackJankIssueReported) return
+        if (
+            playbackJankWindowStartedAtElapsedMs <= 0L ||
+            nowElapsedMs - playbackJankWindowStartedAtElapsedMs > PLAYBACK_JANK_WINDOW_MS
+        ) {
+            playbackJankWindowStartedAtElapsedMs = nowElapsedMs
+            playbackJankStrikeCount = 0
+            playbackWorstJankGapMs = 0L
+        }
+        playbackJankStrikeCount += 1
+        playbackWorstJankGapMs = maxOf(playbackWorstJankGapMs, wallDeltaMs)
+        if (playbackJankStrikeCount < PLAYBACK_JANK_STRIKES_THRESHOLD) return
+        playbackJankIssueReported = true
+        onIssueDetected(
+            "playback",
+            "playback_jank_detected",
+            "Playback updates were jittery: ${playbackJankStrikeCount} delayed update gaps, " +
+                "worst gap ${playbackWorstJankGapMs}ms, latest progress ${playbackDeltaMs}ms at ${timelineTimeMs}ms.",
+        )
     }
 
     fun onExportStarted() {
