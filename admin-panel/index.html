@@ -294,6 +294,55 @@
             line-height: 1.5;
         }
 
+        .diag-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .diag-card {
+            padding: 14px 16px;
+            border-radius: 18px;
+            border: 1px solid rgba(146, 163, 255, 0.12);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .diag-card strong {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 12px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #b8c8ea;
+        }
+
+        .diag-value {
+            font-size: 14px;
+            line-height: 1.45;
+            color: var(--text);
+            word-break: break-word;
+        }
+
+        .diag-strip {
+            margin-top: 14px;
+            padding: 14px 16px;
+            border-radius: 18px;
+            border: 1px solid rgba(146, 163, 255, 0.12);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .step-list {
+            margin: 10px 0 0;
+            padding-left: 18px;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .step-list li + li {
+            margin-top: 6px;
+        }
+
         .status-block,
         .ai-output {
             margin-top: 16px;
@@ -395,6 +444,10 @@
             .card-side {
                 grid-column: span 12;
             }
+
+            .diag-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
         }
 
         @media (max-width: 640px) {
@@ -410,6 +463,10 @@
 
             h1 {
                 font-size: 2.4rem;
+            }
+
+            .diag-grid {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -433,6 +490,34 @@
             </div>
             <div class="helper-row" style="margin-top: 10px;">
                 <span class="helper" id="auth-user"></span>
+            </div>
+            <div class="diag-grid">
+                <div class="diag-card">
+                    <strong>Current Domain</strong>
+                    <span class="diag-value" id="auth-diag-host">Checking...</span>
+                </div>
+                <div class="diag-card">
+                    <strong>Firebase Project</strong>
+                    <span class="diag-value" id="auth-diag-project">Checking...</span>
+                </div>
+                <div class="diag-card">
+                    <strong>Admin Allowlist</strong>
+                    <span class="diag-value" id="auth-diag-allowlist">Checking...</span>
+                </div>
+                <div class="diag-card">
+                    <strong>Web API Key</strong>
+                    <span class="diag-value" id="auth-diag-apikey">Checking...</span>
+                </div>
+            </div>
+            <div class="diag-strip">
+                <strong>Login Diagnostics</strong>
+                <div class="diag-value" id="auth-diag-status">Waiting for Firebase and admin auth checks.</div>
+                <ol class="step-list" id="auth-diag-steps">
+                    <li>Enable Google sign-in in Firebase Authentication.</li>
+                    <li>Add this Vercel domain to Firebase Authentication authorized domains.</li>
+                    <li>Set STORYLINE_ADMIN_EMAILS or STORYLINE_ADMIN_DOMAINS in Vercel.</li>
+                    <li>Sign in with the same allowlisted Google account.</li>
+                </ol>
             </div>
         </section>
 
@@ -575,6 +660,12 @@
         const authSignOutButton = document.getElementById("auth-sign-out-button");
         const authNote = document.getElementById("auth-note");
         const authUser = document.getElementById("auth-user");
+        const authDiagHost = document.getElementById("auth-diag-host");
+        const authDiagProject = document.getElementById("auth-diag-project");
+        const authDiagAllowlist = document.getElementById("auth-diag-allowlist");
+        const authDiagApiKey = document.getElementById("auth-diag-apikey");
+        const authDiagStatus = document.getElementById("auth-diag-status");
+        const authDiagSteps = document.getElementById("auth-diag-steps");
 
         const buildPill = document.getElementById("build-pill");
         const chainPill = document.getElementById("chain-pill");
@@ -620,6 +711,42 @@
             providerOrder: [],
             chatMessages: [],
         };
+
+        function renderAuthDiagnostics(details = {}) {
+            const allowlistReady = Boolean(
+                details.authConfigured
+                || details.allowedEmailsConfigured
+                || details.allowedDomainsConfigured
+            );
+            const allowlistKnown = Object.prototype.hasOwnProperty.call(details, "authConfigured")
+                || Object.prototype.hasOwnProperty.call(details, "allowedEmailsConfigured")
+                || Object.prototype.hasOwnProperty.call(details, "allowedDomainsConfigured");
+            const apiKeyKnown = Object.prototype.hasOwnProperty.call(details, "usingDefaultFirebaseWebApiKey");
+            const steps = Array.isArray(details.commonFixes) && details.commonFixes.length
+                ? details.commonFixes
+                : [
+                    "Enable Google sign-in in Firebase Authentication.",
+                    "Add this Vercel domain to Firebase Authentication authorized domains.",
+                    "Set STORYLINE_ADMIN_EMAILS or STORYLINE_ADMIN_DOMAINS in Vercel.",
+                    "Sign in with the same allowlisted Google account.",
+                ];
+
+            authDiagHost.textContent = window.location.host || "Unknown";
+            authDiagProject.textContent = firebaseConfig.projectId || "Unknown";
+            authDiagAllowlist.textContent = allowlistKnown
+                ? (allowlistReady ? "Configured on server" : "Missing allowlist env")
+                : "Waiting for server check";
+            authDiagApiKey.textContent = apiKeyKnown
+                ? (details.usingDefaultFirebaseWebApiKey ? "Default bundled key" : "Custom env key")
+                : "Waiting for server check";
+            authDiagStatus.textContent = details.statusText || "Waiting for Firebase and admin auth checks.";
+            authDiagSteps.textContent = "";
+            for (const step of steps) {
+                const item = document.createElement("li");
+                item.textContent = step;
+                authDiagSteps.appendChild(item);
+            }
+        }
 
         const modeConfig = {
             "fix-build": {
@@ -711,6 +838,7 @@
             automationStatusBlock.textContent = lockedMessage;
             setPill(buildPill, "Build: locked", "warning");
             setPill(chainPill, "AI Chain: locked", "warning");
+            renderAuthDiagnostics({ statusText: lockedMessage });
         }
 
         function updateAuthButtons() {
@@ -765,12 +893,14 @@
                 let errorMessage = response.status === 503
                     ? "Admin allowlist is not configured on the server."
                     : "Admin access was rejected by the server.";
+                let diagnostics = {};
 
                 try {
                     const data = await response.clone().json();
                     if (data?.error) {
                         errorMessage = data.error;
                     }
+                    diagnostics = data?.diagnostics || {};
                 } catch (error) {
                     console.error(error);
                 }
@@ -784,8 +914,14 @@
                 );
                 authNote.textContent = errorMessage;
                 authUser.textContent = state.currentUser?.email || "";
+                renderAuthDiagnostics({
+                    ...diagnostics,
+                    statusText: errorMessage,
+                });
                 updateAuthButtons();
-                throw new Error(errorMessage);
+                const error = new Error(errorMessage);
+                error.details = diagnostics;
+                throw error;
             }
 
             return response;
@@ -820,6 +956,8 @@
                 if (!response.ok) {
                     const error = new Error(data?.error || "Admin auth check failed");
                     error.status = response.status;
+                    error.details = data?.diagnostics || {};
+                    error.authConfigured = data?.authConfigured;
                     throw error;
                 }
 
@@ -830,6 +968,17 @@
                 authUser.textContent = data.admin.displayName
                     ? `${data.admin.displayName} • ${data.admin.email}`
                     : data.admin.email;
+                renderAuthDiagnostics({
+                    ...data.config,
+                    authConfigured: true,
+                    statusText: "Admin login is healthy. Firebase auth, domain, and allowlist checks passed.",
+                    commonFixes: [
+                        "Google sign-in is enabled.",
+                        "This domain is accepted by Firebase Auth.",
+                        "Admin allowlist is configured on the server.",
+                        "This signed-in Google account is approved.",
+                    ],
+                });
                 updateAuthButtons();
                 return true;
             } catch (error) {
@@ -843,6 +992,11 @@
                 );
                 authNote.textContent = error.message;
                 authUser.textContent = state.currentUser?.email || "";
+                renderAuthDiagnostics({
+                    ...(error.details || {}),
+                    authConfigured: error.authConfigured,
+                    statusText: error.message,
+                });
                 updateAuthButtons();
                 return false;
             }
@@ -867,6 +1021,9 @@
         async function startGoogleSignIn() {
             if (!state.auth) {
                 authNote.textContent = "Firebase Auth is not ready in this browser session.";
+                renderAuthDiagnostics({
+                    statusText: "Firebase Auth is not ready in this browser session.",
+                });
                 return;
             }
 
@@ -894,6 +1051,9 @@
                 }
 
                 authNote.textContent = getFriendlyAuthMessage(error);
+                renderAuthDiagnostics({
+                    statusText: getFriendlyAuthMessage(error),
+                });
             } finally {
                 authSignInButton.disabled = !state.firebaseReady;
             }
@@ -1167,6 +1327,9 @@
                 }
                 state.firebaseReady = true;
                 setPill(firebasePill, "Firebase: ready", "success");
+                renderAuthDiagnostics({
+                    statusText: "Firebase SDK is ready. Waiting for admin sign-in check.",
+                });
                 updateAuthButtons();
 
                 try {
@@ -1182,6 +1345,9 @@
                 setPill(firebasePill, "Firebase: init failed", "failure");
                 setPill(authPill, "Access: offline", "failure");
                 authNote.textContent = "Firebase Auth could not be initialized in this browser session.";
+                renderAuthDiagnostics({
+                    statusText: "Firebase Auth could not initialize in this browser session.",
+                });
                 updateAuthButtons();
             }
         }

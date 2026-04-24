@@ -33,8 +33,21 @@ exports.onCrashDetected = functions.crashlytics.issue().onNew(async (issue) => {
     status: 'pending',
   });
 
-  // GitHub PR banao
-  if (fix.affectedFile && fix.fixSuggestion) {
+  const githubIssue = await createGitHubIssue(issue.issueId, crashInfo, fix);
+  if (githubIssue) {
+    await admin.firestore().collection('crash_fixes').doc(issue.issueId).set({
+      githubIssue,
+      status: 'triaged',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+  }
+
+  // GitHub PR banao only when explicitly enabled.
+  if (
+    process.env.GITHUB_AUTOFIX_PR_ENABLED === '1'
+    && fix.affectedFile
+    && fix.fixSuggestion
+  ) {
     await createGitHubPR(issue.issueId, fix);
   }
 });
@@ -79,16 +92,99 @@ Respond ONLY with valid JSON:
   }
 }
 
-// ── GitHub PR creator ─────────────────────────────────────────────────────
-async function createGitHubPR(issueId, fix) {
-  const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+function getOctokitConfig() {
   const owner = process.env.GITHUB_OWNER;
   const repo = process.env.GITHUB_REPO;
+  const token = process.env.GITHUB_TOKEN;
 
-  if (!owner || !repo || !process.env.GITHUB_TOKEN) {
-    functions.logger.warn('GitHub env vars missing, skipping PR');
+  if (!owner || !repo || !token) {
+    functions.logger.warn('GitHub env vars missing, skipping GitHub automation');
+    return null;
+  }
+
+  return {
+    owner,
+    repo,
+    octokit: new Octokit({ auth: token }),
+  };
+}
+
+function buildIssueBody(issueId, crashInfo, fix) {
+  return [
+    '## Crashlytics Auto Report',
+    '',
+    `- Crashlytics Issue ID: ${issueId}`,
+    `- App Version: ${crashInfo.appVersion || 'unknown'}`,
+    `- Title: ${crashInfo.issueTitle || 'unknown'}`,
+    '',
+    '## AI Triage',
+    '',
+    `- Severity: ${fix?.severity || 'unknown'}`,
+    `- Root cause: ${fix?.rootCause || 'Unavailable'}`,
+    `- Suggested file: ${fix?.affectedFile || 'Unavailable'}`,
+    `- Suggested line: ${fix?.affectedLine || 'Unavailable'}`,
+    '',
+    '## Suggested Fix',
+    '',
+    '```text',
+    fix?.fixSuggestion || 'No fix suggestion generated.',
+    '```',
+    '',
+    '## Stack Summary',
+    '',
+    '```text',
+    crashInfo.stackTrace || crashInfo.issueTitle || 'Unavailable',
+    '```',
+    '',
+    '> Created automatically from Firebase Crashlytics.',
+  ].join('\n');
+}
+
+async function createGitHubIssue(issueId, crashInfo, fix) {
+  const github = getOctokitConfig();
+  if (!github) {
+    return null;
+  }
+
+  const { octokit, owner, repo } = github;
+  try {
+    const issue = await octokit.issues.create({
+      owner,
+      repo,
+      title: `[Crashlytics] ${crashInfo.issueTitle || `Crash ${issueId}`}`.slice(0, 240),
+      body: buildIssueBody(issueId, crashInfo, fix),
+      labels: [
+        'crashlytics',
+        'ai-triage',
+        fix?.severity || 'needs-triage',
+      ],
+    });
+
+    functions.logger.info('GitHub issue created', {
+      issueId,
+      number: issue.data.number,
+      url: issue.data.html_url,
+    });
+
+    return {
+      number: issue.data.number,
+      url: issue.data.html_url,
+      title: issue.data.title,
+    };
+  } catch (e) {
+    functions.logger.error('GitHub issue error', e.message);
+    return null;
+  }
+}
+
+// ── GitHub PR creator ─────────────────────────────────────────────────────
+async function createGitHubPR(issueId, fix) {
+  const github = getOctokitConfig();
+  if (!github) {
     return;
   }
+
+  const { octokit, owner, repo } = github;
 
   try {
     // Main branch ka latest SHA lo

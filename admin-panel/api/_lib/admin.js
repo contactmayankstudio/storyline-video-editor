@@ -30,6 +30,7 @@ function getAdminConfig() {
 
     return {
         apiKey: process.env.FIREBASE_WEB_API_KEY || DEFAULT_FIREBASE_WEB_API_KEY,
+        usingDefaultApiKey: !(process.env.FIREBASE_WEB_API_KEY),
         allowedEmails,
         allowedDomains,
         configured: allowedEmails.length > 0 || allowedDomains.length > 0,
@@ -124,6 +125,20 @@ function sendAdminError(res, error) {
         error: error.message || "Admin authorization failed",
         authRequired: true,
         authConfigured: config.configured,
+        diagnostics: {
+            allowedEmailsConfigured: config.allowedEmails.length > 0,
+            allowedDomainsConfigured: config.allowedDomains.length > 0,
+            usingDefaultFirebaseWebApiKey: config.usingDefaultApiKey,
+            requiredEnv: [
+                "STORYLINE_ADMIN_EMAILS or STORYLINE_ADMIN_DOMAINS",
+                "FIREBASE_WEB_API_KEY",
+            ],
+            commonFixes: [
+                "Enable Google sign-in in Firebase Authentication.",
+                "Add the current Vercel domain to Firebase Authentication authorized domains.",
+                "Allowlist the admin email or domain in Vercel env vars.",
+            ],
+        },
     });
 }
 

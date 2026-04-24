@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -70,22 +72,43 @@ jobs:
       - name: Prepare APK website bundle
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         working-directory: .
+        env:
+          ADMIN_PANEL_URL: ${{ vars.ADMIN_PANEL_URL }}
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk apk-host/public/app.apk
-          APK_SIZE_BYTES=$(wc -c < apk-host/public/app.apk | tr -d ' ')
-          BUILT_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
-          cat > apk-host/public/build.json <<EOF
-          {
-            "appName": "Storyline",
-            "apkName": "app.apk",
-            "buildNumber": "${GITHUB_RUN_NUMBER}",
-            "commitSha": "${GITHUB_SHA}",
-            "shortSha": "${GITHUB_SHA::8}",
-            "apkSizeBytes": ${APK_SIZE_BYTES},
-            "builtAt": "${BUILT_AT}",
-            "workflowUrl": "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}",
-            "downloadPath": "/app.apk"
-          }
+          node <<'EOF'
+          const fs = require("fs");
+          const { execSync } = require("child_process");
+
+          const gradle = fs.readFileSync("android/app/build.gradle", "utf8");
+          const apkStats = fs.statSync("apk-host/public/app.apk");
+          const versionName = (gradle.match(/versionName\s*=\s*"([^"]+)"/) || [])[1] || "unknown";
+          const versionCode = Number((gradle.match(/versionCode\s*=\s*(\d+)/) || [])[1] || 0);
+          const commitSubject = execSync("git log -1 --pretty=%s", { encoding: "utf8" }).trim();
+          const commitAuthor = execSync("git log -1 --pretty=%an", { encoding: "utf8" }).trim();
+
+          const metadata = {
+            appName: "Storyline",
+            apkName: "app.apk",
+            versionName,
+            versionCode,
+            releaseLabel: `v${versionName} (${versionCode})`,
+            buildNumber: process.env.GITHUB_RUN_NUMBER,
+            branch: process.env.GITHUB_REF_NAME,
+            channel: process.env.GITHUB_REF_NAME === "main" ? "production" : "preview",
+            commitSha: process.env.GITHUB_SHA,
+            shortSha: process.env.GITHUB_SHA.slice(0, 8),
+            commitSubject,
+            commitAuthor,
+            apkSizeBytes: apkStats.size,
+            builtAt: new Date().toISOString(),
+            workflowUrl: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+            downloadPath: "/app.apk",
+            adminPanelUrl: process.env.ADMIN_PANEL_URL || "",
+            autoLive: true,
+          };
+
+          fs.writeFileSync("apk-host/public/build.json", JSON.stringify(metadata, null, 2));
           EOF
 
       - name: Install Vercel CLI
@@ -111,4 +134,22 @@ jobs:
           EOF
           if ! vercel deploy --prod --yes --token "${VERCEL_TOKEN}"; then
             echo "::warning::Vercel deploy failed, but debug APK artifact was uploaded successfully."
+          fi
+
+      - name: Deploy admin panel to Vercel
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        working-directory: admin-panel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -z "${VERCEL_TOKEN}" ]; then
+            echo "::warning::Missing VERCEL_TOKEN. Skipping admin panel deploy."
+            exit 0
+          fi
+          if [ ! -f ".vercel/project.json" ]; then
+            echo "::warning::admin-panel/.vercel/project.json not found. Skipping admin panel deploy."
+            exit 0
+          fi
+          if ! vercel deploy --prod --yes --token "${VERCEL_TOKEN}"; then
+            echo "::warning::Admin panel Vercel deploy failed."
           fi

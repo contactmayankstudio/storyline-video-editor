@@ -21,6 +21,11 @@ module.exports = async function handler(req, res) {
             config: {
                 allowedEmailsConfigured: config.allowedEmails.length > 0,
                 allowedDomainsConfigured: config.allowedDomains.length > 0,
+                usingDefaultFirebaseWebApiKey: config.usingDefaultApiKey,
+                requiredEnv: [
+                    "STORYLINE_ADMIN_EMAILS or STORYLINE_ADMIN_DOMAINS",
+                    "FIREBASE_WEB_API_KEY",
+                ],
             },
         });
     } catch (error) {
