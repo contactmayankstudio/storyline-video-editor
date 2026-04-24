@@ -248,11 +248,11 @@ class ExportController(
                     watermarkOverlayId = registerTemporaryWatermarkOverlay(previewView, durationMs, exportWidth, exportHeight)
                 }
 
-                // 3. Register only supplemental audio clips for export mixing.
-                // Native timeline audio clips are exported from clip specs already.
-                val nativeAudioClipIds = fetchNativeTimelineAudioClipIds()
+                // 3. Register imported audio-track clips for export mixing.
+                // Native export clip specs already cover visual clips and their embedded audio.
+                // AudioClipStore is the source of truth for timeline audio-track imports.
                 val audioClips = com.video.engine.audio.AudioClipStore.all().filter { clip ->
-                    clip.id !in nativeAudioClipIds && clip.sourcePath.isNotBlank()
+                    clip.sourcePath.isNotBlank()
                 }
                 previewView.nativeSetExportAudioClips(
                     paths        = audioClips.map { it.sourcePath }.toTypedArray(),
@@ -674,25 +674,6 @@ class ExportController(
             effectsClipCount = effectsClipCount,
             chromaClipCount = chromaClipCount,
         )
-    }
-
-    private fun fetchNativeTimelineAudioClipIds(): Set<Int> {
-        val result = runCatching { NativeBridge.executeCommand("GET_TIMELINE_LAYOUT") }.getOrNull()
-        if (result?.success != true) {
-            return emptySet()
-        }
-        val clips = result.data.optJSONArray("clips") ?: return emptySet()
-        val audioIds = linkedSetOf<Int>()
-        for (index in 0 until clips.length()) {
-            val clip = clips.optJSONObject(index) ?: continue
-            if (clip.optString("trackType", "VIDEO").equals("AUDIO", ignoreCase = true)) {
-                val clipId = clip.optInt("clipId", -1)
-                if (clipId > 0) {
-                    audioIds += clipId
-                }
-            }
-        }
-        return audioIds
     }
 
     private fun registerTemporaryStickerOverlays(previewView: VideoPreviewView): List<Int> {

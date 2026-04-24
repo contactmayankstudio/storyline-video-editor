@@ -67,6 +67,13 @@ ensure_device() {
     adb wait-for-device >/dev/null
 }
 
+clear_debug_app_state() {
+    ensure_device
+    adb shell am clear-debug-app >/dev/null 2>&1 || true
+    adb shell settings delete global debug_app >/dev/null 2>&1 || true
+    adb shell settings delete global wait_for_debugger >/dev/null 2>&1 || true
+}
+
 set_portrait() {
     ensure_device
     adb shell settings put system accelerometer_rotation 0 >/dev/null 2>&1 || true
@@ -80,6 +87,34 @@ dump_ui() {
     adb shell uiautomator dump /sdcard/uidump.xml >/dev/null
     adb pull /sdcard/uidump.xml "$CURRENT_XML" >/dev/null
     adb exec-out screencap -p > "${OUTPUT_DIR}/${label}.png"
+}
+
+normalize_storyline_foreground() {
+    local label_prefix="$1"
+    local attempt
+    for attempt in 1 2 3 4; do
+        if rg -q 'Waiting For Debugger' "$CURRENT_XML"; then
+            clear_debug_app_state
+            adb shell am force-stop "${APP_ID}" >/dev/null 2>&1 || true
+            adb shell am start -n "${APP_ID}/${LAUNCH_ACTIVITY}" >/dev/null
+            sleep 2
+            dump_ui "${label_prefix}_debug_retry_${attempt}"
+            continue
+        fi
+        if rg -q 'package="com.google.android.permissioncontroller"' "$CURRENT_XML" && rg -q 'text="ALLOW"' "$CURRENT_XML"; then
+            tap_by_text "$CURRENT_XML" "ALLOW"
+            sleep 2
+            dump_ui "${label_prefix}_allow_${attempt}"
+            continue
+        fi
+        if rg -q 'package="com.storyline.app"' "$CURRENT_XML"; then
+            return 0
+        fi
+        adb shell am start -n "${APP_ID}/${LAUNCH_ACTIVITY}" >/dev/null 2>&1 || true
+        sleep 2
+        dump_ui "${label_prefix}_retry_${attempt}"
+    done
+    return 1
 }
 
 find_bounds_by_pattern() {
@@ -125,6 +160,45 @@ tap_by_text() {
     bounds="$(find_bounds_by_pattern "$xml_file" "text=\"${text}\"")"
     tap_bounds "$bounds"
     sleep 1
+}
+
+swipe_toolbar_short() {
+    adb shell input swipe 640 1412 420 1412 180
+    sleep 1
+}
+
+swipe_toolbar_right() {
+    adb shell input swipe 120 1412 680 1412 180
+    sleep 1
+}
+
+reset_toolbar_to_left() {
+    local attempt
+    for attempt in 1 2 3 4 5; do
+        swipe_toolbar_right
+    done
+}
+
+reveal_main_toolbar_button() {
+    local resource_id="$1"
+    local label="$2"
+    local attempt
+    reset_toolbar_to_left
+    for attempt in 1 2 3 4 5 6 7 8; do
+        dump_ui "${label}_reveal_${attempt}"
+        if rg -q "resource-id=\"${resource_id}\"" "$CURRENT_XML"; then
+            return 0
+        fi
+        swipe_toolbar_short
+    done
+    return 1
+}
+
+open_main_toolbar_button() {
+    local resource_id="$1"
+    local label="$2"
+    reveal_main_toolbar_button "$resource_id" "$label"
+    tap_by_resource_id "$resource_id"
 }
 
 swipe_within_bounds() {
@@ -215,13 +289,16 @@ dismiss_resume_if_needed() {
 }
 
 launch_clean() {
+    clear_debug_app_state
     adb shell am force-stop "${APP_ID}" >/dev/null 2>&1 || true
     adb shell am start -n "${APP_ID}/${LAUNCH_ACTIVITY}" >/dev/null
     sleep 2
     dump_ui "00_launch"
+    normalize_storyline_foreground "00_launch"
     dismiss_resume_if_needed
     send_action "reset_to_blank"
     dump_ui "01_blank"
+    normalize_storyline_foreground "01_blank"
 }
 
 import_media_track() {
@@ -231,6 +308,8 @@ import_media_track() {
     send_action "set_playhead_ms" --es adb_time_ms "${time_ms}"
     send_action "import_media_path" --es adb_track_type "${track}" --es adb_path "${device_path}"
     sleep 2
+    dump_ui "import_${track}_${time_ms}"
+    normalize_storyline_foreground "import_${track}_${time_ms}"
 }
 
 import_audio_track() {
@@ -239,20 +318,13 @@ import_audio_track() {
     send_action "set_playhead_ms" --es adb_time_ms "${time_ms}"
     send_action "import_audio_path" --es adb_path "${device_path}"
     sleep 2
-}
-
-tap_timeline_clip_by_text() {
-    local label="$1"
-    dump_ui "timeline_lookup_${label}"
-    local bounds
-    bounds="$(find_bounds_by_pattern "$CURRENT_XML" "text=\"[^\"]*${label}[^\"]*\"")"
-    tap_bounds "$bounds"
-    sleep 1
+    dump_ui "import_audio_${time_ms}"
+    normalize_storyline_foreground "import_audio_${time_ms}"
 }
 
 apply_color_effect_to_selected_clip() {
     dump_ui "03_before_color"
-    tap_by_resource_id "${APP_ID}:id/clipBrightnessButton"
+    open_main_toolbar_button "${APP_ID}:id/clipBrightnessButton" "03_color"
     dump_ui "03_color_open"
     local brightness_bounds contrast_bounds
     brightness_bounds="$(find_bounds_by_pattern "$CURRENT_XML" "resource-id=\"${APP_ID}:id/brightnessSeekBar\"")"
@@ -260,15 +332,14 @@ apply_color_effect_to_selected_clip() {
     swipe_within_bounds "$brightness_bounds" 0.50 0.90
     swipe_within_bounds "$contrast_bounds" 0.50 0.75
     dump_ui "03_color_applied"
-    tap_by_resource_id "${APP_ID}:id/clipBrightnessButton"
+    open_main_toolbar_button "${APP_ID}:id/clipBrightnessButton" "03_color_close"
     dump_ui "03_color_closed"
 }
 
 apply_transition_between_v1_clips() {
-    tap_timeline_clip_by_text "v1a"
-    dump_ui "04_v1a_selected"
+    dump_ui "04_transition_selected"
     adb logcat -c >/dev/null 2>&1 || true
-    tap_by_resource_id "${APP_ID}:id/clipTransitionButton"
+    open_main_toolbar_button "${APP_ID}:id/clipTransitionButton" "04_transition"
     dump_ui "04_transition_sheet"
     tap_by_text "$CURRENT_XML" "Cross 250"
     sleep 2
