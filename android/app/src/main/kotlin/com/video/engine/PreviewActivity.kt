@@ -187,7 +187,7 @@ class PreviewActivity : AppCompatActivity() {
 
         // Render frame at this time (no playback)
         // Add null check to prevent crash if previewView state is unexpectedly null
-        if (::previewView.isInitialized && previewView != null) {
+        if (::previewView.isInitialized) {
             previewView.seekToTime(timeMs)
         } else {
             Log.w(TAG, "previewView not initialized during scrubbing")
