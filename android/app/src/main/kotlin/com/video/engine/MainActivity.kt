@@ -667,8 +667,31 @@ class MainActivity : Activity() {
             if (isFinishing || isDestroyed) return@post
         }
         debugTelemetryManager = DebugTelemetryManager(this)
-        opsReporter = OpsReporter(this) {
-            if (::debugTelemetryManager.isInitialized) debugTelemetryManager.sessionId else "unknown"
+        opsReporter = OpsReporter(
+            this,
+            {
+                if (::debugTelemetryManager.isInitialized) debugTelemetryManager.sessionId else "unknown"
+            },
+        ) { updatedKeys ->
+            mainHandler.post {
+                if (isFinishing || isDestroyed) return@post
+                if (
+                    updatedKeys.isEmpty() ||
+                    "ops_health_heartbeat_interval_ms" in updatedKeys
+                ) {
+                    startAppHealthHeartbeat()
+                }
+                if (
+                    updatedKeys.isEmpty() ||
+                    updatedKeys.any {
+                        it == "ops_health_heartbeat_interval_ms" ||
+                            it == "ops_force_flush_actions" ||
+                            it == "ops_perf_tracing_enabled"
+                    }
+                ) {
+                    noteAppHealthAction("remote_config_applied", force = true)
+                }
+            }
         }
         appHealthReporter = AppHealthReporter(this)
         appHealthReporter.bindSession(debugTelemetryManager.sessionId)
@@ -1717,7 +1740,13 @@ class MainActivity : Activity() {
 
     private fun startAppHealthHeartbeat() {
         mainHandler.removeCallbacks(appHealthHeartbeatRunnable)
-        mainHandler.postDelayed(appHealthHeartbeatRunnable, 45_000L)
+        val delayMs =
+            if (::opsReporter.isInitialized) {
+                opsReporter.heartbeatIntervalMs()
+            } else {
+                45_000L
+            }
+        mainHandler.postDelayed(appHealthHeartbeatRunnable, delayMs)
     }
 
     private fun stopAppHealthHeartbeat() {
