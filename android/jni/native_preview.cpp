@@ -500,18 +500,48 @@ void configureRenderThreadPriority() {
             return cachedDurationMs;
         }
 
-        VideoEngine::Backend::VideoDecoder decoder;
-        if (!decoder.open(path)) {
-            LOGW("[Timeline] Failed to probe duration for %s: %s", path.c_str(), decoder.getLastError());
+        AVFormatContext* inputFmt = nullptr;
+        auto cleanup = [&]() {
+            if (inputFmt) {
+                avformat_close_input(&inputFmt);
+            }
+        };
+
+        if (avformat_open_input(&inputFmt, path.c_str(), nullptr, nullptr) < 0 ||
+            avformat_find_stream_info(inputFmt, nullptr) < 0) {
+            LOGW("[Timeline] Failed to probe duration for %s: unable to read stream info", path.c_str());
+            cleanup();
             return 0;
         }
 
-        const double durationSeconds = decoder.getDuration();
-        decoder.close();
-        if (durationSeconds <= 0.0) {
+        int mediaStreamIndex = av_find_best_stream(inputFmt, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+        if (mediaStreamIndex < 0) {
+            mediaStreamIndex = av_find_best_stream(inputFmt, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
+        }
+
+        int64_t durationUs = 0;
+        if (mediaStreamIndex >= 0) {
+            AVStream* stream = inputFmt->streams[mediaStreamIndex];
+            if (stream &&
+                stream->duration != AV_NOPTS_VALUE &&
+                stream->time_base.den > 0 &&
+                stream->time_base.num > 0) {
+                durationUs = av_rescale_q(
+                    stream->duration,
+                    stream->time_base,
+                    AVRational{1, AV_TIME_BASE});
+            }
+        }
+        if (durationUs <= 0 && inputFmt->duration != AV_NOPTS_VALUE) {
+            durationUs = inputFmt->duration;
+        }
+
+        cleanup();
+        if (durationUs <= 0) {
+            LOGW("[Timeline] Failed to probe duration for %s: missing valid media duration", path.c_str());
             return 0;
         }
-        return static_cast<int64_t>(durationSeconds * 1000.0);
+        return std::max<int64_t>(1, durationUs / 1000);
     }
 
     static void cacheClipExportSource(int clipId, const std::string& path, int64_t durationMs) {
