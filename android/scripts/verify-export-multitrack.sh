@@ -386,6 +386,12 @@ wait_for_export() {
         adb logcat -d -v time > "${OUTPUT_DIR}/export_watch.logcat.txt" 2>/dev/null || true
         after_movie="$(adb shell 'ls -1t /storage/emulated/0/Movies/Storyline/*.mp4 2>/dev/null | head -n 1' 2>/dev/null | tr -d '\r')"
         after_export="$(adb shell 'ls -1t /sdcard/Android/data/com.storyline.app/files/exports/*.mp4 2>/dev/null | grep -v "\\.video_only\\.mp4$" | head -n 1' 2>/dev/null | tr -d '\r')"
+        if [[ -n "${after_movie}" && "${after_movie}" == "${before_movie}" ]]; then
+            after_movie=""
+        fi
+        if [[ -n "${after_export}" && "${after_export}" == "${before_export}" ]]; then
+            after_export=""
+        fi
         if rg -q 'Export successful:|\[Export\] Export complete:' "${OUTPUT_DIR}/export_watch.logcat.txt"; then
             echo "${after_movie}|${after_export}"
             return 0
@@ -410,9 +416,9 @@ wait_for_export() {
 pull_and_analyze_export() {
     local movie_path="$1"
     local export_path="$2"
-    local final_device_path="${movie_path}"
+    local final_device_path="${export_path}"
     if [[ -z "${final_device_path}" ]]; then
-        final_device_path="${export_path}"
+        final_device_path="${movie_path}"
     fi
     [[ -n "${final_device_path}" ]] || return 1
     local local_mp4="${OUTPUT_DIR}/final_export.mp4"

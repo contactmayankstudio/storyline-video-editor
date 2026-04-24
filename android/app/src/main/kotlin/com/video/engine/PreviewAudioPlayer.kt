@@ -53,6 +53,7 @@ class PreviewAudioPlayer(
         private const val VIDEO_CLOCK_RESYNC_THRESHOLD_MS = 48L
         private const val VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS = 140L
         private const val AUDIO_EXTRACT_BUFFER_BYTES = 256 * 1024
+        private val PREWARM_VIDEO_EXTENSIONS = setOf("3gp", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "ts", "webm")
     }
 
     private val appContext = context.applicationContext
@@ -191,6 +192,21 @@ class PreviewAudioPlayer(
 
     fun seekTo(timelineMs: Long, continuePlaying: Boolean) {
         queueSelectionRequest(timelineMs, autoPlay = continuePlaying, reason = "seekTo")
+    }
+
+    fun prewarmSource(sourcePath: String) {
+        if (!shouldPreferExtractedAudioFallback(sourcePath)) return
+        runOnAudioThread {
+            if (!isExistingMediaPath(sourcePath)) {
+                return@runOnAudioThread
+            }
+            preferredAudioSourcePathByMediaPath[sourcePath]
+                ?.takeIf { isExistingMediaPath(it) }
+                ?.let { return@runOnAudioThread }
+            val fallbackPath = resolveExtractedAudioFallbackPath(sourcePath, rememberUnsupported = false) ?: return@runOnAudioThread
+            preferredAudioSourcePathByMediaPath[sourcePath] = fallbackPath
+            Log.d(TAG, "Prewarmed extracted preview audio source media=$sourcePath fallback=$fallbackPath")
+        }
     }
 
     fun syncToVideoClock(timelineMs: Long, continuePlaying: Boolean) {
@@ -342,9 +358,7 @@ class PreviewAudioPlayer(
         releasePlayer()
         prepared = false
         preparing = true
-        val playerPath = preferredAudioSourcePathByMediaPath[selection.path]
-            ?.takeIf { isExistingMediaPath(it) }
-            ?: selection.path
+        val playerPath = resolvePreferredPlayerPath(selection.path)
         val player = MediaPlayer()
         mediaPlayer = player
         currentPlayerPath = playerPath
@@ -543,6 +557,28 @@ class PreviewAudioPlayer(
         return File(path).exists()
     }
 
+    private fun shouldPreferExtractedAudioFallback(sourcePath: String): Boolean {
+        if (sourcePath.isBlank()) return false
+        if (sourcePath.startsWith("content://")) return true
+        val extension = sourcePath.substringAfterLast('.', "").lowercase()
+        return extension in PREWARM_VIDEO_EXTENSIONS
+    }
+
+    private fun resolvePreferredPlayerPath(sourcePath: String): String {
+        preferredAudioSourcePathByMediaPath[sourcePath]
+            ?.takeIf { isExistingMediaPath(it) }
+            ?.let { return it }
+        if (!shouldPreferExtractedAudioFallback(sourcePath)) {
+            return sourcePath
+        }
+        val fallbackPath = resolveExtractedAudioFallbackPath(sourcePath, rememberUnsupported = false)
+        if (!fallbackPath.isNullOrBlank() && isExistingMediaPath(fallbackPath)) {
+            preferredAudioSourcePathByMediaPath[sourcePath] = fallbackPath
+            return fallbackPath
+        }
+        return sourcePath
+    }
+
     private fun setPlayerDataSource(player: MediaPlayer, sourcePath: String) {
         if (sourcePath.startsWith("content://")) {
             player.setDataSource(appContext, Uri.parse(sourcePath))
@@ -577,7 +613,7 @@ class PreviewAudioPlayer(
         unsupportedSourcePaths.add(selection.path)
     }
 
-    private fun resolveExtractedAudioFallbackPath(sourcePath: String): String? {
+    private fun resolveExtractedAudioFallbackPath(sourcePath: String, rememberUnsupported: Boolean = true): String? {
         preferredAudioSourcePathByMediaPath[sourcePath]
             ?.takeIf { isExistingMediaPath(it) }
             ?.let { return it }
@@ -611,7 +647,9 @@ class PreviewAudioPlayer(
             }
             if (audioTrackIndex < 0 || audioFormat == null) {
                 Log.w(TAG, "No audio track found for preview source $sourcePath")
-                unsupportedSourcePaths.add(sourcePath)
+                if (rememberUnsupported) {
+                    unsupportedSourcePaths.add(sourcePath)
+                }
                 return null
             }
 
@@ -657,7 +695,9 @@ class PreviewAudioPlayer(
 
             if (outputFile.length() <= 0L) {
                 outputFile.delete()
-                unsupportedSourcePaths.add(sourcePath)
+                if (rememberUnsupported) {
+                    unsupportedSourcePaths.add(sourcePath)
+                }
                 null
             } else {
                 outputFile.absolutePath

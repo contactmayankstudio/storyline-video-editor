@@ -994,6 +994,13 @@ class MainActivity : Activity() {
                     else -> "Clip"
                 }
                 safeToast("$toastLabel added (ID: $clipId)", Toast.LENGTH_SHORT)
+                when (trackType) {
+                    TrackType.VIDEO,
+                    TrackType.LAYER,
+                    TrackType.OVERLAY,
+                    -> previewAudioPlayer?.prewarmSource(importPath)
+                    else -> Unit
+                }
                 revealTimeMs
             },
         )
