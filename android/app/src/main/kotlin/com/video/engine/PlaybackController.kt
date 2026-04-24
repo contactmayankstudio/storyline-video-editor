@@ -113,6 +113,7 @@ class PlaybackController(
         val timelineManager = TimelineManager(
             recyclerView = recyclerView,
             timeDisplay = timeDisplay,
+            timeFormatter = { timelineMs, _ -> formatRemainingTime(timelineMs, totalDurationMsProvider()) },
         )
         timelineManager.setScrubListener(object : TimelineManager.OnScrubListener {
             override fun onScrub(timelineMs: Long) {
@@ -300,7 +301,7 @@ class PlaybackController(
         setCurrentTimeMs(timeMs)
         timelineCurrentTimeTextProvider()
             ?.takeIf { it.visibility == View.VISIBLE }
-            ?.text = formatTime(timeMs)
+            ?.text = formatRemainingTime(timeMs, totalDurationMsProvider())
         timelineManagerProvider()?.updateDisplayedTime(timeMs)
         multiTrackTimelineViewProvider()?.setCurrentTimeMs(timeMs)
         // Update canvas timeline playhead
@@ -336,11 +337,18 @@ class PlaybackController(
         lastUiApplyRealtimeMs = 0L
     }
 
-    private fun formatTime(timeMs: Long): String {
-        val totalSeconds = timeMs / 1000
+    private fun formatRemainingTime(timeMs: Long, totalDurationMs: Long): String {
+        val remainingMs = (totalDurationMs - timeMs).coerceAtLeast(0L)
+        val totalSeconds = remainingMs / 1000
         val seconds = totalSeconds % 60
-        val minutes = totalSeconds / 60
-        return String.format("%02d:%02d", minutes, seconds)
+        val totalMinutes = totalSeconds / 60
+        val minutes = totalMinutes % 60
+        val hours = totalMinutes / 60
+        return if (hours > 0) {
+            String.format("-%02d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format("-%02d:%02d", minutes, seconds)
+        }
     }
 
     private fun shouldDispatchNativeSeek(timelineMs: Long): Boolean {

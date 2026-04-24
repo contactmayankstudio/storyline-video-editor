@@ -10,6 +10,7 @@ import com.video.engine.transition.TransitionStore
 class TimelineManager(
     private val recyclerView: RecyclerView?,
     private val timeDisplay: TextView?,
+    private val timeFormatter: (Long, Long) -> CharSequence = { timelineMs, _ -> formatElapsedTime(timelineMs) },
 ) {
     interface OnScrubListener {
         fun onScrub(timelineMs: Long)
@@ -25,6 +26,7 @@ class TimelineManager(
     private val clipVisibility = mutableMapOf<Int, Boolean>()
     private val undoStack = ArrayDeque<TimelineSnapshot>()
     private val redoStack = ArrayDeque<TimelineSnapshot>()
+    private var displayedTimeMs: Long = 0L
 
     private data class TimelineSnapshot(
         val clips: List<TimelineClip>,
@@ -102,7 +104,7 @@ class TimelineManager(
         if (recyclerView != null) {
             adapter.notifyDataSetChanged()
         }
-        updateTimeDisplay(getTotalDurationMs())
+        updateTimeDisplay(displayedTimeMs)
     }
 
     fun syncClips(
@@ -196,16 +198,25 @@ class TimelineManager(
     }
 
     private fun updateTimeDisplay(timelineMs: Long) {
+        displayedTimeMs = timelineMs
         timeDisplay
             ?.takeIf { it.visibility == View.VISIBLE }
-            ?.text = formatTime(timelineMs)
+            ?.text = timeFormatter(timelineMs, getTotalDurationMs())
     }
 
-    private fun formatTime(timeMs: Long): String {
-        val totalSeconds = timeMs / 1000
-        val seconds = totalSeconds % 60
-        val minutes = totalSeconds / 60
-        return String.format("%02d:%02d", minutes, seconds)
+    private companion object {
+        fun formatElapsedTime(timeMs: Long): String {
+            val totalSeconds = timeMs / 1000
+            val seconds = totalSeconds % 60
+            val totalMinutes = totalSeconds / 60
+            val minutes = totalMinutes % 60
+            val hours = totalMinutes / 60
+            return if (hours > 0) {
+                String.format("%02d:%02d:%02d", hours, minutes, seconds)
+            } else {
+                String.format("%02d:%02d", minutes, seconds)
+            }
+        }
     }
 
     private fun dispatchSelection() {
