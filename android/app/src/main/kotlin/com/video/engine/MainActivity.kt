@@ -2725,7 +2725,16 @@ class MainActivity : Activity() {
 
     private fun clearEditorShellState() {
         recordTelemetryEvent("editor", "clear_shell_state")
-        overlayViews.keys.toList().forEach { removeOverlayView(it) }
+        val preview = previewView
+        val textOverlayIds = OverlayStore.all().map { it.id }
+        textOverlayIds.forEach { overlayId ->
+            preview?.removeTextOverlay(overlayId)
+            removeOverlayView(overlayId)
+        }
+        preview?.setActiveTextOverlayId(-1)
+        overlayViews.keys.toList()
+            .filterNot { it in textOverlayIds }
+            .forEach { removeOverlayView(it) }
         stickerOverlayViews.keys.toList().forEach { removeStickerOverlayView(it) }
         OverlayStore.clear()
         StickerClipStore.all().map { it.id }.forEach { StickerClipStore.remove(it) }
