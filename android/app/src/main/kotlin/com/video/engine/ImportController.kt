@@ -43,6 +43,7 @@ class ImportController(
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pendingProxyBuilds = mutableMapOf<Int, Runnable>()
     @Volatile private var latestWarmupGeneration = 0
+    @Volatile private var importInFlight = false
 
     fun setNextImportTrackType(trackType: TrackType) {
         nextImportTrackType = trackType
@@ -90,67 +91,80 @@ class ImportController(
         val importPath = pendingImportPath ?: return
         val previewView = previewViewProvider() ?: return
         val trackType = pendingImportTrackType
+        if (importInFlight) {
+            Log.d(TAG, "Skipping duplicate pending import while prior import is still running: $importPath")
+            return
+        }
+        importInFlight = true
 
         // Heavy JNI (FFmpeg open + probe) — run off main thread
         Thread {
-            val existingClipCount =
-                timelineManagerProvider()?.getClips()?.size
-                    ?: timelineProvider().getClips().size
-            val requestedStartTimeMs = playheadTimeMsProvider().coerceAtLeast(0L)
-            val requestedZOrder = resolveImportZOrder(trackType, existingClipCount)
-            val requestedTrackLane = resolveImportTrackLane(trackType, requestedZOrder)
-            Log.d(TAG, "Attempting NativeBridge.addClip for: $importPath at start=$requestedStartTimeMs track=$trackType")
-            val clipId = NativeBridge.addClip(
-                previewView = previewView,
-                videoPath = importPath,
-                trackType = trackType.nativeRoleName(),
-                startTimeMs = requestedStartTimeMs,
-                trackLane = requestedTrackLane,
-                zOrder = requestedZOrder,
-            )
-            Log.d(TAG, "NativeBridge.addClip result clipId: $clipId")
-            if (clipId <= 0) {
-                if (importRetryCount >= maxImportRetries) {
-                    Log.e(TAG, "Import failed after $maxImportRetries retries: $importPath")
-                    importRetryCount = 0
-                    pendingImportPath = null
-                    mainHandler.post {
-                        Toast.makeText(activity, "Import failed. Please try again.", Toast.LENGTH_SHORT).show()
+            try {
+                val existingClipCount =
+                    timelineManagerProvider()?.getClips()?.size
+                        ?: timelineProvider().getClips().size
+                val requestedStartTimeMs = playheadTimeMsProvider().coerceAtLeast(0L)
+                val requestedZOrder = resolveImportZOrder(trackType, existingClipCount)
+                val requestedTrackLane = resolveImportTrackLane(trackType, requestedZOrder)
+                Log.d(TAG, "Attempting NativeBridge.addClip for: $importPath at start=$requestedStartTimeMs track=$trackType")
+                val clipId = NativeBridge.addClip(
+                    previewView = previewView,
+                    videoPath = importPath,
+                    trackType = trackType.nativeRoleName(),
+                    startTimeMs = requestedStartTimeMs,
+                    trackLane = requestedTrackLane,
+                    zOrder = requestedZOrder,
+                )
+                Log.d(TAG, "NativeBridge.addClip result clipId: $clipId")
+                if (clipId <= 0) {
+                    if (importRetryCount >= maxImportRetries) {
+                        Log.e(TAG, "Import failed after $maxImportRetries retries: $importPath")
+                        importRetryCount = 0
+                        importInFlight = false
+                        pendingImportPath = null
+                        mainHandler.post {
+                            Toast.makeText(activity, "Import failed. Please try again.", Toast.LENGTH_SHORT).show()
+                        }
+                        return@Thread
                     }
+                    importRetryCount++
+                    importInFlight = false
+                    Log.w(TAG, "Deferring clip import until preview is ready: $importPath (clipId was $clipId, retry $importRetryCount)")
+                    mainHandler.postDelayed({ maybeImportPendingClip() }, 300)
                     return@Thread
                 }
-                importRetryCount++
-                Log.w(TAG, "Deferring clip import until preview is ready: $importPath (clipId was $clipId, retry $importRetryCount)")
-                mainHandler.postDelayed({ maybeImportPendingClip() }, 300)
-                return@Thread
-            }
-            importRetryCount = 0
+                importRetryCount = 0
 
-            mainHandler.post {
-                pendingImportPath = null
-                pendingImportTrackType = TrackType.VIDEO
-                nextImportTrackType = TrackType.VIDEO
-                latestWarmupGeneration += 1
-                val timeline = timelineProvider()
-                timeline.syncFromEngine(previewView)
-                val timelineManager = timelineManagerProvider()
-                timelineManager?.syncClips(timeline.getClips())
-                timelineManager?.setClipLayerIndex(clipId, requestedZOrder)
-                timelineManager?.setClipVisibility(clipId, true)
-                timelineManager?.selectClip(clipId)
+                mainHandler.post {
+                    importInFlight = false
+                    pendingImportPath = null
+                    pendingImportTrackType = TrackType.VIDEO
+                    nextImportTrackType = TrackType.VIDEO
+                    latestWarmupGeneration += 1
+                    val timeline = timelineProvider()
+                    timeline.syncFromEngine(previewView)
+                    val timelineManager = timelineManagerProvider()
+                    timelineManager?.syncClips(timeline.getClips())
+                    timelineManager?.setClipLayerIndex(clipId, requestedZOrder)
+                    timelineManager?.setClipVisibility(clipId, true)
+                    timelineManager?.selectClip(clipId)
 
-                val importedDurationMs = NativeBridge.getClipDuration(previewView, clipId)
-                val revealTimeMs = onImportedClip(clipId, importPath, importedDurationMs, trackType)
+                    val importedDurationMs = NativeBridge.getClipDuration(previewView, clipId)
+                    val revealTimeMs = onImportedClip(clipId, importPath, importedDurationMs, trackType)
 
-                warmImportedPreview(
-                    previewView = previewView,
-                    revealTimeMs = revealTimeMs,
-                    importedDurationMs = importedDurationMs,
-                    trackType = trackType,
-                    generation = latestWarmupGeneration,
-                )
+                    warmImportedPreview(
+                        previewView = previewView,
+                        revealTimeMs = revealTimeMs,
+                        importedDurationMs = importedDurationMs,
+                        trackType = trackType,
+                        generation = latestWarmupGeneration,
+                    )
 
-                maybeStartGhostProxyBuild(clipId, importPath, trackType)
+                    maybeStartGhostProxyBuild(clipId, importPath, trackType)
+                }
+            } catch (error: Exception) {
+                importInFlight = false
+                Log.e(TAG, "Import thread failed for $importPath", error)
             }
         }.start()
     }
