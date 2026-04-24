@@ -576,6 +576,26 @@
                 </div>
             </section>
 
+            <section class="card card-wide">
+                <h2>Continuous AI Autopilot</h2>
+                <p>Keep Storyline improving in the background. When this mode is enabled, GitHub Actions will wake up every 30 minutes, check the saved objective, and dispatch one safe AI work cycle until you stop it.</p>
+                <textarea id="autopilot-prompt" placeholder="Example: Keep checking Storyline for the next safe production fix or feature increment. Prioritize real app issues, build breakages, admin surface problems, and UX polish."></textarea>
+                <div class="toolbar">
+                    <select id="autopilot-attempts">
+                        <option value="2">2 build attempts per cycle</option>
+                        <option value="1">1 build attempt per cycle</option>
+                        <option value="3">3 build attempts per cycle</option>
+                    </select>
+                    <button type="button" id="autopilot-enable-button">Enable Continuous AI</button>
+                    <button type="button" class="ghost-button" id="autopilot-disable-button">Stop Continuous AI</button>
+                    <button type="button" class="ghost-button" id="autopilot-refresh-button">Refresh Autopilot</button>
+                </div>
+                <div class="status-block" id="autopilot-status-block">Loading autopilot state...</div>
+                <div class="helper-row">
+                    <span class="helper" id="autopilot-note"></span>
+                </div>
+            </section>
+
             <section class="card card-wide danger-card">
                 <h2>AI Autopilot</h2>
                 <p>Use one console for failure analysis or for planning the next Storyline engine upgrade. Quick commands below are tuned for your current roadmap.</p>
@@ -680,6 +700,13 @@
         const automationRefreshButton = document.getElementById("automation-refresh-button");
         const automationStatusBlock = document.getElementById("automation-status-block");
         const automationNote = document.getElementById("automation-note");
+        const autopilotPrompt = document.getElementById("autopilot-prompt");
+        const autopilotAttempts = document.getElementById("autopilot-attempts");
+        const autopilotEnableButton = document.getElementById("autopilot-enable-button");
+        const autopilotDisableButton = document.getElementById("autopilot-disable-button");
+        const autopilotRefreshButton = document.getElementById("autopilot-refresh-button");
+        const autopilotStatusBlock = document.getElementById("autopilot-status-block");
+        const autopilotNote = document.getElementById("autopilot-note");
 
         const aiMode = document.getElementById("ai-mode");
         const aiProvider = document.getElementById("ai-provider");
@@ -701,6 +728,8 @@
         const state = {
             latestBuild: null,
             latestAutomationRun: null,
+            latestAutopilotRun: null,
+            autopilotConfig: null,
             firebaseReady: false,
             firebaseApp: null,
             auth: null,
@@ -769,6 +798,11 @@
             automationAttempts,
             automationRunButton,
             automationRefreshButton,
+            autopilotPrompt,
+            autopilotAttempts,
+            autopilotEnableButton,
+            autopilotDisableButton,
+            autopilotRefreshButton,
             aiMode,
             aiProvider,
             aiButton,
@@ -823,10 +857,13 @@
 
             state.latestBuild = null;
             state.latestAutomationRun = null;
+            state.latestAutopilotRun = null;
+            state.autopilotConfig = null;
             providerList.textContent = "";
             providerNote.textContent = "";
             buildConfigNote.textContent = "Set STORYLINE_ADMIN_EMAILS or STORYLINE_ADMIN_DOMAIN(S) in Vercel, then sign in with that admin account.";
             automationNote.textContent = "Admin access is required before this panel can reach GitHub or AI server functions.";
+            autopilotNote.textContent = "Admin access is required before continuous AI can read or change repo automation state.";
             aiStatus.textContent = "Locked";
             chatStatus.textContent = "Locked";
             aiOutput.classList.add("hidden");
@@ -836,6 +873,7 @@
             const lockedMessage = message || "Sign in with an allowed admin Google account to unlock the Storyline control surface.";
             buildStatus.textContent = lockedMessage;
             automationStatusBlock.textContent = lockedMessage;
+            autopilotStatusBlock.textContent = lockedMessage;
             setPill(buildPill, "Build: locked", "warning");
             setPill(chainPill, "AI Chain: locked", "warning");
             renderAuthDiagnostics({ statusText: lockedMessage });
@@ -1015,6 +1053,7 @@
             await Promise.all([
                 loadBuildStatus(),
                 loadAutomationStatus(),
+                loadAutopilotStatus(),
             ]);
         }
 
@@ -1116,6 +1155,37 @@
             if (run.url) {
                 parts.push(`GitHub: ${run.url}`);
             }
+
+            return parts.join("\n");
+        }
+
+        function formatAutopilotSummary(data) {
+            const config = data?.config;
+            if (!config) {
+                return "Continuous autopilot config is not available yet.";
+            }
+
+            const parts = [
+                `Workflow: ${data.autopilotWorkflowName || "Storyline Continuous Autopilot"}`,
+                `Mode: ${config.enabled ? "Enabled" : "Disabled"}`,
+                `Cadence: Every ${config.cadenceMinutes || 30} minutes`,
+                `Target branch: ${config.targetBranch || "main"}`,
+                `Attempts per cycle: ${config.maxAttempts || 2}`,
+                `Updated by: ${config.updatedBy || "n/a"}`,
+                `Updated: ${config.updatedAt ? new Date(config.updatedAt).toLocaleString() : "n/a"}`,
+                "",
+                "Scheduler run:",
+                formatRunSummary(
+                    data.autopilotRun,
+                    "No continuous autopilot scheduler run found yet."
+                ),
+                "",
+                "Worker run:",
+                formatRunSummary(
+                    data.automationRun || state.latestAutomationRun,
+                    "No automation worker run found yet."
+                ),
+            ];
 
             return parts.join("\n");
         }
@@ -1436,6 +1506,50 @@
             }
         }
 
+        async function loadAutopilotStatus() {
+            if (!state.adminSession) {
+                autopilotStatusBlock.textContent = "Sign in with an allowed admin account first.";
+                return;
+            }
+
+            autopilotRefreshButton.disabled = true;
+            autopilotEnableButton.disabled = true;
+            autopilotDisableButton.disabled = true;
+            autopilotStatusBlock.textContent = "Checking continuous AI autopilot...";
+
+            try {
+                const response = await authorizedFetch("/api/autopilot-config");
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || "Autopilot status fetch failed");
+                }
+
+                state.autopilotConfig = data.config || null;
+                state.latestAutopilotRun = data.autopilotRun || null;
+                if (data.automationRun) {
+                    state.latestAutomationRun = data.automationRun;
+                }
+
+                autopilotPrompt.value = data.config?.prompt || "";
+                autopilotAttempts.value = String(data.config?.maxAttempts || 2);
+                autopilotStatusBlock.textContent = formatAutopilotSummary(data);
+                autopilotNote.textContent = data.config?.enabled
+                    ? "Continuous AI is active. Every 30 minutes the scheduler checks this objective and dispatches one safe cloud automation cycle if nothing is already running."
+                    : "Continuous AI is off. Enable it to keep Storyline reviewing, fixing, and shipping safe increments until you stop it.";
+            } catch (error) {
+                console.error(error);
+                if (!state.accessLocked) {
+                    autopilotStatusBlock.textContent = error.message;
+                    autopilotNote.textContent = "Autopilot needs repo write access plus the GitHub automation workflow to stay available.";
+                }
+            } finally {
+                autopilotRefreshButton.disabled = state.accessLocked;
+                autopilotEnableButton.disabled = state.accessLocked;
+                autopilotDisableButton.disabled = state.accessLocked;
+            }
+        }
+
         async function runAutomationBridge() {
             if (!state.adminSession) {
                 automationNote.textContent = "Sign in with an allowed admin account first.";
@@ -1481,6 +1595,76 @@
                 automationNote.textContent = "Dispatch failed before any cloud edit started.";
             } finally {
                 automationRunButton.disabled = state.accessLocked;
+            }
+        }
+
+        async function saveAutopilotConfig(enabled) {
+            if (!state.adminSession) {
+                autopilotNote.textContent = "Sign in with an allowed admin account first.";
+                return;
+            }
+
+            const prompt = autopilotPrompt.value.trim();
+            if (enabled && !prompt) {
+                autopilotNote.textContent = "Describe the continuous AI objective first.";
+                return;
+            }
+
+            autopilotEnableButton.disabled = true;
+            autopilotDisableButton.disabled = true;
+            autopilotRefreshButton.disabled = true;
+            autopilotStatusBlock.textContent = enabled
+                ? "Enabling continuous AI autopilot..."
+                : "Stopping continuous AI autopilot...";
+
+            try {
+                const response = await authorizedFetch("/api/autopilot-config", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        enabled,
+                        prompt,
+                        maxAttempts: autopilotAttempts.value,
+                        kickoffNow: enabled,
+                    }),
+                });
+
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || "Autopilot update failed");
+                }
+
+                state.autopilotConfig = data.config || null;
+                state.latestAutopilotRun = data.autopilotRun || null;
+                if (data.automationRun) {
+                    state.latestAutomationRun = data.automationRun;
+                    automationStatusBlock.textContent = formatRunSummary(
+                        data.automationRun,
+                        "Automation workflow accepted. Refresh in a few seconds for the live run."
+                    );
+                    automationNote.textContent = enabled
+                        ? "Continuous AI kicked off a fresh cloud automation worker."
+                        : automationNote.textContent;
+                }
+
+                autopilotPrompt.value = data.config?.prompt || prompt;
+                autopilotAttempts.value = String(data.config?.maxAttempts || autopilotAttempts.value || "2");
+                autopilotStatusBlock.textContent = formatAutopilotSummary(data);
+                autopilotNote.textContent = enabled
+                    ? "Continuous AI is now live. It will keep waking up every 30 minutes and continue safe Storyline updates until you stop it."
+                    : "Continuous AI is stopped. Any already running worker can finish, but no new autopilot cycle will be scheduled.";
+            } catch (error) {
+                console.error(error);
+                autopilotStatusBlock.textContent = error.message;
+                autopilotNote.textContent = enabled
+                    ? "Continuous AI could not be enabled."
+                    : "Continuous AI could not be stopped cleanly.";
+            } finally {
+                autopilotEnableButton.disabled = state.accessLocked;
+                autopilotDisableButton.disabled = state.accessLocked;
+                autopilotRefreshButton.disabled = state.accessLocked;
             }
         }
 
@@ -1651,6 +1835,9 @@
         refreshButton.addEventListener("click", loadBuildStatus);
         automationRunButton.addEventListener("click", runAutomationBridge);
         automationRefreshButton.addEventListener("click", loadAutomationStatus);
+        autopilotEnableButton.addEventListener("click", () => saveAutopilotConfig(true));
+        autopilotDisableButton.addEventListener("click", () => saveAutopilotConfig(false));
+        autopilotRefreshButton.addEventListener("click", loadAutopilotStatus);
         aiMode.addEventListener("change", updateModeUi);
         aiButton.addEventListener("click", runAiAction);
         injectBuildButton.addEventListener("click", insertLatestBuildContext);
