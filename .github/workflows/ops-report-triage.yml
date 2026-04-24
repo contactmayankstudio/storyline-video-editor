@@ -34,16 +34,12 @@ jobs:
         with:
           project_id: ${{ env.FIREBASE_PROJECT_ID }}
 
-      - name: Print Firestore access token
-        id: token
-        run: |
-          echo "access_token=$(gcloud auth print-access-token)" >> "$GITHUB_OUTPUT"
-
       - name: Triage open app reports
-        env:
-          FIRESTORE_ACCESS_TOKEN: ${{ steps.token.outputs.access_token }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          FIRESTORE_ACCESS_TOKEN="$(gcloud auth print-access-token)"
+          echo "::add-mask::${FIRESTORE_ACCESS_TOKEN}"
+          export FIRESTORE_ACCESS_TOKEN
+          export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
           node scripts/triage-ops-reports.mjs
 
       - name: Summarize

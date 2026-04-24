@@ -153,7 +153,13 @@ async function runQuery(structuredQuery) {
     if (!response.ok) {
         throw new Error(`Firestore runQuery ${response.status}: ${text}`);
     }
-    const rows = text.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    const trimmed = text.trim();
+    if (!trimmed) {
+        return [];
+    }
+    const rows = trimmed.startsWith("[")
+        ? JSON.parse(trimmed)
+        : trimmed.split("\n").filter(Boolean).map((line) => JSON.parse(line));
     return rows
         .map((row) => row.document)
         .filter(Boolean)
