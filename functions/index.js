@@ -32,10 +32,25 @@ exports.onCrashDetected = functions.crashlytics.issue().onNew(async (issue) => {
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     status: 'pending',
   });
+  await admin.firestore().collection('ops_crashes').doc(issue.issueId).set({
+    issueId: issue.issueId,
+    issueTitle: issue.issueTitle,
+    appVersion: issue.appInfo?.latestAppVersion || 'unknown',
+    status: 'pending',
+    severity: fix?.severity || 'unknown',
+    source: 'crashlytics',
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
 
   const githubIssue = await createGitHubIssue(issue.issueId, crashInfo, fix);
   if (githubIssue) {
     await admin.firestore().collection('crash_fixes').doc(issue.issueId).set({
+      githubIssue,
+      status: 'triaged',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    await admin.firestore().collection('ops_crashes').doc(issue.issueId).set({
       githubIssue,
       status: 'triaged',
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),

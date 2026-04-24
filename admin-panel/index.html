@@ -548,6 +548,16 @@
                 <div class="status-block" id="build-status">Loading latest workflow run...</div>
             </section>
 
+            <section class="card card-wide">
+                <h2>Live App Health</h2>
+                <p>Recent device opens and last-seen state come straight from Firebase Firestore. Once the installed app launches, this panel will show which device was active, which screen was open, and whether the editor was in foreground or background.</p>
+                <div class="status-block" id="health-installations-block">Waiting for admin sign-in before starting the live device feed.</div>
+                <div class="status-block" id="health-crashes-block">Crash feed is waiting for Firestore or Crashlytics records.</div>
+                <div class="helper-row">
+                    <span class="helper" id="health-note"></span>
+                </div>
+            </section>
+
             <section class="card card-side">
                 <h3>AI Provider Mesh</h3>
                 <p>Auto mode will try providers in order until one succeeds.</p>
@@ -659,6 +669,14 @@
             signInWithRedirect,
             signOut,
         } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-auth.js";
+        import {
+            collection,
+            getFirestore,
+            limit,
+            onSnapshot,
+            orderBy,
+            query,
+        } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBTeJHjKC7Ft9H9oAvD525NC8NMBOI4n6w",
@@ -700,6 +718,9 @@
         const automationRefreshButton = document.getElementById("automation-refresh-button");
         const automationStatusBlock = document.getElementById("automation-status-block");
         const automationNote = document.getElementById("automation-note");
+        const healthInstallationsBlock = document.getElementById("health-installations-block");
+        const healthCrashesBlock = document.getElementById("health-crashes-block");
+        const healthNote = document.getElementById("health-note");
         const autopilotPrompt = document.getElementById("autopilot-prompt");
         const autopilotAttempts = document.getElementById("autopilot-attempts");
         const autopilotEnableButton = document.getElementById("autopilot-enable-button");
@@ -732,6 +753,7 @@
             autopilotConfig: null,
             firebaseReady: false,
             firebaseApp: null,
+            firestore: null,
             auth: null,
             currentUser: null,
             adminSession: null,
@@ -739,6 +761,8 @@
             providers: [],
             providerOrder: [],
             chatMessages: [],
+            healthUnsubscribeInstallations: null,
+            healthUnsubscribeCrashes: null,
         };
 
         function renderAuthDiagnostics(details = {}) {
@@ -775,6 +799,79 @@
                 item.textContent = step;
                 authDiagSteps.appendChild(item);
             }
+        }
+
+        function stopHealthFeedListeners() {
+            if (typeof state.healthUnsubscribeInstallations === "function") {
+                state.healthUnsubscribeInstallations();
+            }
+            if (typeof state.healthUnsubscribeCrashes === "function") {
+                state.healthUnsubscribeCrashes();
+            }
+            state.healthUnsubscribeInstallations = null;
+            state.healthUnsubscribeCrashes = null;
+        }
+
+        function formatRelativeTime(timestampMs) {
+            if (!timestampMs) return "unknown";
+            const deltaMs = Date.now() - timestampMs;
+            const deltaSec = Math.max(0, Math.round(deltaMs / 1000));
+            if (deltaSec < 60) return `${deltaSec}s ago`;
+            const deltaMin = Math.round(deltaSec / 60);
+            if (deltaMin < 60) return `${deltaMin}m ago`;
+            const deltaHr = Math.round(deltaMin / 60);
+            if (deltaHr < 24) return `${deltaHr}h ago`;
+            return `${Math.round(deltaHr / 24)}d ago`;
+        }
+
+        function renderInstallationHealthFeed(snapshot) {
+            if (!snapshot?.docs?.length) {
+                healthInstallationsBlock.textContent = "No live app-open signals yet. Once Storyline launches on a device, the latest installation health feed will appear here.";
+                return;
+            }
+
+            const lines = ["Recent device health:"];
+            for (const doc of snapshot.docs) {
+                const data = doc.data() || {};
+                lines.push(
+                    [
+                        `- ${data.deviceManufacturer || "Unknown"} ${data.deviceModel || "Device"}`,
+                        `${data.versionName || "v?"} (${data.versionCode || "?"})`,
+                        `screen=${data.currentScreen || "unknown"}`,
+                        `state=${data.appState || "unknown"}`,
+                        `playing=${Boolean(data.isPlaying)}`,
+                        `project=${Boolean(data.hasProjectContent)}`,
+                        `lastAction=${data.lastAction || "unknown"}`,
+                        `seen=${formatRelativeTime(data.updatedAtMs)}`,
+                    ].join(" | ")
+                );
+            }
+            healthInstallationsBlock.textContent = lines.join("\n");
+        }
+
+        function renderCrashFeed(snapshot) {
+            if (!snapshot?.docs?.length) {
+                healthCrashesBlock.textContent = "No Crashlytics triage documents yet. If Blaze/functions are not live, this feed will stay empty until server-side crash ingestion starts writing records.";
+                return;
+            }
+
+            const lines = ["Recent crash triage:"];
+            for (const doc of snapshot.docs) {
+                const data = doc.data() || {};
+                const githubIssue = data.githubIssue?.url ? `issue=${data.githubIssue.url}` : "issue=pending";
+                const updatedAtMs = data.updatedAt?.toMillis?.() || data.createdAt?.toMillis?.() || 0;
+                lines.push(
+                    [
+                        `- ${data.issueTitle || doc.id}`,
+                        `version=${data.appVersion || "unknown"}`,
+                        `status=${data.status || "unknown"}`,
+                        `severity=${data.fix?.severity || "unknown"}`,
+                        githubIssue,
+                        `updated=${formatRelativeTime(updatedAtMs)}`,
+                    ].join(" | ")
+                );
+            }
+            healthCrashesBlock.textContent = lines.join("\n");
         }
 
         const modeConfig = {
@@ -859,11 +956,13 @@
             state.latestAutomationRun = null;
             state.latestAutopilotRun = null;
             state.autopilotConfig = null;
+            stopHealthFeedListeners();
             providerList.textContent = "";
             providerNote.textContent = "";
             buildConfigNote.textContent = "Set STORYLINE_ADMIN_EMAILS or STORYLINE_ADMIN_DOMAIN(S) in Vercel, then sign in with that admin account.";
             automationNote.textContent = "Admin access is required before this panel can reach GitHub or AI server functions.";
             autopilotNote.textContent = "Admin access is required before continuous AI can read or change repo automation state.";
+            healthNote.textContent = "Live device health starts after admin auth succeeds and Firestore rules allow Google-reader access.";
             aiStatus.textContent = "Locked";
             chatStatus.textContent = "Locked";
             aiOutput.classList.add("hidden");
@@ -874,6 +973,8 @@
             buildStatus.textContent = lockedMessage;
             automationStatusBlock.textContent = lockedMessage;
             autopilotStatusBlock.textContent = lockedMessage;
+            healthInstallationsBlock.textContent = lockedMessage;
+            healthCrashesBlock.textContent = lockedMessage;
             setPill(buildPill, "Build: locked", "warning");
             setPill(chainPill, "AI Chain: locked", "warning");
             renderAuthDiagnostics({ statusText: lockedMessage });
@@ -1055,6 +1156,7 @@
                 loadAutomationStatus(),
                 loadAutopilotStatus(),
             ]);
+            startHealthFeedListeners();
         }
 
         async function startGoogleSignIn() {
@@ -1389,6 +1491,7 @@
                 const app = initializeApp(firebaseConfig);
                 state.firebaseApp = app;
                 state.auth = getAuth(app);
+                state.firestore = getFirestore(app);
                 await setPersistence(state.auth, browserLocalPersistence).catch((error) => {
                     console.error(error);
                 });
@@ -1547,6 +1650,55 @@
                 autopilotRefreshButton.disabled = state.accessLocked;
                 autopilotEnableButton.disabled = state.accessLocked;
                 autopilotDisableButton.disabled = state.accessLocked;
+            }
+        }
+
+        function startHealthFeedListeners() {
+            if (!state.firestore || !state.currentUser || !state.adminSession) {
+                healthInstallationsBlock.textContent = "Firebase auth or Firestore is not ready yet.";
+                healthCrashesBlock.textContent = "Crash feed is waiting for Firebase auth and Firestore.";
+                return;
+            }
+
+            stopHealthFeedListeners();
+            healthNote.textContent = "Live device health is streaming from Firestore. App installs write last-seen pings directly; crash triage records appear when server-side crash ingestion stores documents.";
+
+            try {
+                const installationsQuery = query(
+                    collection(state.firestore, "ops_installations"),
+                    orderBy("updatedAtMs", "desc"),
+                    limit(8)
+                );
+
+                state.healthUnsubscribeInstallations = onSnapshot(installationsQuery, (snapshot) => {
+                    renderInstallationHealthFeed(snapshot);
+                }, (error) => {
+                    console.error(error);
+                    healthInstallationsBlock.textContent = error.message;
+                    healthNote.textContent = "If this says permission denied, deploy the new Firestore rules and ensure the panel is signed in with a verified Google account.";
+                });
+            } catch (error) {
+                console.error(error);
+                healthInstallationsBlock.textContent = error.message;
+            }
+
+            try {
+                const crashesQuery = query(
+                    collection(state.firestore, "crash_fixes"),
+                    orderBy("createdAt", "desc"),
+                    limit(8)
+                );
+
+                state.healthUnsubscribeCrashes = onSnapshot(crashesQuery, (snapshot) => {
+                    renderCrashFeed(snapshot);
+                }, (error) => {
+                    console.error(error);
+                    healthCrashesBlock.textContent = error.message;
+                    healthNote.textContent = "Crash feed stays empty until Crashlytics/functions or another server-side crash writer stores triage docs in Firestore.";
+                });
+            } catch (error) {
+                console.error(error);
+                healthCrashesBlock.textContent = error.message;
             }
         }
 

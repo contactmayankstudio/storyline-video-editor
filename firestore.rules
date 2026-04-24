@@ -1,0 +1,70 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isVerifiedGoogleReader() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.firebase.sign_in_provider == "google.com";
+    }
+
+    function validStringField(key, maxSize) {
+      return request.resource.data[key] is string
+        && request.resource.data[key].size() > 0
+        && request.resource.data[key].size() <= maxSize;
+    }
+
+    function isSafeInstallationWrite(docId) {
+      return request.resource.data.keys().hasOnly([
+          "installationId",
+          "sessionId",
+          "updatedAt",
+          "updatedAtMs",
+          "appState",
+          "currentScreen",
+          "lastAction",
+          "hasProjectContent",
+          "isPlaying",
+          "versionName",
+          "versionCode",
+          "packageName",
+          "deviceModel",
+          "deviceManufacturer",
+          "androidVersion",
+          "source",
+        ])
+        && request.resource.data.installationId == docId
+        && validStringField("installationId", 64)
+        && validStringField("sessionId", 64)
+        && validStringField("currentScreen", 48)
+        && validStringField("lastAction", 120)
+        && validStringField("versionName", 32)
+        && validStringField("packageName", 80)
+        && validStringField("deviceModel", 80)
+        && validStringField("deviceManufacturer", 80)
+        && validStringField("androidVersion", 24)
+        && request.resource.data.updatedAtMs is int
+        && request.resource.data.versionCode is int
+        && request.resource.data.hasProjectContent is bool
+        && request.resource.data.isPlaying is bool
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.source == "android-client"
+        && request.resource.data.appState in ["launching", "foreground", "background"];
+    }
+
+    match /ops_installations/{installationId} {
+      allow get, list: if isVerifiedGoogleReader();
+      allow create, update: if isSafeInstallationWrite(installationId);
+      allow delete: if false;
+    }
+
+    match /crash_fixes/{issueId} {
+      allow get, list: if isVerifiedGoogleReader();
+      allow write: if false;
+    }
+
+    match /ops_crashes/{issueId} {
+      allow get, list: if isVerifiedGoogleReader();
+      allow write: if false;
+    }
+  }
+}

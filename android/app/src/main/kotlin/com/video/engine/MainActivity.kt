@@ -83,6 +83,13 @@ class MainActivity : Activity() {
             refreshTopBannerPlacement()
         }
     }
+    private val appHealthHeartbeatRunnable = object : Runnable {
+        override fun run() {
+            if (isFinishing || isDestroyed) return
+            syncAppHealth(force = true)
+            mainHandler.postDelayed(this, 45_000L)
+        }
+    }
 
     private fun safeToast(message: String, duration: Int = Toast.LENGTH_SHORT) {
         mainHandler.post {
@@ -258,6 +265,7 @@ class MainActivity : Activity() {
     private var rewardedUnlockController: RewardedUnlockController? = null
     private var previewAudioPlayer: PreviewAudioPlayer? = null
     private lateinit var debugTelemetryManager: DebugTelemetryManager
+    private lateinit var appHealthReporter: AppHealthReporter
 
     // Text overlays
     private var nextTextOverlayId = 1
@@ -557,6 +565,7 @@ class MainActivity : Activity() {
         }
         scheduleTopBannerPlacement()
         updatePreviewEmptyState()
+        syncAppHealth(force = true, action = if (visible) "home_visible" else "editor_visible")
     }
 
     private fun buildRecentProjectFiles(): List<File> {
@@ -651,6 +660,8 @@ class MainActivity : Activity() {
             if (isFinishing || isDestroyed) return@post
         }
         debugTelemetryManager = DebugTelemetryManager(this)
+        appHealthReporter = AppHealthReporter(this)
+        appHealthReporter.bindSession(debugTelemetryManager.sessionId)
         NativeBridge.setTelemetrySink { debugTelemetryManager.recordNativeBridgeTelemetry(it) }
         NativeBridge.clearNativeCommandTelemetry()
         recordTelemetryEvent(
@@ -658,6 +669,7 @@ class MainActivity : Activity() {
             name = "main_activity_created",
             payload = JSONObject().put("savedInstanceState", savedInstanceState != null),
         )
+        syncAppHealth(force = true, action = "main_activity_created")
 
         // Get UI references
         val previewContainer = findViewById<FrameLayout>(R.id.previewContainer)
@@ -1447,27 +1459,51 @@ class MainActivity : Activity() {
         startHardwareTelemetryTicker()
         adsController?.onResume()
         scheduleTopBannerPlacement(delayMs = 1200L)
+        startAppHealthHeartbeat()
+        if (::appHealthReporter.isInitialized) {
+            appHealthReporter.recordForeground(
+                screen = currentHealthScreenName(),
+                hasContent = hasProjectContent(),
+                playing = isPlaying,
+            )
+        }
     }
 
     override fun onPause() {
         Log.d(TAG, "onPause")
         stopHardwareTelemetryTicker()
+        stopAppHealthHeartbeat()
         mainHandler.removeCallbacks(bannerRefreshRunnable)
         playbackController?.onPause()  // handles previewView.onPause() internally
         exportController?.dismissProgressDialog()
         adsController?.onPause()
         projectController?.autoSave()
+        if (::appHealthReporter.isInitialized) {
+            appHealthReporter.recordBackground(
+                screen = currentHealthScreenName(),
+                hasContent = hasProjectContent(),
+                playing = isPlaying,
+            )
+        }
         super.onPause()
     }
 
     override fun onDestroy() {
         stopHardwareTelemetryTicker()
+        stopAppHealthHeartbeat()
         mainHandler.removeCallbacks(refreshTimelineRunnable)
         previewAudioPlayer?.release()
         voiceoverController?.release()
         rewardedUnlockController?.onDestroy()
         captureDebugSnapshot("activity_destroy")
         NativeBridge.setTelemetrySink(null)
+        if (::appHealthReporter.isInitialized) {
+            appHealthReporter.close(
+                screen = currentHealthScreenName(),
+                hasContent = hasProjectContent(),
+                playing = isPlaying,
+            )
+        }
         if (::debugTelemetryManager.isInitialized) {
             debugTelemetryManager.close()
         }
@@ -1480,11 +1516,55 @@ class MainActivity : Activity() {
     private fun recordTelemetryEvent(category: String, name: String, payload: JSONObject = JSONObject()) {
         if (!::debugTelemetryManager.isInitialized) return
         debugTelemetryManager.record(category, name, payload)
+        if (::appHealthReporter.isInitialized && category in setOf("session", "project", "import", "export", "automation")) {
+            appHealthReporter.noteAction(
+                action = "${category}_${name}".take(120),
+                screen = currentHealthScreenName(),
+                hasContent = hasProjectContent(),
+                playing = isPlaying,
+                force = category == "export" || category == "automation",
+            )
+        }
     }
 
     private fun captureDebugSnapshot(label: String) {
         if (!::debugTelemetryManager.isInitialized) return
         debugTelemetryManager.captureSnapshot(label, buildDebugTelemetrySnapshot(label))
+    }
+
+    private fun currentHealthScreenName(): String = when {
+        startScreenOverlayView?.visibility == View.VISIBLE -> "home"
+        previewCropOverlayView?.visibility == View.VISIBLE -> "crop"
+        else -> "editor"
+    }
+
+    private fun syncAppHealth(force: Boolean = false, action: String? = null) {
+        if (!::appHealthReporter.isInitialized) return
+        if (!action.isNullOrBlank()) {
+            appHealthReporter.noteAction(
+                action = action,
+                screen = currentHealthScreenName(),
+                hasContent = hasProjectContent(),
+                playing = isPlaying,
+                force = force,
+            )
+            return
+        }
+        appHealthReporter.updateSurface(
+            screen = currentHealthScreenName(),
+            hasContent = hasProjectContent(),
+            playing = isPlaying,
+            force = force,
+        )
+    }
+
+    private fun startAppHealthHeartbeat() {
+        mainHandler.removeCallbacks(appHealthHeartbeatRunnable)
+        mainHandler.postDelayed(appHealthHeartbeatRunnable, 45_000L)
+    }
+
+    private fun stopAppHealthHeartbeat() {
+        mainHandler.removeCallbacks(appHealthHeartbeatRunnable)
     }
 
     private fun buildDebugTelemetrySnapshot(reason: String): JSONObject {
