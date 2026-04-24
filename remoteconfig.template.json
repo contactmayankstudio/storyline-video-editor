@@ -5,19 +5,22 @@
       "defaultValue": {
         "value": "true"
       },
-      "description": "Enable Firebase Performance traces for Storyline playback, import, and export operations."
+      "description": "Enable Firebase Performance traces for Storyline playback, import, and export operations.",
+      "valueType": "BOOLEAN"
     },
     "ops_health_heartbeat_interval_ms": {
       "defaultValue": {
         "value": "45000"
       },
-      "description": "Heartbeat interval in milliseconds for Live App Health writes."
+      "description": "Heartbeat interval in milliseconds for Live App Health writes.",
+      "valueType": "NUMBER"
     },
     "ops_force_flush_actions": {
       "defaultValue": {
         "value": "playback_started,playback_paused,crop_opened,crop_closed,video_clip_imported,overlay_clip_imported,layer_clip_imported,audio_clip_imported,export_dialog_opened,export_started,export_completed,export_failed,project_saved,project_loaded,video_clip_deleted,audio_clip_deleted"
       },
-      "description": "Comma-separated action names that should force an immediate health write."
+      "description": "Comma-separated action names that should force an immediate health write.",
+      "valueType": "STRING"
     }
   },
   "version": {
