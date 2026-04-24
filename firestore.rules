@@ -101,6 +101,55 @@ service cloud.firestore {
         );
     }
 
+    function isSafeGitHubIssueMap() {
+      return request.resource.data.githubIssue is map
+        && request.resource.data.githubIssue.keys().hasOnly([
+          "number",
+          "url",
+          "title",
+        ])
+        && request.resource.data.githubIssue.number is int
+        && request.resource.data.githubIssue.url is string
+        && request.resource.data.githubIssue.url.size() > 0
+        && request.resource.data.githubIssue.url.size() <= 400
+        && request.resource.data.githubIssue.title is string
+        && request.resource.data.githubIssue.title.size() > 0
+        && request.resource.data.githubIssue.title.size() <= 240;
+    }
+
+    function isSafeOpsReportAdminUpdate(docId) {
+      return isVerifiedGoogleReader()
+        && request.resource.data.reportId == docId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "status",
+          "githubIssue",
+          "updatedAt",
+          "triagedAt",
+          "triagedBy",
+        ])
+        && request.resource.data.status in ["open", "triaged"]
+        && (
+          !("updatedAt" in request.resource.data)
+          || request.resource.data.updatedAt is timestamp
+        )
+        && (
+          !("triagedAt" in request.resource.data)
+          || request.resource.data.triagedAt is timestamp
+        )
+        && (
+          !("triagedBy" in request.resource.data)
+          || (
+            request.resource.data.triagedBy is string
+            && request.resource.data.triagedBy.size() > 0
+            && request.resource.data.triagedBy.size() <= 120
+          )
+        )
+        && (
+          !("githubIssue" in request.resource.data)
+          || isSafeGitHubIssueMap()
+        );
+    }
+
     match /ops_installations/{installationId} {
       allow get, list: if isVerifiedGoogleReader();
       allow create, update: if isSafeInstallationWrite(installationId);
@@ -120,7 +169,8 @@ service cloud.firestore {
     match /ops_reports/{reportId} {
       allow get, list: if isVerifiedGoogleReader();
       allow create: if isSafeOpsReportWrite(reportId);
-      allow update, delete: if false;
+      allow update: if isSafeOpsReportAdminUpdate(reportId);
+      allow delete: if false;
     }
   }
 }

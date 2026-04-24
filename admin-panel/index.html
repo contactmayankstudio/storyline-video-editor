@@ -672,11 +672,14 @@
         } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-auth.js";
         import {
             collection,
+            doc,
             getFirestore,
             limit,
             onSnapshot,
             orderBy,
             query,
+            serverTimestamp,
+            updateDoc,
         } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-firestore.js";
 
         const firebaseConfig = {
@@ -766,6 +769,7 @@
             healthUnsubscribeInstallations: null,
             healthUnsubscribeCrashes: null,
             healthUnsubscribeReports: null,
+            triagingReportIds: new Set(),
         };
 
         function renderAuthDiagnostics(details = {}) {
@@ -817,6 +821,7 @@
             state.healthUnsubscribeInstallations = null;
             state.healthUnsubscribeCrashes = null;
             state.healthUnsubscribeReports = null;
+            state.triagingReportIds.clear();
         }
 
         function formatRelativeTime(timestampMs) {
@@ -908,11 +913,18 @@
                 return;
             }
 
-            const lines = ["Recent problem reports:"];
+            const openCount = snapshot.docs.filter((docSnapshot) => {
+                const data = docSnapshot.data() || {};
+                return !data.githubIssue?.url && (data.status || "open") === "open";
+            }).length;
+            const lines = [`Recent problem reports: ${openCount} pending auto-triage`];
             for (const doc of snapshot.docs) {
                 const data = doc.data() || {};
                 const createdAtMs = data.createdAt?.toMillis?.() || data.createdAtMs || 0;
                 const tapCount = Array.isArray(data.recentUiTaps) ? data.recentUiTaps.length : 0;
+                const issueLabel = data.githubIssue?.url
+                    ? `issue=#${data.githubIssue.number || "?"}`
+                    : "issue=pending";
                 lines.push(
                     [
                         `- ${data.reportType || "report"}`,
@@ -921,6 +933,7 @@
                         `action=${data.lastAction || "unknown"}`,
                         `source=${data.source || "unknown"}`,
                         `status=${data.status || "open"}`,
+                        issueLabel,
                         data.stallMs ? `stall=${data.stallMs}ms` : null,
                         `taps=${tapCount}`,
                         `note=${(data.description || "").slice(0, 120) || "n/a"}`,
@@ -929,6 +942,62 @@
                 );
             }
             healthReportsBlock.textContent = lines.join("\n");
+        }
+
+        async function triageProblemReport(docSnapshot) {
+            const reportId = docSnapshot.id;
+            const report = docSnapshot.data() || {};
+
+            if (!state.firestore || !state.currentUser || !state.adminSession) {
+                return;
+            }
+
+            if (state.triagingReportIds.has(reportId)) {
+                return;
+            }
+
+            if (report.githubIssue?.url || (report.status || "open") !== "open") {
+                return;
+            }
+
+            state.triagingReportIds.add(reportId);
+            try {
+                healthNote.textContent = `Auto-triaging app report ${reportId} into GitHub...`;
+                const response = await authorizedFetch("/api/ops-report-issue", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        reportId,
+                        report,
+                    }),
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error(data.error || "GitHub issue triage failed");
+                }
+
+                const issue = data.issue || null;
+                if (!issue?.url) {
+                    throw new Error("GitHub issue response was incomplete");
+                }
+
+                await updateDoc(doc(state.firestore, "ops_reports", reportId), {
+                    status: "triaged",
+                    githubIssue: issue,
+                    triagedAt: serverTimestamp(),
+                    triagedBy: data.triagedBy || state.currentUser.email || "admin",
+                    updatedAt: serverTimestamp(),
+                });
+
+                healthNote.textContent = `Report ${reportId} linked to GitHub issue #${issue.number}.`;
+            } catch (error) {
+                console.error(error);
+                healthNote.textContent = `Auto-triage failed for ${reportId}: ${error.message}`;
+            } finally {
+                state.triagingReportIds.delete(reportId);
+            }
         }
 
         const modeConfig = {
@@ -1720,7 +1789,7 @@
             }
 
             stopHealthFeedListeners();
-            healthNote.textContent = "Live device health is streaming from Firestore. App installs write last-seen pings directly; crash triage records appear when server-side crash ingestion stores documents.";
+            healthNote.textContent = "Live device health is streaming from Firestore. App installs write last-seen pings directly, and open problem reports auto-triage into GitHub issues while this admin panel is online.";
 
             try {
                 const installationsQuery = query(
@@ -1769,6 +1838,13 @@
 
                 state.healthUnsubscribeReports = onSnapshot(reportsQuery, (snapshot) => {
                     renderProblemReportsFeed(snapshot);
+                    const pendingReports = snapshot.docs.filter((docSnapshot) => {
+                        const data = docSnapshot.data() || {};
+                        return !data.githubIssue?.url && (data.status || "open") === "open";
+                    });
+                    for (const docSnapshot of pendingReports.slice(0, 3)) {
+                        void triageProblemReport(docSnapshot);
+                    }
                 }, (error) => {
                     console.error(error);
                     healthReportsBlock.textContent = error.message;
