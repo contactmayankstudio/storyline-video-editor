@@ -94,7 +94,91 @@ class UiActionExpectationDetector(
                 key = "main_toolbar:text",
                 source = "text_button_no_followup",
                 timeoutMs = 1_800L,
-                expectedActions = setOf("text_composer_opened"),
+                expectedActions = setOf("text_tool_sheet_opened", "text_composer_opened"),
+            )
+            "main_toolbar" to "media" -> ExpectationTemplate(
+                key = "main_toolbar:media",
+                source = "media_button_no_followup",
+                timeoutMs = 1_800L,
+                expectedActions = setOf("media_source_sheet_opened", "video_import_picker_opened"),
+            )
+            "main_toolbar" to "overlay" -> ExpectationTemplate(
+                key = "main_toolbar:overlay",
+                source = "overlay_button_no_followup",
+                timeoutMs = 1_800L,
+                expectedActions = setOf("overlay_source_sheet_opened", "overlay_import_picker_opened"),
+            )
+            "main_toolbar" to "layers" -> ExpectationTemplate(
+                key = "main_toolbar:layers",
+                source = "layers_button_no_followup",
+                timeoutMs = 1_800L,
+                expectedActions = setOf("layers_source_sheet_opened", "layer_import_picker_opened"),
+            )
+            "main_toolbar" to "audio" -> ExpectationTemplate(
+                key = "main_toolbar:audio",
+                source = "audio_button_no_followup",
+                timeoutMs = 1_800L,
+                expectedActions = setOf("audio_source_sheet_opened", "audio_import_picker_opened"),
+            )
+            "main_toolbar" to "effects" -> ExpectationTemplate(
+                key = "main_toolbar:effects",
+                source = "effects_button_no_followup",
+                timeoutMs = 1_800L,
+                expectedActions = setOf("effects_tool_sheet_opened"),
+            )
+            "main_toolbar" to "graphics" -> ExpectationTemplate(
+                key = "main_toolbar:graphics",
+                source = "graphics_button_no_followup",
+                timeoutMs = 1_800L,
+                expectedActions = setOf("graphics_tool_sheet_opened"),
+            )
+            "main_toolbar" to "transition" -> ExpectationTemplate(
+                key = "main_toolbar:transition",
+                source = "transition_button_no_followup",
+                timeoutMs = 1_800L,
+                expectedActions = setOf("transition_tool_sheet_opened"),
+            )
+            "main_toolbar" to "voiceover" -> ExpectationTemplate(
+                key = "main_toolbar:voiceover",
+                source = "voiceover_button_no_followup",
+                timeoutMs = 1_800L,
+                expectedActions = setOf("voiceover_tool_sheet_opened"),
+            )
+            "main_toolbar" to "color" -> ExpectationTemplate(
+                key = "main_toolbar:color",
+                source = "color_button_no_followup",
+                timeoutMs = 1_800L,
+                expectedActions = setOf("color_tool_sheet_opened"),
+            )
+            "clip_toolbar" to "clipFilterButton" -> ExpectationTemplate(
+                key = "clip_toolbar:clipFilterButton",
+                source = "clip_filter_button_no_followup",
+                timeoutMs = 1_600L,
+                expectedActions = setOf("clip_filter_action_handled", "effects_tool_sheet_opened"),
+            )
+            "clip_toolbar" to "clipBrightnessButton" -> ExpectationTemplate(
+                key = "clip_toolbar:clipBrightnessButton",
+                source = "clip_color_button_no_followup",
+                timeoutMs = 1_600L,
+                expectedActions = setOf("clip_color_action_handled"),
+            )
+            "clip_toolbar" to "clipTransitionButton" -> ExpectationTemplate(
+                key = "clip_toolbar:clipTransitionButton",
+                source = "clip_transition_button_no_followup",
+                timeoutMs = 1_600L,
+                expectedActions = setOf("clip_transition_action_handled", "transition_tool_sheet_opened"),
+            )
+            "clip_toolbar" to "clipGraphicsButton" -> ExpectationTemplate(
+                key = "clip_toolbar:clipGraphicsButton",
+                source = "clip_graphics_button_no_followup",
+                timeoutMs = 1_600L,
+                expectedActions = setOf("clip_graphics_action_handled", "graphics_tool_sheet_opened"),
+            )
+            "clip_toolbar" to "clipAddLayerButton" -> ExpectationTemplate(
+                key = "clip_toolbar:clipAddLayerButton",
+                source = "clip_layer_button_no_followup",
+                timeoutMs = 1_600L,
+                expectedActions = setOf("clip_layer_action_handled", "layers_source_sheet_opened"),
             )
             "start_screen" to "start_open_project" -> ExpectationTemplate(
                 key = "start_screen:open_project",

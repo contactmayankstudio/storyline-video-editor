@@ -43,6 +43,7 @@ class UiChromeController(
     private val onAddTextPreset: (String) -> Unit,
     private val onOpenSelectedTextStudio: () -> Unit = {},
     private val onSplitAudioAtPlayhead: () -> Boolean,
+    private val onHealthAction: (String) -> Unit = {},
     private val onUiButtonTap: (String, String, String) -> Unit = { _, _, _ -> },
     private val onShowProblemReportDialog: (String) -> Unit = {},
     private val clipEffects: MutableMap<Int, EffectParams>,
@@ -86,6 +87,7 @@ class UiChromeController(
 
     private fun showImportSourceSheet(
         title: String,
+        openedAction: String,
         browseLabel: String,
         quickLabel: String? = null,
         quickUnavailableMessage: String,
@@ -100,6 +102,7 @@ class UiChromeController(
             options += quickLabel
         }
         options += extraActions.map { it.first }
+        onHealthAction(openedAction)
         ModernSheet.show(activity, title) {
             chips("Source", options, -1) { _, option ->
                 when {
@@ -266,6 +269,7 @@ class UiChromeController(
 
     private fun showTextToolSheet() {
         pausePlaybackForPanel()
+        onHealthAction("text_tool_sheet_opened")
         ModernSheet.show(activity, "Text") {
             chips("Create", listOf("Composer", "Caption", "Title", "Lower 3rd", "Subtitle"), -1) { _, option ->
                 when (option) {
@@ -286,6 +290,7 @@ class UiChromeController(
 
     private fun showEffectsToolSheet() {
         pausePlaybackForPanel()
+        onHealthAction("effects_tool_sheet_opened")
         ModernSheet.show(activity, "Effects") {
             chips("Studio", listOf("Studio FX", "LUT Library", "Chroma Key", "Reset FX"), -1) { _, option ->
                 when (option) {
@@ -306,6 +311,7 @@ class UiChromeController(
 
     private fun showStickerToolSheet() {
         pausePlaybackForPanel()
+        onHealthAction("graphics_tool_sheet_opened")
         ModernSheet.show(activity, "Graphics") {
             chips("Quick", listOf("Spark", "Flame", "Heart", "Film", "Boom", "Star"), -1) { _, option ->
                 val success = when (option) {
@@ -338,6 +344,7 @@ class UiChromeController(
 
     private fun showTransitionToolSheet() {
         pausePlaybackForPanel()
+        onHealthAction("transition_tool_sheet_opened")
         ModernSheet.show(activity, "Transition") {
             chips("Quick", listOf("Cross 250", "Fade 250", "Cross 500", "Fade 500", "Wipe 450", "Slide 450"), -1) { _, option ->
                 val success = when (option) {
@@ -385,6 +392,7 @@ class UiChromeController(
 
     private fun showVoiceToolSheet() {
         pausePlaybackForPanel()
+        onHealthAction("voiceover_tool_sheet_opened")
         ModernSheet.show(activity, "Voiceover") {
             chips("Capture", listOf("Record Voice", "Punch-In"), -1) { _, _ ->
                 onVoiceoverRequested()
@@ -409,6 +417,7 @@ class UiChromeController(
 
     private fun showColorToolSheet() {
         pausePlaybackForPanel()
+        onHealthAction("color_tool_sheet_opened")
         ModernSheet.show(activity, "Color") {
             chips("Studio", listOf("Grade Controls", "LUT Library", "Chroma Key", "Reset Color"), -1) { _, option ->
                 when (option) {
@@ -442,6 +451,7 @@ class UiChromeController(
     fun showLayerImportSheet() {
         showImportSourceSheet(
             title = "Layers",
+            openedAction = "layers_source_sheet_opened",
             browseLabel = "Browse Layer",
             quickLabel = "Quick Sample",
             quickUnavailableMessage = "No quick layer media found",
@@ -531,6 +541,7 @@ class UiChromeController(
             Log.d(TAG, "Video import button clicked")
             showImportSourceSheet(
                 title = "Media",
+                openedAction = "media_source_sheet_opened",
                 browseLabel = "Browse Device",
                 quickLabel = "Quick Sample",
                 quickUnavailableMessage = "No quick media found",
@@ -552,6 +563,7 @@ class UiChromeController(
             Log.d(TAG, "Overlay import button clicked")
             showImportSourceSheet(
                 title = "Overlay",
+                openedAction = "overlay_source_sheet_opened",
                 browseLabel = "Browse Device",
                 quickLabel = "Quick Sample",
                 quickUnavailableMessage = "No quick overlay media found",
@@ -573,6 +585,7 @@ class UiChromeController(
             Log.d(TAG, "Layer import button clicked")
             showImportSourceSheet(
                 title = "Layers",
+                openedAction = "layers_source_sheet_opened",
                 browseLabel = "Browse Layer",
                 quickLabel = "Quick Sample",
                 quickUnavailableMessage = "No quick layer media found",
@@ -592,6 +605,7 @@ class UiChromeController(
             Log.d(TAG, "Audio button clicked")
             showImportSourceSheet(
                 title = "Audio",
+                openedAction = "audio_source_sheet_opened",
                 browseLabel = "Browse Device",
                 quickLabel = "Quick Sample",
                 quickUnavailableMessage = "No quick audio found",

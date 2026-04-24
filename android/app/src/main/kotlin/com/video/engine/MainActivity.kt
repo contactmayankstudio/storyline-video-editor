@@ -703,24 +703,28 @@ class MainActivity : Activity() {
         }
         appHealthReporter = AppHealthReporter(this)
         problemReportManager = ProblemReportManager(this)
-        playbackExportIssueDetector = PlaybackExportIssueDetector { reportType, source, description ->
-            if (!isFinishing && !isDestroyed) {
-                submitAutoDetectorIssue(
-                    reportType = reportType,
-                    source = source,
-                    description = description,
-                )
-            }
-        }
-        uiActionExpectationDetector = UiActionExpectationDetector { reportType, source, description ->
-            if (!isFinishing && !isDestroyed) {
-                submitAutoDetectorIssue(
-                    reportType = reportType,
-                    source = source,
-                    description = description,
-                )
-            }
-        }
+        playbackExportIssueDetector = PlaybackExportIssueDetector(
+            onIssueDetected = { reportType, source, description ->
+                if (!isFinishing && !isDestroyed) {
+                    submitAutoDetectorIssue(
+                        reportType = reportType,
+                        source = source,
+                        description = description,
+                    )
+                }
+            },
+        )
+        uiActionExpectationDetector = UiActionExpectationDetector(
+            onIssueDetected = { reportType, source, description ->
+                if (!isFinishing && !isDestroyed) {
+                    submitAutoDetectorIssue(
+                        reportType = reportType,
+                        source = source,
+                        description = description,
+                    )
+                }
+            },
+        )
         uiFreezeWatchdog = UiFreezeWatchdog { stallMs ->
             mainHandler.post {
                 if (isFinishing || isDestroyed) return@post
@@ -1478,6 +1482,7 @@ class MainActivity : Activity() {
             onAddTextPreset = { label -> addTextPresetFromToolbar(label) },
             onOpenSelectedTextStudio = { showSelectedTextStudio() },
             onSplitAudioAtPlayhead = { splitAudioAtPlayhead() },
+            onHealthAction = { action -> noteAppHealthAction(action) },
             onUiButtonTap = { control, surface, mode -> noteUiButtonTap(control, surface, mode) },
             onShowProblemReportDialog = { source -> showProblemReportDialog(source) },
             clipEffects = clipEffects,
@@ -7015,10 +7020,12 @@ class MainActivity : Activity() {
             ClipKind.VIDEO, ClipKind.OVERLAY -> {
                 selectedVideoClipId()?.let { timelineManager?.selectClip(it) }
                 uiChromeController?.showEffectsSheet() ?: showClipToolPending("Effects")
+                noteAppHealthAction("clip_filter_action_handled")
             }
             ClipKind.TEXT -> {
                 val overlayId = selectedTextOverlayId() ?: return
                 val overlay = OverlayStore.get(overlayId) ?: return
+                noteAppHealthAction("clip_filter_action_handled")
                 ModernSheet.show(this, "Text Color") {
                     chips("Color", listOf("White", "Yellow", "Cyan", "Green", "Red"), -1) { i, _ ->
                         overlay.color = listOf(0xFFFFFFFF.toInt(), 0xFFFFEB3B.toInt(), 0xFF00E5FF.toInt(), 0xFF76FF03.toInt(), 0xFFFF5252.toInt())[i]
@@ -7027,9 +7034,18 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            ClipKind.STICKER -> performSelectedClipGraphicsAction()
-            ClipKind.AUDIO -> showClipToolPending("Filter")
-            ClipKind.NONE -> Toast.makeText(this@MainActivity, "Select clip first", Toast.LENGTH_SHORT).show()
+            ClipKind.STICKER -> {
+                noteAppHealthAction("clip_filter_action_handled")
+                performSelectedClipGraphicsAction()
+            }
+            ClipKind.AUDIO -> {
+                noteAppHealthAction("clip_filter_action_handled")
+                showClipToolPending("Filter")
+            }
+            ClipKind.NONE -> {
+                noteAppHealthAction("clip_filter_action_handled")
+                Toast.makeText(this@MainActivity, "Select clip first", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -7040,10 +7056,12 @@ class MainActivity : Activity() {
                 syncEffectSlidersForClip(selectedVideoClipId())
                 val sliders = findViewById<View>(R.id.effectSlidersContainer)
                 sliders?.visibility = if (sliders?.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                noteAppHealthAction("clip_color_action_handled")
             }
             ClipKind.TEXT -> {
                 val overlayId = selectedTextOverlayId() ?: return
                 val overlay = OverlayStore.get(overlayId) ?: return
+                noteAppHealthAction("clip_color_action_handled")
                 ModernSheet.show(this@MainActivity, "Text Fade") {
                     chips("Opacity", listOf("100%", "85%", "70%", "55%"), -1) { i, _ ->
                         overlay.opacity = listOf(1f, 0.85f, 0.70f, 0.55f)[i]
@@ -7055,6 +7073,7 @@ class MainActivity : Activity() {
             ClipKind.STICKER -> {
                 val stickerId = selectedStickerClipId() ?: return
                 val clip = StickerClipStore.all().find { it.id == stickerId } ?: return
+                noteAppHealthAction("clip_color_action_handled")
                 ModernSheet.show(this@MainActivity, "Overlay Fade") {
                     chips("Opacity", listOf("100%", "85%", "70%", "55%"), -1) { i, _ ->
                         clip.opacity = listOf(1f, 0.85f, 0.70f, 0.55f)[i]
@@ -7067,6 +7086,7 @@ class MainActivity : Activity() {
                 val clip = AudioClipStore.get(audioId) ?: return
                 val maxFadeMsInt = clip.durationMs.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                 val maxFadeMs = maxFadeMsInt.toFloat()
+                noteAppHealthAction("clip_color_action_handled")
                 ModernSheet.show(this@MainActivity, "Audio Fade") {
                     slider(
                         "Fade In",
@@ -7114,7 +7134,10 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            ClipKind.NONE -> Toast.makeText(this@MainActivity, "Select clip first", Toast.LENGTH_SHORT).show()
+            ClipKind.NONE -> {
+                noteAppHealthAction("clip_color_action_handled")
+                Toast.makeText(this@MainActivity, "Select clip first", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -7123,11 +7146,24 @@ class MainActivity : Activity() {
             ClipKind.VIDEO -> {
                 selectedVideoClipId()?.let { timelineManager?.selectClip(it) }
                 uiChromeController?.showTransitionSheet() ?: showClipToolPending("Transition")
+                noteAppHealthAction("clip_transition_action_handled")
             }
-            ClipKind.OVERLAY -> safeToast("Transitions are for main video cuts", Toast.LENGTH_SHORT)
-            ClipKind.TEXT, ClipKind.STICKER -> safeToast("Transitions are for video clips", Toast.LENGTH_SHORT)
-            ClipKind.AUDIO -> safeToast("Transitions are not for audio clips", Toast.LENGTH_SHORT)
-            ClipKind.NONE -> safeToast("Select clip first", Toast.LENGTH_SHORT)
+            ClipKind.OVERLAY -> {
+                noteAppHealthAction("clip_transition_action_handled")
+                safeToast("Transitions are for main video cuts", Toast.LENGTH_SHORT)
+            }
+            ClipKind.TEXT, ClipKind.STICKER -> {
+                noteAppHealthAction("clip_transition_action_handled")
+                safeToast("Transitions are for video clips", Toast.LENGTH_SHORT)
+            }
+            ClipKind.AUDIO -> {
+                noteAppHealthAction("clip_transition_action_handled")
+                safeToast("Transitions are not for audio clips", Toast.LENGTH_SHORT)
+            }
+            ClipKind.NONE -> {
+                noteAppHealthAction("clip_transition_action_handled")
+                safeToast("Select clip first", Toast.LENGTH_SHORT)
+            }
         }
     }
 
@@ -7135,12 +7171,28 @@ class MainActivity : Activity() {
         when (selectedClipKind()) {
             ClipKind.VIDEO -> {
                 uiChromeController?.showGraphicsSheet() ?: showClipToolPending("Graphics")
+                noteAppHealthAction("clip_graphics_action_handled")
             }
-            ClipKind.TEXT -> showSelectedTextStudio()
-            ClipKind.STICKER -> performSelectedClipReplaceAction()
-            ClipKind.AUDIO -> showClipToolPending("Graphics")
-            ClipKind.OVERLAY -> performSelectedClipReplaceAction()
-            ClipKind.NONE -> Toast.makeText(this@MainActivity, "Select clip first", Toast.LENGTH_SHORT).show()
+            ClipKind.TEXT -> {
+                noteAppHealthAction("clip_graphics_action_handled")
+                showSelectedTextStudio()
+            }
+            ClipKind.STICKER -> {
+                noteAppHealthAction("clip_graphics_action_handled")
+                performSelectedClipReplaceAction()
+            }
+            ClipKind.AUDIO -> {
+                noteAppHealthAction("clip_graphics_action_handled")
+                showClipToolPending("Graphics")
+            }
+            ClipKind.OVERLAY -> {
+                noteAppHealthAction("clip_graphics_action_handled")
+                performSelectedClipReplaceAction()
+            }
+            ClipKind.NONE -> {
+                noteAppHealthAction("clip_graphics_action_handled")
+                Toast.makeText(this@MainActivity, "Select clip first", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -7160,6 +7212,7 @@ class MainActivity : Activity() {
         when (selectedClipKind()) {
             ClipKind.VIDEO -> {
                 uiChromeController?.showLayerImportSheet() ?: showClipToolPending("Add Layer")
+                noteAppHealthAction("clip_layer_action_handled")
             }
             ClipKind.TEXT -> {
                 val overlayId = selectedTextOverlayId() ?: return
@@ -7167,6 +7220,7 @@ class MainActivity : Activity() {
                 val minLayer = allTextOverlays().minOfOrNull { it.layerIndex } ?: 0
                 val maxLayer = allTextOverlays().maxOfOrNull { it.layerIndex } ?: 0
                 val options = arrayOf("Bring Forward", "Send Backward", "Bring To Front", "Send To Back")
+                noteAppHealthAction("clip_layer_action_handled")
                 AlertDialog.Builder(this)
                     .setTitle("Text Layer")
                     .setItems(options) { _, which ->
@@ -7188,6 +7242,7 @@ class MainActivity : Activity() {
                 val minLayer = StickerClipStore.all().minOfOrNull { it.layerIndex } ?: 0
                 val maxLayer = StickerClipStore.all().maxOfOrNull { it.layerIndex } ?: 0
                 val options = arrayOf("Bring Forward", "Send Backward", "Bring To Front", "Send To Back")
+                noteAppHealthAction("clip_layer_action_handled")
                 AlertDialog.Builder(this)
                     .setTitle("Overlay Layer")
                     .setItems(options) { _, which ->
@@ -7204,12 +7259,19 @@ class MainActivity : Activity() {
                     .setNegativeButton("Cancel", null)
                     .show()
             }
-            ClipKind.AUDIO -> showClipToolPending("Layer")
+            ClipKind.AUDIO -> {
+                noteAppHealthAction("clip_layer_action_handled")
+                showClipToolPending("Layer")
+            }
             ClipKind.OVERLAY -> {
                 val clipId = selectedVideoClipId() ?: return
+                noteAppHealthAction("clip_layer_action_handled")
                 showNativeClipLayerSheet(clipId, selectedNativeClipLabel())
             }
-            ClipKind.NONE -> Toast.makeText(this@MainActivity, "Select clip first", Toast.LENGTH_SHORT).show()
+            ClipKind.NONE -> {
+                noteAppHealthAction("clip_layer_action_handled")
+                Toast.makeText(this@MainActivity, "Select clip first", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
