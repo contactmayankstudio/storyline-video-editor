@@ -1021,6 +1021,8 @@ class MainActivity : Activity() {
         playbackController?.onPlaybackTimeChanged = { timeMs ->
             activeCanvasTimelineView()?.setPlayheadMs(timeMs)
             previewAudioPlayer?.syncToVideoClock(timeMs, continuePlaying = isPlaying)
+        }
+        playbackController?.onPlaybackTimeSampled = { timeMs ->
             if (::playbackExportIssueDetector.isInitialized) {
                 playbackExportIssueDetector.onPlaybackTimeChanged(timeMs)
             }

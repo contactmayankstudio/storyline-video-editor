@@ -58,6 +58,7 @@ class PlaybackController(
     private var nativePlaybackStartGraceDeadlineMs = 0L
     private var pendingSmoothPlayToken = 0
     var onPlaybackTimeChanged: ((Long) -> Unit)? = null
+    var onPlaybackTimeSampled: ((Long) -> Unit)? = null
 
     private val scrubHandler = Handler(Looper.getMainLooper())
     private val pendingScrubCommit = Runnable {
@@ -84,6 +85,7 @@ class PlaybackController(
         }
         nativePlaybackStartGraceDeadlineMs = 0L
         val playbackTimeMs = resolvePlaybackTimeMs(previewView)
+        onPlaybackTimeSampled?.invoke(playbackTimeMs)
         // android.util.Log.d("PlaybackController", "frameCallback: timeMs=$playbackTimeMs")
         applyPlaybackTime(playbackTimeMs)
         schedulePlaybackFrame()
