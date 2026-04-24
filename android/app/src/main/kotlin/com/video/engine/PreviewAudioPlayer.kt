@@ -50,8 +50,12 @@ class PreviewAudioPlayer(
         private const val CLOCK_TICK_MS = 16L
         private const val SEEK_TOLERANCE_MS = 24
         private const val SEEK_COMPLETE_FALLBACK_MS = 250L
-        private const val VIDEO_CLOCK_RESYNC_THRESHOLD_MS = 48L
-        private const val VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS = 140L
+        private const val HIGH_TIER_VIDEO_CLOCK_RESYNC_THRESHOLD_MS = 48L
+        private const val MID_TIER_VIDEO_CLOCK_RESYNC_THRESHOLD_MS = 84L
+        private const val LOW_TIER_VIDEO_CLOCK_RESYNC_THRESHOLD_MS = 132L
+        private const val HIGH_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS = 140L
+        private const val MID_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS = 220L
+        private const val LOW_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS = 360L
         private const val AUDIO_EXTRACT_BUFFER_BYTES = 256 * 1024
         private val PREWARM_VIDEO_EXTENSIONS = setOf("3gp", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "ts", "webm")
     }
@@ -224,8 +228,8 @@ class PreviewAudioPlayer(
                 Long.MAX_VALUE
             }
             val now = SystemClock.elapsedRealtime()
-            if (driftMs < VIDEO_CLOCK_RESYNC_THRESHOLD_MS ||
-                now - lastVideoClockResyncElapsedMs < VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS
+            if (driftMs < resolveVideoClockResyncThresholdMs() ||
+                now - lastVideoClockResyncElapsedMs < resolveVideoClockResyncMinIntervalMs()
             ) {
                 return@runOnAudioThread
             }
@@ -916,6 +920,22 @@ class PreviewAudioPlayer(
             action()
         } else {
             audioHandler.post(action)
+        }
+    }
+
+    private fun resolveVideoClockResyncThresholdMs(): Long {
+        return when (DeviceDetector.getDeviceTier()) {
+            DeviceDetector.DeviceTier.LOW -> LOW_TIER_VIDEO_CLOCK_RESYNC_THRESHOLD_MS
+            DeviceDetector.DeviceTier.MID -> MID_TIER_VIDEO_CLOCK_RESYNC_THRESHOLD_MS
+            DeviceDetector.DeviceTier.HIGH -> HIGH_TIER_VIDEO_CLOCK_RESYNC_THRESHOLD_MS
+        }
+    }
+
+    private fun resolveVideoClockResyncMinIntervalMs(): Long {
+        return when (DeviceDetector.getDeviceTier()) {
+            DeviceDetector.DeviceTier.LOW -> LOW_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS
+            DeviceDetector.DeviceTier.MID -> MID_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS
+            DeviceDetector.DeviceTier.HIGH -> HIGH_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS
         }
     }
 }
