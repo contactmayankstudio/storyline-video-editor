@@ -2090,12 +2090,40 @@ class MainActivity : Activity() {
             "import_video_path" -> {
                 val path = intent?.getStringExtra("adb_path")
                 if (path != null) {
-                    importController?.setNextImportTrackType(TrackType.VIDEO)
+                    val trackType =
+                        intent.getStringExtra("adb_track_type")
+                            ?.trim()
+                            ?.uppercase(Locale.US)
+                            ?.let { raw -> runCatching { TrackType.valueOf(raw) }.getOrNull() }
+                            ?: TrackType.VIDEO
+                    importController?.setNextImportTrackType(trackType)
+                    importController?.importFromPath(path)
+                }
+            }
+            "import_media_path" -> {
+                val path = intent?.getStringExtra("adb_path")
+                if (path != null) {
+                    val trackType =
+                        intent.getStringExtra("adb_track_type")
+                            ?.trim()
+                            ?.uppercase(Locale.US)
+                            ?.let { raw -> runCatching { TrackType.valueOf(raw) }.getOrNull() }
+                            ?: TrackType.VIDEO
+                    importController?.setNextImportTrackType(trackType)
                     importController?.importFromPath(path)
                 }
             }
             "quick_import_audio" -> {
                 audioImportController?.importQuickSample()
+            }
+            "import_audio_path" -> {
+                val path = intent?.getStringExtra("adb_path")
+                if (path != null) {
+                    audioImportController?.importFromPath(
+                        path = path,
+                        startTimeMs = currentPlayheadMs().coerceAtLeast(0L),
+                    )
+                }
             }
             "play" -> {
                 playbackController?.nativePlay()
@@ -2135,7 +2163,13 @@ class MainActivity : Activity() {
             "import_video_and_play" -> {
                 val path = intent?.getStringExtra("adb_path")
                 if (path != null) {
-                    importController?.setNextImportTrackType(TrackType.VIDEO)
+                    val trackType =
+                        intent.getStringExtra("adb_track_type")
+                            ?.trim()
+                            ?.uppercase(Locale.US)
+                            ?.let { raw -> runCatching { TrackType.valueOf(raw) }.getOrNull() }
+                            ?: TrackType.VIDEO
+                    importController?.setNextImportTrackType(trackType)
                     importController?.importFromPath(path)
                     window.decorView.postDelayed({
                         playbackController?.nativePlay()
