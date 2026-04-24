@@ -139,8 +139,13 @@ class PreviewActivity : AppCompatActivity() {
     }
 
     private fun loadVideo() {
-        // Try to load video from standard location
-        val videoPath = "/sdcard/DCIM/Camera/video.mp4"  // Or use intent extra
+        // Try to load video from intent extra if available, else fallback to standard location
+        val videoPathExtra = intent?.getStringExtra("video_path")
+        val videoPath = if (!videoPathExtra.isNullOrEmpty()) {
+            videoPathExtra
+        } else {
+            "/sdcard/DCIM/Camera/video.mp4"
+        }
         
         if (!java.io.File(videoPath).exists()) {
             Log.e(TAG, "Video not found: $videoPath")
