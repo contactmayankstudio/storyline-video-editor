@@ -181,7 +181,12 @@ class PreviewActivity : AppCompatActivity() {
         val timeMs = (progress.toLong() * videoDurationMs) / 1000L
 
         // Render frame at this time (no playback)
-        previewView.seekToTime(timeMs)
+        // Add null check to prevent crash if previewView state is unexpectedly null
+        if (::previewView.isInitialized) {
+            previewView.seekToTime(timeMs)
+        } else {
+            Log.w(TAG, "previewView not initialized during scrubbing")
+        }
 
         // Update time display
         updateTimeDisplay(timeMs)
