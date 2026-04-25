@@ -53,15 +53,18 @@ jobs:
       - name: Restore stable debug keystore
         run: |
           if [ -z "${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}" ]; then
-            echo "::warning::Missing ANDROID_DEBUG_KEYSTORE_B64 secret. Debug APK signature will change across GitHub runs."
-            exit 0
+            echo "::error::Missing ANDROID_DEBUG_KEYSTORE_B64 secret. Refusing to build a drift-signed debug APK."
+            exit 1
           fi
-          mkdir -p "${HOME}/.android"
-          printf '%s' '${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}' | base64 --decode > "${HOME}/.android/debug.keystore"
+          printf '%s' '${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}' | base64 --decode > "${GITHUB_WORKSPACE}/android/debug.keystore.stable"
 
       - name: Build debug APK
         working-directory: android
         env:
+          ANDROID_DEBUG_KEYSTORE_PATH: ${{ github.workspace }}/android/debug.keystore.stable
+          ANDROID_DEBUG_KEYSTORE_PASSWORD: android
+          ANDROID_DEBUG_KEY_ALIAS: androiddebugkey
+          ANDROID_DEBUG_KEY_PASSWORD: android
           AWS_CONTROL_PLANE_URL: ${{ vars.AWS_CONTROL_PLANE_URL }}
           AWS_CONTROL_PLANE_DEVICE_KEY: ${{ secrets.AWS_CONTROL_PLANE_DEVICE_KEY }}
           RELEASE_PORTAL_URL: ${{ vars.RELEASE_PORTAL_URL }}
