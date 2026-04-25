@@ -3999,6 +3999,55 @@ Java_com_video_engine_VideoPreviewView_nativeSeekPreview(
     LOGD("[Preview] seekTo %lldms - rendered immediately", (long long)scrubTime);
 }
 
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativeSetClipPreviewTransform(
+    JNIEnv* env,
+    jobject thiz,
+    jint clipId,
+    jfloat zoom,
+    jfloat panXNorm,
+    jfloat panYNorm,
+    jfloat rotationDeg,
+    jboolean mirrorX) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_preview) {
+        return;
+    }
+    g_preview->setClipPreviewTransform(
+        static_cast<int>(clipId),
+        static_cast<float>(zoom),
+        static_cast<float>(panXNorm),
+        static_cast<float>(panYNorm),
+        static_cast<float>(rotationDeg),
+        mirrorX == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativeClearClipPreviewTransform(
+    JNIEnv* env,
+    jobject thiz,
+    jint clipId) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_preview) {
+        return;
+    }
+    g_preview->clearClipPreviewTransform(static_cast<int>(clipId));
+}
+
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativeClearClipPreviewTransforms(
+    JNIEnv* env,
+    jobject thiz) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_preview) {
+        return;
+    }
+    g_preview->clearClipPreviewTransforms();
+}
+
 /**
  * Load a video file for preview.
  * 

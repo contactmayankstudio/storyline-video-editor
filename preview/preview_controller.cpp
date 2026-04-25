@@ -865,8 +865,15 @@ bool PreviewController::renderTimelineFrameLocked(
     if (activeVisualClips.size() > 1) {
         activeCompositeClips.assign(activeVisualClips.begin() + 1, activeVisualClips.end());
     }
+    const bool hasTransformComposition =
+        hasClipPreviewTransformLocked(activeClip) ||
+        std::any_of(
+            activeCompositeClips.begin(),
+            activeCompositeClips.end(),
+            [&](const std::shared_ptr<Clip>& clip) { return hasClipPreviewTransformLocked(clip); });
     const bool shouldCompositeAdditionalLayers =
-        !activeCompositeClips.empty() && !shouldBypassOverlayCompositionLocked();
+        (!activeCompositeClips.empty() || hasTransformComposition) &&
+        (!shouldBypassOverlayCompositionLocked() || hasTransformComposition);
 
     int64_t sourceSeekMs = clampedTimelineMs;
     int activeClipId = -1;
@@ -1090,6 +1097,12 @@ bool PreviewController::renderTimelineFrameLocked(
             base.texture = m_texture.get();
             base.opacity = activeClip ? activeClip->getProperties().opacity : 1.0f;
             if (activeClip) {
+                const auto transform = clipPreviewTransformLocked(static_cast<int>(activeClip->getId()));
+                base.zoom = transform.zoom;
+                base.panXNorm = transform.panXNorm;
+                base.panYNorm = transform.panYNorm;
+                base.rotationDeg = transform.rotationDeg;
+                base.mirrorX = transform.mirrorX;
                 const auto& ck = activeClip->getChromaKey();
                 base.chromaEnabled = ck.enabled;
                 base.blueKey = (ck.color == Clip::ChromaKeyParams::KeyColor::Blue);
@@ -1173,6 +1186,12 @@ bool PreviewController::renderTimelineFrameLocked(
             GPU::EGLRenderer::Layer layer;
             layer.texture = state.texture.get();
             layer.opacity = clip->getProperties().opacity;
+            const auto transform = clipPreviewTransformLocked(clipId);
+            layer.zoom = transform.zoom;
+            layer.panXNorm = transform.panXNorm;
+            layer.panYNorm = transform.panYNorm;
+            layer.rotationDeg = transform.rotationDeg;
+            layer.mirrorX = transform.mirrorX;
             const auto& ck = clip->getChromaKey();
             layer.chromaEnabled = ck.enabled;
             layer.blueKey = (ck.color == Clip::ChromaKeyParams::KeyColor::Blue);
@@ -1593,6 +1612,21 @@ bool PreviewController::shouldBypassOverlayCompositionLocked() const {
         m_frameDropOverloadScore >= 8;
 }
 
+PreviewController::ClipPreviewTransform PreviewController::clipPreviewTransformLocked(int clipId) const {
+    auto it = m_clipPreviewTransforms.find(clipId);
+    if (it == m_clipPreviewTransforms.end()) {
+        return {};
+    }
+    return it->second;
+}
+
+bool PreviewController::hasClipPreviewTransformLocked(const std::shared_ptr<Clip>& clip) const {
+    if (!clip) {
+        return false;
+    }
+    return !clipPreviewTransformLocked(static_cast<int>(clip->getId())).isIdentity();
+}
+
 void PreviewController::setGhostPreviewEnabled(bool enabled) {
     std::lock_guard<std::mutex> lock(m_playbackMutex);
     m_ghostPreviewEnabled = enabled;
@@ -1622,6 +1656,43 @@ void PreviewController::setAdaptiveFrameDropPolicy(bool enabled, int targetFps, 
 void PreviewController::setDirtyRegionRedrawEnabled(bool enabled) {
     std::lock_guard<std::mutex> lock(m_playbackMutex);
     m_dirtyRegionRedrawEnabled = enabled;
+}
+
+void PreviewController::setClipPreviewTransform(
+    int clipId,
+    float zoom,
+    float panXNorm,
+    float panYNorm,
+    float rotationDeg,
+    bool mirrorX) {
+    if (clipId <= 0) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(m_playbackMutex);
+    ClipPreviewTransform transform;
+    transform.zoom = std::max(1.0f, zoom);
+    transform.panXNorm = std::clamp(panXNorm, -1.0f, 1.0f);
+    transform.panYNorm = std::clamp(panYNorm, -1.0f, 1.0f);
+    transform.rotationDeg = std::clamp(rotationDeg, -180.0f, 180.0f);
+    transform.mirrorX = mirrorX;
+    if (transform.isIdentity()) {
+        m_clipPreviewTransforms.erase(clipId);
+    } else {
+        m_clipPreviewTransforms[clipId] = transform;
+    }
+}
+
+void PreviewController::clearClipPreviewTransform(int clipId) {
+    if (clipId <= 0) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(m_playbackMutex);
+    m_clipPreviewTransforms.erase(clipId);
+}
+
+void PreviewController::clearClipPreviewTransforms() {
+    std::lock_guard<std::mutex> lock(m_playbackMutex);
+    m_clipPreviewTransforms.clear();
 }
 
 void PreviewController::setPredictiveCachingPolicy(

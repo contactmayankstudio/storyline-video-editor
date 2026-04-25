@@ -8,9 +8,11 @@
 #include <mutex>
 #include <deque>
 #include <map>
+#include <unordered_map>
 #include <vector>
 #include <condition_variable>
 #include <chrono>
+#include <cmath>
 
 #include "core/clip.h"
 #include "backend/ffmpeg/video_decoder.h"
@@ -219,6 +221,15 @@ public:
      * Enabled mode redraws only changed screen rects for overlay/sticker edits.
      */
     void setDirtyRegionRedrawEnabled(bool enabled);
+    void setClipPreviewTransform(
+        int clipId,
+        float zoom,
+        float panXNorm,
+        float panYNorm,
+        float rotationDeg,
+        bool mirrorX);
+    void clearClipPreviewTransform(int clipId);
+    void clearClipPreviewTransforms();
 
     /**
      * Predictive frame caching controls for scrubbing.
@@ -253,6 +264,22 @@ private:
         int64_t ptsMs = 0;
     };
 
+    struct ClipPreviewTransform {
+        float zoom = 1.0f;
+        float panXNorm = 0.0f;
+        float panYNorm = 0.0f;
+        float rotationDeg = 0.0f;
+        bool mirrorX = false;
+
+        bool isIdentity() const {
+            return std::fabs(zoom - 1.0f) <= 0.001f &&
+                std::fabs(panXNorm) <= 0.001f &&
+                std::fabs(panYNorm) <= 0.001f &&
+                std::fabs(rotationDeg) <= 0.001f &&
+                !mirrorX;
+        }
+    };
+
     // Timeline state
     std::shared_ptr<Timeline> m_timeline;
 
@@ -275,6 +302,7 @@ private:
         int64_t sequentialDecodeWindowMs = 420;
     };
     std::map<int, ClipDecodeState> m_clipDecoders; // clipId -> state
+    std::unordered_map<int, ClipPreviewTransform> m_clipPreviewTransforms;
 
     // Playback state
     std::atomic<bool> m_isPlaying;
@@ -385,6 +413,8 @@ private:
     void stopPredictivePrefetchWorker();
     void updateAdaptiveOverloadScoreLocked(int64_t renderCostMs);
     bool shouldBypassOverlayCompositionLocked() const;
+    ClipPreviewTransform clipPreviewTransformLocked(int clipId) const;
+    bool hasClipPreviewTransformLocked(const std::shared_ptr<Clip>& clip) const;
 
     mutable std::mutex m_playbackMutex;
 

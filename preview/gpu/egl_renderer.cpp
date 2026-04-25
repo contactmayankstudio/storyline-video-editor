@@ -42,6 +42,13 @@ out vec4 outColor;
 
 uniform sampler2D textureSampler;
 uniform float uOpacity;
+uniform bool uTransformEnabled;
+uniform vec2 uViewportSize;
+uniform vec2 uTextureSize;
+uniform float uZoom;
+uniform vec2 uPanNorm;
+uniform float uRotationDeg;
+uniform bool uMirrorX;
 uniform bool uChromaEnabled;
 uniform vec3 uChromaKeyColor;
 uniform float uChromaSimilarity;
@@ -52,7 +59,42 @@ uniform float uContrast;
 uniform float uSaturation;
 
 void main() {
-    vec4 color = texture(textureSampler, fragTexCoord);
+    vec2 sampleCoord = fragTexCoord;
+    if (uTransformEnabled) {
+        vec2 viewportSize = max(uViewportSize, vec2(1.0));
+        vec2 textureSize = max(uTextureSize, vec2(1.0));
+        float sourceAspect = textureSize.x / max(textureSize.y, 1.0);
+        float viewportAspect = viewportSize.x / max(viewportSize.y, 1.0);
+        vec2 baseRenderedSize;
+        if (sourceAspect > viewportAspect) {
+            baseRenderedSize = vec2(viewportSize.y * sourceAspect, viewportSize.y);
+        } else {
+            baseRenderedSize = vec2(viewportSize.x, viewportSize.x / max(sourceAspect, 0.0001));
+        }
+        vec2 renderedSize = max(baseRenderedSize * max(uZoom, 1.0), vec2(1.0));
+        vec2 maxPanPx = max((renderedSize - viewportSize) * 0.5, vec2(0.0));
+        vec2 localPx = (fragTexCoord - vec2(0.5)) * viewportSize;
+        localPx -= clamp(uPanNorm, vec2(-1.0), vec2(1.0)) * maxPanPx;
+
+        float angleRad = radians(uRotationDeg);
+        float cosA = cos(angleRad);
+        float sinA = sin(angleRad);
+        localPx = vec2(
+            (localPx.x * cosA) + (localPx.y * sinA),
+            (-localPx.x * sinA) + (localPx.y * cosA)
+        );
+        if (uMirrorX) {
+            localPx.x = -localPx.x;
+        }
+        sampleCoord = (localPx / renderedSize) + vec2(0.5);
+        if (sampleCoord.x < 0.0 || sampleCoord.x > 1.0 ||
+            sampleCoord.y < 0.0 || sampleCoord.y > 1.0) {
+            outColor = vec4(0.0);
+            return;
+        }
+    }
+
+    vec4 color = texture(textureSampler, sampleCoord);
     if (uChromaEnabled) {
         float d = distance(color.rgb, uChromaKeyColor);
         float alpha = smoothstep(uChromaSimilarity, uChromaSimilarity + uChromaSmoothness, d);
@@ -394,12 +436,45 @@ bool EGLRenderer::renderLayers(const std::vector<Layer>& layers) {
 
     GLint texLoc = glGetUniformLocation(m_programId, "textureSampler");
     glUniform1i(texLoc, 0);
+    const GLint transformEnabledLoc = glGetUniformLocation(m_programId, "uTransformEnabled");
+    const GLint viewportSizeLoc = glGetUniformLocation(m_programId, "uViewportSize");
+    const GLint textureSizeLoc = glGetUniformLocation(m_programId, "uTextureSize");
+    const GLint zoomLoc = glGetUniformLocation(m_programId, "uZoom");
+    const GLint panNormLoc = glGetUniformLocation(m_programId, "uPanNorm");
+    const GLint rotationLoc = glGetUniformLocation(m_programId, "uRotationDeg");
+    const GLint mirrorXLoc = glGetUniformLocation(m_programId, "uMirrorX");
 
     for (const auto& layer : layers) {
         if (!layer.texture || !layer.texture->isValid()) continue;
 
         if (m_uOpacityLoc >= 0)
             glUniform1f(m_uOpacityLoc, layer.opacity);
+        const bool transformEnabled =
+            std::fabs(layer.zoom - 1.0f) > 0.001f ||
+            std::fabs(layer.panXNorm) > 0.001f ||
+            std::fabs(layer.panYNorm) > 0.001f ||
+            std::fabs(layer.rotationDeg) > 0.001f ||
+            layer.mirrorX;
+        if (transformEnabledLoc >= 0)
+            glUniform1i(transformEnabledLoc, transformEnabled ? 1 : 0);
+        if (viewportSizeLoc >= 0)
+            glUniform2f(
+                viewportSizeLoc,
+                static_cast<float>(std::max(1, m_viewportWidth)),
+                static_cast<float>(std::max(1, m_viewportHeight)));
+        if (textureSizeLoc >= 0)
+            glUniform2f(
+                textureSizeLoc,
+                static_cast<float>(std::max(1, layer.texture->getWidth())),
+                static_cast<float>(std::max(1, layer.texture->getHeight())));
+        if (zoomLoc >= 0)
+            glUniform1f(zoomLoc, std::max(1.0f, layer.zoom));
+        if (panNormLoc >= 0)
+            glUniform2f(panNormLoc, layer.panXNorm, layer.panYNorm);
+        if (rotationLoc >= 0)
+            glUniform1f(rotationLoc, layer.rotationDeg);
+        if (mirrorXLoc >= 0)
+            glUniform1i(mirrorXLoc, layer.mirrorX ? 1 : 0);
         if (m_uChromaEnabledLoc >= 0)
             glUniform1i(m_uChromaEnabledLoc, layer.chromaEnabled ? 1 : 0);
         if (layer.chromaEnabled) {

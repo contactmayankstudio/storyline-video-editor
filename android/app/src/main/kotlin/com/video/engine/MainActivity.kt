@@ -1336,6 +1336,8 @@ class MainActivity : Activity() {
                         params = mapOf("clipId" to clipId),
                     )
                 }.getOrNull()
+                clipPreviewTransforms.remove(clipId)
+                previewView?.clearClipPreviewTransform(clipId)
                 if (result?.success != true) {
                     previewView?.removeClip(clipId)
                 }
@@ -3718,6 +3720,7 @@ class MainActivity : Activity() {
         videoClipTimingOverrides.clear()
         previewTrimSession = null
         clipPreviewTransforms.clear()
+        preview?.clearClipPreviewTransforms()
         audioClipGainOverrides.clear()
         videoClipGainOverrides.clear()
         videoClipReverseOverrides.clear()
@@ -5302,7 +5305,17 @@ class MainActivity : Activity() {
             videoClipCurveProfiles[clipId]?.let { videoClipCurveProfiles[rightClipId] = it }
             videoClipFreezeOverrides[clipId]?.let { videoClipFreezeOverrides[rightClipId] = it }
             videoClipGainOverrides[clipId]?.let { videoClipGainOverrides[rightClipId] = it }
-            clipPreviewTransforms[clipId]?.let { clipPreviewTransforms[rightClipId] = it.copy() }
+            clipPreviewTransforms[clipId]?.let {
+                val copied = it.copy()
+                clipPreviewTransforms[rightClipId] = copied
+                previewView?.let { preview ->
+                    syncClipPreviewTransformToNative(
+                        clipId = rightClipId,
+                        transform = copied,
+                        preview = preview,
+                    )
+                }
+            }
             duckingEnabledForKey[clipId.toString()]?.let {
                 duckingEnabledForKey[rightClipId.toString()] = it
             }
@@ -5809,6 +5822,8 @@ class MainActivity : Activity() {
         if (!result.success) {
             return false
         }
+        clipPreviewTransforms.remove(clipId)
+        previewView?.clearClipPreviewTransform(clipId)
         videoClipReverseOverrides.remove(clipId)
         videoClipFreezeOverrides.remove(clipId)
         videoClipCurveProfiles.remove(clipId)
@@ -6255,29 +6270,23 @@ class MainActivity : Activity() {
     private fun applySelectedClipPreviewTransform() {
         val preview = previewView ?: return
         val clipId = selectedVideoClipId()
-        val rawTransform = clipId?.let { clipPreviewTransforms[it] } ?: ClipPreviewTransform()
-        val transform =
-            if (clipId != null) {
-                normalizeClipPreviewTransform(clipId, rawTransform, preview).also { normalized ->
-                    if (normalized != rawTransform) {
-                        clipPreviewTransforms[clipId] = normalized
-                    }
-                }
-            } else {
-                rawTransform
+        if (preview.scaleX != 1f) preview.scaleX = 1f
+        if (preview.scaleY != 1f) preview.scaleY = 1f
+        if (preview.translationX != 0f) preview.translationX = 0f
+        if (preview.translationY != 0f) preview.translationY = 0f
+        if (preview.rotation != 0f) preview.rotation = 0f
+        if (clipId != null) {
+            val rawTransform = clipPreviewTransforms[clipId] ?: ClipPreviewTransform()
+            val transform = normalizeClipPreviewTransform(clipId, rawTransform, preview)
+            if (transform != rawTransform) {
+                clipPreviewTransforms[clipId] = transform
             }
-        val targetScaleX = (if (transform.mirrorX) -1f else 1f) * transform.zoom
-        val targetScaleY = transform.zoom
-        val targetTranslationX = transform.panXPx
-        val targetTranslationY = transform.panYPx
-        val targetRotation = transform.rotationDeg
-        preview.pivotX = preview.width * 0.5f
-        preview.pivotY = preview.height * 0.5f
-        if (preview.scaleX != targetScaleX) preview.scaleX = targetScaleX
-        if (preview.scaleY != targetScaleY) preview.scaleY = targetScaleY
-        if (preview.translationX != targetTranslationX) preview.translationX = targetTranslationX
-        if (preview.translationY != targetTranslationY) preview.translationY = targetTranslationY
-        if (preview.rotation != targetRotation) preview.rotation = targetRotation
+            syncClipPreviewTransformToNative(
+                clipId = clipId,
+                transform = transform,
+                preview = preview,
+            )
+        }
         if (shouldShowDirectPreviewEdit()) {
             refreshPreviewCropStatus()
         }
@@ -6403,6 +6412,46 @@ class MainActivity : Activity() {
             panYPx = transform.panYPx.coerceIn(-maxPanY, maxPanY).let { if (abs(it) < centerSnapThreshold) 0f else it },
             rotationDeg = transform.rotationDeg.coerceIn(-180f, 180f).let { if (abs(it) < 0.75f) 0f else it },
         )
+    }
+
+    private fun syncClipPreviewTransformToNative(
+        clipId: Int,
+        transform: ClipPreviewTransform,
+        preview: View,
+    ) {
+        val previewApi = previewView ?: return
+        val normalized = normalizeClipPreviewTransform(clipId, transform, preview)
+        val (maxPanX, maxPanY) = resolvePreviewPanBounds(clipId, normalized.zoom, preview)
+        val panXNorm =
+            if (maxPanX > 0.5f) {
+                (normalized.panXPx / maxPanX).coerceIn(-1f, 1f)
+            } else {
+                0f
+            }
+        val panYNorm =
+            if (maxPanY > 0.5f) {
+                (normalized.panYPx / maxPanY).coerceIn(-1f, 1f)
+            } else {
+                0f
+            }
+        val isIdentity =
+            normalized.zoom <= 1.001f &&
+                abs(panXNorm) <= 0.001f &&
+                abs(panYNorm) <= 0.001f &&
+                abs(normalized.rotationDeg) <= 0.001f &&
+                !normalized.mirrorX
+        if (isIdentity) {
+            previewApi.clearClipPreviewTransform(clipId)
+        } else {
+            previewApi.setClipPreviewTransform(
+                clipId = clipId,
+                zoom = normalized.zoom,
+                panXNorm = panXNorm,
+                panYNorm = panYNorm,
+                rotationDeg = normalized.rotationDeg,
+                mirrorX = normalized.mirrorX,
+            )
+        }
     }
 
     private fun updateNativeClipTiming(

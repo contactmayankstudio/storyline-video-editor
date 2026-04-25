@@ -650,6 +650,44 @@ class VideoPreviewView @JvmOverloads constructor(
         return nativeLoadVideo(videoPath)
     }
 
+    fun setClipPreviewTransform(
+        clipId: Int,
+        zoom: Float,
+        panXNorm: Float,
+        panYNorm: Float,
+        rotationDeg: Float,
+        mirrorX: Boolean,
+    ) {
+        try {
+            nativeSetClipPreviewTransform(
+                clipId,
+                zoom.coerceAtLeast(1.0f),
+                panXNorm.coerceIn(-1.0f, 1.0f),
+                panYNorm.coerceIn(-1.0f, 1.0f),
+                rotationDeg.coerceIn(-180.0f, 180.0f),
+                mirrorX,
+            )
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "nativeSetClipPreviewTransform JNI not implemented")
+        }
+    }
+
+    fun clearClipPreviewTransform(clipId: Int) {
+        try {
+            nativeClearClipPreviewTransform(clipId)
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "nativeClearClipPreviewTransform JNI not implemented")
+        }
+    }
+
+    fun clearClipPreviewTransforms() {
+        try {
+            nativeClearClipPreviewTransforms()
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "nativeClearClipPreviewTransforms JNI not implemented")
+        }
+    }
+
     // ============ JNI NATIVE METHODS ============
     // These are implemented in native_preview.cpp
 
@@ -685,6 +723,17 @@ class VideoPreviewView @JvmOverloads constructor(
      * Seek to timeline position and render one frame.
      */
     private external fun nativeSeekPreview(timelineMs: Long)
+
+    private external fun nativeSetClipPreviewTransform(
+        clipId: Int,
+        zoom: Float,
+        panXNorm: Float,
+        panYNorm: Float,
+        rotationDeg: Float,
+        mirrorX: Boolean,
+    )
+    private external fun nativeClearClipPreviewTransform(clipId: Int)
+    private external fun nativeClearClipPreviewTransforms()
 
     /**
      * Native: Add text overlay (create texture from text bitmap on native side).

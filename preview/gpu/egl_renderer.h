@@ -81,6 +81,11 @@ public:
     struct Layer {
         const GLTexture* texture = nullptr;
         float opacity = 1.0f;
+        float zoom = 1.0f;
+        float panXNorm = 0.0f;
+        float panYNorm = 0.0f;
+        float rotationDeg = 0.0f;
+        bool mirrorX = false;
         bool chromaEnabled = false;
         bool blueKey = false;
         float chromaSimilarity = 0.35f;
