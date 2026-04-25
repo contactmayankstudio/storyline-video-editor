@@ -256,6 +256,7 @@ class MainActivity : Activity() {
     // UI References
     private var previewView: VideoPreviewView? = null
     private var previewContainerView: FrameLayout? = null
+    private var previewViewportFrame: FrameLayout? = null
     private var previewEmptyStateView: View? = null
     private var previewCropOverlayView: View? = null
     private var previewCropFrameGuideView: View? = null
@@ -1019,6 +1020,11 @@ class MainActivity : Activity() {
         val previewContainer = findViewById<FrameLayout>(R.id.previewContainer)
         val previewStageHost = findViewById<FrameLayout>(R.id.previewStageHost)
         previewContainerView = previewStageHost
+        previewViewportFrame =
+            FrameLayout(this).apply {
+                clipChildren = true
+                clipToPadding = true
+            }
         previewEmptyStateView = findViewById(R.id.previewEmptyState)
         previewCropOverlayView = findViewById(R.id.previewCropOverlay)
         previewCropFrameGuideView = findViewById(R.id.previewCropFrameGuide)
@@ -1156,11 +1162,20 @@ class MainActivity : Activity() {
 
         // Create VideoPreviewView
         previewView = VideoPreviewView(this)
+        val viewportFrame = previewViewportFrame ?: FrameLayout(this)
+        previewStageHost.addView(
+            viewportFrame,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                Gravity.CENTER,
+            ),
+        )
         val params = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
+            FrameLayout.LayoutParams.MATCH_PARENT,
         )
-        previewStageHost.addView(previewView, params)
+        viewportFrame.addView(previewView, params)
 
         // Check if native library is loaded
         if (!VideoPreviewView.isNativeLibraryLoaded()) {
@@ -1172,9 +1187,9 @@ class MainActivity : Activity() {
         overlayContainer = FrameLayout(this)
         val overlayLp = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
+            FrameLayout.LayoutParams.MATCH_PARENT,
         )
-        previewStageHost.addView(overlayContainer, overlayLp)
+        viewportFrame.addView(overlayContainer, overlayLp)
         previewStageHost.clipToOutline = true
         previewEmptyStateView?.bringToFront()
         previewCropOverlayView?.bringToFront()
@@ -1826,6 +1841,7 @@ class MainActivity : Activity() {
 
     private fun applyPreviewAspectRatio() {
         val container = previewContainerView ?: return
+        val viewportFrame = previewViewportFrame ?: return
         val preview = previewView ?: return
         val overlay = overlayContainer ?: return
         if (container.width <= 0 || container.height <= 0) {
@@ -1848,8 +1864,15 @@ class MainActivity : Activity() {
 
         val needsResize = targetWidth != lastAppliedAspectWidth || targetHeight != lastAppliedAspectHeight
         if (needsResize) {
-            preview.layoutParams = FrameLayout.LayoutParams(targetWidth, targetHeight, Gravity.CENTER)
-            overlay.layoutParams = FrameLayout.LayoutParams(targetWidth, targetHeight, Gravity.CENTER)
+            viewportFrame.layoutParams = FrameLayout.LayoutParams(targetWidth, targetHeight, Gravity.CENTER)
+            preview.layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            )
+            overlay.layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            )
             previewEmptyStateView?.layoutParams = FrameLayout.LayoutParams(targetWidth, targetHeight, Gravity.CENTER)
             previewCropOverlayView?.layoutParams = FrameLayout.LayoutParams(targetWidth, targetHeight, Gravity.CENTER)
             lastAppliedAspectWidth = targetWidth
