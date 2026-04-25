@@ -5,7 +5,6 @@ import android.os.Looper
 import android.util.Log
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 
 class RemoteCommandManager(
@@ -15,44 +14,58 @@ class RemoteCommandManager(
 ) {
     companion object {
         private const val TAG = "[RemoteCmd]"
+        private const val POLL_INTERVAL_MS = 3_500L
     }
 
     private val firestore = FirebaseFirestore.getInstance()
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var registration: ListenerRegistration? = null
     private val inFlightCommandIds = mutableSetOf<String>()
+    private var active = false
+    private val pollRunnable =
+        object : Runnable {
+            override fun run() {
+                if (!active) return
+                pollLatestCommand()
+                mainHandler.postDelayed(this, POLL_INTERVAL_MS)
+            }
+        }
 
     fun start() {
-        if (registration != null) return
+        if (active) return
         val installationId = installationIdProvider().trim()
         if (installationId.isEmpty()) {
             Log.w(TAG, "Skipping remote command listener: missing installation id")
             return
         }
-
-        registration =
-            firestore.collection("ops_device_channels")
-                .document(installationId)
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        Log.w(TAG, "Remote command listener failed: ${error.message}")
-                        return@addSnapshotListener
-                    }
-                    val document = snapshot ?: return@addSnapshotListener
-                    if (!document.exists()) return@addSnapshotListener
-                    val status = document.getString("status").orEmpty().trim()
-                    val commandId = document.getString("commandId").orEmpty().trim()
-                    val command = document.getString("command").orEmpty().trim()
-                    if (status != "queued" || commandId.isEmpty() || command.isEmpty()) return@addSnapshotListener
-                    if (!inFlightCommandIds.add(commandId)) return@addSnapshotListener
-                    handleCommand(installationId, commandId, command)
-                }
+        active = true
+        mainHandler.post(pollRunnable)
     }
 
     fun close() {
-        registration?.remove()
-        registration = null
+        active = false
+        mainHandler.removeCallbacks(pollRunnable)
         inFlightCommandIds.clear()
+    }
+
+    private fun pollLatestCommand() {
+        val installationId = installationIdProvider().trim()
+        if (installationId.isEmpty()) return
+        firestore.collection("ops_device_channels")
+            .document(installationId)
+            .get()
+            .addOnSuccessListener { document ->
+                if (!document.exists()) return@addOnSuccessListener
+                val status = document.getString("status").orEmpty().trim()
+                val commandId = document.getString("commandId").orEmpty().trim()
+                val command = document.getString("command").orEmpty().trim()
+                if (status != "queued" || commandId.isEmpty() || command.isEmpty()) return@addOnSuccessListener
+                if (!inFlightCommandIds.add(commandId)) return@addOnSuccessListener
+                Log.d(TAG, "Queued phone command detected id=$commandId command=$command")
+                handleCommand(installationId, commandId, command)
+            }
+            .addOnFailureListener { error ->
+                Log.w(TAG, "Remote command poll failed: ${error.message}")
+            }
     }
 
     private fun handleCommand(installationId: String, commandId: String, command: String) {
