@@ -226,7 +226,9 @@ class PreviewActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        previewView.stopPlayback()
+        if (::previewView.isInitialized) {
+            previewView.stopPlayback()
+        }
         super.onDestroy()
     }
 }
