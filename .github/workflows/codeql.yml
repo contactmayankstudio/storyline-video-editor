@@ -31,8 +31,27 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check code scanning availability
+        id: code_scanning
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          status="$(curl -s -o /tmp/code-scanning.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/alerts?per_page=1")"
+          if [ "${status}" = "200" ]; then
+            echo "enabled=true" >> "${GITHUB_OUTPUT}"
+            echo "Code scanning API is available."
+          else
+            echo "enabled=false" >> "${GITHUB_OUTPUT}"
+            echo "::warning::Skipping CodeQL upload because code scanning is not enabled for ${GITHUB_REPOSITORY} (HTTP ${status})."
+          fi
+
       - name: Set up JDK 17
-        if: matrix.language == 'java-kotlin'
+        if: steps.code_scanning.outputs.enabled == 'true' && matrix.language == 'java-kotlin'
         uses: actions/setup-java@v4
         with:
           java-version: "17"
@@ -40,7 +59,7 @@ jobs:
           cache: gradle
 
       - name: Restore google-services.json
-        if: matrix.language == 'java-kotlin'
+        if: steps.code_scanning.outputs.enabled == 'true' && matrix.language == 'java-kotlin'
         working-directory: android
         env:
           ANDROID_GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
@@ -52,18 +71,19 @@ jobs:
           printf '%s' "${ANDROID_GOOGLE_SERVICES_JSON}" > app/google-services.json
 
       - name: Make Gradle wrapper executable
-        if: matrix.language == 'java-kotlin'
+        if: steps.code_scanning.outputs.enabled == 'true' && matrix.language == 'java-kotlin'
         working-directory: android
         run: chmod +x gradlew
 
       - name: Initialize CodeQL
+        if: steps.code_scanning.outputs.enabled == 'true'
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           queries: security-extended,security-and-quality
 
       - name: Build Android sources for CodeQL
-        if: matrix.language == 'java-kotlin'
+        if: steps.code_scanning.outputs.enabled == 'true' && matrix.language == 'java-kotlin'
         working-directory: android
         env:
           ANDROID_GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
@@ -75,4 +95,14 @@ jobs:
           ./gradlew assembleDebug --console=plain
 
       - name: Perform CodeQL Analysis
+        if: steps.code_scanning.outputs.enabled == 'true'
         uses: github/codeql-action/analyze@v4
+
+      - name: Skip summary when code scanning is unavailable
+        if: steps.code_scanning.outputs.enabled != 'true'
+        run: |
+          {
+            echo "## CodeQL"
+            echo ""
+            echo "Skipped because GitHub code scanning is not enabled for this repository."
+          } >> "${GITHUB_STEP_SUMMARY}"

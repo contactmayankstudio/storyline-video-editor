@@ -45,12 +45,38 @@ jobs:
     env:
       FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
       FIREBASE_RESULTS_BUCKET: ${{ vars.FIREBASE_RESULTS_BUCKET }}
+      FIREBASE_TEST_LAB_CREDENTIALS_JSON: ${{ secrets.FIREBASE_TEST_LAB_SERVICE_ACCOUNT_JSON || secrets.FIREBASE_OPS_SERVICE_ACCOUNT_JSON }}
+      ANDROID_GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check Firebase Test Lab configuration
+        id: preflight
+        run: |
+          set -euo pipefail
+          missing=0
+          if [ -z "${FIREBASE_PROJECT_ID}" ]; then
+            echo "::warning::Missing FIREBASE_PROJECT_ID repository variable."
+            missing=1
+          fi
+          if [ -z "${FIREBASE_TEST_LAB_CREDENTIALS_JSON}" ]; then
+            echo "::warning::Missing Firebase Test Lab service account secret. Expected FIREBASE_TEST_LAB_SERVICE_ACCOUNT_JSON or FIREBASE_OPS_SERVICE_ACCOUNT_JSON."
+            missing=1
+          fi
+          if [ -z "${ANDROID_GOOGLE_SERVICES_JSON}" ]; then
+            echo "::warning::Missing ANDROID_GOOGLE_SERVICES_JSON repository secret."
+            missing=1
+          fi
+          if [ "${missing}" -eq 0 ]; then
+            echo "ready=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "ready=false" >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Set up JDK 17
+        if: steps.preflight.outputs.ready == 'true'
         uses: actions/setup-java@v4
         with:
           java-version: "17"
@@ -58,25 +84,25 @@ jobs:
           cache: gradle
 
       - name: Authenticate to Google Cloud
+        if: steps.preflight.outputs.ready == 'true'
         uses: google-github-actions/auth@v3
         with:
-          credentials_json: ${{ secrets.FIREBASE_TEST_LAB_SERVICE_ACCOUNT_JSON }}
+          credentials_json: ${{ env.FIREBASE_TEST_LAB_CREDENTIALS_JSON }}
 
       - name: Set up gcloud
+        if: steps.preflight.outputs.ready == 'true'
         uses: google-github-actions/setup-gcloud@v3
         with:
           project_id: ${{ vars.FIREBASE_PROJECT_ID }}
 
       - name: Restore google-services.json
+        if: steps.preflight.outputs.ready == 'true'
         working-directory: android
         run: |
-          if [ -z "${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}" ]; then
-            echo "Missing repository secret ANDROID_GOOGLE_SERVICES_JSON"
-            exit 1
-          fi
-          printf '%s' '${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}' > app/google-services.json
+          printf '%s' "${ANDROID_GOOGLE_SERVICES_JSON}" > app/google-services.json
 
       - name: Restore stable debug keystore
+        if: steps.preflight.outputs.ready == 'true'
         run: |
           if [ -z "${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}" ]; then
             echo "::warning::Missing ANDROID_DEBUG_KEYSTORE_B64 secret. Continuing with default debug signing."
@@ -86,14 +112,17 @@ jobs:
           printf '%s' '${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}' | base64 --decode > "${HOME}/.android/debug.keystore"
 
       - name: Make Gradle wrapper executable
+        if: steps.preflight.outputs.ready == 'true'
         working-directory: android
         run: chmod +x gradlew
 
       - name: Build debug APK
+        if: steps.preflight.outputs.ready == 'true'
         working-directory: android
         run: ./gradlew assembleDebug --console=plain
 
       - name: Run Robo test in Firebase Test Lab
+        if: steps.preflight.outputs.ready == 'true'
         env:
           INPUT_DEVICE_MODEL: ${{ inputs.device_model }}
           INPUT_ANDROID_VERSION: ${{ inputs.android_version }}
@@ -143,7 +172,17 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload Firebase Test Lab log
+        if: steps.preflight.outputs.ready == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: firebase-test-lab-log
           path: firebase-test-lab.log
+
+      - name: Skip summary when Firebase Test Lab is not configured
+        if: steps.preflight.outputs.ready != 'true'
+        run: |
+          {
+            echo "## Firebase Test Lab"
+            echo ""
+            echo "Skipped because project variables or service account credentials are not configured."
+          } >> "${GITHUB_STEP_SUMMARY}"
