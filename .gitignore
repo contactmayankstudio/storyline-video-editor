@@ -47,3 +47,7 @@ Makefile
 **/.env.*
 crash-fix-server/.env
 .vercel
+
+# AWS local deploy artifacts
+aws/control-plane/deploy-output.json
+aws/control-plane/__pycache__/

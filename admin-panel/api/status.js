@@ -1,5 +1,6 @@
 const { getConfig, getLatestRunSummary } = require("./_lib/github");
 const { getAiConfig } = require("./_lib/ai");
+const { getAwsControlPlaneConfig, hasAwsControlPlaneConfig } = require("./_lib/aws-control-plane");
 const { requireAdmin, sendAdminError } = require("./_lib/admin");
 
 const DEFAULT_RELEASE_PORTAL_URL = (process.env.RELEASE_PORTAL_URL || "https://apk-host-swart.vercel.app").replace(/\/$/, "");
@@ -19,6 +20,7 @@ module.exports = async function handler(req, res) {
 
     const githubConfig = getConfig();
     const aiConfig = getAiConfig();
+    const awsConfig = getAwsControlPlaneConfig();
     const geminiConfigured = Boolean(aiConfig.providers.find((provider) => provider.id === "gemini")?.configured);
 
     try {
@@ -47,6 +49,8 @@ module.exports = async function handler(req, res) {
                 releasePortalUrl: DEFAULT_RELEASE_PORTAL_URL,
                 apkDownloadUrl: getApkDownloadUrl(),
                 deviceBridgeConfigured: Boolean(process.env.STORYLINE_DEVICE_BRIDGE_URL && process.env.STORYLINE_DEVICE_BRIDGE_TOKEN),
+                awsControlPlaneConfigured: hasAwsControlPlaneConfig(),
+                awsControlPlaneUrl: awsConfig.url || "",
             },
             build,
             message,
@@ -66,6 +70,8 @@ module.exports = async function handler(req, res) {
                 releasePortalUrl: DEFAULT_RELEASE_PORTAL_URL,
                 apkDownloadUrl: getApkDownloadUrl(),
                 deviceBridgeConfigured: Boolean(process.env.STORYLINE_DEVICE_BRIDGE_URL && process.env.STORYLINE_DEVICE_BRIDGE_TOKEN),
+                awsControlPlaneConfigured: hasAwsControlPlaneConfig(),
+                awsControlPlaneUrl: awsConfig.url || "",
             },
         });
     }
