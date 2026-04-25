@@ -102,7 +102,9 @@ class PreviewActivity : AppCompatActivity() {
                     Log.d(TAG, "[Scrub] Start dragging")
                     isScrubbingActive = true
                     // Stop any playback
-                    previewView.stopPlayback()
+                    if (::previewView.isInitialized) {
+                        previewView.stopPlayback()
+                    }
                 }
 
                 override fun onStopTrackingTouch(seekBar: SeekBar) {
@@ -217,11 +219,15 @@ class PreviewActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        previewView.onResume()
+        if (::previewView.isInitialized) {
+            previewView.onResume()
+        }
     }
 
     override fun onPause() {
-        previewView.onPause()
+        if (::previewView.isInitialized) {
+            previewView.onPause()
+        }
         super.onPause()
     }
 
