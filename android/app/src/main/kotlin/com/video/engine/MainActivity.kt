@@ -355,6 +355,8 @@ class MainActivity : Activity() {
     private var previewTrimSession: PreviewTrimSession? = null
     private var previewTrimStartRawX = 0f
     private var previewTrimLastDispatchElapsedMs = 0L
+    private var lastPreviewEditableSelectionKey: String? = null
+    private var previewSelectionStickyUntilElapsedMs = 0L
 
     private val undoDomains = ArrayDeque<UndoDomain>()
     private val redoDomains = ArrayDeque<UndoDomain>()
@@ -1219,8 +1221,20 @@ class MainActivity : Activity() {
                         updateUndoRedoButtons()
                         return@selectionChanged
                     }
+                    val existingVisualSelectionKey = selectedTimelineClipKey
+                    val nowElapsedMs = SystemClock.elapsedRealtime()
+                    val shouldKeepVisualSelection =
+                        existingVisualSelectionKey != null &&
+                            parseNativeClipId(existingVisualSelectionKey) != null &&
+                            (isPlaying || nowElapsedMs < previewSelectionStickyUntilElapsedMs)
+                    if (shouldKeepVisualSelection) {
+                        updateBottomToolbarMode()
+                        updateUndoRedoButtons()
+                        return@selectionChanged
+                    }
                 }
                 selectedTimelineClipKey = selectedClipId?.let(::selectionKeyForNativeClipId)
+                rememberPreviewEditableSelection(selectedTimelineClipKey)
                 updateBottomToolbarMode()
                 updateUndoRedoButtons()
                 if (selectedClipId != null) {
@@ -1351,6 +1365,9 @@ class MainActivity : Activity() {
             playheadTimeMsProvider = { currentPlayheadMs() },
             isPlayingProvider = { isPlaying },
             onImportStarted = { path, trackType ->
+                if (::uiFreezeWatchdog.isInitialized) {
+                    uiFreezeWatchdog.suspendFor(10_000L)
+                }
                 if (::opsReporter.isInitialized) {
                     opsReporter.startTrace(
                         slot = "visual_import",
@@ -1398,6 +1415,7 @@ class MainActivity : Activity() {
                 timelineManager?.dispatchScrub(revealTimeMs)
                 val clipKey = selectionKeyForNativeClipId(clipId)
                 selectedTimelineClipKey = clipKey
+                rememberPreviewEditableSelection(clipKey)
                 multiTrackTimelineView?.setSelectedClipId(clipKey)
                 multiTrackTimelineView?.revealClip(clipKey)
                 multiTrackTimelineView?.setCurrentTimeMs(revealTimeMs)
@@ -1424,6 +1442,9 @@ class MainActivity : Activity() {
             nextAudioClipIdProvider = { nextAudioClipId },
             setNextAudioClipId = { nextAudioClipId = it },
             onImportStarted = { path ->
+                if (::uiFreezeWatchdog.isInitialized) {
+                    uiFreezeWatchdog.suspendFor(8_000L)
+                }
                 if (::opsReporter.isInitialized) {
                     opsReporter.startTrace(
                         slot = "audio_import",
@@ -1859,6 +1880,8 @@ class MainActivity : Activity() {
             previewTransformScaleAccumulator = 1.0f
             previewTrimSession = null
             previewView?.setLayerType(View.LAYER_TYPE_NONE, null)
+        } else if (selectedClipKind() == ClipKind.NONE) {
+            restorePreviewEditableSelection()
         }
         syncPreviewCropModeUi()
         applySelectedClipPreviewTransform()
@@ -1899,6 +1922,65 @@ class MainActivity : Activity() {
     private fun canUsePreviewCropMode(): Boolean {
         return (selectedClipKind() == ClipKind.VIDEO || selectedClipKind() == ClipKind.OVERLAY) &&
             selectedVideoClipId() != null
+    }
+
+    private fun rememberPreviewEditableSelection(selectionKey: String?) {
+        val normalizedKey = normalizeTimelineSelectionKey(selectionKey)
+        val clipId = parseNativeClipId(normalizedKey) ?: return
+        when (nativeClipTrackType[clipId]) {
+            TrackType.VIDEO,
+            TrackType.OVERLAY,
+            TrackType.LAYER,
+            -> {
+                lastPreviewEditableSelectionKey = normalizedKey
+                previewSelectionStickyUntilElapsedMs = SystemClock.elapsedRealtime() + 2_500L
+            }
+            else -> Unit
+        }
+    }
+
+    private fun resolvePreviewEditableClipAtPlayhead(playheadMs: Long): Int? {
+        val candidateClipIds = linkedSetOf<Int>().apply {
+            addAll(nativeClipStartMs.keys)
+            addAll(nativeClipDurationMs.keys)
+            addAll(timelineManager?.getClips().orEmpty().map { it.id })
+            timelineManager?.getSelectedClipId()?.let { add(it) }
+        }.filter { clipId ->
+            when (nativeClipTrackType[clipId]) {
+                TrackType.VIDEO,
+                TrackType.OVERLAY,
+                TrackType.LAYER,
+                -> true
+                else -> false
+            }
+        }
+        val matchingIds =
+            candidateClipIds.filter { clipId ->
+                val timing = selectedVideoTiming(clipId) ?: return@filter false
+                val startMs = timing.first
+                val endMs = startMs + timing.second.coerceAtLeast(1L)
+                playheadMs in startMs until endMs
+            }
+        return matchingIds.maxWithOrNull(
+            compareBy<Int> { nativeClipZOrder[it] ?: 0 }
+                .thenBy<Int> { nativeClipStartMs[it] ?: 0L }
+                .thenBy { it },
+        )
+    }
+
+    private fun restorePreviewEditableSelection() {
+        if (selectedClipKind() != ClipKind.NONE || isPlaying) return
+        val currentPlayhead = currentPlayheadMs().coerceAtLeast(0L)
+        val stickyKey =
+            lastPreviewEditableSelectionKey?.takeIf { key ->
+                val clipId = parseNativeClipId(key) ?: return@takeIf false
+                val timing = selectedVideoTiming(clipId) ?: return@takeIf false
+                currentPlayhead in timing.first until (timing.first + timing.second.coerceAtLeast(1L))
+            }
+        val resolvedKey = stickyKey ?: resolvePreviewEditableClipAtPlayhead(currentPlayhead)?.let(::selectionKeyForNativeClipId)
+        resolvedKey?.let {
+            selectTimelineClipKey(it, revealPreview = false)
+        }
     }
 
     private fun shouldShowDirectPreviewEdit(): Boolean {
@@ -4614,6 +4696,9 @@ class MainActivity : Activity() {
         if (!ensureTrackEditable(TrackType.VIDEO, "import")) return
         importController?.setNextImportTrackType(TrackType.VIDEO)
         noteAppHealthAction("video_import_picker_opened")
+        if (::uiFreezeWatchdog.isInitialized) {
+            uiFreezeWatchdog.suspendFor(12_000L)
+        }
         val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
             type = "*/*"
             putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("video/*", "image/*"))
@@ -4626,6 +4711,9 @@ class MainActivity : Activity() {
         if (!ensureTrackEditable(TrackType.OVERLAY, "import")) return
         importController?.setNextImportTrackType(TrackType.OVERLAY)
         noteAppHealthAction("overlay_import_picker_opened")
+        if (::uiFreezeWatchdog.isInitialized) {
+            uiFreezeWatchdog.suspendFor(12_000L)
+        }
         val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
             type = "*/*"
             putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("video/*", "image/*"))
@@ -4638,6 +4726,9 @@ class MainActivity : Activity() {
         if (!ensureTrackEditable(TrackType.LAYER, "import")) return
         importController?.setNextImportTrackType(TrackType.LAYER)
         noteAppHealthAction("layer_import_picker_opened")
+        if (::uiFreezeWatchdog.isInitialized) {
+            uiFreezeWatchdog.suspendFor(12_000L)
+        }
         val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
             type = "*/*"
             putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("video/*", "image/*"))
@@ -4649,6 +4740,9 @@ class MainActivity : Activity() {
     private fun openAudioTrackImport() {
         if (!ensureTrackEditable(TrackType.AUDIO, "import")) return
         noteAppHealthAction("audio_import_picker_opened")
+        if (::uiFreezeWatchdog.isInitialized) {
+            uiFreezeWatchdog.suspendFor(10_000L)
+        }
         audioImportController?.openPicker(PICK_AUDIO_REQUEST)
     }
 
@@ -6679,6 +6773,7 @@ class MainActivity : Activity() {
     private fun selectTimelineClipKey(key: String, revealPreview: Boolean = false): Boolean {
         val normalizedKey = normalizeTimelineSelectionKey(key) ?: key
         selectedTimelineClipKey = normalizedKey
+        rememberPreviewEditableSelection(normalizedKey)
         parseTimelineManagedClipId(normalizedKey)?.let { managedId ->
             timelineManager?.selectClip(managedId)
         }

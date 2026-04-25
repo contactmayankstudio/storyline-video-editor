@@ -18,6 +18,7 @@ class UiFreezeWatchdog(
 
     @Volatile private var lastMainTickAtMs = 0L
     @Volatile private var freezeReported = false
+    @Volatile private var suspendedUntilUptimeMs = 0L
 
     private val mainTickRunnable = object : Runnable {
         override fun run() {
@@ -32,7 +33,14 @@ class UiFreezeWatchdog(
     private val monitorRunnable = object : Runnable {
         override fun run() {
             if (!running.get()) return
-            val stallMs = (SystemClock.uptimeMillis() - lastMainTickAtMs).coerceAtLeast(0L)
+            val now = SystemClock.uptimeMillis()
+            if (now < suspendedUntilUptimeMs) {
+                lastMainTickAtMs = now
+                freezeReported = false
+                monitorHandler.postDelayed(this, sampleIntervalMs)
+                return
+            }
+            val stallMs = (now - lastMainTickAtMs).coerceAtLeast(0L)
             if (stallMs >= freezeThresholdMs && !freezeReported) {
                 freezeReported = true
                 onFreezeDetected(stallMs)
@@ -55,6 +63,13 @@ class UiFreezeWatchdog(
         if (!running.compareAndSet(true, false)) return
         mainHandler.removeCallbacks(mainTickRunnable)
         monitorHandler.removeCallbacks(monitorRunnable)
+    }
+
+    fun suspendFor(durationMs: Long) {
+        val now = SystemClock.uptimeMillis()
+        suspendedUntilUptimeMs = maxOf(suspendedUntilUptimeMs, now + durationMs.coerceAtLeast(sampleIntervalMs))
+        lastMainTickAtMs = now
+        freezeReported = false
     }
 
     fun close() {
