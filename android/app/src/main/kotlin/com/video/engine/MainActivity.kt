@@ -585,8 +585,7 @@ class MainActivity : Activity() {
         importMediaBtn.setOnClickListener {
             noteUiButtonTap("start_import_media", "start_screen")
             setStartScreenVisible(false)
-            NativeBridge.executeCommand("RESET_TIMELINE", emptyMap())
-            clearEditorShellState()
+            resetEditorToBlankState(showToast = false)
             openVideoTrackImport()
         }
 
@@ -3510,6 +3509,7 @@ class MainActivity : Activity() {
         StickerClipStore.all().map { it.id }.forEach { StickerClipStore.remove(it) }
         AudioClipStore.clear()
         previewAudioPlayer?.pause()
+        NativeBridge.syncAudioClips()
         timelineManager?.syncClips(emptyList(), recordHistory = false, clearHistory = true)
         timelineManager?.selectClip(null)
         videoClipTimingOverrides.clear()
@@ -3559,16 +3559,71 @@ class MainActivity : Activity() {
         refreshMainTimelineTracks()
     }
 
-    private fun startBlankProject(showToast: Boolean) {
+    private fun collectNativeTimelineClipIds(preview: VideoPreviewView): List<Int> {
+        val clipIds = linkedSetOf<Int>()
+        runCatching { NativeBridge.getClipIds(preview).toList() }
+            .getOrDefault(emptyList())
+            .filter { it > 0 }
+            .forEach { clipIds += it }
+        if (clipIds.isNotEmpty()) {
+            return clipIds.toList()
+        }
+
+        val layoutClips =
+            runCatching {
+                NativeBridge.executeCommand("GET_TIMELINE_LAYOUT").data?.optJSONArray("clips")
+            }.getOrNull()
+        if (layoutClips != null) {
+            for (index in 0 until layoutClips.length()) {
+                val clip = layoutClips.optJSONObject(index) ?: continue
+                val clipId = clip.optInt("clipId", -1)
+                if (clipId > 0) {
+                    clipIds += clipId
+                }
+            }
+        }
+        return clipIds.toList()
+    }
+
+    private fun clearNativeTimelineState(preview: VideoPreviewView): Int {
+        val removedClipIds = linkedSetOf<Int>()
+        repeat(4) { pass ->
+            val clipIds = collectNativeTimelineClipIds(preview)
+            if (clipIds.isEmpty()) {
+                if (pass > 0) {
+                    Log.i(TAG, "[Automation] native timeline cleared after pass=${pass + 1} removed=${removedClipIds.size}")
+                }
+                return removedClipIds.size
+            }
+            clipIds.forEach { clipId ->
+                removedClipIds += clipId
+                NativeBridge.removeClip(preview, clipId)
+            }
+        }
+        val remainingClipIds = collectNativeTimelineClipIds(preview)
+        if (remainingClipIds.isNotEmpty()) {
+            Log.w(TAG, "[Automation] native timeline still has clips after reset: ${remainingClipIds.joinToString()}")
+        }
+        return removedClipIds.size
+    }
+
+    private fun resetEditorToBlankState(showToast: Boolean) {
         setStartScreenVisible(false)
-        NativeBridge.executeCommand("RESET_TIMELINE", emptyMap())
+        val removedNativeClips =
+            previewView?.let { preview ->
+                clearNativeTimelineState(preview)
+            } ?: 0
         clearEditorShellState()
         previewView?.let { NativeBridge.seekToTime(it, 0L) }
         refreshMainTimelineTracks()
         if (showToast) {
             safeToast("New Project Created", Toast.LENGTH_SHORT)
         }
-        Log.i(TAG, "[Automation] blank project ready")
+        Log.i(TAG, "[Automation] blank project ready removedNativeClips=$removedNativeClips")
+    }
+
+    private fun startBlankProject(showToast: Boolean) {
+        resetEditorToBlankState(showToast = showToast)
     }
 
     private fun scheduleAutomationSmokeVideoTrim(attempt: Int = 0) {
