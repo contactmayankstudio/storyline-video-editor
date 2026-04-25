@@ -248,6 +248,7 @@ class MainActivity : Activity() {
         private const val AUTOMATION_SMOKE_DURATION_MS = 15_000L
         private const val MIN_PREVIEW_TRIM_DURATION_MS = 150L
         private const val PREVIEW_TRIM_DISPATCH_INTERVAL_MS = 90L
+        private const val PREVIEW_TRIM_EDGE_TOUCH_SLOP_DP = 28f
     }
 
     // UI References
@@ -2087,6 +2088,7 @@ class MainActivity : Activity() {
         findViewById<View?>(R.id.previewCropActionRail)?.visibility = View.GONE
         val showTrimHandles =
             showCropUi &&
+                previewTrimSession != null &&
                 selectedVideoClipId()?.let(::canPreviewTrimClip) == true
         previewTrimStartHandleView?.visibility = if (showTrimHandles) View.VISIBLE else View.GONE
         previewTrimEndHandleView?.visibility = if (showTrimHandles) View.VISIBLE else View.GONE
@@ -6435,6 +6437,7 @@ class MainActivity : Activity() {
                 previewTrimStartRawX = event.rawX
                 previewTrimLastDispatchElapsedMs = 0L
                 playbackController?.nativePause()
+                syncPreviewCropModeUi()
                 noteUiButtonTap("crop_trim_$edge", "preview_crop")
                 return true
             }
@@ -6456,6 +6459,7 @@ class MainActivity : Activity() {
                 val timing = buildPreviewTrimSnapshot(session, event.rawX - previewTrimStartRawX)
                 val committed = dispatchPreviewTrimUpdate(session = session, timing = timing, previewOnly = false)
                 previewTrimSession = null
+                syncPreviewCropModeUi()
                 return if (committed) {
                     videoClipTimingOverrides.remove(session.clipId)
                     syncTimelineShellFromNative(selectedClipId = session.clipId)
@@ -6478,10 +6482,36 @@ class MainActivity : Activity() {
                     restorePreviewTrimState(it, dispatchPreview = true)
                 }
                 previewTrimSession = null
+                syncPreviewCropModeUi()
                 return true
             }
         }
         return false
+    }
+
+    private fun resolvePreviewTrimEdge(event: MotionEvent): String? {
+        val frameWidthPx = (previewCropFrameGuideView?.width ?: 0).coerceAtLeast(1)
+        val edgeTouchSlopPx = maxOf(18f, resources.displayMetrics.density * PREVIEW_TRIM_EDGE_TOUCH_SLOP_DP)
+        val touchX = event.x.coerceIn(0f, frameWidthPx.toFloat())
+        return when {
+            touchX <= edgeTouchSlopPx -> "start"
+            touchX >= frameWidthPx - edgeTouchSlopPx -> "end"
+            else -> null
+        }
+    }
+
+    private fun handlePreviewFrameTouch(event: MotionEvent): Boolean {
+        if (!shouldShowDirectPreviewEdit()) return false
+        previewTrimSession?.edge?.let { activeEdge ->
+            return handlePreviewTrimTouch(activeEdge, event)
+        }
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            val edge = resolvePreviewTrimEdge(event)
+            if (edge != null && selectedVideoClipId()?.let(::canPreviewTrimClip) == true) {
+                return handlePreviewTrimTouch(edge, event)
+            }
+        }
+        return handlePreviewTransformTouch(event)
     }
 
     private fun setupPreviewTransformGestures() {
@@ -6538,7 +6568,7 @@ class MainActivity : Activity() {
             },
         )
         previewCropFrameGuideView?.setOnTouchListener { _, event ->
-            handlePreviewTransformTouch(event)
+            handlePreviewFrameTouch(event)
         }
         overlayContainer?.setOnTouchListener { _, event ->
             handlePreviewTransformTouch(event)
