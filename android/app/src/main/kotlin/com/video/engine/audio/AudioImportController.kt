@@ -41,13 +41,11 @@ class AudioImportController(
             val imported = importResolvedAudioPath(quickSample.absolutePath)
             if (imported != null) {
                 Log.d(TAG, "Audio quick import success: id=${imported.id} path=${imported.sourcePath} duration=${imported.durationMs}ms")
-                Toast.makeText(activity, "Audio quick import: ${imported.displayName}", Toast.LENGTH_SHORT).show()
                 return
             }
             Log.w(TAG, "Audio quick import failed for: ${quickSample.absolutePath}")
         }
         Log.d(TAG, "Audio quick import unavailable, opening picker")
-        Toast.makeText(activity, "Choose audio file", Toast.LENGTH_SHORT).show()
         openPicker(requestCode)
     }
 
@@ -59,7 +57,6 @@ class AudioImportController(
             TAG,
             "Audio quick import success: id=${imported.id} path=${imported.sourcePath} duration=${imported.durationMs}ms",
         )
-        Toast.makeText(activity, "Audio quick import: ${imported.displayName}", Toast.LENGTH_SHORT).show()
         return true
     }
 
@@ -102,7 +99,6 @@ class AudioImportController(
             return true
         }
         Log.d(TAG, "Audio picker import success: id=${imported.id} path=${imported.sourcePath} duration=${imported.durationMs}ms")
-        Toast.makeText(activity, "Audio added: ${imported.displayName}", Toast.LENGTH_SHORT).show()
         return true
     }
 

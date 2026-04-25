@@ -1378,12 +1378,6 @@ class MainActivity : Activity() {
                 multiTrackTimelineView?.revealClip(clipKey)
                 multiTrackTimelineView?.setCurrentTimeMs(revealTimeMs)
                 Log.d(TAG, "Clip import complete: id=$clipId track=$trackType duration=${importedDurationMs}ms ext=$fileExtension")
-                val toastLabel = when (trackType) {
-                    TrackType.OVERLAY -> "Overlay"
-                    TrackType.LAYER -> "Layer"
-                    else -> "Clip"
-                }
-                safeToast("$toastLabel added (ID: $clipId)", Toast.LENGTH_SHORT)
                 when (trackType) {
                     TrackType.VIDEO,
                     TrackType.LAYER,
@@ -1461,9 +1455,6 @@ class MainActivity : Activity() {
                     TAG,
                     "Audio import complete: id=${audioClip.id} name=${audioClip.displayName} duration=${audioClip.durationMs}ms path=${audioClip.sourcePath} peaks=${audioClip.peakLevels.size}",
                 )
-                if (audioClip.peakLevels.isEmpty()) {
-                    safeToast("Audio lane updated: ${audioClip.displayName}", Toast.LENGTH_SHORT)
-                }
                 noteAppHealthAction("audio_clip_imported")
             },
             nativeClipCreator = { path, startTimeMs, layerIndex ->
