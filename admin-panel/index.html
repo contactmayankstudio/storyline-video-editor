@@ -638,12 +638,13 @@
 
             <section class="card card-wide">
                 <h2>AI Chat Console</h2>
-                <p>Normal back-and-forth chat for Storyline. This is the right place for prompts like “preview audio issue explain karo”, “export crash ka next fix kya hai”, or “Gemini CLI bridge ka architecture batao”.</p>
+                <p>Normal back-and-forth chat for Storyline. This is the right place for prompts like “preview audio issue explain karo”, “export crash ka next fix kya hai”, or “Gemini CLI bridge ka architecture batao”. Chat is now codebase-aware and can use Storyline repo context, playback and export paths, admin automation, and MCP tooling in its replies.</p>
                 <div class="toolbar">
                     <select id="chat-provider">
                         <option value="auto">Auto Provider Chain</option>
                     </select>
                     <button type="button" class="ghost-button" id="chat-build-button">Use Latest Build</button>
+                    <button type="button" class="ghost-button" id="chat-codebase-button">Use Codebase Map</button>
                     <button type="button" class="ghost-button" id="chat-clear-button">Clear Chat</button>
                 </div>
                 <div class="chat-thread" id="chat-thread"></div>
@@ -750,6 +751,7 @@
         const chatStatus = document.getElementById("chat-status");
         const chatClearButton = document.getElementById("chat-clear-button");
         const chatBuildButton = document.getElementById("chat-build-button");
+        const chatCodebaseButton = document.getElementById("chat-codebase-button");
 
         const state = {
             latestBuild: null,
@@ -1037,6 +1039,7 @@
             chatSendButton,
             chatClearButton,
             chatBuildButton,
+            chatCodebaseButton,
         ];
 
         function setPill(element, text, tone) {
@@ -2000,6 +2003,35 @@
             chatStatus.textContent = "Chat cleared";
         }
 
+        async function appendCodebaseContextToChatInput() {
+            if (!state.adminSession) {
+                chatStatus.textContent = "Sign in with an allowed admin account first";
+                return;
+            }
+
+            try {
+                chatStatus.textContent = "Loading codebase map...";
+                const query = chatInput.value.trim();
+                const response = await authorizedFetch(`/api/codebase-context${query ? `?q=${encodeURIComponent(query)}` : ""}`);
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || "Could not load codebase context");
+                }
+
+                const lines = [
+                    "Relevant Storyline codebase context:",
+                    data.summary,
+                    "",
+                    ...(data.selectedFiles || []).map((file) => `- ${file.path}: ${file.summary}`),
+                ];
+                chatInput.value = `${chatInput.value.trim()}\n${lines.join("\n")}`.trim();
+                chatStatus.textContent = "Codebase context inserted";
+            } catch (error) {
+                console.error(error);
+                chatStatus.textContent = error.message;
+            }
+        }
+
         function insertLatestBuildContext() {
             if (!state.latestBuild) {
                 aiStatus.textContent = "No build context loaded yet";
@@ -2064,11 +2096,13 @@
                 state.chatMessages.push({
                     role: "assistant",
                     content: data.reply,
-                    meta: `${data.providerLabel} • ${data.model || "n/a"}`,
+                    meta: `${data.providerLabel} • ${data.model || "n/a"}${data.codebaseFiles?.length ? ` • ${data.codebaseFiles.length} code files` : ""}`,
                 });
                 saveChatHistory();
                 renderChatMessages();
-                chatStatus.textContent = `Reply via ${data.providerLabel}`;
+                chatStatus.textContent = data.codebaseFiles?.length
+                    ? `Reply via ${data.providerLabel} with codebase context`
+                    : `Reply via ${data.providerLabel}`;
             } catch (error) {
                 console.error(error);
                 chatStatus.textContent = error.message;
@@ -2150,6 +2184,7 @@
         chatSendButton.addEventListener("click", sendChatMessage);
         chatClearButton.addEventListener("click", clearChat);
         chatBuildButton.addEventListener("click", appendLatestBuildToChatInput);
+        chatCodebaseButton.addEventListener("click", appendCodebaseContextToChatInput);
         chatInput.addEventListener("keydown", (event) => {
             if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
                 event.preventDefault();

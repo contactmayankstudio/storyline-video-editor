@@ -1,5 +1,6 @@
 const { getLatestRunSummary } = require("./_lib/github");
 const { generateTextWithFallback } = require("./_lib/ai");
+const { getCodebaseContext } = require("./_lib/codebase");
 const { requireAdmin, sendAdminError } = require("./_lib/admin");
 
 function sanitizeMessages(messages) {
@@ -17,7 +18,7 @@ function sanitizeMessages(messages) {
         .slice(-12);
 }
 
-function buildPrompt(messages, build) {
+function buildPrompt(messages, build, codebaseContext) {
     const conversation = messages
         .map((message) => `${message.role.toUpperCase()}: ${message.content}`)
         .join("\n\n");
@@ -31,6 +32,12 @@ function buildPrompt(messages, build) {
         "",
         "Latest build context:",
         JSON.stringify(build || {}, null, 2),
+        "",
+        "Relevant codebase context:",
+        JSON.stringify(codebaseContext || {}, null, 2),
+        "",
+        "Use the codebase context whenever the user is asking about bugs, architecture, automation, playback, import/export, Firebase, GitHub workflows, admin panel behavior, or MCP integration.",
+        "Mention concrete file paths when they are relevant.",
         "",
         "Conversation:",
         conversation || "USER: Hello",
@@ -54,7 +61,9 @@ module.exports = async function handler(req, res) {
         }
 
         const latestBuild = await getLatestRunSummary().catch(() => null);
-        const prompt = buildPrompt(sanitizedMessages, latestBuild);
+        const latestUserMessage = sanitizedMessages[sanitizedMessages.length - 1]?.content || "";
+        const codebaseContext = getCodebaseContext(latestUserMessage, { maxEntries: 5 });
+        const prompt = buildPrompt(sanitizedMessages, latestBuild, codebaseContext);
         const aiResponse = await generateTextWithFallback(prompt, {
             preferredProvider: providerPreference,
         });
@@ -65,6 +74,7 @@ module.exports = async function handler(req, res) {
             providerLabel: aiResponse.providerLabel,
             model: aiResponse.model,
             attempts: aiResponse.attempts,
+            codebaseFiles: codebaseContext.selectedFiles.map((file) => file.path),
         });
     } catch (error) {
         if (error.status) {
