@@ -727,6 +727,7 @@ class MainActivity : Activity() {
             },
         )
         remoteCommandManager = RemoteCommandManager(
+            context = this,
             installationIdProvider = { appHealthReporter.installationId() },
             sessionIdProvider = { debugTelemetryManager.sessionId },
             onExecute = ::executePhoneCommand,

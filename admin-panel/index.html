@@ -820,8 +820,10 @@
             healthUnsubscribeInstallations: null,
             healthUnsubscribeCrashes: null,
             healthUnsubscribeReports: null,
+            healthAwsPollTimer: null,
             triagingReportIds: new Set(),
             liveInstallations: [],
+            awsControlPlaneConfigured: false,
         };
 
         function applyPortalLinks(config = {}) {
@@ -883,6 +885,10 @@
             state.healthUnsubscribeInstallations = null;
             state.healthUnsubscribeCrashes = null;
             state.healthUnsubscribeReports = null;
+            if (state.healthAwsPollTimer) {
+                window.clearInterval(state.healthAwsPollTimer);
+            }
+            state.healthAwsPollTimer = null;
             state.triagingReportIds.clear();
         }
 
@@ -935,15 +941,13 @@
                 : "Keep Storyline open on the target phone.";
         }
 
-        function renderInstallationHealthFeed(snapshot) {
-            if (!snapshot?.docs?.length) {
+        function renderInstallationHealthDocs(docs) {
+            if (!docs?.length) {
                 state.liveInstallations = [];
                 renderDeviceCommandTargets([]);
                 healthInstallationsBlock.textContent = "No live app-open signals yet. Once Storyline launches on a device, the latest installation health feed will appear here.";
                 return;
             }
-
-            const docs = snapshot.docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
             renderDeviceCommandTargets(docs);
             const counts = { live: 0, recent: 0, stale: 0, unknown: 0 };
             for (const { data } of docs) {
@@ -973,6 +977,35 @@
                 );
             }
             healthInstallationsBlock.textContent = lines.join("\n");
+        }
+
+        function renderInstallationHealthFeed(snapshot) {
+            const docs = snapshot?.docs?.map((doc) => ({ id: doc.id, data: doc.data() || {} })) || [];
+            renderInstallationHealthDocs(docs);
+        }
+
+        async function loadAwsInstallationHealth() {
+            if (!state.adminSession || !state.awsControlPlaneConfigured) {
+                return;
+            }
+
+            try {
+                const response = await authorizedFetch("/api/aws-devices");
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || "AWS device feed unavailable");
+                }
+                const docs = (data.devices || []).map((device) => ({
+                    id: device.installationId,
+                    data: device,
+                }));
+                if (docs.length) {
+                    renderInstallationHealthDocs(docs);
+                    healthNote.textContent = "Live device health is available from AWS control plane and Firestore.";
+                }
+            } catch (error) {
+                console.error(error);
+            }
         }
 
         function renderCrashFeed(snapshot) {
@@ -1773,6 +1806,7 @@
                 }
 
                 state.latestBuild = data.build;
+                state.awsControlPlaneConfigured = Boolean(data.config?.awsControlPlaneConfigured);
                 buildStatus.textContent = formatBuildSummary(data);
                 renderProviders(data.config?.providers || [], data.config?.providerOrder || []);
                 applyPortalLinks(data.config || {});
@@ -1805,7 +1839,7 @@
         }
 
         async function sendPhoneCommand(command) {
-            if (!state.adminSession || !state.firestore) {
+            if (!state.adminSession) {
                 deviceCommandStatus.textContent = "Sign in with an allowed admin account first.";
                 return;
             }
@@ -1817,24 +1851,43 @@
             }
 
             const target = state.liveInstallations.find(({ id }) => id === installationId);
-            const now = Date.now();
-            const commandRef = doc(state.firestore, "ops_device_channels", installationId);
-            const payload = {
-                commandId: `${command}_${now}`,
-                targetInstallationId: installationId,
-                command,
-                source: "admin-panel",
-                issuedBy: state.currentUser?.email || "admin",
-                createdAtMs: now,
-                createdAt: serverTimestamp(),
-                updatedAtMs: now,
-                updatedAt: serverTimestamp(),
-                status: "queued",
-            };
-
             deviceCommandStatus.textContent = `Queueing ${command}...`;
             try {
-                await setDoc(commandRef, payload);
+                if (state.awsControlPlaneConfigured) {
+                    const response = await authorizedFetch("/api/aws-command", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                            installationId,
+                            command,
+                        }),
+                    });
+                    const data = await response.json();
+                    if (!response.ok) {
+                        throw new Error(data.error || "Failed to queue AWS phone command.");
+                    }
+                } else {
+                    if (!state.firestore) {
+                        throw new Error("Firestore is not ready in this browser session.");
+                    }
+                    const now = Date.now();
+                    const commandRef = doc(state.firestore, "ops_device_channels", installationId);
+                    const payload = {
+                        commandId: `${command}_${now}`,
+                        targetInstallationId: installationId,
+                        command,
+                        source: "admin-panel",
+                        issuedBy: state.currentUser?.email || "admin",
+                        createdAtMs: now,
+                        createdAt: serverTimestamp(),
+                        updatedAtMs: now,
+                        updatedAt: serverTimestamp(),
+                        status: "queued",
+                    };
+                    await setDoc(commandRef, payload);
+                }
                 deviceCommandStatus.textContent = `Queued ${command} for ${target?.data?.deviceManufacturer || "Unknown"} ${target?.data?.deviceModel || "Device"}.`;
             } catch (error) {
                 console.error(error);
@@ -1930,6 +1983,12 @@
 
             stopHealthFeedListeners();
             healthNote.textContent = "Live device health is streaming from Firestore. App installs write last-seen pings directly, and open problem reports auto-triage into GitHub issues while this admin panel is online.";
+            if (state.awsControlPlaneConfigured) {
+                void loadAwsInstallationHealth();
+                state.healthAwsPollTimer = window.setInterval(() => {
+                    void loadAwsInstallationHealth();
+                }, 20000);
+            }
 
             try {
                 const installationsQuery = query(

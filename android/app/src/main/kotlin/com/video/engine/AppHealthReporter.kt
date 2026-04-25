@@ -8,6 +8,7 @@ import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -26,6 +27,7 @@ class AppHealthReporter(
     private val prefs: SharedPreferences =
         appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private val firestore = FirebaseFirestore.getInstance()
+    private val awsControlPlaneClient = AwsControlPlaneClient(appContext)
     private val crashlytics = FirebaseCrashlytics.getInstance()
     private val writerExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "app-health-writer").apply { isDaemon = true }
@@ -129,6 +131,23 @@ class AppHealthReporter(
             "androidVersion" to Build.VERSION.RELEASE,
             "source" to "android-client",
         )
+        val awsPayload =
+            JSONObject()
+                .put("installationId", installationId)
+                .put("sessionId", sessionSnapshot)
+                .put("updatedAtMs", now)
+                .put("appState", appStateSnapshot)
+                .put("currentScreen", screenSnapshot)
+                .put("lastAction", actionSnapshot)
+                .put("hasProjectContent", hasProjectContentSnapshot)
+                .put("isPlaying", isPlayingSnapshot)
+                .put("versionName", packageInfo()?.versionName ?: "unknown")
+                .put("versionCode", packageVersionCode().toInt())
+                .put("packageName", appContext.packageName)
+                .put("deviceModel", Build.MODEL)
+                .put("deviceManufacturer", Build.MANUFACTURER)
+                .put("androidVersion", Build.VERSION.RELEASE)
+                .put("source", "android-client")
 
         writerExecutor.execute {
             runCatching {
@@ -146,6 +165,9 @@ class AppHealthReporter(
                     }
             }.onFailure { error ->
                 Log.w(TAG, "Failed to queue health ping: ${error.message}")
+            }
+            if (awsControlPlaneClient.isConfigured()) {
+                awsControlPlaneClient.postHeartbeat(awsPayload)
             }
         }
     }

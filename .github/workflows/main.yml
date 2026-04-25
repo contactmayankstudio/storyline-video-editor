@@ -61,6 +61,9 @@ jobs:
 
       - name: Build debug APK
         working-directory: android
+        env:
+          AWS_CONTROL_PLANE_URL: ${{ vars.AWS_CONTROL_PLANE_URL }}
+          AWS_CONTROL_PLANE_DEVICE_KEY: ${{ secrets.AWS_CONTROL_PLANE_DEVICE_KEY }}
         run: ./gradlew assembleDebug
 
       - name: Upload debug APK

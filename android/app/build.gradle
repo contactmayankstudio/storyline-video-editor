@@ -14,6 +14,10 @@ def bundledRuntimeLibNames = [
     "libswresample.so",
     "libswscale.so",
 ]
+def envStringResourceValue = { name ->
+    def raw = System.getenv(name) ?: ""
+    return "\"${raw.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+}
 android {
     namespace = "com.video.engine"
     compileSdk = 34
@@ -30,6 +34,8 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
+        resValue "string", "aws_control_plane_url", envStringResourceValue("AWS_CONTROL_PLANE_URL")
+        resValue "string", "aws_control_plane_device_key", envStringResourceValue("AWS_CONTROL_PLANE_DEVICE_KEY")
         
         externalNativeBuild {
             cmake {
@@ -171,6 +177,7 @@ dependencies {
     implementation 'com.google.firebase:firebase-firestore-ktx'
     implementation 'com.google.firebase:firebase-messaging-ktx'
     implementation 'com.google.android.gms:play-services-ads:23.6.0'
+    implementation 'androidx.annotation:annotation:1.7.1'
 
     // Testing
     testImplementation "junit:junit:4.13.2"

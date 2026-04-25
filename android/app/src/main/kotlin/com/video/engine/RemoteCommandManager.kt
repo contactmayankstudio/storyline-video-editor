@@ -3,14 +3,17 @@ package com.video.engine
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.content.Context
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.Source
+import java.util.concurrent.Executors
 
 class RemoteCommandManager(
+    context: Context,
     private val installationIdProvider: () -> String,
     private val sessionIdProvider: () -> String,
     private val onExecute: (command: String, commandId: String) -> Pair<Boolean, String>,
@@ -22,12 +25,17 @@ class RemoteCommandManager(
     }
 
     private val firestore = FirebaseFirestore.getInstance()
+    private val awsControlPlaneClient = AwsControlPlaneClient(context)
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val awsPollExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "aws-command-poll").apply { isDaemon = true }
+    }
     private val inFlightCommandIds = mutableSetOf<String>()
     private var listenerRegistration: ListenerRegistration? = null
     private var active = false
     private var pollAttempt = 0
     private var pollRequestInFlight = false
+    private var awsPollRequestInFlight = false
     private var lastObservedState = ""
     private val pollRunnable =
         object : Runnable {
@@ -58,6 +66,8 @@ class RemoteCommandManager(
         listenerRegistration = null
         inFlightCommandIds.clear()
         pollRequestInFlight = false
+        awsPollRequestInFlight = false
+        awsPollExecutor.shutdown()
     }
 
     private fun attachLiveListener(installationId: String) {
@@ -98,6 +108,7 @@ class RemoteCommandManager(
         if (pollAttempt == 1 || pollAttempt % POLL_HEARTBEAT_EVERY == 0) {
             Log.d(TAG, "Polling command channel installation=$installationId attempt=$pollAttempt")
         }
+        pollAwsCommands(installationId)
         firestore.collection("ops_device_channels")
             .document(installationId)
             .get(Source.SERVER)
@@ -144,6 +155,30 @@ class RemoteCommandManager(
             }
     }
 
+    private fun pollAwsCommands(installationId: String) {
+        if (!awsControlPlaneClient.isConfigured() || awsPollRequestInFlight) return
+        awsPollRequestInFlight = true
+        awsPollExecutor.execute {
+            try {
+                val queued = awsControlPlaneClient.pollQueuedCommands(installationId)
+                queued.forEach { command ->
+                    if (!inFlightCommandIds.add(command.commandId)) return@forEach
+                    Log.i(TAG, "Queued phone command detected via aws id=${command.commandId} command=${command.command}")
+                    mainHandler.post {
+                        handleCommand(
+                            installationId = command.installationId,
+                            commandId = command.commandId,
+                            command = command.command,
+                            backend = "aws",
+                        )
+                    }
+                }
+            } finally {
+                awsPollRequestInFlight = false
+            }
+        }
+    }
+
     private fun processSnapshot(
         installationId: String,
         documentExists: Boolean,
@@ -176,10 +211,10 @@ class RemoteCommandManager(
         if (status != "queued" || commandId.isEmpty() || command.isEmpty()) return
         if (!inFlightCommandIds.add(commandId)) return
         Log.i(TAG, "Queued phone command detected via $sourceTag id=$commandId command=$command")
-        handleCommand(installationId, commandId, command)
+        handleCommand(installationId, commandId, command, backend = "firestore")
     }
 
-    private fun handleCommand(installationId: String, commandId: String, command: String) {
+    private fun handleCommand(installationId: String, commandId: String, command: String, backend: String) {
         Log.i(TAG, "Handling phone command id=$commandId command=$command installation=$installationId")
         markStatus(
             installationId = installationId,
@@ -187,6 +222,7 @@ class RemoteCommandManager(
             status = "running",
             resultMessage = "Dispatching $command",
             includeCompletedAt = false,
+            backend = backend,
         )
 
         mainHandler.post {
@@ -203,6 +239,7 @@ class RemoteCommandManager(
                 status = if (success) "completed" else "failed",
                 resultMessage = resultMessage,
                 includeCompletedAt = true,
+                backend = backend,
             )
             inFlightCommandIds.remove(commandId)
         }
@@ -214,8 +251,20 @@ class RemoteCommandManager(
         status: String,
         resultMessage: String,
         includeCompletedAt: Boolean,
+        backend: String,
     ) {
         val now = System.currentTimeMillis()
+        if (backend == "aws") {
+            awsPollExecutor.execute {
+                awsControlPlaneClient.ackCommand(
+                    installationId = installationId,
+                    commandId = commandId,
+                    status = status,
+                    resultMessage = resultMessage,
+                )
+            }
+            return
+        }
         val payload = hashMapOf<String, Any>(
             "status" to status,
             "updatedAt" to FieldValue.serverTimestamp(),
