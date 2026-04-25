@@ -2,6 +2,16 @@ const { getConfig, getLatestRunSummary } = require("./_lib/github");
 const { getAiConfig } = require("./_lib/ai");
 const { requireAdmin, sendAdminError } = require("./_lib/admin");
 
+const DEFAULT_RELEASE_PORTAL_URL = (process.env.RELEASE_PORTAL_URL || "https://apk-host-swart.vercel.app").replace(/\/$/, "");
+
+function getApkDownloadUrl() {
+    const configured = String(process.env.APK_DOWNLOAD_URL || "").trim();
+    if (configured) {
+        return configured;
+    }
+    return `${DEFAULT_RELEASE_PORTAL_URL}/app.apk`;
+}
+
 module.exports = async function handler(req, res) {
     if (req.method !== "GET") {
         return res.status(405).json({ error: "Method not allowed" });
@@ -34,6 +44,9 @@ module.exports = async function handler(req, res) {
                 providers: aiConfig.providers,
                 repo: `${githubConfig.owner}/${githubConfig.repo}`,
                 workflowName: githubConfig.workflowName,
+                releasePortalUrl: DEFAULT_RELEASE_PORTAL_URL,
+                apkDownloadUrl: getApkDownloadUrl(),
+                deviceBridgeConfigured: Boolean(process.env.STORYLINE_DEVICE_BRIDGE_URL && process.env.STORYLINE_DEVICE_BRIDGE_TOKEN),
             },
             build,
             message,
@@ -50,6 +63,9 @@ module.exports = async function handler(req, res) {
                 aiConfigured: aiConfig.anyConfigured,
                 providerOrder: aiConfig.providerOrder,
                 providers: aiConfig.providers,
+                releasePortalUrl: DEFAULT_RELEASE_PORTAL_URL,
+                apkDownloadUrl: getApkDownloadUrl(),
+                deviceBridgeConfigured: Boolean(process.env.STORYLINE_DEVICE_BRIDGE_URL && process.env.STORYLINE_DEVICE_BRIDGE_TOKEN),
             },
         });
     }

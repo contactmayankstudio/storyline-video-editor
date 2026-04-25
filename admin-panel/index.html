@@ -218,6 +218,17 @@
             transform: none;
         }
 
+        .button-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 14px;
+            text-decoration: none;
+            min-height: 46px;
+            padding: 12px 18px;
+            font-weight: 700;
+        }
+
         .ghost-button {
             background: rgba(255, 255, 255, 0.06);
             color: var(--text);
@@ -488,6 +499,11 @@
                 <button type="button" class="ghost-button hidden" id="auth-sign-out-button">Sign Out</button>
                 <span class="helper" id="auth-note">Sign in with an allowlisted admin Google account to unlock build, AI, and automation controls.</span>
             </div>
+            <div class="toolbar" style="margin-top: 12px;">
+                <a class="button-link ghost-button" id="release-portal-button" href="https://apk-host-swart.vercel.app" target="_blank" rel="noreferrer">Open Update Website</a>
+                <a class="button-link ghost-button" id="apk-download-button" href="https://apk-host-swart.vercel.app/app.apk" target="_blank" rel="noreferrer">Download Latest APK</a>
+                <span class="helper" id="phone-ops-note">Phone-first mode: build, fix, release, and app download can run from this panel. Live adb routes work while the device bridge is online.</span>
+            </div>
             <div class="helper-row" style="margin-top: 10px;">
                 <span class="helper" id="auth-user"></span>
             </div>
@@ -710,6 +726,9 @@
         const authDiagApiKey = document.getElementById("auth-diag-apikey");
         const authDiagStatus = document.getElementById("auth-diag-status");
         const authDiagSteps = document.getElementById("auth-diag-steps");
+        const releasePortalButton = document.getElementById("release-portal-button");
+        const apkDownloadButton = document.getElementById("apk-download-button");
+        const phoneOpsNote = document.getElementById("phone-ops-note");
 
         const buildPill = document.getElementById("build-pill");
         const chainPill = document.getElementById("chain-pill");
@@ -775,6 +794,16 @@
             healthUnsubscribeReports: null,
             triagingReportIds: new Set(),
         };
+
+        function applyPortalLinks(config = {}) {
+            const releasePortalUrl = String(config.releasePortalUrl || releasePortalButton.href || "https://apk-host-swart.vercel.app").trim();
+            const apkDownloadUrl = String(config.apkDownloadUrl || `${releasePortalUrl.replace(/\/$/, "")}/app.apk`).trim();
+            releasePortalButton.href = releasePortalUrl;
+            apkDownloadButton.href = apkDownloadUrl;
+            phoneOpsNote.textContent = config.deviceBridgeConfigured
+                ? "Phone-first mode: build, fix, release, app download, and live adb snapshot/log are online from this panel."
+                : "Phone-first mode: build, fix, release, and app download can run from this panel. Live adb snapshot/log needs the device bridge online.";
+        }
 
         function renderAuthDiagnostics(details = {}) {
             const allowlistReady = Boolean(
@@ -1550,6 +1579,7 @@
                 sensitivityInput.value = saved;
             }
             sensitivityValue.textContent = sensitivityInput.value;
+            applyPortalLinks();
         }
 
         function loadChatHistory() {
@@ -1680,6 +1710,7 @@
                 state.latestBuild = data.build;
                 buildStatus.textContent = formatBuildSummary(data);
                 renderProviders(data.config?.providers || [], data.config?.providerOrder || []);
+                applyPortalLinks(data.config || {});
 
                 if (data.build?.conclusion === "success") {
                     setPill(buildPill, "Build: passing", "success");
