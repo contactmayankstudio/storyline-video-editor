@@ -26,7 +26,6 @@ import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import com.video.engine.UiToast as Toast
-import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.RecyclerView
 import com.video.engine.audio.AudioClip
 import com.video.engine.audio.AudioGainKeyframe
@@ -39,9 +38,6 @@ import com.video.engine.overlay.TextOverlay
 import com.video.engine.overlay.TextOverlayView
 import com.video.engine.pro.model.ClipSegment
 import com.video.engine.pro.model.TrackState
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import com.video.engine.pro.model.TrackType
 import com.video.engine.pro.timeline.MultiTrackTimelineView
 import com.video.engine.stickers.StickerClip
@@ -701,9 +697,9 @@ class MainActivity : Activity() {
         hostedReleaseFetchInFlight = true
         lastHostedReleaseFetchElapsedMs = now
         refreshAiCompanionUi()
-        lifecycleScope.launch(Dispatchers.IO) {
+        commandExecutor.execute {
             val fetched = runCatching { loadHostedReleaseInfo(portalUrl) }.getOrNull()
-            withContext(Dispatchers.Main) {
+            mainHandler.post {
                 hostedReleaseFetchInFlight = false
                 if (fetched != null) {
                     hostedReleaseInfo = fetched
