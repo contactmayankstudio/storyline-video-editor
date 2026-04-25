@@ -356,7 +356,8 @@
                     android:paddingStart="12dp"
                     android:paddingTop="7dp"
                     android:paddingEnd="12dp"
-                    android:paddingBottom="7dp">
+                    android:paddingBottom="7dp"
+                    android:visibility="gone">
 
                     <TextView
                         android:id="@+id/previewCropStatus"
@@ -377,7 +378,8 @@
                     android:layoutDirection="ltr"
                     android:background="@drawable/playback_control_cluster_background"
                     android:gravity="center_vertical"
-                    android:orientation="horizontal">
+                    android:orientation="horizontal"
+                    android:visibility="gone">
 
                     <TextView
                         android:id="@+id/previewCropResetButton"

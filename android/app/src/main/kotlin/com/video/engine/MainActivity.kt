@@ -1207,7 +1207,7 @@ class MainActivity : Activity() {
             currentTimeMsProvider = { currentTimeMs },
             setCurrentTimeMs = { currentTimeMs = it },
             isPlayingProvider = { isPlaying },
-            setIsPlaying = { isPlaying = it },
+            setIsPlaying = { updatePlayingState(it) },
             setVideoDurationMs = { videoDurationMs = it },
             totalDurationMsProvider = { timelineManager?.getTotalDurationMs() ?: 0L },
             onSelectionChanged = selectionChanged@{ selectedClipId ->
@@ -1329,7 +1329,7 @@ class MainActivity : Activity() {
             overlayContainerProvider = { overlayContainer },
             isPlayingProvider = { isPlaying },
             onPausePlayback = {
-                isPlaying = false
+                updatePlayingState(false)
                 playbackController?.pauseRendering()
             },
             currentTimeMsProvider = { currentTimeMs },
@@ -1513,7 +1513,7 @@ class MainActivity : Activity() {
             videoDurationMsProvider = { videoDurationMs },
             isPlayingProvider = { isPlaying },
             onPausePlayback = {
-                isPlaying = false
+                updatePlayingState(false)
                 playbackController?.pauseRendering()
             },
             notificationManagerProvider = { notificationManager },
@@ -1576,7 +1576,7 @@ class MainActivity : Activity() {
             hasProjectContentProvider = { hasProjectContent() },
             isPlayingProvider = { isPlaying },
             onPausePlayback = {
-                isPlaying = false
+                updatePlayingState(false)
                 playbackController?.pauseRendering()
             },
             onSaveUiState = { projectFile, projectName -> saveUiState(projectFile, projectName) },
@@ -1633,7 +1633,7 @@ class MainActivity : Activity() {
             overlayControllerProvider = { overlayController },
             currentTimeMsProvider = { currentTimeMs },
             isPlayingProvider = { isPlaying },
-            setIsPlaying = { isPlaying = it },
+            setIsPlaying = { updatePlayingState(it) },
             onNativePlay = { playbackController?.nativePlay() },
             onNativePause = { playbackController?.nativePause() },
             onPauseRendering = { playbackController?.pauseRendering() },
@@ -1850,15 +1850,29 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun updatePlayingState(playing: Boolean) {
+        isPlaying = playing
+        if (playing) {
+            previewTransformDragging = false
+            previewTransformPinching = false
+            previewTransformGestureClipId = null
+            previewTransformScaleAccumulator = 1.0f
+            previewTrimSession = null
+            previewView?.setLayerType(View.LAYER_TYPE_NONE, null)
+        }
+        syncPreviewCropModeUi()
+        applySelectedClipPreviewTransform()
+    }
+
     private fun setupPreviewCropControls() {
         findViewById<View?>(R.id.previewCropResetButton)?.setOnClickListener {
-            if (!previewCropModeActive) return@setOnClickListener
+            if (!shouldShowDirectPreviewEdit()) return@setOnClickListener
             noteUiButtonTap("crop_reset", "preview_crop")
             updateSelectedVideoPreviewTransform { ClipPreviewTransform() }
             refreshPreviewCropStatus()
         }
         findViewById<View?>(R.id.previewCropFillButton)?.setOnClickListener {
-            if (!previewCropModeActive) return@setOnClickListener
+            if (!shouldShowDirectPreviewEdit()) return@setOnClickListener
             noteUiButtonTap("crop_fill", "preview_crop")
             updateSelectedVideoPreviewTransform { current ->
                 current.copy(
@@ -1883,7 +1897,14 @@ class MainActivity : Activity() {
     }
 
     private fun canUsePreviewCropMode(): Boolean {
-        return selectedClipKind() == ClipKind.VIDEO || selectedClipKind() == ClipKind.OVERLAY
+        return (selectedClipKind() == ClipKind.VIDEO || selectedClipKind() == ClipKind.OVERLAY) &&
+            selectedVideoClipId() != null
+    }
+
+    private fun shouldShowDirectPreviewEdit(): Boolean {
+        return canUsePreviewCropMode() &&
+            startScreenOverlayView?.visibility != View.VISIBLE &&
+            !isPlaying
     }
 
     private fun setPreviewCropMode(active: Boolean) {
@@ -1968,12 +1989,9 @@ class MainActivity : Activity() {
     }
 
     private fun syncPreviewCropModeUi() {
-        val showCropUi =
-            previewCropModeActive &&
-                canUsePreviewCropMode() &&
-                startScreenOverlayView?.visibility != View.VISIBLE
+        val showCropUi = shouldShowDirectPreviewEdit()
+        previewCropModeActive = showCropUi
         if (!showCropUi) {
-            previewCropModeActive = false
             previewCropModeClipKey = null
             previewTrimSession = null
         } else {
@@ -1983,6 +2001,8 @@ class MainActivity : Activity() {
             }
         }
         previewCropOverlayView?.visibility = if (showCropUi) View.VISIBLE else View.GONE
+        findViewById<View?>(R.id.previewCropTopRail)?.visibility = View.GONE
+        findViewById<View?>(R.id.previewCropActionRail)?.visibility = View.GONE
         val showTrimHandles =
             showCropUi &&
                 selectedVideoClipId()?.let(::canPreviewTrimClip) == true
@@ -6148,7 +6168,7 @@ class MainActivity : Activity() {
         if (preview.translationX != targetTranslationX) preview.translationX = targetTranslationX
         if (preview.translationY != targetTranslationY) preview.translationY = targetTranslationY
         if (preview.rotation != targetRotation) preview.rotation = targetRotation
-        if (previewCropModeActive) {
+        if (shouldShowDirectPreviewEdit()) {
             refreshPreviewCropStatus()
         }
     }
@@ -6299,7 +6319,7 @@ class MainActivity : Activity() {
         edge: String,
         event: MotionEvent,
     ): Boolean {
-        if (!previewCropModeActive) return false
+        if (!shouldShowDirectPreviewEdit()) return false
         val clipId = selectedVideoClipId() ?: return false
         if (!canPreviewTrimClip(clipId)) return false
         when (event.actionMasked) {
@@ -6432,7 +6452,7 @@ class MainActivity : Activity() {
     }
 
     private fun handlePreviewTransformTouch(event: MotionEvent): Boolean {
-        if (!previewCropModeActive) {
+        if (!shouldShowDirectPreviewEdit()) {
             return false
         }
         if (selectedClipKind() != ClipKind.VIDEO && selectedClipKind() != ClipKind.OVERLAY) {
@@ -6503,7 +6523,7 @@ class MainActivity : Activity() {
     }
 
     private fun handlePreviewTransformDoubleTap(event: MotionEvent): Boolean {
-        if (!previewCropModeActive) return false
+        if (!shouldShowDirectPreviewEdit()) return false
         val clipId = selectedVideoClipId() ?: return false
         val preview = previewView ?: return false
         val current = clipPreviewTransforms[clipId] ?: ClipPreviewTransform()
@@ -6788,13 +6808,15 @@ class MainActivity : Activity() {
         mainHandler.post {
             if (isFinishing || isDestroyed) return@post
             val visibleButtons = when (kind) {
-                ClipKind.VIDEO -> clipToolbarItems.map { it.buttonId }.toSet()
+                ClipKind.VIDEO -> clipToolbarItems
+                    .map { it.buttonId }
+                    .filterNot { it == R.id.clipPanZoomButton }
+                    .toSet()
                 ClipKind.OVERLAY -> setOf(
                     R.id.clipDeleteButton,
                     R.id.clipSplitButton,
                     R.id.clipVolumeButton,
                     R.id.clipSpeedButton,
-                    R.id.clipPanZoomButton,
                     R.id.clipFilterButton,
                     R.id.clipTrimButton,
                     R.id.clipReplaceButton,
@@ -6881,14 +6903,11 @@ class MainActivity : Activity() {
                     labelOverrides[R.id.clipKeyframeLabel] = "Keyframe"
                 }
                 ClipKind.OVERLAY -> {
-                    labelOverrides[R.id.clipPanZoomLabel] = "Crop"
                     labelOverrides[R.id.clipVolumeLabel] = "Opacity"
                     labelOverrides[R.id.clipBrightnessLabel] = "Adjust"
                     labelOverrides[R.id.clipChromaKeyLabel] = "ChromaKey"
                 }
-                ClipKind.VIDEO -> {
-                    labelOverrides[R.id.clipPanZoomLabel] = "Crop"
-                }
+                ClipKind.VIDEO -> Unit
                 else -> Unit
             }
 
@@ -6896,14 +6915,12 @@ class MainActivity : Activity() {
                 ClipKind.VIDEO -> setOf(
                     R.id.clipTrimButton,
                     R.id.clipTransitionButton,
-                    R.id.clipPanZoomButton,
                     R.id.clipFilterButton,
                     R.id.clipBrightnessButton,
                     R.id.clipVolumeButton,
                 )
                 ClipKind.OVERLAY -> setOf(
                     R.id.clipTrimButton,
-                    R.id.clipPanZoomButton,
                     R.id.clipGraphicsButton,
                     R.id.clipChromaKeyButton,
                 )
@@ -7125,9 +7142,7 @@ class MainActivity : Activity() {
     private fun performSelectedClipPanZoomAction() {
         when (selectedClipKind()) {
             ClipKind.VIDEO, ClipKind.OVERLAY -> {
-                val shouldActivate =
-                    !(previewCropModeActive && previewCropModeClipKey == selectedTimelineClipKey)
-                setPreviewCropMode(shouldActivate)
+                safeToast("Preview par finger se move, pinch aur trim karein", Toast.LENGTH_SHORT)
             }
             ClipKind.TEXT -> {
                 val overlayId = selectedTextOverlayId() ?: return
