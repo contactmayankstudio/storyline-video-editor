@@ -12,6 +12,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.util.Log
+import android.view.GestureDetector
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -324,6 +325,7 @@ class MainActivity : Activity() {
     private var videoDurationMs = 0L
     private var selectedTimelineClipKey: String? = null
     private var previewTransformScaleDetector: ScaleGestureDetector? = null
+    private var previewTransformGestureDetector: GestureDetector? = null
     private var previewTransformTouchSlop = 0
     private var previewTransformLastX = 0f
     private var previewTransformLastY = 0f
@@ -1882,7 +1884,7 @@ class MainActivity : Activity() {
         val transform = clipId?.let { clipPreviewTransforms[it] } ?: ClipPreviewTransform()
         val label = selectedNativeClipLabel()
         previewCropStatusText?.text =
-            "$label Crop • ${"%.2fx".format(Locale.US, transform.zoom.coerceIn(0.75f, 4.0f))} • Drag / Pinch"
+            "$label Crop • ${"%.2fx".format(Locale.US, transform.zoom.coerceIn(0.75f, 4.0f))} • Drag / Pinch / Double tap"
     }
 
     private fun syncPreviewCropModeUi() {
@@ -6016,6 +6018,17 @@ class MainActivity : Activity() {
 
     private fun setupPreviewTransformGestures() {
         previewTransformTouchSlop = ViewConfiguration.get(this).scaledTouchSlop
+        previewTransformGestureDetector =
+            GestureDetector(
+                this,
+                object : GestureDetector.SimpleOnGestureListener() {
+                    override fun onDown(e: MotionEvent): Boolean = true
+
+                    override fun onDoubleTap(e: MotionEvent): Boolean {
+                        return handlePreviewTransformDoubleTap(e)
+                    }
+                },
+            )
         previewTransformScaleDetector = ScaleGestureDetector(
             this,
             object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -6074,6 +6087,7 @@ class MainActivity : Activity() {
             return false
         }
 
+        previewTransformGestureDetector?.onTouchEvent(event)
         previewTransformScaleDetector?.onTouchEvent(event)
 
         if (event.pointerCount > 1 || previewTransformPinching) {
@@ -6129,6 +6143,40 @@ class MainActivity : Activity() {
         }
 
         return false
+    }
+
+    private fun handlePreviewTransformDoubleTap(event: MotionEvent): Boolean {
+        if (!previewCropModeActive) return false
+        val clipId = selectedVideoClipId() ?: return false
+        val preview = previewView ?: return false
+        val current = clipPreviewTransforms[clipId] ?: ClipPreviewTransform()
+        val centerX = preview.width * 0.5f
+        val centerY = preview.height * 0.5f
+        val towardTapX = (centerX - event.x) * 0.22f
+        val towardTapY = (centerY - event.y) * 0.22f
+        val updated =
+            when {
+                current.zoom < 1.05f -> {
+                    current.copy(
+                        zoom = 1.35f,
+                        panXPx = current.panXPx + towardTapX,
+                        panYPx = current.panYPx + towardTapY,
+                    )
+                }
+                current.zoom < 1.85f -> {
+                    current.copy(
+                        zoom = 2.0f,
+                        panXPx = current.panXPx + towardTapX * 1.35f,
+                        panYPx = current.panYPx + towardTapY * 1.35f,
+                    )
+                }
+                else -> ClipPreviewTransform()
+            }
+        clipPreviewTransforms[clipId] = updated
+        applySelectedClipPreviewTransform()
+        refreshPreviewCropStatus()
+        noteUiButtonTap("crop_double_tap", "preview_crop")
+        return true
     }
 
     private fun selectedClipTypeLabel(key: String): String {

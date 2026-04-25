@@ -10,6 +10,8 @@ import android.view.SurfaceHolder
 import android.util.Log
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import kotlin.math.max
+import kotlin.math.min
 import java.util.concurrent.Executors
 import java.util.concurrent.ExecutorService
 import kotlin.math.roundToInt
@@ -1177,13 +1179,25 @@ class VideoPreviewView @JvmOverloads constructor(
     }
 
     private fun resolvePreviewBufferSize(viewWidth: Int, viewHeight: Int): Pair<Int, Int> {
+        val profile = DeviceDetector.getQualityProfile()
+        val landscapeTargetWidth = max(profile.previewWidth, profile.previewHeight)
+        val landscapeTargetHeight = min(profile.previewWidth, profile.previewHeight)
+        val portraitTargetWidth = min(profile.previewWidth, profile.previewHeight)
+        val portraitTargetHeight = max(profile.previewWidth, profile.previewHeight)
         if (viewWidth <= 0 || viewHeight <= 0) {
-            return MAX_PREVIEW_WIDTH_LANDSCAPE to MAX_PREVIEW_HEIGHT_LANDSCAPE
+            return landscapeTargetWidth to landscapeTargetHeight
         }
         val isLandscape = viewWidth >= viewHeight
-        val maxWidth = if (isLandscape) MAX_PREVIEW_WIDTH_LANDSCAPE.toFloat() else MAX_PREVIEW_WIDTH_PORTRAIT.toFloat()
-        val maxHeight = if (isLandscape) MAX_PREVIEW_HEIGHT_LANDSCAPE.toFloat() else MAX_PREVIEW_HEIGHT_PORTRAIT.toFloat()
+        val maxWidth = if (isLandscape) landscapeTargetWidth.toFloat() else portraitTargetWidth.toFloat()
+        val maxHeight = if (isLandscape) landscapeTargetHeight.toFloat() else portraitTargetHeight.toFloat()
         val scale = minOf(maxWidth / viewWidth.toFloat(), maxHeight / viewHeight.toFloat(), 1f)
-        return maxOf((viewWidth * scale).roundToInt(), 1) to maxOf((viewHeight * scale).roundToInt(), 1)
+        val scaledWidth = maxOf((viewWidth * scale).roundToInt(), 1)
+        val scaledHeight = maxOf((viewHeight * scale).roundToInt(), 1)
+        return alignEven(scaledWidth) to alignEven(scaledHeight)
+    }
+
+    private fun alignEven(value: Int): Int {
+        if (value <= 1) return 1
+        return if (value % 2 == 0) value else value - 1
     }
 }

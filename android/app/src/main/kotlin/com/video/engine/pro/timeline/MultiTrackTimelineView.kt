@@ -10,6 +10,7 @@ import android.graphics.drawable.GradientDrawable
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.Choreographer
+import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
@@ -57,6 +58,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
         private const val TRACK_HEADER_WIDTH_DP = 54
         private const val MIN_CLIP_WIDTH_DP = 52
         private const val PAYLOAD_SELECTION = "selection"
+        private const val DEFAULT_TIMELINE_PX_PER_SECOND = 120f
     }
 
     data class TimelineMetrics(
@@ -105,6 +107,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
     private val recycledViewPool = RecyclerView.RecycledViewPool()
     private val rowViews = linkedMapOf<TrackType, TrackRowView>()
     private val scaleDetector = ScaleGestureDetector(context, ZoomGestureListener())
+    private val gestureDetector = GestureDetector(context, TimelineGestureListener())
     private val choreographer = Choreographer.getInstance()
 
     private var activeSnapTimeMs: Long? = null
@@ -248,6 +251,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        gestureDetector.onTouchEvent(event)
         scaleDetector.onTouchEvent(event)
         if (event.pointerCount > 1) {
             return true
@@ -271,8 +275,59 @@ class MultiTrackTimelineView @JvmOverloads constructor(
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        gestureDetector.onTouchEvent(ev)
         scaleDetector.onTouchEvent(ev)
         return super.dispatchTouchEvent(ev)
+    }
+
+    private fun focusClip(clipId: String, boostZoom: Boolean) {
+        val clip = rowViews.values
+            .asSequence()
+            .mapNotNull { row -> row.findClip(clipId) }
+            .firstOrNull()
+            ?: return
+        if (boostZoom) {
+            val viewportWidth = contentViewportWidthPx().coerceAtLeast(dp(180))
+            val targetPxPerSecond =
+                (((viewportWidth * 0.72f) / clip.durationMs.coerceAtLeast(1L).toFloat()) * 1000f)
+                    .coerceIn(metrics.pxPerSecond, 2200f)
+            if (abs(targetPxPerSecond - metrics.pxPerSecond) >= 0.5f) {
+                metrics = TimelineMetrics(pxPerSecond = targetPxPerSecond)
+                rowViews.values.forEach { it.setMetrics(metrics) }
+                listener?.onZoomChanged(targetPxPerSecond)
+                rulerHeader.invalidate()
+            }
+        }
+        val clipCenterMs = clip.startTimeMs + (clip.durationMs / 2L)
+        setCurrentTimeMs(clipCenterMs)
+        listener?.onSeek(clipCenterMs)
+    }
+
+    private fun toggleTimelineZoomAt(focusX: Float) {
+        val nextPxPerSecond =
+            when {
+                metrics.pxPerSecond < 180f -> 260f
+                metrics.pxPerSecond < 420f -> 560f
+                else -> DEFAULT_TIMELINE_PX_PER_SECOND
+            }
+        commitZoom(nextPxPerSecond, focusX)
+    }
+
+    private inner class TimelineGestureListener : GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(e: MotionEvent): Boolean = true
+
+        override fun onDoubleTap(e: MotionEvent): Boolean {
+            val clipId = findClipIdUnder(e.x, e.y)
+            return if (clipId != null) {
+                setSelectedClipId(clipId)
+                listener?.onClipSelected(clipId)
+                focusClip(clipId, boostZoom = true)
+                true
+            } else {
+                toggleTimelineZoomAt(e.x)
+                true
+            }
+        }
     }
 
     private fun findClipIdUnder(x: Float, y: Float): String? {
