@@ -47,6 +47,8 @@ class AppHealthReporter(
         crashlytics.setCustomKey("ops_app_state", appState)
     }
 
+    fun installationId(): String = installationId
+
     fun recordForeground(screen: String, hasContent: Boolean, playing: Boolean) {
         appState = "foreground"
         updateSurface(screen, hasContent, playing, force = true)

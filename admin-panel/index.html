@@ -576,6 +576,29 @@
             </section>
 
             <section class="card card-side">
+                <h3>Phone Command Deck</h3>
+                <p>Send safe in-app commands straight to the latest live Storyline device through Firebase. This works without laptop adb as long as the app is open and online.</p>
+                <div class="toolbar">
+                    <select id="device-command-target">
+                        <option value="">Waiting for live device...</option>
+                    </select>
+                </div>
+                <div class="helper-row">
+                    <button type="button" class="ghost-button" data-device-command="sync_health">Sync Health</button>
+                    <button type="button" class="ghost-button" data-device-command="show_home">Open Home</button>
+                    <button type="button" class="ghost-button" data-device-command="play">Play</button>
+                    <button type="button" class="ghost-button" data-device-command="pause">Pause</button>
+                    <button type="button" class="ghost-button" data-device-command="open_export">Export</button>
+                    <button type="button" class="ghost-button" data-device-command="open_media">Media</button>
+                    <button type="button" class="ghost-button" data-device-command="open_text">Text</button>
+                </div>
+                <div class="status-block" id="device-command-status">Waiting for admin sign-in before enabling phone-first commands.</div>
+                <div class="helper-row">
+                    <span class="helper" id="device-command-note">Keep Storyline open on the target phone. Commands are queued through Firebase and acknowledged by the app.</span>
+                </div>
+            </section>
+
+            <section class="card card-side">
                 <h3>AI Provider Mesh</h3>
                 <p>Auto mode will try providers in order until one succeeds.</p>
                 <div class="provider-grid" id="provider-list"></div>
@@ -697,6 +720,7 @@
             orderBy,
             query,
             serverTimestamp,
+            setDoc,
             updateDoc,
         } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-firestore.js";
 
@@ -747,6 +771,10 @@
         const healthCrashesBlock = document.getElementById("health-crashes-block");
         const healthReportsBlock = document.getElementById("health-reports-block");
         const healthNote = document.getElementById("health-note");
+        const deviceCommandTarget = document.getElementById("device-command-target");
+        const deviceCommandStatus = document.getElementById("device-command-status");
+        const deviceCommandNote = document.getElementById("device-command-note");
+        const deviceCommandButtons = Array.from(document.querySelectorAll("[data-device-command]"));
         const autopilotPrompt = document.getElementById("autopilot-prompt");
         const autopilotAttempts = document.getElementById("autopilot-attempts");
         const autopilotEnableButton = document.getElementById("autopilot-enable-button");
@@ -793,6 +821,7 @@
             healthUnsubscribeCrashes: null,
             healthUnsubscribeReports: null,
             triagingReportIds: new Set(),
+            liveInstallations: [],
         };
 
         function applyPortalLinks(config = {}) {
@@ -877,13 +906,45 @@
             return "stale";
         }
 
+        function renderDeviceCommandTargets(docs = []) {
+            state.liveInstallations = docs;
+            const previousValue = deviceCommandTarget.value;
+            deviceCommandTarget.textContent = "";
+
+            if (!docs.length) {
+                const option = document.createElement("option");
+                option.value = "";
+                option.textContent = "No live device";
+                deviceCommandTarget.appendChild(option);
+                deviceCommandNote.textContent = "Open Storyline on a phone first. Once a live installation heartbeat arrives, direct phone commands will unlock here.";
+                return;
+            }
+
+            for (const { id, data } of docs) {
+                const option = document.createElement("option");
+                option.value = id;
+                option.textContent = `${data.deviceManufacturer || "Unknown"} ${data.deviceModel || "Device"} • ${data.currentScreen || "unknown"} • ${formatRelativeTime(data.updatedAtMs)}`;
+                deviceCommandTarget.appendChild(option);
+            }
+
+            const fallbackId = docs[0]?.id || "";
+            deviceCommandTarget.value = docs.some(({ id }) => id === previousValue) ? previousValue : fallbackId;
+            const selected = docs.find(({ id }) => id === deviceCommandTarget.value) || docs[0];
+            deviceCommandNote.textContent = selected
+                ? `Target: ${selected.data.deviceManufacturer || "Unknown"} ${selected.data.deviceModel || "Device"} • ${selected.data.currentScreen || "unknown"} • ${selected.data.appState || "unknown"}`
+                : "Keep Storyline open on the target phone.";
+        }
+
         function renderInstallationHealthFeed(snapshot) {
             if (!snapshot?.docs?.length) {
+                state.liveInstallations = [];
+                renderDeviceCommandTargets([]);
                 healthInstallationsBlock.textContent = "No live app-open signals yet. Once Storyline launches on a device, the latest installation health feed will appear here.";
                 return;
             }
 
             const docs = snapshot.docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
+            renderDeviceCommandTargets(docs);
             const counts = { live: 0, recent: 0, stale: 0, unknown: 0 };
             for (const { data } of docs) {
                 const freshness = classifyHealthFreshness(data.updatedAtMs, data.appState);
@@ -1065,6 +1126,8 @@
             aiInput,
             injectBuildButton,
             ...quickCommandButtons,
+            deviceCommandTarget,
+            ...deviceCommandButtons,
             chatProvider,
             chatInput,
             chatSendButton,
@@ -1137,6 +1200,8 @@
             healthInstallationsBlock.textContent = lockedMessage;
             healthCrashesBlock.textContent = lockedMessage;
             healthReportsBlock.textContent = lockedMessage;
+            deviceCommandStatus.textContent = lockedMessage;
+            renderDeviceCommandTargets([]);
             setPill(buildPill, "Build: locked", "warning");
             setPill(chainPill, "AI Chain: locked", "warning");
             renderAuthDiagnostics({ statusText: lockedMessage });
@@ -1739,6 +1804,44 @@
             }
         }
 
+        async function sendPhoneCommand(command) {
+            if (!state.adminSession || !state.firestore) {
+                deviceCommandStatus.textContent = "Sign in with an allowed admin account first.";
+                return;
+            }
+
+            const installationId = deviceCommandTarget.value || state.liveInstallations[0]?.id || "";
+            if (!installationId) {
+                deviceCommandStatus.textContent = "No live Storyline device found yet.";
+                return;
+            }
+
+            const target = state.liveInstallations.find(({ id }) => id === installationId);
+            const now = Date.now();
+            const commandRef = doc(collection(state.firestore, "ops_installations", installationId, "commands"));
+            const payload = {
+                commandId: commandRef.id,
+                targetInstallationId: installationId,
+                command,
+                source: "admin-panel",
+                issuedBy: state.currentUser?.email || "admin",
+                createdAtMs: now,
+                createdAt: serverTimestamp(),
+                updatedAtMs: now,
+                updatedAt: serverTimestamp(),
+                status: "queued",
+            };
+
+            deviceCommandStatus.textContent = `Queueing ${command}...`;
+            try {
+                await setDoc(commandRef, payload);
+                deviceCommandStatus.textContent = `Queued ${command} for ${target?.data?.deviceManufacturer || "Unknown"} ${target?.data?.deviceModel || "Device"}.`;
+            } catch (error) {
+                console.error(error);
+                deviceCommandStatus.textContent = error.message || "Failed to queue phone command.";
+            }
+        }
+
         async function loadAutomationStatus() {
             if (!state.adminSession) {
                 automationStatusBlock.textContent = "Sign in with an allowed admin account first.";
@@ -2251,6 +2354,11 @@
         chatBuildButton.addEventListener("click", appendLatestBuildToChatInput);
         chatCodebaseButton.addEventListener("click", appendCodebaseContextToChatInput);
         chatDeviceButton.addEventListener("click", appendDeviceContextToChatInput);
+        for (const button of deviceCommandButtons) {
+            button.addEventListener("click", () => {
+                sendPhoneCommand(button.dataset.deviceCommand || "");
+            });
+        }
         chatInput.addEventListener("keydown", (event) => {
             if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
                 event.preventDefault();

@@ -277,6 +277,7 @@ class MainActivity : Activity() {
     private lateinit var uiFreezeWatchdog: UiFreezeWatchdog
     private lateinit var playbackExportIssueDetector: PlaybackExportIssueDetector
     private lateinit var uiActionExpectationDetector: UiActionExpectationDetector
+    private lateinit var remoteCommandManager: RemoteCommandManager
     private var latestHealthAction: String = "launch"
 
     // Text overlays
@@ -725,6 +726,11 @@ class MainActivity : Activity() {
                 }
             },
         )
+        remoteCommandManager = RemoteCommandManager(
+            installationIdProvider = { appHealthReporter.installationId() },
+            sessionIdProvider = { debugTelemetryManager.sessionId },
+            onExecute = ::executePhoneCommand,
+        )
         uiFreezeWatchdog = UiFreezeWatchdog { stallMs ->
             mainHandler.post {
                 if (isFinishing || isDestroyed) return@post
@@ -759,6 +765,7 @@ class MainActivity : Activity() {
             }
         }
         appHealthReporter.bindSession(debugTelemetryManager.sessionId)
+        remoteCommandManager.start()
         NativeBridge.setTelemetrySink { debugTelemetryManager.recordNativeBridgeTelemetry(it) }
         NativeBridge.clearNativeCommandTelemetry()
         recordTelemetryEvent(
@@ -1780,6 +1787,9 @@ class MainActivity : Activity() {
         if (::uiActionExpectationDetector.isInitialized) {
             uiActionExpectationDetector.close()
         }
+        if (::remoteCommandManager.isInitialized) {
+            remoteCommandManager.close()
+        }
         if (::problemReportManager.isInitialized) {
             problemReportManager.close()
         }
@@ -2780,6 +2790,48 @@ class MainActivity : Activity() {
                     performExport(1280, 720, 30, 3)
                 }, 5600L)
             }
+        }
+    }
+
+    private fun executePhoneCommand(command: String, commandId: String): Pair<Boolean, String> {
+        val normalized = command.trim()
+        if (normalized.isEmpty()) {
+            return false to "Missing command"
+        }
+
+        noteAppHealthAction("remote_command_${normalized.take(72)}", force = true)
+        return when (normalized) {
+            "sync_health" -> {
+                syncAppHealth(force = true, action = "remote_sync_health")
+                true to "Health sync sent"
+            }
+            "show_home",
+            "open_export",
+            "open_media",
+            "open_text",
+            "play",
+            "pause",
+            "open_save",
+            "open_aspect_ratio",
+            "open_audio",
+            "open_overlay",
+            "open_layer",
+            -> {
+                val token = "remote:$commandId"
+                val intent =
+                    Intent().apply {
+                        putExtra("adb_action", normalized)
+                        putExtra("adb_token", token)
+                    }
+                performAutomationAction(
+                    action = normalized,
+                    intent = intent,
+                    token = token,
+                    attempt = 0,
+                )
+                true to "Command dispatched: $normalized"
+            }
+            else -> false to "Unsupported command: $normalized"
         }
     }
 

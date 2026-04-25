@@ -150,10 +150,113 @@ service cloud.firestore {
         );
     }
 
+    function isAllowedOpsCommand(command) {
+      return command in [
+        "sync_health",
+        "show_home",
+        "open_export",
+        "open_media",
+        "open_text",
+        "play",
+        "pause",
+        "open_save",
+        "open_aspect_ratio",
+        "open_audio",
+        "open_overlay",
+        "open_layer",
+      ];
+    }
+
+    function isSafeOpsCommandCreate(installationId, commandId) {
+      return isVerifiedGoogleReader()
+        && request.resource.data.keys().hasOnly([
+          "commandId",
+          "targetInstallationId",
+          "command",
+          "source",
+          "issuedBy",
+          "createdAtMs",
+          "createdAt",
+          "updatedAtMs",
+          "updatedAt",
+          "status",
+        ])
+        && request.resource.data.commandId == commandId
+        && request.resource.data.targetInstallationId == installationId
+        && validStringField("commandId", 96)
+        && validStringField("targetInstallationId", 96)
+        && validStringField("command", 48)
+        && validStringField("source", 32)
+        && validStringField("issuedBy", 120)
+        && isAllowedOpsCommand(request.resource.data.command)
+        && request.resource.data.source == "admin-panel"
+        && request.resource.data.createdAtMs is int
+        && request.resource.data.updatedAtMs is int
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.status == "queued";
+    }
+
+    function isSafeOpsCommandClientUpdate(installationId, commandId) {
+      return request.resource.data.commandId == commandId
+        && request.resource.data.targetInstallationId == installationId
+        && request.resource.data.command == resource.data.command
+        && request.resource.data.source == resource.data.source
+        && request.resource.data.issuedBy == resource.data.issuedBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdAtMs == resource.data.createdAtMs
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "status",
+          "updatedAt",
+          "updatedAtMs",
+          "handledBySessionId",
+          "handledBySource",
+          "resultMessage",
+          "completedAt",
+        ])
+        && request.resource.data.status in ["running", "completed", "failed"]
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.updatedAtMs is int
+        && (
+          !("handledBySessionId" in request.resource.data)
+          || (
+            request.resource.data.handledBySessionId is string
+            && request.resource.data.handledBySessionId.size() > 0
+            && request.resource.data.handledBySessionId.size() <= 96
+          )
+        )
+        && (
+          !("handledBySource" in request.resource.data)
+          || request.resource.data.handledBySource == "android-client"
+        )
+        && (
+          !("resultMessage" in request.resource.data)
+          || (
+            request.resource.data.resultMessage is string
+            && request.resource.data.resultMessage.size() <= 240
+          )
+        )
+        && (
+          !("completedAt" in request.resource.data)
+          || request.resource.data.completedAt is timestamp
+        );
+    }
+
     match /ops_installations/{installationId} {
       allow get, list: if isVerifiedGoogleReader();
       allow create, update: if isSafeInstallationWrite(installationId);
       allow delete: if false;
+
+      match /commands/{commandId} {
+        allow get, list: if isVerifiedGoogleReader()
+          || (
+            resource.data.targetInstallationId == installationId
+            && resource.data.source == "admin-panel"
+          );
+        allow create: if isSafeOpsCommandCreate(installationId, commandId);
+        allow update: if isSafeOpsCommandClientUpdate(installationId, commandId);
+        allow delete: if false;
+      }
     }
 
     match /crash_fixes/{issueId} {
