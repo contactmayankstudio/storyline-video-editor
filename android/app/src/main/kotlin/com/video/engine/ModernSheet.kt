@@ -189,6 +189,78 @@ object ModernSheet {
             root.addView(scroller)
         }
 
+        fun chipGrid(
+            label: String,
+            options: List<String>,
+            selected: Int = -1,
+            columns: Int = 4,
+            onSelect: (Int, String) -> Unit,
+        ) {
+            root.addView(TextView(context).apply {
+                text = label
+                textSize = 12f
+                setTextColor(Color.parseColor("#8E99A5"))
+                setPadding(0, px(context, 8), 0, px(context, 4))
+            })
+
+            val columnCount = columns.coerceAtLeast(1)
+            val container = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+            }
+
+            options.chunked(columnCount).forEachIndexed { rowIndex, chunk ->
+                val row = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.START
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ).also {
+                        if (rowIndex > 0) it.topMargin = px(context, 8)
+                    }
+                }
+
+                repeat(columnCount) { columnIndex ->
+                    val optionIndex = rowIndex * columnCount + columnIndex
+                    val chip =
+                        if (columnIndex < chunk.size) {
+                            TextView(context).apply {
+                                val opt = chunk[columnIndex]
+                                text = opt
+                                textSize = 13f
+                                gravity = Gravity.CENTER
+                                setTextColor(Color.WHITE)
+                                background = chipBackground(context, optionIndex == selected)
+                                minHeight = px(context, 40)
+                                setPadding(px(context, 8), px(context, 8), px(context, 8), px(context, 8))
+                                layoutParams = LinearLayout.LayoutParams(
+                                    0,
+                                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                                    1f,
+                                ).also { lp ->
+                                    if (columnIndex > 0) lp.marginStart = px(context, 8)
+                                }
+                                setOnClickListener { onSelect(optionIndex, opt); dialog.dismiss() }
+                            }
+                        } else {
+                            Space(context).apply {
+                                layoutParams = LinearLayout.LayoutParams(
+                                    0,
+                                    0,
+                                    1f,
+                                ).also { lp ->
+                                    if (columnIndex > 0) lp.marginStart = px(context, 8)
+                                }
+                            }
+                        }
+                    row.addView(chip)
+                }
+                container.addView(row)
+            }
+
+            root.addView(container)
+        }
+
         fun toggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL

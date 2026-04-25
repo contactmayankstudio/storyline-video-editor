@@ -1817,7 +1817,7 @@ class MainActivity : Activity() {
         noteAppHealthAction("aspect_ratio_picker_opened")
         val labels = aspectRatioOptions.map { it.label }
         ModernSheet.show(this, "Crop Ratio") {
-            chips("Canvas", labels, selectedAspectRatioIndex) { i, _ ->
+            chipGrid("Canvas", labels, selectedAspectRatioIndex, columns = 4) { i, _ ->
                 selectedAspectRatioIndex = i.coerceIn(0, aspectRatioOptions.lastIndex)
                 applyPreviewAspectRatio()
             }
