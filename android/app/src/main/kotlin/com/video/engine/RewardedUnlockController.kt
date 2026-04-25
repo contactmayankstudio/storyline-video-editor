@@ -64,6 +64,7 @@ class RewardedUnlockController(
         }
         loading = true
         pendingShowAfterLoad = pendingShowAfterLoad || showOnLoad
+        Log.d(TAG, "Loading rewarded ad for watermark unlock")
         MobileAds.initialize(activity) {}
         RewardedAd.load(
             activity,

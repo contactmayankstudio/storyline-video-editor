@@ -64,6 +64,9 @@ jobs:
         env:
           AWS_CONTROL_PLANE_URL: ${{ vars.AWS_CONTROL_PLANE_URL }}
           AWS_CONTROL_PLANE_DEVICE_KEY: ${{ secrets.AWS_CONTROL_PLANE_DEVICE_KEY }}
+          ADMOB_APP_ID: ${{ vars.ADMOB_APP_ID }}
+          ADMOB_BANNER_UNIT_ID: ${{ vars.ADMOB_BANNER_UNIT_ID }}
+          ADMOB_REWARDED_HD_UNLOCK_UNIT_ID: ${{ vars.ADMOB_REWARDED_HD_UNLOCK_UNIT_ID }}
         run: ./gradlew assembleDebug
 
       - name: Upload debug APK

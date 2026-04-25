@@ -33,6 +33,7 @@ class AdsController(
     fun initialize() {
         if (initialized) return
         initialized = true
+        Log.d(TAG, "Initializing banner/interstitial ads")
         MobileAds.initialize(activity) {}
         preloadInterstitial()
     }

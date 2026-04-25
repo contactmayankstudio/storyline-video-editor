@@ -14,9 +14,13 @@ def bundledRuntimeLibNames = [
     "libswresample.so",
     "libswscale.so",
 ]
-def envStringResourceValue = { name ->
-    def raw = System.getenv(name) ?: ""
+def stringResourceValue = { raw ->
     return "\"${raw.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+}
+def envStringResourceValue = { name, fallback = "" ->
+    def raw = System.getenv(name)
+    def resolved = (raw != null && !raw.trim().isEmpty()) ? raw : fallback
+    return stringResourceValue(resolved)
 }
 android {
     namespace = "com.video.engine"
@@ -36,6 +40,9 @@ android {
         versionName = "1.0.0"
         resValue "string", "aws_control_plane_url", envStringResourceValue("AWS_CONTROL_PLANE_URL")
         resValue "string", "aws_control_plane_device_key", envStringResourceValue("AWS_CONTROL_PLANE_DEVICE_KEY")
+        resValue "string", "admob_app_id", envStringResourceValue("ADMOB_APP_ID", "ca-app-pub-3940256099942544~3347511713")
+        resValue "string", "admob_banner_unit_id", envStringResourceValue("ADMOB_BANNER_UNIT_ID", "ca-app-pub-3940256099942544/6300978111")
+        resValue "string", "admob_rewarded_hd_unlock_unit_id", envStringResourceValue("ADMOB_REWARDED_HD_UNLOCK_UNIT_ID", "ca-app-pub-3940256099942544/5224354917")
         
         externalNativeBuild {
             cmake {
