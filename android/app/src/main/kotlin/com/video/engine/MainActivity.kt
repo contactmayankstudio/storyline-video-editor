@@ -2586,20 +2586,7 @@ class MainActivity : Activity() {
         val controller = projectController ?: return
         val summary = controller.describeAutoSave() ?: return
         autoSaveRestorePromptShown = true
-        AlertDialog.Builder(this)
-            .setTitle("Resume Last Session")
-            .setMessage(summary)
-            .setPositiveButton("Resume") { _, _ ->
-                if (controller.restoreAutoSave() != true) {
-                    autoSaveRestorePromptShown = false
-                    safeToast("Autosave restore failed", Toast.LENGTH_SHORT)
-                }
-            }
-            .setNegativeButton("Discard") { _, _ ->
-                controller.discardAutoSave()
-            }
-            .setOnCancelListener { }
-            .show()
+        Log.d(TAG, "Autosave available without startup prompt: $summary")
     }
 
     private fun textOverlayPresetByLabel(label: String): TextOverlayPreset? {
