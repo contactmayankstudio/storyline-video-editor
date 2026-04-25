@@ -1862,6 +1862,9 @@ class MainActivity : Activity() {
         previewCropOverlayView?.bringToFront()
         findViewById<View?>(R.id.playbackUndoRedoRow)?.bringToFront()
         findViewById<View?>(R.id.previewPlayPauseButton)?.bringToFront()
+        if (shouldShowDirectPreviewEdit()) {
+            refreshPreviewCropStatus()
+        }
     }
 
     private fun updatePreviewEmptyState() {
@@ -2014,9 +2017,9 @@ class MainActivity : Activity() {
     private fun refreshPreviewCropStatus() {
         val clipId = selectedVideoClipId()
         val transform = clipId?.let { clipPreviewTransforms[it] } ?: ClipPreviewTransform()
-        val label = selectedNativeClipLabel()
+        val cropLabel = aspectRatioOptions[selectedAspectRatioIndex].label
         previewCropStatusText?.text =
-            "$label Edit • ${"%.2fx".format(Locale.US, transform.zoom.coerceIn(1.0f, 4.0f))} • Move / Pinch / Double tap"
+            "Crop $cropLabel • ${"%.2fx".format(Locale.US, transform.zoom.coerceIn(1.0f, 4.0f))}"
     }
 
     private fun canPreviewTrimClip(clipId: Int): Boolean {
@@ -2073,7 +2076,7 @@ class MainActivity : Activity() {
             }
         }
         previewCropOverlayView?.visibility = if (showCropUi) View.VISIBLE else View.GONE
-        findViewById<View?>(R.id.previewCropTopRail)?.visibility = View.GONE
+        findViewById<View?>(R.id.previewCropTopRail)?.visibility = if (showCropUi) View.VISIBLE else View.GONE
         findViewById<View?>(R.id.previewCropActionRail)?.visibility = View.GONE
         previewTrimSession = null
         previewTrimStartHandleView?.visibility = View.GONE
