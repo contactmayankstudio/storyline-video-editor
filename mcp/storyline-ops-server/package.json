@@ -1,0 +1,19 @@
+{
+  "name": "storyline-ops-mcp-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Storyline MCP server for Firebase ops, GitHub automation, and local device diagnostics.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@octokit/rest": "22.0.1",
+    "firebase-admin": "13.8.0",
+    "zod": "^3.25.0"
+  }
+}
