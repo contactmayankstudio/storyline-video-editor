@@ -2016,7 +2016,7 @@ class MainActivity : Activity() {
         val transform = clipId?.let { clipPreviewTransforms[it] } ?: ClipPreviewTransform()
         val label = selectedNativeClipLabel()
         previewCropStatusText?.text =
-            "$label Edit • ${"%.2fx".format(Locale.US, transform.zoom.coerceIn(0.75f, 4.0f))} • Move / Pinch / Double tap"
+            "$label Edit • ${"%.2fx".format(Locale.US, transform.zoom.coerceIn(1.0f, 4.0f))} • Move / Pinch / Double tap"
     }
 
     private fun canPreviewTrimClip(clipId: Int): Boolean {
@@ -6371,7 +6371,7 @@ class MainActivity : Activity() {
         transform: ClipPreviewTransform,
         preview: View,
     ): ClipPreviewTransform {
-        val safeZoom = transform.zoom.coerceIn(0.75f, 4.0f)
+        val safeZoom = transform.zoom.coerceIn(1.0f, 4.0f)
         val (maxPanX, maxPanY) = resolvePreviewPanBounds(clipId, safeZoom, preview)
         val centerSnapThreshold = resolvePreviewCenterSnapThreshold(safeZoom)
         return transform.copy(
@@ -6648,7 +6648,7 @@ class MainActivity : Activity() {
                     val scaleFactor = smoothPreviewScaleFactor(detector.scaleFactor, base.zoom)
                     previewTransformScaleAccumulator =
                         (previewTransformScaleAccumulator * scaleFactor).coerceIn(0.1f, 8.0f)
-                    val nextZoom = (base.zoom * previewTransformScaleAccumulator).coerceIn(0.75f, 4.0f)
+                    val nextZoom = (base.zoom * previewTransformScaleAccumulator).coerceIn(1.0f, 4.0f)
                     val centerX = preview.width * 0.5f
                     val centerY = preview.height * 0.5f
                     val zoomRatio = nextZoom / base.zoom.coerceAtLeast(0.001f)
@@ -6683,17 +6683,17 @@ class MainActivity : Activity() {
 
     private fun resolvePreviewPanDamping(zoom: Float): Float {
         return when {
-            zoom < 1.05f -> 0.72f
-            zoom < 1.5f -> 0.84f
-            else -> 0.94f
+            zoom < 1.08f -> 0.86f
+            zoom < 1.6f -> 0.92f
+            else -> 0.96f
         }
     }
 
     private fun resolvePreviewCenterSnapThreshold(zoom: Float): Float {
         return when {
-            zoom < 1.02f -> 18f
-            zoom < 1.2f -> 10f
-            zoom < 1.6f -> 4f
+            zoom < 1.02f -> 8f
+            zoom < 1.2f -> 5f
+            zoom < 1.6f -> 2f
             else -> 0.5f
         }
     }
@@ -6997,7 +6997,7 @@ class MainActivity : Activity() {
             ClipKind.VIDEO,
             ClipKind.OVERLAY,
             -> updateSelectedVideoPreviewTransform { current ->
-                current.copy(zoom = (current.zoom * safeFactor).coerceIn(0.75f, 4.0f))
+                current.copy(zoom = (current.zoom * safeFactor).coerceIn(1.0f, 4.0f))
             }
             ClipKind.TEXT -> {
                 val overlayId = selectedTextOverlayId() ?: return false
