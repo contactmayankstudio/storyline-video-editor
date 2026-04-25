@@ -71,6 +71,48 @@ function parseDirectCommand(message) {
     };
 }
 
+function looksLikeQuestion(message) {
+    const value = String(message || "").trim().toLowerCase();
+    if (!value) {
+        return false;
+    }
+    return (
+        value.includes("?") ||
+        /^(kya|kyu|kaise|what|why|how|can|does|is|are|should|mcp|meaning)\b/.test(value)
+    );
+}
+
+function inferAutomationPrompt(messages) {
+    const latestMessage = String(messages?.[messages.length - 1]?.content || "").trim();
+    if (!latestMessage || looksLikeQuestion(latestMessage) || latestMessage.startsWith("/")) {
+        return null;
+    }
+
+    const actionIntent =
+        /\b(fix|bug|add|change|update|edit|write|create|remove|implement|wire|connect|build|patch|refactor|ship|deploy)\b/i.test(latestMessage) ||
+        /\b(karo|kar do|karna|banao|banado|jod do|sahi karo|thik karo|future add)\b/i.test(latestMessage);
+
+    if (!actionIntent) {
+        return null;
+    }
+
+    const recentContext = (messages || [])
+        .slice(-4)
+        .map((message) => `${message.role || "user"}: ${message.content || ""}`)
+        .join("\n");
+
+    return [
+        "Admin AI chat inferred a direct repository-change request.",
+        "Treat this as an implementation task, not a conversational answer.",
+        "",
+        "Latest request:",
+        latestMessage,
+        "",
+        "Recent chat context:",
+        recentContext,
+    ].join("\n");
+}
+
 async function handleDirectCommand(message) {
     const parsed = parseDirectCommand(message);
     if (!parsed) {
@@ -206,6 +248,30 @@ module.exports = async function handler(req, res) {
         const directResult = await handleDirectCommand(latestUserMessage);
         if (directResult) {
             return res.status(200).json(directResult);
+        }
+        const inferredAutomationPrompt = inferAutomationPrompt(sanitizedMessages);
+        if (inferredAutomationPrompt) {
+            const github = getGitHubConfig();
+            await dispatchWorkflow(github.automationWorkflowName, {
+                ref: github.branch,
+                inputs: {
+                    prompt: inferredAutomationPrompt,
+                    target_branch: github.branch,
+                    max_attempts: "2",
+                },
+            });
+            const latestRun = await getLatestRunSummary(undefined, github.automationWorkflowName).catch(() => null);
+            return res.status(200).json({
+                reply: [
+                    "Automation dispatched from plain-language admin chat.",
+                    latestRun?.url ? `Run: ${latestRun.url}` : "",
+                ].filter(Boolean).join("\n"),
+                provider: "direct-control",
+                providerLabel: "Direct Control",
+                model: "automation-dispatch",
+                codebaseFiles: [],
+                automationDispatched: true,
+            });
         }
         const codebaseContext = getCodebaseContext(latestUserMessage, { maxEntries: 5 });
         let deviceContext = null;
