@@ -52,7 +52,11 @@ import com.video.engine.timeline.TimelineManager
 import com.video.engine.transition.TransitionType
 import java.io.File
 import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.Executors
 import kotlin.math.hypot
 import kotlin.math.roundToInt
@@ -178,6 +182,18 @@ class MainActivity : Activity() {
         val height: Int,
     )
 
+    private data class HostedReleaseInfo(
+        val versionName: String,
+        val versionCode: Int,
+        val builtAtRaw: String,
+        val builtAtLabel: String,
+        val commitSubject: String,
+        val downloadUrl: String,
+        val portalUrl: String,
+        val adminPanelUrl: String,
+        val updateAvailable: Boolean,
+    )
+
     private data class TextOverlayPreset(
         val label: String,
         val hint: String,
@@ -236,8 +252,13 @@ class MainActivity : Activity() {
     private var startScreenOverlayView: View? = null
     private var startRecentProjectsList: androidx.recyclerview.widget.RecyclerView? = null
     private var startRecentProjectsEmptyText: TextView? = null
+    private var startAiSummaryText: TextView? = null
+    private var startAiUpdateText: TextView? = null
+    private var startAiUpdateButton: TextView? = null
+    private var startAiAdminButton: TextView? = null
     private var editorTopBannerContainer: FrameLayout? = null
     private var startTopBannerContainer: FrameLayout? = null
+    private var editorAiStatusPill: TextView? = null
     private var clipToolbarContextLabel: TextView? = null
     private var hardwareTelemetrySummaryText: TextView? = null
     private var hardwareTelemetryReasonText: TextView? = null
@@ -279,6 +300,9 @@ class MainActivity : Activity() {
     private lateinit var uiActionExpectationDetector: UiActionExpectationDetector
     private lateinit var remoteCommandManager: RemoteCommandManager
     private var latestHealthAction: String = "launch"
+    private var hostedReleaseInfo: HostedReleaseInfo? = null
+    private var hostedReleaseFetchInFlight = false
+    private var lastHostedReleaseFetchElapsedMs = 0L
 
     // Text overlays
     private var nextTextOverlayId = 1
@@ -543,6 +567,11 @@ class MainActivity : Activity() {
         val importMediaBtn = findViewById<android.view.View>(R.id.startImportMediaButton)
         startRecentProjectsList = findViewById(R.id.startRecentProjectsList)
         startRecentProjectsEmptyText = findViewById(R.id.startRecentProjectsEmptyText)
+        startAiSummaryText = findViewById(R.id.startAiSummaryText)
+        startAiUpdateText = findViewById(R.id.startAiUpdateText)
+        startAiUpdateButton = findViewById(R.id.startAiUpdateButton)
+        startAiAdminButton = findViewById(R.id.startAiAdminButton)
+        editorAiStatusPill = findViewById(R.id.editorAiStatusPill)
         clipToolbarContextLabel = findViewById(R.id.audioEditLabel)
 
         newProjectBtn.setOnClickListener {
@@ -563,9 +592,21 @@ class MainActivity : Activity() {
             openVideoTrackImport()
         }
 
+        startAiUpdateButton?.setOnClickListener {
+            noteUiButtonTap("ai_open_update", "ai_status_card")
+            openExternalUrl(resolveUpdateTargetUrl())
+        }
+
+        startAiAdminButton?.setOnClickListener {
+            noteUiButtonTap("ai_open_admin", "ai_status_card")
+            openExternalUrl(resolveAdminPanelUrl())
+        }
+
         startRecentProjectsList?.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
         startRecentProjectsList?.adapter = ProjectListAdapter(emptyList()) { }
         refreshRecentProjects()
+        refreshAiCompanionUi()
+        fetchHostedReleaseInfo(force = true)
     }
 
     private fun setStartScreenVisible(visible: Boolean) {
@@ -578,9 +619,11 @@ class MainActivity : Activity() {
             clearSelectedTimelineItem()
             refreshRecentProjects()
             overlay.bringToFront()
+            fetchHostedReleaseInfo()
         }
         scheduleTopBannerPlacement()
         updatePreviewEmptyState()
+        refreshAiCompanionUi()
         syncAppHealth(force = true, action = if (visible) "home_visible" else "editor_visible")
     }
 
@@ -643,6 +686,178 @@ class MainActivity : Activity() {
         }.start()
     }
 
+    private fun fetchHostedReleaseInfo(force: Boolean = false) {
+        val now = SystemClock.elapsedRealtime()
+        if (!force && hostedReleaseFetchInFlight) return
+        if (!force && now - lastHostedReleaseFetchElapsedMs < 90_000L) {
+            refreshAiCompanionUi()
+            return
+        }
+        val portalUrl = getString(R.string.release_portal_url).trim().trimEnd('/')
+        if (portalUrl.isBlank()) {
+            refreshAiCompanionUi()
+            return
+        }
+        hostedReleaseFetchInFlight = true
+        lastHostedReleaseFetchElapsedMs = now
+        refreshAiCompanionUi()
+        lifecycleScope.launch(Dispatchers.IO) {
+            val fetched = runCatching { loadHostedReleaseInfo(portalUrl) }.getOrNull()
+            withContext(Dispatchers.Main) {
+                hostedReleaseFetchInFlight = false
+                if (fetched != null) {
+                    hostedReleaseInfo = fetched
+                }
+                refreshAiCompanionUi()
+            }
+        }
+    }
+
+    private fun loadHostedReleaseInfo(portalUrl: String): HostedReleaseInfo? {
+        val connection =
+            (URL("$portalUrl/build.json").openConnection() as? HttpURLConnection)
+                ?: return null
+        return try {
+            connection.connectTimeout = 5_000
+            connection.readTimeout = 5_000
+            connection.requestMethod = "GET"
+            connection.connect()
+            if (connection.responseCode !in 200..299) return null
+            val payload = connection.inputStream.bufferedReader().use { it.readText() }
+            val json = JSONObject(payload)
+            val versionName = json.optString("versionName", "unknown")
+            val versionCode = json.optInt("versionCode", 0)
+            val builtAtRaw = json.optString("builtAt")
+            val commitSubject = json.optString("commitSubject")
+            val downloadPath = json.optString("downloadPath", "/app.apk")
+            val adminPanelUrl = json.optString("adminPanelUrl", getString(R.string.admin_panel_url))
+            val downloadUrl =
+                if (downloadPath.startsWith("http://") || downloadPath.startsWith("https://")) {
+                    downloadPath
+                } else {
+                    portalUrl + if (downloadPath.startsWith("/")) downloadPath else "/$downloadPath"
+                }
+            HostedReleaseInfo(
+                versionName = versionName,
+                versionCode = versionCode,
+                builtAtRaw = builtAtRaw,
+                builtAtLabel = formatHostedBuildTime(builtAtRaw),
+                commitSubject = commitSubject,
+                downloadUrl = downloadUrl,
+                portalUrl = portalUrl,
+                adminPanelUrl = adminPanelUrl,
+                updateAvailable = versionCode > appVersionCode() || versionName != appVersionName(),
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun formatHostedBuildTime(raw: String): String {
+        if (raw.isBlank()) return "recently"
+        val inputPatterns = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSSX",
+            "yyyy-MM-dd'T'HH:mm:ssX",
+        )
+        inputPatterns.forEach { pattern ->
+            runCatching {
+                val parser = SimpleDateFormat(pattern, Locale.US).apply {
+                    timeZone = TimeZone.getTimeZone("UTC")
+                }
+                val parsed = parser.parse(raw) ?: return@runCatching null
+                SimpleDateFormat("dd MMM, hh:mm a", Locale.US).format(parsed)
+            }.getOrNull()?.let { return it }
+        }
+        return raw
+    }
+
+    private fun humanizeHealthAction(action: String): String =
+        action.replace('_', ' ').replace('-', ' ').trim().replaceFirstChar {
+            if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString()
+        }
+
+    private fun resolveUpdateTargetUrl(): String {
+        val release = hostedReleaseInfo
+        return if (release?.updateAvailable == true) {
+            release.downloadUrl
+        } else {
+            release?.portalUrl ?: getString(R.string.release_portal_url).trim()
+        }
+    }
+
+    private fun resolveAdminPanelUrl(): String =
+        hostedReleaseInfo?.adminPanelUrl?.takeIf { it.isNotBlank() }
+            ?: getString(R.string.admin_panel_url).trim()
+
+    private fun openExternalUrl(url: String) {
+        if (url.isBlank()) return
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }.onFailure {
+            safeToast("Unable to open link", Toast.LENGTH_SHORT)
+        }
+    }
+
+    private fun refreshAiCompanionUi() {
+        val actionLabel = humanizeHealthAction(latestHealthAction.ifBlank { "launch" })
+        val screen = currentHealthScreenName()
+        val summary =
+            when {
+                screen == "crop" -> "AI is monitoring crop, gestures, freeze, and export path. Last action: $actionLabel."
+                isPlaying -> "AI is watching playback for lag, stalls, and sync issues. Last action: $actionLabel."
+                hasProjectContent() -> "AI is watching this edit for dead buttons, exports, and new builds. Last action: $actionLabel."
+                else -> "AI is monitoring playback, export, device health, and hosted updates. Last action: $actionLabel."
+            }
+        startAiSummaryText?.text = summary
+
+        val hosted = hostedReleaseInfo
+        startAiUpdateText?.text =
+            when {
+                hosted == null && hostedReleaseFetchInFlight -> getString(R.string.ai_status_update_checking)
+                hosted == null -> "Hosted update: latest build unavailable right now."
+                hosted.updateAvailable -> buildString {
+                    append("Update ready: v")
+                    append(hosted.versionName)
+                    append(" (")
+                    append(hosted.versionCode)
+                    append(") • ")
+                    append(hosted.builtAtLabel)
+                    if (hosted.commitSubject.isNotBlank()) {
+                        append(" • ")
+                        append(hosted.commitSubject)
+                    }
+                }
+                else -> buildString {
+                    append("Hosted build live: v")
+                    append(hosted.versionName)
+                    append(" (")
+                    append(hosted.versionCode)
+                    append(") • ")
+                    append(hosted.builtAtLabel)
+                    if (hosted.commitSubject.isNotBlank()) {
+                        append(" • ")
+                        append(hosted.commitSubject)
+                    }
+                }
+            }
+
+        startAiUpdateButton?.text =
+            if (hosted?.updateAvailable == true) {
+                getString(R.string.ai_status_download_update_action)
+            } else {
+                getString(R.string.ai_status_open_update_action)
+            }
+
+        editorAiStatusPill?.text =
+            when {
+                hosted?.updateAvailable == true -> getString(R.string.ai_status_pill_update)
+                screen == "crop" -> getString(R.string.ai_status_pill_crop)
+                isPlaying -> getString(R.string.ai_status_pill_playback)
+                screen == "home" -> getString(R.string.ai_status_pill_home)
+                else -> getString(R.string.ai_status_pill_editor)
+            }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         volumeControlStream = AudioManager.STREAM_MUSIC
@@ -666,6 +881,7 @@ class MainActivity : Activity() {
         setContentView(R.layout.activity_main)
         editorTopBannerContainer = findViewById(R.id.editorTopBannerContainer)
         startTopBannerContainer = findViewById(R.id.startTopBannerContainer)
+        editorAiStatusPill = findViewById(R.id.editorAiStatusPill)
         adsController = AdsController(this)
         rewardedUnlockController = RewardedUnlockController(this)
         setupStartScreen()
@@ -1839,6 +2055,7 @@ class MainActivity : Activity() {
         if (!::appHealthReporter.isInitialized) return
         if (!action.isNullOrBlank()) {
             latestHealthAction = action.take(120)
+            refreshAiCompanionUi()
             appHealthReporter.noteAction(
                 action = action,
                 screen = currentHealthScreenName(),
@@ -1854,11 +2071,13 @@ class MainActivity : Activity() {
             playing = isPlaying,
             force = force,
         )
+        refreshAiCompanionUi()
     }
 
     private fun noteAppHealthAction(action: String, force: Boolean = true) {
         val actionName = action.take(120)
         latestHealthAction = actionName
+        refreshAiCompanionUi()
         if (::uiActionExpectationDetector.isInitialized) {
             uiActionExpectationDetector.noteHealthAction(actionName)
         }

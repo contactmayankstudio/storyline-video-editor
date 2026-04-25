@@ -64,6 +64,8 @@ jobs:
         env:
           AWS_CONTROL_PLANE_URL: ${{ vars.AWS_CONTROL_PLANE_URL }}
           AWS_CONTROL_PLANE_DEVICE_KEY: ${{ secrets.AWS_CONTROL_PLANE_DEVICE_KEY }}
+          RELEASE_PORTAL_URL: ${{ vars.RELEASE_PORTAL_URL }}
+          ADMIN_PANEL_URL: ${{ vars.ADMIN_PANEL_URL }}
           ADMOB_APP_ID: ${{ vars.ADMOB_APP_ID }}
           ADMOB_BANNER_UNIT_ID: ${{ vars.ADMOB_BANNER_UNIT_ID }}
           ADMOB_REWARDED_HD_UNLOCK_UNIT_ID: ${{ vars.ADMOB_REWARDED_HD_UNLOCK_UNIT_ID }}

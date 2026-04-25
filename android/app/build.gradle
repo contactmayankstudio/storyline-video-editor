@@ -40,6 +40,8 @@ android {
         versionName = "1.0.0"
         resValue "string", "aws_control_plane_url", envStringResourceValue("AWS_CONTROL_PLANE_URL")
         resValue "string", "aws_control_plane_device_key", envStringResourceValue("AWS_CONTROL_PLANE_DEVICE_KEY")
+        resValue "string", "release_portal_url", envStringResourceValue("RELEASE_PORTAL_URL", "https://apk-host-swart.vercel.app")
+        resValue "string", "admin_panel_url", envStringResourceValue("ADMIN_PANEL_URL", "https://storyline-omega.vercel.app")
         resValue "string", "admob_app_id", envStringResourceValue("ADMOB_APP_ID", "ca-app-pub-3940256099942544~3347511713")
         resValue "string", "admob_banner_unit_id", envStringResourceValue("ADMOB_BANNER_UNIT_ID", "ca-app-pub-3940256099942544/6300978111")
         resValue "string", "admob_rewarded_hd_unlock_unit_id", envStringResourceValue("ADMOB_REWARDED_HD_UNLOCK_UNIT_ID", "ca-app-pub-3940256099942544/5224354917")

@@ -11,6 +11,17 @@
     <string name="start_import_caption">Pull clips, photos and sound into a ready session.</string>
     <string name="recent_projects_label">Recent Projects</string>
     <string name="recent_projects_empty">Your saved edits will appear here.</string>
+    <string name="ai_status_title">AI Copilot Live</string>
+    <string name="ai_status_summary_default">AI is monitoring playback, export, freeze, device health, and new hosted builds.</string>
+    <string name="ai_status_update_checking">Hosted update: checking latest build…</string>
+    <string name="ai_status_open_update_action">Open Update Site</string>
+    <string name="ai_status_download_update_action">Download Update</string>
+    <string name="ai_status_open_admin_action">Open Admin</string>
+    <string name="ai_status_pill_home">AI MONITORING HOME</string>
+    <string name="ai_status_pill_editor">AI WATCHING EDITOR</string>
+    <string name="ai_status_pill_playback">AI WATCHING PLAYBACK</string>
+    <string name="ai_status_pill_crop">AI WATCHING CROP</string>
+    <string name="ai_status_pill_update">AI UPDATE READY</string>
     <string name="project_card_tag">LOCAL</string>
     <string name="project_card_tag_autosave">AUTOSAVE</string>
     <string name="project_card_name_autosave">Last Session</string>
@@ -79,4 +90,5 @@
     <string name="admob_rewarded_hd_unlock_unit_id_test">ca-app-pub-3940256099942544/5224354917</string>
     <string name="editor_top_ad_desc">Editor banner ad</string>
     <string name="start_top_ad_desc">Home banner ad</string>
+    <string name="editor_ai_status_desc">AI live status</string>
 </resources>
