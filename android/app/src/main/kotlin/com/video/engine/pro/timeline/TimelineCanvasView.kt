@@ -175,9 +175,11 @@ class TimelineCanvasView @JvmOverloads constructor(
                 // Keep focus point stable
                 val focusMs = (zoomFocusScrollX + zoomFocusX - headerWidthPx) / (pxPerSecond / 1000f)
                 pxPerSecond = newPps
+                invalidateAssetRequestWindow()
                 scrollX = ((focusMs * pxPerMs) - (zoomFocusX - headerWidthPx))
                     .coerceAtLeast(0f)
                 listener?.onZoomChanged(pxPerSecond)
+                scheduleAssetRequests()
                 invalidate()
                 return true
             }
@@ -199,7 +201,8 @@ class TimelineCanvasView @JvmOverloads constructor(
             trackLocked[track.type] = track.isLocked
         }
         recalcContentWidth()
-        scheduleAssetRequests()
+        invalidateAssetRequestWindow()
+        scheduleAssetRequests(immediate = true)
         invalidate()
     }
 
@@ -218,6 +221,7 @@ class TimelineCanvasView @JvmOverloads constructor(
     fun setPlayheadMs(ms: Long) {
         playheadMs = ms
         scrollX = scrollForPlayhead(ms)
+        scheduleAssetRequests()
         invalidate()
     }
 
@@ -229,18 +233,72 @@ class TimelineCanvasView @JvmOverloads constructor(
     fun setZoomPxPerSecond(pps: Float) {
         pxPerSecond = pps.coerceIn(24f, 6000f)
         recalcContentWidth()
-        scheduleAssetRequests()
+        invalidateAssetRequestWindow()
+        scheduleAssetRequests(immediate = true)
         invalidate()
     }
 
-    private fun scheduleAssetRequests() {
-        if (width == 0) return
+    private fun invalidateAssetRequestWindow() {
+        lastAssetWindowStartBucket = Int.MIN_VALUE
+        lastAssetWindowEndBucket = Int.MIN_VALUE
+        lastAssetZoomBucket = Int.MIN_VALUE
+        lastAssetTrackCount = -1
+    }
+
+    private fun assetRequestDelayMs(): Long = if (DeviceDetector.isLowEndDevice()) 56L else 28L
+
+    private fun assetPrefetchMarginPx(): Float {
+        val viewportWidthPx = (width - headerWidthPx).coerceAtLeast(dp(72))
+        val overscanMultiplier = if (DeviceDetector.isLowEndDevice()) 0.4f else 0.85f
+        return viewportWidthPx * overscanMultiplier
+    }
+
+    private fun clipContentStartPx(clip: ClipSegment): Float =
+        headerWidthPx + clip.startTimeMs * pxPerMs
+
+    private fun clipContentEndPx(clip: ClipSegment): Float =
+        headerWidthPx + (clip.startTimeMs + clip.durationMs) * pxPerMs
+
+    private fun performAssetRequests() {
+        if (width <= 0) return
+        val windowStartPx = (scrollX + headerWidthPx - assetPrefetchMarginPx())
+            .coerceAtLeast(headerWidthPx.toFloat())
+        val windowEndPx = scrollX + width + assetPrefetchMarginPx()
+        val bucketSizePx = dp(96).coerceAtLeast(1)
+        val startBucket = (windowStartPx / bucketSizePx).toInt()
+        val endBucket = (windowEndPx / bucketSizePx).toInt()
+        val zoomBucket = (pxPerSecond / 24f).roundToInt()
+        val trackCount = tracks.sumOf { it.clips.size }
+        if (
+            startBucket == lastAssetWindowStartBucket &&
+            endBucket == lastAssetWindowEndBucket &&
+            zoomBucket == lastAssetZoomBucket &&
+            trackCount == lastAssetTrackCount
+        ) {
+            return
+        }
+        lastAssetWindowStartBucket = startBucket
+        lastAssetWindowEndBucket = endBucket
+        lastAssetZoomBucket = zoomBucket
+        lastAssetTrackCount = trackCount
         tracks.forEach { track ->
             track.clips.forEach { clip ->
-                requestThumbnails(clip)
-                requestWaveform(clip)
+                requestThumbnails(clip, windowStartPx, windowEndPx)
+                requestWaveform(clip, windowStartPx, windowEndPx)
             }
         }
+    }
+
+    private fun scheduleAssetRequests(immediate: Boolean = false) {
+        if (immediate) {
+            assetRequestHandler.removeCallbacks(assetRequestRunnable)
+            assetRequestScheduled = false
+            performAssetRequests()
+            return
+        }
+        if (assetRequestScheduled) return
+        assetRequestScheduled = true
+        assetRequestHandler.postDelayed(assetRequestRunnable, assetRequestDelayMs())
     }
 
     // ── Layout ────────────────────────────────────────────────────────────────
@@ -405,6 +463,16 @@ class TimelineCanvasView @JvmOverloads constructor(
     private val waveformPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#AAFFFFFF") }
     private var lastInvalidateMs = 0L
     private val invalidateThrottleMs = 100L
+    private val assetRequestHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var assetRequestScheduled = false
+    private var lastAssetWindowStartBucket = Int.MIN_VALUE
+    private var lastAssetWindowEndBucket = Int.MIN_VALUE
+    private var lastAssetZoomBucket = Int.MIN_VALUE
+    private var lastAssetTrackCount = -1
+    private val assetRequestRunnable = Runnable {
+        assetRequestScheduled = false
+        performAssetRequests()
+    }
 
     private fun throttledInvalidate() {
         val now = System.currentTimeMillis()
@@ -414,10 +482,17 @@ class TimelineCanvasView @JvmOverloads constructor(
         }
     }
 
-    private fun requestWaveform(clip: ClipSegment) {
+    private fun requestWaveform(clip: ClipSegment, windowStartPx: Float, windowEndPx: Float) {
         if (clip.trackType != TrackType.AUDIO && clip.trackType != TrackType.VIDEO) return
         if (clip.sourcePath.isBlank()) return
-        val barCount = ((clip.durationMs * pxPerMs) / dp(4)).toInt().coerceIn(16, if (DeviceDetector.isLowEndDevice()) 64 else 256)
+        val clipLeftPx = clipContentStartPx(clip)
+        val clipRightPx = clipContentEndPx(clip)
+        if (clipRightPx < windowStartPx || clipLeftPx > windowEndPx) return
+        val visibleWidthPx = (min(clipRightPx, windowEndPx) - max(clipLeftPx, windowStartPx))
+            .roundToInt()
+            .coerceAtLeast(dp(48))
+        val barCount = (visibleWidthPx / dp(4).coerceAtLeast(1))
+            .coerceIn(16, if (DeviceDetector.isLowEndDevice()) 64 else 256)
         val key = "${clip.sourcePath}#${clip.sourceInMs}#${clip.sourceOutMs}#$barCount"
         if (clipWaveformKeys[clip.id] == key && clipWaveforms[clip.id] != null) return
         clipWaveformKeys[clip.id] = key
@@ -449,17 +524,18 @@ class TimelineCanvasView @JvmOverloads constructor(
     private val clipThumbnails = mutableMapOf<String, List<android.graphics.Bitmap>>()
     private val clipThumbnailKeys = mutableMapOf<String, String>()
 
-    private fun requestThumbnails(clip: ClipSegment) {
+    private fun requestThumbnails(clip: ClipSegment, windowStartPx: Float, windowEndPx: Float) {
         if (clip.trackType != TrackType.VIDEO && !clip.trackType.isOverlayLike()) return
         if (clip.sourcePath.isBlank()) return
-        val left = msToX(clip.startTimeMs)
-        val right = msToX(clip.startTimeMs + clip.durationMs)
-        if (right < headerWidthPx || left > width) return
+        val clipLeftPx = clipContentStartPx(clip)
+        val clipRightPx = clipContentEndPx(clip)
+        if (clipRightPx < windowStartPx || clipLeftPx > windowEndPx) return
         val targetH = trackHeightPx - dp(4)
-        val visibleWidth = (min(right, width.toFloat()) - max(left, headerWidthPx.toFloat()))
+        val visibleWidth = (min(clipRightPx, windowEndPx) - max(clipLeftPx, windowStartPx))
             .roundToInt()
             .coerceAtLeast(dp(72))
-        val viewportW = visibleWidth.coerceAtMost((width - headerWidthPx).coerceAtLeast(dp(72)))
+        val assetWindowWidth = (windowEndPx - windowStartPx).roundToInt().coerceAtLeast(dp(72))
+        val viewportW = visibleWidth.coerceAtMost(assetWindowWidth)
         val key = TimelineThumbnailCache.buildRequestKey(clip, viewportW, targetH)
         if (clipThumbnailKeys[clip.id] == key && clipThumbnails[clip.id]?.isNotEmpty() == true) return
         clipThumbnailKeys[clip.id] = key
@@ -735,6 +811,7 @@ class TimelineCanvasView @JvmOverloads constructor(
             val newMs = ((scrollX + centerX() - headerWidthPx) / pxPerMs).toLong().coerceAtLeast(0L)
             playheadMs = newMs
             listener?.onPlayheadScrub(newMs)
+            scheduleAssetRequests()
             postInvalidateOnAnimation()
         }
     }
@@ -754,7 +831,9 @@ class TimelineCanvasView @JvmOverloads constructor(
         if (now - lastTapTimeMs < 300 && abs(event.x - lastTapX) < dp(20)) {
             pxPerSecond = 120f
             recalcContentWidth()
+            invalidateAssetRequestWindow()
             listener?.onZoomChanged(pxPerSecond)
+            scheduleAssetRequests(immediate = true)
             invalidate()
             lastTapTimeMs = 0L
             return
@@ -816,6 +895,7 @@ class TimelineCanvasView @JvmOverloads constructor(
             playheadMs = ms
             scrollX = scrollForPlayhead(ms)
             listener?.onPlayheadScrub(ms)
+            scheduleAssetRequests()
             invalidate()
             return
         }
@@ -873,6 +953,7 @@ class TimelineCanvasView @JvmOverloads constructor(
                 scrollX = scrollForPlayhead(ms)
                 showPlayheadTooltip = true
                 listener?.onPlayheadScrub(ms)
+                scheduleAssetRequests()
                 invalidate()
             }
             GestureKind.SCROLL -> {
@@ -881,6 +962,7 @@ class TimelineCanvasView @JvmOverloads constructor(
                 val newMs = ((scrollX + centerX() - headerWidthPx) / pxPerMs).toLong().coerceAtLeast(0L)
                 playheadMs = newMs
                 listener?.onPlayheadScrub(newMs)
+                scheduleAssetRequests()
                 invalidate()
             }
             GestureKind.NONE -> {
@@ -888,6 +970,7 @@ class TimelineCanvasView @JvmOverloads constructor(
                 if (gestureClipId == null) {
                     gesture = GestureKind.SCROLL
                     scrollX = (scrollX - stepX).coerceAtLeast(0f)
+                    scheduleAssetRequests()
                     invalidate()
                 } else {
                     // Already set in onDown — just start
@@ -1102,7 +1185,14 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         recalcContentWidth()
-        scheduleAssetRequests()
+        invalidateAssetRequestWindow()
+        scheduleAssetRequests(immediate = true)
+    }
+
+    override fun onDetachedFromWindow() {
+        assetRequestHandler.removeCallbacks(assetRequestRunnable)
+        assetRequestScheduled = false
+        super.onDetachedFromWindow()
     }
 
     // Preferred height = ruler + all tracks
