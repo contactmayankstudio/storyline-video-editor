@@ -6373,11 +6373,12 @@ class MainActivity : Activity() {
     ): ClipPreviewTransform {
         val safeZoom = transform.zoom.coerceIn(0.75f, 4.0f)
         val (maxPanX, maxPanY) = resolvePreviewPanBounds(clipId, safeZoom, preview)
+        val centerSnapThreshold = resolvePreviewCenterSnapThreshold(safeZoom)
         return transform.copy(
             zoom = safeZoom,
-            panXPx = transform.panXPx.coerceIn(-maxPanX, maxPanX).let { if (abs(it) < 0.5f) 0f else it },
-            panYPx = transform.panYPx.coerceIn(-maxPanY, maxPanY).let { if (abs(it) < 0.5f) 0f else it },
-            rotationDeg = transform.rotationDeg.coerceIn(-180f, 180f),
+            panXPx = transform.panXPx.coerceIn(-maxPanX, maxPanX).let { if (abs(it) < centerSnapThreshold) 0f else it },
+            panYPx = transform.panYPx.coerceIn(-maxPanY, maxPanY).let { if (abs(it) < centerSnapThreshold) 0f else it },
+            rotationDeg = transform.rotationDeg.coerceIn(-180f, 180f).let { if (abs(it) < 0.75f) 0f else it },
         )
     }
 
@@ -6644,8 +6645,9 @@ class MainActivity : Activity() {
                     val clipId = previewTransformGestureClipId ?: selectedVideoClipId() ?: return false
                     val preview = previewView ?: return false
                     val base = previewTransformBase
+                    val scaleFactor = smoothPreviewScaleFactor(detector.scaleFactor, base.zoom)
                     previewTransformScaleAccumulator =
-                        (previewTransformScaleAccumulator * detector.scaleFactor).coerceIn(0.1f, 8.0f)
+                        (previewTransformScaleAccumulator * scaleFactor).coerceIn(0.1f, 8.0f)
                     val nextZoom = (base.zoom * previewTransformScaleAccumulator).coerceIn(0.75f, 4.0f)
                     val centerX = preview.width * 0.5f
                     val centerY = preview.height * 0.5f
@@ -6685,6 +6687,28 @@ class MainActivity : Activity() {
             zoom < 1.5f -> 0.84f
             else -> 0.94f
         }
+    }
+
+    private fun resolvePreviewCenterSnapThreshold(zoom: Float): Float {
+        return when {
+            zoom < 1.02f -> 18f
+            zoom < 1.2f -> 10f
+            zoom < 1.6f -> 4f
+            else -> 0.5f
+        }
+    }
+
+    private fun smoothPreviewScaleFactor(
+        rawScaleFactor: Float,
+        zoom: Float,
+    ): Float {
+        val sensitivity =
+            when {
+                zoom < 1.1f -> 0.88f
+                zoom < 2.0f -> 0.82f
+                else -> 0.76f
+            }
+        return (1f + ((rawScaleFactor - 1f) * sensitivity)).coerceIn(0.75f, 1.35f)
     }
 
     private fun handlePreviewTransformTouch(event: MotionEvent): Boolean {
