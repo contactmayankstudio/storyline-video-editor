@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.app.NotificationManager
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -56,6 +57,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.Executors
+import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
@@ -363,6 +365,7 @@ class MainActivity : Activity() {
     private val redoDomains = ArrayDeque<UndoDomain>()
     private val videoClipTimingOverrides = mutableMapOf<Int, ClipTimingSnapshot>()
     private val clipPreviewTransforms = mutableMapOf<Int, ClipPreviewTransform>()
+    private val sourceVisualSizeCache = mutableMapOf<String, Pair<Int, Int>>()
     private val audioClipGainOverrides = mutableMapOf<Int, Float>()
     private val videoClipGainOverrides = mutableMapOf<Int, Float>()
     private val videoClipReverseOverrides = mutableMapOf<Int, Boolean>()
@@ -6229,17 +6232,22 @@ class MainActivity : Activity() {
     private fun applySelectedClipPreviewTransform() {
         val preview = previewView ?: return
         val clipId = selectedVideoClipId()
-        val transform = clipId?.let { clipPreviewTransforms[it] } ?: ClipPreviewTransform()
-        val safeZoom = transform.zoom.coerceIn(0.75f, 4.0f)
-        val maxPanX = ((if (preview.width > 0) preview.width else preview.resources.displayMetrics.widthPixels) * 0.48f)
-            .coerceAtLeast(32f)
-        val maxPanY = ((if (preview.height > 0) preview.height else preview.resources.displayMetrics.heightPixels) * 0.48f)
-            .coerceAtLeast(32f)
-        val targetScaleX = (if (transform.mirrorX) -1f else 1f) * safeZoom
-        val targetScaleY = safeZoom
-        val targetTranslationX = transform.panXPx.coerceIn(-maxPanX, maxPanX)
-        val targetTranslationY = transform.panYPx.coerceIn(-maxPanY, maxPanY)
-        val targetRotation = transform.rotationDeg.coerceIn(-180f, 180f)
+        val rawTransform = clipId?.let { clipPreviewTransforms[it] } ?: ClipPreviewTransform()
+        val transform =
+            if (clipId != null) {
+                normalizeClipPreviewTransform(clipId, rawTransform, preview).also { normalized ->
+                    if (normalized != rawTransform) {
+                        clipPreviewTransforms[clipId] = normalized
+                    }
+                }
+            } else {
+                rawTransform
+            }
+        val targetScaleX = (if (transform.mirrorX) -1f else 1f) * transform.zoom
+        val targetScaleY = transform.zoom
+        val targetTranslationX = transform.panXPx
+        val targetTranslationY = transform.panYPx
+        val targetRotation = transform.rotationDeg
         preview.pivotX = preview.width * 0.5f
         preview.pivotY = preview.height * 0.5f
         if (preview.scaleX != targetScaleX) preview.scaleX = targetScaleX
@@ -6256,10 +6264,121 @@ class MainActivity : Activity() {
         mutator: (ClipPreviewTransform) -> ClipPreviewTransform,
     ): Boolean {
         val clipId = selectedVideoClipId() ?: return false
-        val updated = mutator(clipPreviewTransforms[clipId] ?: ClipPreviewTransform())
+        val preview = previewView
+        val updated =
+            if (preview != null) {
+                normalizeClipPreviewTransform(
+                    clipId = clipId,
+                    transform = mutator(clipPreviewTransforms[clipId] ?: ClipPreviewTransform()),
+                    preview = preview,
+                )
+            } else {
+                mutator(clipPreviewTransforms[clipId] ?: ClipPreviewTransform())
+            }
         clipPreviewTransforms[clipId] = updated
         applySelectedClipPreviewTransform()
         return true
+    }
+
+    private fun resolveClipSourceVisualSize(clipId: Int): Pair<Int, Int>? {
+        val sourcePath = nativeClipSourcePath[clipId].orEmpty()
+        if (sourcePath.isBlank()) return null
+        sourceVisualSizeCache[sourcePath]?.let { return it }
+        val resolved =
+            runCatching {
+                if (sourcePath.startsWith("content://")) {
+                    contentResolver.openInputStream(Uri.parse(sourcePath))?.use { stream ->
+                        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeStream(stream, null, options)
+                        if (options.outWidth > 0 && options.outHeight > 0) {
+                            return@runCatching options.outWidth to options.outHeight
+                        }
+                    }
+                } else if (File(sourcePath).exists()) {
+                    val imageOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(sourcePath, imageOptions)
+                    if (imageOptions.outWidth > 0 && imageOptions.outHeight > 0) {
+                        return@runCatching imageOptions.outWidth to imageOptions.outHeight
+                    }
+                }
+
+                val retriever = MediaMetadataRetriever()
+                try {
+                    if (sourcePath.startsWith("content://")) {
+                        retriever.setDataSource(this, Uri.parse(sourcePath))
+                    } else if (File(sourcePath).exists()) {
+                        retriever.setDataSource(sourcePath)
+                    } else {
+                        return@runCatching null
+                    }
+                    val width =
+                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                            ?.toIntOrNull()
+                            ?: 0
+                    val height =
+                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                            ?.toIntOrNull()
+                            ?: 0
+                    val rotation =
+                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+                            ?.toIntOrNull()
+                            ?: 0
+                    when {
+                        width <= 0 || height <= 0 -> null
+                        rotation == 90 || rotation == 270 -> height to width
+                        else -> width to height
+                    }
+                } finally {
+                    runCatching { retriever.release() }
+                }
+            }.getOrNull()
+        resolved?.let { sourceVisualSizeCache[sourcePath] = it }
+        return resolved
+    }
+
+    private fun resolvePreviewPanBounds(
+        clipId: Int,
+        zoom: Float,
+        preview: View,
+    ): Pair<Float, Float> {
+        val previewWidth = preview.width.takeIf { it > 0 }?.toFloat()
+            ?: preview.resources.displayMetrics.widthPixels.toFloat()
+        val previewHeight = preview.height.takeIf { it > 0 }?.toFloat()
+            ?: preview.resources.displayMetrics.heightPixels.toFloat()
+        val (sourceWidth, sourceHeight) =
+            resolveClipSourceVisualSize(clipId)
+                ?.takeIf { it.first > 0 && it.second > 0 }
+                ?: (previewWidth.roundToInt() to previewHeight.roundToInt())
+        val sourceAspect = sourceWidth.toFloat() / sourceHeight.toFloat().coerceAtLeast(1f)
+        val previewAspect = previewWidth / previewHeight.coerceAtLeast(1f)
+        val baseRenderedWidth: Float
+        val baseRenderedHeight: Float
+        if (sourceAspect > previewAspect) {
+            baseRenderedWidth = previewHeight * sourceAspect
+            baseRenderedHeight = previewHeight
+        } else {
+            baseRenderedWidth = previewWidth
+            baseRenderedHeight = previewWidth / sourceAspect.coerceAtLeast(0.0001f)
+        }
+        val renderedWidth = baseRenderedWidth * zoom
+        val renderedHeight = baseRenderedHeight * zoom
+        return ((renderedWidth - previewWidth) * 0.5f).coerceAtLeast(0f) to
+            ((renderedHeight - previewHeight) * 0.5f).coerceAtLeast(0f)
+    }
+
+    private fun normalizeClipPreviewTransform(
+        clipId: Int,
+        transform: ClipPreviewTransform,
+        preview: View,
+    ): ClipPreviewTransform {
+        val safeZoom = transform.zoom.coerceIn(0.75f, 4.0f)
+        val (maxPanX, maxPanY) = resolvePreviewPanBounds(clipId, safeZoom, preview)
+        return transform.copy(
+            zoom = safeZoom,
+            panXPx = transform.panXPx.coerceIn(-maxPanX, maxPanX).let { if (abs(it) < 0.5f) 0f else it },
+            panYPx = transform.panYPx.coerceIn(-maxPanY, maxPanY).let { if (abs(it) < 0.5f) 0f else it },
+            rotationDeg = transform.rotationDeg.coerceIn(-180f, 180f),
+        )
     }
 
     private fun updateNativeClipTiming(
@@ -6507,8 +6626,14 @@ class MainActivity : Activity() {
             object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                 override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
                     val clipId = selectedVideoClipId() ?: return false
+                    val preview = previewView ?: return false
                     previewTransformGestureClipId = clipId
-                    previewTransformBase = clipPreviewTransforms[clipId] ?: ClipPreviewTransform()
+                    previewTransformBase =
+                        normalizeClipPreviewTransform(
+                            clipId = clipId,
+                            transform = clipPreviewTransforms[clipId] ?: ClipPreviewTransform(),
+                            preview = preview,
+                        )
                     previewTransformScaleAccumulator = 1.0f
                     previewTransformPinching = true
                     previewView?.setLayerType(View.LAYER_TYPE_HARDWARE, null)
@@ -6524,13 +6649,17 @@ class MainActivity : Activity() {
                     val nextZoom = (base.zoom * previewTransformScaleAccumulator).coerceIn(0.75f, 4.0f)
                     val centerX = preview.width * 0.5f
                     val centerY = preview.height * 0.5f
-                    val focusShift =
-                        if (base.zoom > 0.001f) 1f - (nextZoom / base.zoom) else 0f
-                    clipPreviewTransforms[clipId] = base.copy(
-                        zoom = nextZoom,
-                        panXPx = base.panXPx + ((detector.focusX - centerX) * focusShift),
-                        panYPx = base.panYPx + ((detector.focusY - centerY) * focusShift),
-                    )
+                    val zoomRatio = nextZoom / base.zoom.coerceAtLeast(0.001f)
+                    clipPreviewTransforms[clipId] =
+                        normalizeClipPreviewTransform(
+                            clipId = clipId,
+                            transform = base.copy(
+                                zoom = nextZoom,
+                                panXPx = (base.panXPx * zoomRatio) + ((1f - zoomRatio) * (detector.focusX - centerX)),
+                                panYPx = (base.panYPx * zoomRatio) + ((1f - zoomRatio) * (detector.focusY - centerY)),
+                            ),
+                            preview = preview,
+                        )
                     applySelectedClipPreviewTransform()
                     return true
                 }
@@ -6547,6 +6676,14 @@ class MainActivity : Activity() {
         }
         overlayContainer?.setOnTouchListener { _, event ->
             handlePreviewTransformTouch(event)
+        }
+    }
+
+    private fun resolvePreviewPanDamping(zoom: Float): Float {
+        return when {
+            zoom < 1.05f -> 0.72f
+            zoom < 1.5f -> 0.84f
+            else -> 0.94f
         }
     }
 
@@ -6600,9 +6737,10 @@ class MainActivity : Activity() {
                 previewTransformLastX = event.x
                 previewTransformLastY = event.y
                 updateSelectedVideoPreviewTransform { current ->
+                    val panDamping = resolvePreviewPanDamping(current.zoom)
                     current.copy(
-                        panXPx = current.panXPx + dx,
-                        panYPx = current.panYPx + dy,
+                        panXPx = current.panXPx + (dx * panDamping),
+                        panYPx = current.panYPx + (dy * panDamping),
                     )
                 }
                 return true
@@ -6625,28 +6763,35 @@ class MainActivity : Activity() {
         if (!shouldShowDirectPreviewEdit()) return false
         val clipId = selectedVideoClipId() ?: return false
         val preview = previewView ?: return false
-        val current = clipPreviewTransforms[clipId] ?: ClipPreviewTransform()
+        val current =
+            normalizeClipPreviewTransform(
+                clipId = clipId,
+                transform = clipPreviewTransforms[clipId] ?: ClipPreviewTransform(),
+                preview = preview,
+            )
         val centerX = preview.width * 0.5f
         val centerY = preview.height * 0.5f
-        val towardTapX = (centerX - event.x) * 0.22f
-        val towardTapY = (centerY - event.y) * 0.22f
-        val updated =
+        val targetZoom =
             when {
-                current.zoom < 1.05f -> {
-                    current.copy(
-                        zoom = 1.35f,
-                        panXPx = current.panXPx + towardTapX,
-                        panYPx = current.panYPx + towardTapY,
-                    )
-                }
-                current.zoom < 1.85f -> {
-                    current.copy(
-                        zoom = 2.0f,
-                        panXPx = current.panXPx + towardTapX * 1.35f,
-                        panYPx = current.panYPx + towardTapY * 1.35f,
-                    )
-                }
-                else -> ClipPreviewTransform()
+                current.zoom < 1.05f -> 1.35f
+                current.zoom < 1.75f -> 2.0f
+                current.zoom < 2.45f -> 2.75f
+                else -> 1.0f
+            }
+        val updated =
+            if (targetZoom == 1.0f) {
+                ClipPreviewTransform()
+            } else {
+                val zoomRatio = targetZoom / current.zoom.coerceAtLeast(0.001f)
+                normalizeClipPreviewTransform(
+                    clipId = clipId,
+                    transform = current.copy(
+                        zoom = targetZoom,
+                        panXPx = (current.panXPx * zoomRatio) + ((1f - zoomRatio) * (event.x - centerX)),
+                        panYPx = (current.panYPx * zoomRatio) + ((1f - zoomRatio) * (event.y - centerY)),
+                    ),
+                    preview = preview,
+                )
             }
         clipPreviewTransforms[clipId] = updated
         applySelectedClipPreviewTransform()
