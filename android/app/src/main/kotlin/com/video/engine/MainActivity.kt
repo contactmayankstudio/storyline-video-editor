@@ -1911,12 +1911,8 @@ class MainActivity : Activity() {
             noteUiButtonTap("crop_done", "preview_crop")
             setPreviewCropMode(false)
         }
-        previewTrimStartHandleView?.setOnTouchListener { _, event ->
-            handlePreviewTrimTouch("start", event)
-        }
-        previewTrimEndHandleView?.setOnTouchListener { _, event ->
-            handlePreviewTrimTouch("end", event)
-        }
+        previewTrimStartHandleView?.setOnTouchListener(null)
+        previewTrimEndHandleView?.setOnTouchListener(null)
         syncPreviewCropModeUi()
     }
 
@@ -2016,18 +2012,8 @@ class MainActivity : Activity() {
         val clipId = selectedVideoClipId()
         val transform = clipId?.let { clipPreviewTransforms[it] } ?: ClipPreviewTransform()
         val label = selectedNativeClipLabel()
-        val timing = clipId?.let(::selectedVideoTiming)
-        val trimLabel =
-            if (clipId != null && canPreviewTrimClip(clipId) && timing != null) {
-                val sourceInMs = videoClipTimingOverrides[clipId]?.sourceInMs ?: (nativeClipSourceInMs[clipId] ?: 0L)
-                val sourceOutMs = videoClipTimingOverrides[clipId]?.sourceOutMs
-                    ?: (nativeClipSourceOutMs[clipId] ?: (sourceInMs + timing.second))
-                " • Trim ${formatPreviewTrimTime(sourceInMs)}-${formatPreviewTrimTime(sourceOutMs)}"
-            } else {
-                ""
-            }
         previewCropStatusText?.text =
-            "$label Edit • ${"%.2fx".format(Locale.US, transform.zoom.coerceIn(0.75f, 4.0f))}$trimLabel • Drag / Pinch / Handles"
+            "$label Edit • ${"%.2fx".format(Locale.US, transform.zoom.coerceIn(0.75f, 4.0f))} • Move / Pinch / Double tap"
     }
 
     private fun canPreviewTrimClip(clipId: Int): Boolean {
@@ -2086,12 +2072,9 @@ class MainActivity : Activity() {
         previewCropOverlayView?.visibility = if (showCropUi) View.VISIBLE else View.GONE
         findViewById<View?>(R.id.previewCropTopRail)?.visibility = View.GONE
         findViewById<View?>(R.id.previewCropActionRail)?.visibility = View.GONE
-        val showTrimHandles =
-            showCropUi &&
-                previewTrimSession != null &&
-                selectedVideoClipId()?.let(::canPreviewTrimClip) == true
-        previewTrimStartHandleView?.visibility = if (showTrimHandles) View.VISIBLE else View.GONE
-        previewTrimEndHandleView?.visibility = if (showTrimHandles) View.VISIBLE else View.GONE
+        previewTrimSession = null
+        previewTrimStartHandleView?.visibility = View.GONE
+        previewTrimEndHandleView?.visibility = View.GONE
         findViewById<View?>(R.id.playbackUndoRedoRow)?.visibility = if (showCropUi) View.GONE else View.VISIBLE
         if (showCropUi) {
             refreshPreviewCropStatus()
@@ -6502,15 +6485,7 @@ class MainActivity : Activity() {
 
     private fun handlePreviewFrameTouch(event: MotionEvent): Boolean {
         if (!shouldShowDirectPreviewEdit()) return false
-        previewTrimSession?.edge?.let { activeEdge ->
-            return handlePreviewTrimTouch(activeEdge, event)
-        }
-        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-            val edge = resolvePreviewTrimEdge(event)
-            if (edge != null && selectedVideoClipId()?.let(::canPreviewTrimClip) == true) {
-                return handlePreviewTrimTouch(edge, event)
-            }
-        }
+        previewTrimSession = null
         return handlePreviewTransformTouch(event)
     }
 
