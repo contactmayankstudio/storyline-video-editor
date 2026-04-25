@@ -166,6 +166,7 @@
             android:background="@drawable/preview_info_chip_background"
             android:contentDescription="@string/editor_ai_status_desc"
             android:fontFamily="sans-serif-medium"
+            android:importantForAccessibility="noHideDescendants"
             android:paddingStart="12dp"
             android:paddingTop="8dp"
             android:paddingEnd="12dp"
@@ -173,7 +174,8 @@
             android:text="@string/ai_status_pill_home"
             android:textColor="@color/accent_blue"
             android:textSize="10sp"
-            android:textStyle="bold" />
+            android:textStyle="bold"
+            android:visibility="gone" />
 
         <FrameLayout
             android:id="@+id/previewStageHost"
@@ -996,8 +998,10 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
                 android:background="@drawable/launch_secondary_action_background"
+                android:importantForAccessibility="noHideDescendants"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="16dp"
+                android:visibility="gone">
 
                 <TextView
                     android:id="@+id/startAiTitleText"
