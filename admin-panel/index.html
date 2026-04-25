@@ -1818,9 +1818,9 @@
 
             const target = state.liveInstallations.find(({ id }) => id === installationId);
             const now = Date.now();
-            const commandRef = doc(collection(state.firestore, "ops_installations", installationId, "commands"));
+            const commandRef = doc(state.firestore, "ops_device_channels", installationId);
             const payload = {
-                commandId: commandRef.id,
+                commandId: `${command}_${now}`,
                 targetInstallationId: installationId,
                 command,
                 source: "admin-panel",

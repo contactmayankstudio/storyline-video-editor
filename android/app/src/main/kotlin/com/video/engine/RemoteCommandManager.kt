@@ -31,29 +31,21 @@ class RemoteCommandManager(
         }
 
         registration =
-            firestore.collection("ops_installations")
+            firestore.collection("ops_device_channels")
                 .document(installationId)
-                .collection("commands")
-                .whereEqualTo("status", "queued")
-                .limit(12)
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) {
                         Log.w(TAG, "Remote command listener failed: ${error.message}")
                         return@addSnapshotListener
                     }
-                    val docs =
-                        snapshot?.documents
-                            ?.sortedBy { document ->
-                                document.getLong("createdAtMs") ?: 0L
-                            }
-                            ?: return@addSnapshotListener
-                    for (document in docs) {
-                        val commandId = document.id
-                        val command = document.getString("command").orEmpty().trim()
-                        if (command.isEmpty()) continue
-                        if (!inFlightCommandIds.add(commandId)) continue
-                        handleCommand(installationId, commandId, command)
-                    }
+                    val document = snapshot ?: return@addSnapshotListener
+                    if (!document.exists()) return@addSnapshotListener
+                    val status = document.getString("status").orEmpty().trim()
+                    val commandId = document.getString("commandId").orEmpty().trim()
+                    val command = document.getString("command").orEmpty().trim()
+                    if (status != "queued" || commandId.isEmpty() || command.isEmpty()) return@addSnapshotListener
+                    if (!inFlightCommandIds.add(commandId)) return@addSnapshotListener
+                    handleCommand(installationId, commandId, command)
                 }
     }
 
@@ -110,10 +102,8 @@ class RemoteCommandManager(
             payload["completedAt"] = FieldValue.serverTimestamp()
         }
 
-        firestore.collection("ops_installations")
+        firestore.collection("ops_device_channels")
             .document(installationId)
-            .collection("commands")
-            .document(commandId)
             .set(payload, SetOptions.merge())
             .addOnFailureListener { error ->
                 Log.w(TAG, "Failed to update command $commandId: ${error.message}")
