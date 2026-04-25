@@ -5,6 +5,7 @@ import android.app.AlertDialog
 import android.app.NotificationManager
 import android.content.Intent
 import android.media.AudioManager
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -173,6 +174,16 @@ class MainActivity : Activity() {
         val mirrorX: Boolean = false,
     )
 
+    private data class PreviewTrimSession(
+        val clipId: Int,
+        val edge: String,
+        val originalStartTimeMs: Long,
+        val originalDurationMs: Long,
+        val originalSourceInMs: Long,
+        val originalSourceOutMs: Long,
+        val sourceLimitMs: Long,
+    )
+
     private data class AspectRatioOption(
         val label: String,
         val width: Int,
@@ -235,6 +246,8 @@ class MainActivity : Activity() {
         private const val EXPORT_NOTIFICATION_ID = 1001
         private const val HARDWARE_TELEMETRY_REFRESH_MS = 750L
         private const val AUTOMATION_SMOKE_DURATION_MS = 15_000L
+        private const val MIN_PREVIEW_TRIM_DURATION_MS = 150L
+        private const val PREVIEW_TRIM_DISPATCH_INTERVAL_MS = 90L
     }
 
     // UI References
@@ -242,7 +255,10 @@ class MainActivity : Activity() {
     private var previewContainerView: FrameLayout? = null
     private var previewEmptyStateView: View? = null
     private var previewCropOverlayView: View? = null
+    private var previewCropFrameGuideView: View? = null
     private var previewCropStatusText: TextView? = null
+    private var previewTrimStartHandleView: View? = null
+    private var previewTrimEndHandleView: View? = null
     private var timelineRecyclerView: RecyclerView? = null
     private var timelineCurrentTimeText: TextView? = null
     private var previewAspectRatioText: TextView? = null
@@ -336,6 +352,9 @@ class MainActivity : Activity() {
     private var previewTransformScaleAccumulator = 1.0f
     private var previewCropModeActive = false
     private var previewCropModeClipKey: String? = null
+    private var previewTrimSession: PreviewTrimSession? = null
+    private var previewTrimStartRawX = 0f
+    private var previewTrimLastDispatchElapsedMs = 0L
 
     private val undoDomains = ArrayDeque<UndoDomain>()
     private val redoDomains = ArrayDeque<UndoDomain>()
@@ -349,6 +368,7 @@ class MainActivity : Activity() {
     private val videoClipKeyframes = mutableMapOf<Int, MutableList<Long>>()
     private val stickerClipKeyframes = mutableMapOf<Int, MutableList<Long>>()
     private val nativeClipAudioGainKeyframes = mutableMapOf<Int, List<AudioGainKeyframe>>()
+    private val sourceDurationCacheMs = mutableMapOf<String, Long>()
     private val duckingEnabledForKey = mutableMapOf<String, Boolean>()
     private val trackVisibilityOverrides = mutableMapOf<TrackType, Boolean>()
     private val trackLockedOverrides = mutableMapOf<TrackType, Boolean>()
@@ -995,7 +1015,10 @@ class MainActivity : Activity() {
         previewContainerView = previewStageHost
         previewEmptyStateView = findViewById(R.id.previewEmptyState)
         previewCropOverlayView = findViewById(R.id.previewCropOverlay)
+        previewCropFrameGuideView = findViewById(R.id.previewCropFrameGuide)
         previewCropStatusText = findViewById(R.id.previewCropStatus)
+        previewTrimStartHandleView = findViewById(R.id.previewCropTrimStartHandle)
+        previewTrimEndHandleView = findViewById(R.id.previewCropTrimEndHandle)
         val bottomContainer = findViewById<View>(R.id.bottomContainer)
         val timelineLayout = findViewById<View>(R.id.timelineLayout)
         timelineCurrentTimeText = findViewById(R.id.timelineCurrentTimeText)
@@ -1850,6 +1873,12 @@ class MainActivity : Activity() {
             noteUiButtonTap("crop_done", "preview_crop")
             setPreviewCropMode(false)
         }
+        previewTrimStartHandleView?.setOnTouchListener { _, event ->
+            handlePreviewTrimTouch("start", event)
+        }
+        previewTrimEndHandleView?.setOnTouchListener { _, event ->
+            handlePreviewTrimTouch("end", event)
+        }
         syncPreviewCropModeUi()
     }
 
@@ -1869,6 +1898,7 @@ class MainActivity : Activity() {
             previewTransformPinching = false
             previewTransformGestureClipId = null
             previewTransformScaleAccumulator = 1.0f
+            previewTrimSession = null
             previewView?.setLayerType(View.LAYER_TYPE_NONE, null)
         }
         syncPreviewCropModeUi()
@@ -1882,8 +1912,59 @@ class MainActivity : Activity() {
         val clipId = selectedVideoClipId()
         val transform = clipId?.let { clipPreviewTransforms[it] } ?: ClipPreviewTransform()
         val label = selectedNativeClipLabel()
+        val timing = clipId?.let(::selectedVideoTiming)
+        val trimLabel =
+            if (clipId != null && canPreviewTrimClip(clipId) && timing != null) {
+                val sourceInMs = videoClipTimingOverrides[clipId]?.sourceInMs ?: (nativeClipSourceInMs[clipId] ?: 0L)
+                val sourceOutMs = videoClipTimingOverrides[clipId]?.sourceOutMs
+                    ?: (nativeClipSourceOutMs[clipId] ?: (sourceInMs + timing.second))
+                " • Trim ${formatPreviewTrimTime(sourceInMs)}-${formatPreviewTrimTime(sourceOutMs)}"
+            } else {
+                ""
+            }
         previewCropStatusText?.text =
-            "$label Crop • ${"%.2fx".format(Locale.US, transform.zoom.coerceIn(0.75f, 4.0f))} • Drag / Pinch / Double tap"
+            "$label Edit • ${"%.2fx".format(Locale.US, transform.zoom.coerceIn(0.75f, 4.0f))}$trimLabel • Drag / Pinch / Handles"
+    }
+
+    private fun canPreviewTrimClip(clipId: Int): Boolean {
+        return !isStillImageClip(clipId)
+    }
+
+    private fun formatPreviewTrimTime(timeMs: Long): String {
+        val clamped = timeMs.coerceAtLeast(0L)
+        val totalSeconds = clamped / 1000L
+        return String.format(Locale.US, "%02d:%02d.%02d", totalSeconds / 60L, totalSeconds % 60L, (clamped % 1000L) / 10L)
+    }
+
+    private fun resolveClipSourceDurationMs(clipId: Int): Long {
+        val sourcePath = nativeClipSourcePath[clipId].orEmpty()
+        if (sourcePath.isBlank()) {
+            val sourceInMs = nativeClipSourceInMs[clipId] ?: 0L
+            return (nativeClipSourceOutMs[clipId] ?: (sourceInMs + 1L)).coerceAtLeast(sourceInMs + 1L)
+        }
+        sourceDurationCacheMs[sourcePath]?.let { return it }
+        val fallback = (nativeClipSourceOutMs[clipId] ?: 0L).coerceAtLeast(1L)
+        val durationMs =
+            runCatching {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    if (sourcePath.startsWith("content://")) {
+                        retriever.setDataSource(this, Uri.parse(sourcePath))
+                    } else if (File(sourcePath).exists()) {
+                        retriever.setDataSource(sourcePath)
+                    } else {
+                        return@runCatching fallback
+                    }
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                        ?.toLongOrNull()
+                        ?.coerceAtLeast(1L)
+                        ?: fallback
+                } finally {
+                    runCatching { retriever.release() }
+                }
+            }.getOrDefault(fallback)
+        sourceDurationCacheMs[sourcePath] = durationMs
+        return durationMs
     }
 
     private fun syncPreviewCropModeUi() {
@@ -1894,10 +1975,19 @@ class MainActivity : Activity() {
         if (!showCropUi) {
             previewCropModeActive = false
             previewCropModeClipKey = null
+            previewTrimSession = null
         } else {
             previewCropModeClipKey = selectedTimelineClipKey
+            if (previewTrimSession?.clipId != selectedVideoClipId()) {
+                previewTrimSession = null
+            }
         }
         previewCropOverlayView?.visibility = if (showCropUi) View.VISIBLE else View.GONE
+        val showTrimHandles =
+            showCropUi &&
+                selectedVideoClipId()?.let(::canPreviewTrimClip) == true
+        previewTrimStartHandleView?.visibility = if (showTrimHandles) View.VISIBLE else View.GONE
+        previewTrimEndHandleView?.visibility = if (showTrimHandles) View.VISIBLE else View.GONE
         findViewById<View?>(R.id.playbackUndoRedoRow)?.visibility = if (showCropUi) View.GONE else View.VISIBLE
         if (showCropUi) {
             refreshPreviewCropStatus()
@@ -3513,6 +3603,7 @@ class MainActivity : Activity() {
         timelineManager?.syncClips(emptyList(), recordHistory = false, clearHistory = true)
         timelineManager?.selectClip(null)
         videoClipTimingOverrides.clear()
+        previewTrimSession = null
         clipPreviewTransforms.clear()
         audioClipGainOverrides.clear()
         videoClipGainOverrides.clear()
@@ -3548,6 +3639,7 @@ class MainActivity : Activity() {
         nextTextOverlayId = 1
         nextStickerId = 1
         nextAudioClipId = 1
+        sourceDurationCacheMs.clear()
         lastPreviewAudioSyncSignature = ""
         NativeBridge.clearNativeCommandTelemetry()
         timelineCurrentTimeText?.text = getString(R.string.time_zero)
@@ -6071,6 +6163,213 @@ class MainActivity : Activity() {
         return true
     }
 
+    private fun updateNativeClipTiming(
+        clipId: Int,
+        newStartTimeMs: Long,
+        newDurationMs: Long,
+        newSourceInMs: Long,
+        newSourceOutMs: Long,
+        originalStartTimeMs: Long,
+        originalDurationMs: Long,
+        originalSourceInMs: Long,
+        originalSourceOutMs: Long,
+        previewOnly: Boolean,
+    ): Boolean {
+        val params =
+            mapOf(
+                "clipId" to clipId,
+                "newStartTimeMs" to newStartTimeMs,
+                "newDurationMs" to newDurationMs,
+                "newSourceInMs" to newSourceInMs,
+                "newSourceOutMs" to newSourceOutMs,
+                "originalStartTimeMs" to originalStartTimeMs,
+                "originalDurationMs" to originalDurationMs,
+                "originalSourceInMs" to originalSourceInMs,
+                "originalSourceOutMs" to originalSourceOutMs,
+                "previewOnly" to previewOnly,
+                "applyMagnetic" to (nativeClipTrackType[clipId] == TrackType.VIDEO),
+            )
+        return if (previewOnly) {
+            NativeBridge.executeCommandAsync("UPDATE_CLIP_TIMING", params)
+            true
+        } else {
+            runCatching {
+                NativeBridge.executeCommand(
+                    action = "UPDATE_CLIP_TIMING",
+                    params = params,
+                )
+            }.getOrNull()?.success == true
+        }
+    }
+
+    private fun dispatchPreviewTrimUpdate(
+        session: PreviewTrimSession,
+        timing: ClipTimingSnapshot,
+        previewOnly: Boolean,
+    ): Boolean {
+        return updateNativeClipTiming(
+            clipId = session.clipId,
+            newStartTimeMs = timing.startTimeMs,
+            newDurationMs = timing.durationMs,
+            newSourceInMs = timing.sourceInMs,
+            newSourceOutMs = timing.sourceOutMs,
+            originalStartTimeMs = session.originalStartTimeMs,
+            originalDurationMs = session.originalDurationMs,
+            originalSourceInMs = session.originalSourceInMs,
+            originalSourceOutMs = session.originalSourceOutMs,
+            previewOnly = previewOnly,
+        )
+    }
+
+    private fun buildPreviewTrimSnapshot(session: PreviewTrimSession, rawDeltaX: Float): ClipTimingSnapshot {
+        val frameWidthPx =
+            (previewCropFrameGuideView?.width ?: previewView?.width ?: 0)
+                .coerceAtLeast(1)
+        val deltaMs =
+            ((rawDeltaX / frameWidthPx.toFloat()) * session.originalDurationMs.toFloat())
+                .roundToLong()
+        return if (session.edge == "start") {
+            val minDelta = -minOf(session.originalStartTimeMs, session.originalSourceInMs)
+            val maxDelta = (session.originalSourceOutMs - session.originalSourceInMs - MIN_PREVIEW_TRIM_DURATION_MS)
+                .coerceAtLeast(0L)
+            val appliedDelta = deltaMs.coerceIn(minDelta, maxDelta)
+            val newSourceInMs = session.originalSourceInMs + appliedDelta
+            val newStartTimeMs = session.originalStartTimeMs + appliedDelta
+            val newDurationMs = (session.originalDurationMs - appliedDelta).coerceAtLeast(MIN_PREVIEW_TRIM_DURATION_MS)
+            ClipTimingSnapshot(
+                startTimeMs = newStartTimeMs,
+                durationMs = newDurationMs,
+                sourceInMs = newSourceInMs,
+                sourceOutMs = session.originalSourceOutMs,
+            )
+        } else {
+            val minOutMs = session.originalSourceInMs + MIN_PREVIEW_TRIM_DURATION_MS
+            val newSourceOutMs = (session.originalSourceOutMs + deltaMs)
+                .coerceIn(minOutMs, session.sourceLimitMs.coerceAtLeast(minOutMs))
+            val durationDeltaMs = newSourceOutMs - session.originalSourceOutMs
+            ClipTimingSnapshot(
+                startTimeMs = session.originalStartTimeMs,
+                durationMs = (session.originalDurationMs + durationDeltaMs).coerceAtLeast(MIN_PREVIEW_TRIM_DURATION_MS),
+                sourceInMs = session.originalSourceInMs,
+                sourceOutMs = newSourceOutMs,
+            )
+        }
+    }
+
+    private fun applyPreviewTrimSnapshot(
+        clipId: Int,
+        timing: ClipTimingSnapshot,
+        focusEdge: String,
+    ) {
+        videoClipTimingOverrides[clipId] = timing
+        refreshMainTimelineTracks()
+        val focusTimeMs =
+            if (focusEdge == "start") {
+                timing.startTimeMs
+            } else {
+                (timing.startTimeMs + timing.durationMs - 1L).coerceAtLeast(timing.startTimeMs)
+            }
+        applyEditorPlayhead(focusTimeMs, continueAudio = false)
+        refreshPreviewCropStatus()
+    }
+
+    private fun restorePreviewTrimState(
+        session: PreviewTrimSession,
+        dispatchPreview: Boolean,
+    ) {
+        videoClipTimingOverrides.remove(session.clipId)
+        refreshMainTimelineTracks()
+        if (dispatchPreview) {
+            dispatchPreviewTrimUpdate(
+                session = session,
+                timing = ClipTimingSnapshot(
+                    startTimeMs = session.originalStartTimeMs,
+                    durationMs = session.originalDurationMs,
+                    sourceInMs = session.originalSourceInMs,
+                    sourceOutMs = session.originalSourceOutMs,
+                ),
+                previewOnly = true,
+            )
+        }
+        applyEditorPlayhead(session.originalStartTimeMs, continueAudio = false)
+        refreshPreviewCropStatus()
+    }
+
+    private fun handlePreviewTrimTouch(
+        edge: String,
+        event: MotionEvent,
+    ): Boolean {
+        if (!previewCropModeActive) return false
+        val clipId = selectedVideoClipId() ?: return false
+        if (!canPreviewTrimClip(clipId)) return false
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                val timing = selectedVideoTiming(clipId) ?: return false
+                val sourceInMs = videoClipTimingOverrides[clipId]?.sourceInMs ?: (nativeClipSourceInMs[clipId] ?: 0L)
+                val sourceOutMs = videoClipTimingOverrides[clipId]?.sourceOutMs
+                    ?: (nativeClipSourceOutMs[clipId] ?: (sourceInMs + timing.second))
+                previewTrimSession =
+                    PreviewTrimSession(
+                        clipId = clipId,
+                        edge = edge,
+                        originalStartTimeMs = timing.first,
+                        originalDurationMs = timing.second,
+                        originalSourceInMs = sourceInMs,
+                        originalSourceOutMs = sourceOutMs,
+                        sourceLimitMs = maxOf(resolveClipSourceDurationMs(clipId), sourceOutMs),
+                    )
+                previewTrimStartRawX = event.rawX
+                previewTrimLastDispatchElapsedMs = 0L
+                playbackController?.nativePause()
+                noteUiButtonTap("crop_trim_$edge", "preview_crop")
+                return true
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                val session = previewTrimSession?.takeIf { it.edge == edge && it.clipId == clipId } ?: return false
+                val timing = buildPreviewTrimSnapshot(session, event.rawX - previewTrimStartRawX)
+                applyPreviewTrimSnapshot(clipId = session.clipId, timing = timing, focusEdge = edge)
+                val now = SystemClock.elapsedRealtime()
+                if (now - previewTrimLastDispatchElapsedMs >= PREVIEW_TRIM_DISPATCH_INTERVAL_MS) {
+                    previewTrimLastDispatchElapsedMs = now
+                    dispatchPreviewTrimUpdate(session = session, timing = timing, previewOnly = true)
+                }
+                return true
+            }
+
+            MotionEvent.ACTION_UP -> {
+                val session = previewTrimSession?.takeIf { it.edge == edge && it.clipId == clipId } ?: return false
+                val timing = buildPreviewTrimSnapshot(session, event.rawX - previewTrimStartRawX)
+                val committed = dispatchPreviewTrimUpdate(session = session, timing = timing, previewOnly = false)
+                previewTrimSession = null
+                return if (committed) {
+                    videoClipTimingOverrides.remove(session.clipId)
+                    syncTimelineShellFromNative(selectedClipId = session.clipId)
+                    applyEditorPlayhead(
+                        if (edge == "start") timing.startTimeMs else (timing.startTimeMs + timing.durationMs - 1L),
+                        continueAudio = false,
+                    )
+                    recordUndoDomain(UndoDomain.TIMELINE)
+                    refreshPreviewCropStatus()
+                    true
+                } else {
+                    restorePreviewTrimState(session, dispatchPreview = true)
+                    safeToast("Preview trim failed", Toast.LENGTH_SHORT)
+                    false
+                }
+            }
+
+            MotionEvent.ACTION_CANCEL -> {
+                previewTrimSession?.takeIf { it.edge == edge && it.clipId == clipId }?.let {
+                    restorePreviewTrimState(it, dispatchPreview = true)
+                }
+                previewTrimSession = null
+                return true
+            }
+        }
+        return false
+    }
+
     private fun setupPreviewTransformGestures() {
         previewTransformTouchSlop = ViewConfiguration.get(this).scaledTouchSlop
         previewTransformGestureDetector =
@@ -6124,6 +6423,9 @@ class MainActivity : Activity() {
                 }
             },
         )
+        previewCropFrameGuideView?.setOnTouchListener { _, event ->
+            handlePreviewTransformTouch(event)
+        }
         overlayContainer?.setOnTouchListener { _, event ->
             handlePreviewTransformTouch(event)
         }

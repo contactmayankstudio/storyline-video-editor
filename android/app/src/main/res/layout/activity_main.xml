@@ -326,6 +326,24 @@
                     android:layout_marginBottom="28dp"
                     android:background="@drawable/preview_crop_frame_background" />
 
+                <View
+                    android:id="@+id/previewCropTrimStartHandle"
+                    android:layout_width="18dp"
+                    android:layout_height="92dp"
+                    android:layout_gravity="center_vertical|start"
+                    android:layout_marginStart="18dp"
+                    android:background="@drawable/preview_crop_trim_handle_background"
+                    android:visibility="gone" />
+
+                <View
+                    android:id="@+id/previewCropTrimEndHandle"
+                    android:layout_width="18dp"
+                    android:layout_height="92dp"
+                    android:layout_gravity="center_vertical|end"
+                    android:layout_marginEnd="18dp"
+                    android:background="@drawable/preview_crop_trim_handle_background"
+                    android:visibility="gone" />
+
                 <LinearLayout
                     android:id="@+id/previewCropTopRail"
                     android:layout_width="wrap_content"

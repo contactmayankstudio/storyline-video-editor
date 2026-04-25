@@ -61,7 +61,7 @@
     <string name="preview_empty_badge">Program Ready</string>
     <string name="preview_empty_title">Ready for the first cut</string>
     <string name="preview_empty_subtitle">Tap V1 to import video, stack layers above it, and keep playback focused in one live program monitor.</string>
-    <string name="preview_crop_status">Crop • Drag to reframe • Pinch to zoom</string>
+    <string name="preview_crop_status">Edit • Drag to reframe • Pinch to zoom • Handles trim</string>
     <string name="preview_crop_reset">Reset</string>
     <string name="preview_crop_fill">Fill</string>
     <string name="preview_crop_done">Done</string>
