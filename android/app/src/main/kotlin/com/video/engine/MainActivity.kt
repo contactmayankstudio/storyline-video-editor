@@ -799,10 +799,10 @@ class MainActivity : Activity() {
         val screen = currentHealthScreenName()
         val summary =
             when {
-                screen == "crop" -> "AI is monitoring crop, gestures, freeze, and export path. Last action: $actionLabel."
-                isPlaying -> "AI is watching playback for lag, stalls, and sync issues. Last action: $actionLabel."
-                hasProjectContent() -> "AI is watching this edit for dead buttons, exports, and new builds. Last action: $actionLabel."
-                else -> "AI is monitoring playback, export, device health, and hosted updates. Last action: $actionLabel."
+                screen == "crop" -> "AI is tracking crop gestures, freezes, and export path. Last action: $actionLabel."
+                isPlaying -> "AI is checking playback for lag, stalls, and sync issues. Last action: $actionLabel."
+                hasProjectContent() -> "AI is checking this edit for dead buttons, exports, and new builds. Last action: $actionLabel."
+                else -> "AI is tracking playback, export, device health, and hosted updates. Last action: $actionLabel."
             }
         startAiSummaryText?.text = summary
 
