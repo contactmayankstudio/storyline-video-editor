@@ -82,17 +82,48 @@ function looksLikeQuestion(message) {
     );
 }
 
+function looksLikeActionRequest(message) {
+    const value = String(message || "").trim().toLowerCase();
+    if (!value) {
+        return false;
+    }
+
+    return (
+        /\b(fix|bug|add|change|update|edit|write|rewrite|create|remove|implement|wire|connect|build|patch|refactor|ship|deploy|host|release|publish|check|verify|test|read|show|open|trigger|run)\b/.test(value)
+        || /\b(karo|kar do|karna|banao|banado|jod do|sahi karo|thik karo|host karo|deploy karo|update karo|test karo|check karo|dikhao|khol do|bana do)\b/.test(value)
+    );
+}
+
+function inferNaturalLanguageDirectCommand(message) {
+    const raw = String(message || "").trim();
+    if (!raw || raw.startsWith("/")) {
+        return null;
+    }
+
+    const readMatch = raw.match(/(?:^|\b)(?:read|show|open|dikhao|kholo)\s+(?:the\s+)?(?:file\s+)?([A-Za-z0-9_./-]+\.[A-Za-z0-9_-]+)/i);
+    if (readMatch?.[1]) {
+        return `/read ${readMatch[1].trim()}`;
+    }
+
+    if (/(?:^|\b)(?:adb\s*log|logcat|device log|phone log)(?:\s+(\d{2,4}))?/i.test(raw)) {
+        const lines = raw.match(/(?:^|\b)(\d{2,4})(?:\s+lines?)?$/i)?.[1] || "200";
+        return `/adb-log ${lines}`;
+    }
+
+    if (/(?:device snapshot|runtime snapshot|phone snapshot|adb snapshot|device runtime|phone runtime)/i.test(raw)) {
+        return "/adb-snapshot";
+    }
+
+    return null;
+}
+
 function inferAutomationPrompt(messages) {
     const latestMessage = String(messages?.[messages.length - 1]?.content || "").trim();
     if (!latestMessage || looksLikeQuestion(latestMessage) || latestMessage.startsWith("/")) {
         return null;
     }
 
-    const actionIntent =
-        /\b(fix|bug|add|change|update|edit|write|create|remove|implement|wire|connect|build|patch|refactor|ship|deploy)\b/i.test(latestMessage) ||
-        /\b(karo|kar do|karna|banao|banado|jod do|sahi karo|thik karo|future add)\b/i.test(latestMessage);
-
-    if (!actionIntent) {
+    if (!looksLikeActionRequest(latestMessage)) {
         return null;
     }
 
@@ -245,9 +276,20 @@ module.exports = async function handler(req, res) {
 
         const latestBuild = await getLatestRunSummary().catch(() => null);
         const latestUserMessage = sanitizedMessages[sanitizedMessages.length - 1]?.content || "";
+        const inferredDirectCommand = inferNaturalLanguageDirectCommand(latestUserMessage);
+        const effectiveMessage = inferredDirectCommand || latestUserMessage;
         const directResult = await handleDirectCommand(latestUserMessage);
         if (directResult) {
             return res.status(200).json(directResult);
+        }
+        if (inferredDirectCommand) {
+            const inferredDirectResult = await handleDirectCommand(inferredDirectCommand);
+            return res.status(200).json({
+                ...inferredDirectResult,
+                reply: `${inferredDirectResult.reply}\n\nPlain-text action mode mapped your request to \`${inferredDirectCommand}\`.`,
+                inferredDirectCommand,
+                actionMode: "direct-control",
+            });
         }
         const inferredAutomationPrompt = inferAutomationPrompt(sanitizedMessages);
         if (inferredAutomationPrompt) {
@@ -263,19 +305,22 @@ module.exports = async function handler(req, res) {
             const latestRun = await getLatestRunSummary(undefined, github.automationWorkflowName).catch(() => null);
             return res.status(200).json({
                 reply: [
-                    "Automation dispatched from plain-language admin chat.",
+                    "Action mode: cloud automation dispatched from plain-language admin chat.",
+                    `Queued at: ${new Date().toLocaleString()}`,
                     latestRun?.url ? `Run: ${latestRun.url}` : "",
+                    "This request was treated as an implementation task, not a normal chat reply.",
                 ].filter(Boolean).join("\n"),
                 provider: "direct-control",
                 providerLabel: "Direct Control",
                 model: "automation-dispatch",
                 codebaseFiles: [],
                 automationDispatched: true,
+                actionMode: "automation",
             });
         }
-        const codebaseContext = getCodebaseContext(latestUserMessage, { maxEntries: 5 });
+        const codebaseContext = getCodebaseContext(effectiveMessage, { maxEntries: 5 });
         let deviceContext = null;
-        if (/\badb\b|\blogcat\b|\bdevice\b|\bphone\b|\bruntime\b/i.test(latestUserMessage)) {
+        if (/\badb\b|\blogcat\b|\bdevice\b|\bphone\b|\bruntime\b/i.test(effectiveMessage)) {
             deviceContext = await deviceBridgeRequest("/runtime", {
                 method: "POST",
                 body: {},

@@ -13,6 +13,22 @@ function getApkDownloadUrl() {
     return `${DEFAULT_RELEASE_PORTAL_URL}/app.apk`;
 }
 
+async function getReleaseMetadata() {
+    try {
+        const response = await fetch(`${DEFAULT_RELEASE_PORTAL_URL}/build.json`, {
+            headers: {
+                Accept: "application/json",
+            },
+        });
+        if (!response.ok) {
+            return null;
+        }
+        return response.json();
+    } catch (_error) {
+        return null;
+    }
+}
+
 module.exports = async function handler(req, res) {
     if (req.method !== "GET") {
         return res.status(405).json({ error: "Method not allowed" });
@@ -27,6 +43,7 @@ module.exports = async function handler(req, res) {
         await requireAdmin(req);
         let build = null;
         let message = "";
+        const release = await getReleaseMetadata();
 
         if (githubConfig.token) {
             build = await getLatestRunSummary();
@@ -53,6 +70,7 @@ module.exports = async function handler(req, res) {
                 awsControlPlaneUrl: awsConfig.url || "",
             },
             build,
+            release,
             message,
         });
     } catch (error) {
@@ -73,6 +91,7 @@ module.exports = async function handler(req, res) {
                 awsControlPlaneConfigured: hasAwsControlPlaneConfig(),
                 awsControlPlaneUrl: awsConfig.url || "",
             },
+            release: null,
         });
     }
 };

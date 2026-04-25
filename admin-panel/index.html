@@ -677,7 +677,7 @@
 
             <section class="card card-wide">
                 <h2>AI Chat Console</h2>
-                <p>Normal back-and-forth chat for Storyline. This is the right place for prompts like “preview audio issue explain karo”, “export crash ka next fix kya hai”, or “Gemini CLI bridge ka architecture batao”. Chat is now codebase-aware and can use Storyline repo context, playback and export paths, admin automation, and MCP tooling in its replies. Direct commands: <code>/read path</code>, <code>/write path</code>, <code>/automation ...</code>, <code>/adb-snapshot</code>, <code>/adb-log 200</code>.</p>
+                <p>Normal back-and-forth chat for Storyline, but action mode is also on. Imperative text like “export bug fix karo”, “new tool add karo”, “read android/app/build.gradle”, or “device logcat dikhao” can trigger direct control instead of only explanation. Direct commands still work: <code>/read path</code>, <code>/write path</code>, <code>/automation ...</code>, <code>/adb-snapshot</code>, <code>/adb-log 200</code>.</p>
                 <div class="toolbar">
                     <select id="chat-provider">
                         <option value="auto">Auto Provider Chain</option>
@@ -1491,6 +1491,17 @@
                 `Failed step: ${data.build.failedStep || "n/a"}`,
                 `Updated: ${new Date(data.build.updatedAt).toLocaleString()}`,
             ];
+
+            if (data.release) {
+                parts.push("");
+                parts.push("Hosted app update:");
+                parts.push(`Version: ${data.release.releaseLabel || data.release.versionName || "n/a"}`);
+                parts.push(`Hosted at: ${data.release.builtAt ? new Date(data.release.builtAt).toLocaleString() : "n/a"}`);
+                parts.push(`Host branch: ${data.release.branch || "n/a"}`);
+                parts.push(`Host commit: ${data.release.shortSha || data.release.commitSha?.slice(0, 8) || "n/a"}`);
+                parts.push(`Host note: ${data.release.commitSubject || "n/a"}`);
+                parts.push(`Host by: ${data.release.commitAuthor || "n/a"}`);
+            }
 
             if (data.build.url) {
                 parts.push(`GitHub: ${data.build.url}`);
@@ -2324,11 +2335,19 @@
                 });
                 saveChatHistory();
                 renderChatMessages();
-                chatStatus.textContent = data.codebaseFiles?.length
-                    ? `Reply via ${data.providerLabel} with codebase context`
-                    : `Reply via ${data.providerLabel}`;
+                chatStatus.textContent = data.automationDispatched
+                    ? "Action mode dispatched a real cloud implementation run"
+                    : (data.codebaseFiles?.length
+                        ? `Reply via ${data.providerLabel} with codebase context`
+                        : `Reply via ${data.providerLabel}`);
+                if (data.inferredDirectCommand) {
+                    chatStatus.textContent = `Action mode executed ${data.inferredDirectCommand}`;
+                }
                 if (data.deviceContextAttached) {
                     chatStatus.textContent += " and live device context";
+                }
+                if (data.actionMode === "automation") {
+                    chatStatus.textContent += " • implementation queued";
                 }
             } catch (error) {
                 console.error(error);
