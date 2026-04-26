@@ -46,6 +46,7 @@ class ExportController(
     private val notificationManagerProvider: () -> NotificationManager?,
     private val isWatermarkUnlockedProvider: () -> Boolean,
     private val onRequestWatermarkUnlock: ((callback: (Boolean) -> Unit) -> Unit),
+    private val onConsumeWatermarkUnlock: (() -> Unit)? = null,
     private val onExportStarted: ((profileLabel: String, width: Int, height: Int, fps: Int, bitrateMbps: Int, codec: String) -> Unit)? = null,
     private val onExportProgress: ((progress: Int) -> Unit)? = null,
     private val onExportCompleted: ((success: Boolean, outputPath: String?, error: String?) -> Unit)? = null,
@@ -314,6 +315,9 @@ class ExportController(
                     if (success) {
                         exportHandler.postDelayed(
                             {
+                                if (!includeWatermark) {
+                                    onConsumeWatermarkUnlock?.invoke()
+                                }
                                 progressDialog?.dismiss()
                                 finishDirectExportSession()
                                 activity.stopService(Intent(activity, ExportService::class.java))

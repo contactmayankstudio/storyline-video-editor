@@ -22,19 +22,25 @@ class RewardedUnlockController(
     private var loading = false
     private var pendingUnlockCallback: ((Boolean) -> Unit)? = null
     private var pendingShowAfterLoad = false
-    private var watermarkUnlocked = false
+    private var watermarkUnlockCredits = 0
 
-    fun isWatermarkUnlocked(): Boolean = watermarkUnlocked
+    fun isWatermarkUnlocked(): Boolean = watermarkUnlockCredits > 0
+
+    fun consumeWatermarkUnlock() {
+        if (watermarkUnlockCredits > 0) {
+            watermarkUnlockCredits -= 1
+        }
+    }
 
     fun preload() {
-        if (watermarkUnlocked || rewardedAd != null || loading || activity.isFinishing || activity.isDestroyed) {
+        if (rewardedAd != null || loading || activity.isFinishing || activity.isDestroyed) {
             return
         }
         loadRewardedAd(showOnLoad = false)
     }
 
     fun requestWatermarkUnlock(onResult: (Boolean) -> Unit) {
-        if (watermarkUnlocked) {
+        if (watermarkUnlockCredits > 0) {
             onResult(true)
             return
         }
@@ -123,8 +129,8 @@ class RewardedUnlockController(
         }
         ad.show(activity) {
             earnedReward = true
-            watermarkUnlocked = true
-            Toast.makeText(activity, "Watermark removed for this session", Toast.LENGTH_SHORT).show()
+            watermarkUnlockCredits += 1
+            Toast.makeText(activity, "Watermark removed for next export", Toast.LENGTH_SHORT).show()
         }
     }
 }

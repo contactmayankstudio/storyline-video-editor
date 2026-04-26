@@ -97,6 +97,7 @@
     <string name="admob_app_id_test">ca-app-pub-3940256099942544~3347511713</string>
     <string name="admob_banner_unit_id_test">ca-app-pub-3940256099942544/6300978111</string>
     <string name="admob_rewarded_hd_unlock_unit_id_test">ca-app-pub-3940256099942544/5224354917</string>
+    <string name="admob_interstitial_post_export_unit_id_test">ca-app-pub-3940256099942544/1033173712</string>
     <string name="editor_top_ad_desc">Editor banner ad</string>
     <string name="start_top_ad_desc">Home banner ad</string>
     <string name="editor_ai_status_desc">AI live status</string>

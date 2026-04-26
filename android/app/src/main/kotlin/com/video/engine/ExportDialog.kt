@@ -595,14 +595,14 @@ class ExportDialog(
         watermarkAction: TextView,
     ) {
         watermarkStatus.text = if (watermarkUnlocked) {
-            "Reward unlocked. Current export runs without watermark."
+            "Reward unlocked. Next export runs without watermark."
         } else {
             "Logo watermark stays on export until ad unlock."
         }
         watermarkAction.text = if (watermarkUnlocked) {
-            "Watermark Removed"
+            "Watermark Removed for Next Export"
         } else {
-            "Watch Ad Remove Watermark"
+            "Watch Ad Remove Watermark Once"
         }
         watermarkAction.isEnabled = !watermarkUnlocked
         watermarkAction.alpha = if (watermarkUnlocked) 0.7f else 1f

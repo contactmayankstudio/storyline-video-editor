@@ -45,6 +45,7 @@ android {
         resValue "string", "admob_app_id", envStringResourceValue("ADMOB_APP_ID", "ca-app-pub-3940256099942544~3347511713")
         resValue "string", "admob_banner_unit_id", envStringResourceValue("ADMOB_BANNER_UNIT_ID", "ca-app-pub-3940256099942544/6300978111")
         resValue "string", "admob_rewarded_hd_unlock_unit_id", envStringResourceValue("ADMOB_REWARDED_HD_UNLOCK_UNIT_ID", "ca-app-pub-3940256099942544/5224354917")
+        resValue "string", "admob_interstitial_post_export_unit_id", envStringResourceValue("ADMOB_INTERSTITIAL_POST_EXPORT_UNIT_ID", "ca-app-pub-3940256099942544/1033173712")
         
         externalNativeBuild {
             cmake {

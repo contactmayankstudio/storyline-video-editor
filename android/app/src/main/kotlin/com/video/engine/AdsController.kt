@@ -21,8 +21,6 @@ class AdsController(
 ) {
     companion object {
         private const val TAG = "[Ads]"
-        // Google test interstitial unit ID
-        private const val INTERSTITIAL_UNIT_ID = "ca-app-pub-3940256099942544/1033173712"
     }
 
     private val bannerViews = linkedMapOf<Int, AdView>()
@@ -66,7 +64,7 @@ class AdsController(
         interstitialLoading = true
         InterstitialAd.load(
             activity,
-            INTERSTITIAL_UNIT_ID,
+            activity.getString(R.string.admob_interstitial_post_export_unit_id),
             AdRequest.Builder().build(),
             object : InterstitialAdLoadCallback() {
                 override fun onAdLoaded(ad: InterstitialAd) {

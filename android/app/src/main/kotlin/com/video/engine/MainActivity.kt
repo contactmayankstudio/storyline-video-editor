@@ -1564,6 +1564,9 @@ class MainActivity : Activity() {
             onRequestWatermarkUnlock = { callback ->
                 rewardedUnlockController?.requestWatermarkUnlock(callback) ?: callback(false)
             },
+            onConsumeWatermarkUnlock = {
+                rewardedUnlockController?.consumeWatermarkUnlock()
+            },
             onExportStarted = { profileLabel, width, height, fps, bitrateMbps, codec ->
                 if (::playbackExportIssueDetector.isInitialized) {
                     playbackExportIssueDetector.onExportStarted()
