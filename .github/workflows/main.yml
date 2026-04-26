@@ -19,9 +19,18 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
+        env:
+          CI_CHECKOUT_REF: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/merge', github.event.pull_request.number) || github.ref }}
+        run: |
+          set -euo pipefail
+          find "${GITHUB_WORKSPACE}" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init "${GITHUB_WORKSPACE}"
+          cd "${GITHUB_WORKSPACE}"
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -c gc.auto=0 fetch --force --no-tags --depth=2 origin "${CI_CHECKOUT_REF}"
+          git checkout --force FETCH_HEAD
+          git rev-parse HEAD
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
