@@ -34,7 +34,7 @@ class EffectsPanel(
     }
 
     private fun push(reset: Boolean) {
-        previewView.setClipEffects(clipId, brightness, contrast, saturation)
+        NativeBridge.setClipEffects(previewView, clipId, brightness, contrast, saturation)
         onChange?.invoke(EffectParams(brightness, contrast, saturation), reset)
     }
 }

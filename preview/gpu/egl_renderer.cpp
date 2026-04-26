@@ -120,6 +120,243 @@ void main() {
 }
 )";
 
+static const char* TRANSITION_FRAGMENT_SHADER_SRC = R"(
+#version 300 es
+precision mediump float;
+
+in vec2 fragTexCoord;
+out vec4 outColor;
+
+uniform vec2 uViewportSize;
+uniform float uProgress;
+uniform int uTransitionType;
+
+uniform sampler2D textureSamplerA;
+uniform float uOpacityA;
+uniform bool uTransformEnabledA;
+uniform vec2 uTextureSizeA;
+uniform float uZoomA;
+uniform vec2 uPanNormA;
+uniform float uRotationDegA;
+uniform bool uMirrorXA;
+uniform bool uChromaEnabledA;
+uniform vec3 uChromaKeyColorA;
+uniform float uChromaSimilarityA;
+uniform float uChromaSmoothnessA;
+uniform float uChromaSpillA;
+uniform float uBrightnessA;
+uniform float uContrastA;
+uniform float uSaturationA;
+
+uniform sampler2D textureSamplerB;
+uniform float uOpacityB;
+uniform bool uTransformEnabledB;
+uniform vec2 uTextureSizeB;
+uniform float uZoomB;
+uniform vec2 uPanNormB;
+uniform float uRotationDegB;
+uniform bool uMirrorXB;
+uniform bool uChromaEnabledB;
+uniform vec3 uChromaKeyColorB;
+uniform float uChromaSimilarityB;
+uniform float uChromaSmoothnessB;
+uniform float uChromaSpillB;
+uniform float uBrightnessB;
+uniform float uContrastB;
+uniform float uSaturationB;
+
+vec2 resolveSampleCoord(
+    vec2 baseCoord,
+    bool transformEnabled,
+    vec2 textureSize,
+    float zoom,
+    vec2 panNorm,
+    float rotationDeg,
+    bool mirrorX) {
+    if (!transformEnabled) {
+        return baseCoord;
+    }
+
+    vec2 viewportSize = max(uViewportSize, vec2(1.0));
+    vec2 safeTextureSize = max(textureSize, vec2(1.0));
+    float sourceAspect = safeTextureSize.x / max(safeTextureSize.y, 1.0);
+    float viewportAspect = viewportSize.x / max(viewportSize.y, 1.0);
+    vec2 baseRenderedSize;
+    if (sourceAspect > viewportAspect) {
+        baseRenderedSize = vec2(viewportSize.y * sourceAspect, viewportSize.y);
+    } else {
+        baseRenderedSize = vec2(viewportSize.x, viewportSize.x / max(sourceAspect, 0.0001));
+    }
+
+    vec2 renderedSize = max(baseRenderedSize * max(zoom, 1.0), vec2(1.0));
+    vec2 maxPanPx = max((renderedSize - viewportSize) * 0.5, vec2(0.0));
+    vec2 localPx = (baseCoord - vec2(0.5)) * viewportSize;
+    localPx -= clamp(panNorm, vec2(-1.0), vec2(1.0)) * maxPanPx;
+
+    float angleRad = radians(rotationDeg);
+    float cosA = cos(angleRad);
+    float sinA = sin(angleRad);
+    localPx = vec2(
+        (localPx.x * cosA) + (localPx.y * sinA),
+        (-localPx.x * sinA) + (localPx.y * cosA)
+    );
+    if (mirrorX) {
+        localPx.x = -localPx.x;
+    }
+    return (localPx / renderedSize) + vec2(0.5);
+}
+
+vec4 sampleLayer(
+    sampler2D textureSampler,
+    vec2 baseCoord,
+    bool transformEnabled,
+    vec2 textureSize,
+    float zoom,
+    vec2 panNorm,
+    float rotationDeg,
+    bool mirrorX,
+    bool chromaEnabled,
+    vec3 chromaKeyColor,
+    float chromaSimilarity,
+    float chromaSmoothness,
+    float chromaSpill,
+    float brightness,
+    float contrast,
+    float saturation,
+    float opacity) {
+    vec2 sampleCoord = resolveSampleCoord(
+        baseCoord,
+        transformEnabled,
+        textureSize,
+        zoom,
+        panNorm,
+        rotationDeg,
+        mirrorX);
+    if (sampleCoord.x < 0.0 || sampleCoord.x > 1.0 ||
+        sampleCoord.y < 0.0 || sampleCoord.y > 1.0) {
+        return vec4(0.0);
+    }
+
+    vec4 color = texture(textureSampler, sampleCoord);
+    if (chromaEnabled) {
+        float d = distance(color.rgb, chromaKeyColor);
+        float alpha = smoothstep(chromaSimilarity, chromaSimilarity + chromaSmoothness, d);
+        if (chromaKeyColor.g > 0.5) {
+            color.g = mix(color.g, (color.r + color.b) * 0.5, chromaSpill);
+        } else if (chromaKeyColor.b > 0.5) {
+            color.b = mix(color.b, (color.r + color.g) * 0.5, chromaSpill);
+        }
+        color.a *= alpha;
+        color.rgb *= alpha;
+    }
+
+    color.rgb += brightness;
+    color.rgb = (color.rgb - 0.5) * contrast + 0.5;
+    float luma = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+    color.rgb = mix(vec3(luma), color.rgb, saturation);
+    color.rgb = clamp(color.rgb, 0.0, 1.0);
+    color.a *= opacity;
+    color.rgb *= opacity;
+    return color;
+}
+
+void main() {
+    float progress = clamp(uProgress, 0.0, 1.0);
+    vec4 outgoing = sampleLayer(
+        textureSamplerA,
+        fragTexCoord + vec2(progress, 0.0),
+        uTransformEnabledA,
+        uTextureSizeA,
+        uZoomA,
+        uPanNormA,
+        uRotationDegA,
+        uMirrorXA,
+        uChromaEnabledA,
+        uChromaKeyColorA,
+        uChromaSimilarityA,
+        uChromaSmoothnessA,
+        uChromaSpillA,
+        uBrightnessA,
+        uContrastA,
+        uSaturationA,
+        uOpacityA);
+    vec4 incoming = sampleLayer(
+        textureSamplerB,
+        fragTexCoord - vec2(1.0 - progress, 0.0),
+        uTransformEnabledB,
+        uTextureSizeB,
+        uZoomB,
+        uPanNormB,
+        uRotationDegB,
+        uMirrorXB,
+        uChromaEnabledB,
+        uChromaKeyColorB,
+        uChromaSimilarityB,
+        uChromaSmoothnessB,
+        uChromaSpillB,
+        uBrightnessB,
+        uContrastB,
+        uSaturationB,
+        uOpacityB);
+
+    vec4 outgoingStatic = sampleLayer(
+        textureSamplerA,
+        fragTexCoord,
+        uTransformEnabledA,
+        uTextureSizeA,
+        uZoomA,
+        uPanNormA,
+        uRotationDegA,
+        uMirrorXA,
+        uChromaEnabledA,
+        uChromaKeyColorA,
+        uChromaSimilarityA,
+        uChromaSmoothnessA,
+        uChromaSpillA,
+        uBrightnessA,
+        uContrastA,
+        uSaturationA,
+        uOpacityA);
+    vec4 incomingStatic = sampleLayer(
+        textureSamplerB,
+        fragTexCoord,
+        uTransformEnabledB,
+        uTextureSizeB,
+        uZoomB,
+        uPanNormB,
+        uRotationDegB,
+        uMirrorXB,
+        uChromaEnabledB,
+        uChromaKeyColorB,
+        uChromaSimilarityB,
+        uChromaSmoothnessB,
+        uChromaSpillB,
+        uBrightnessB,
+        uContrastB,
+        uSaturationB,
+        uOpacityB);
+
+    vec4 result;
+    if (uTransitionType == 1) {
+        if (progress < 0.5) {
+            result = outgoingStatic * (1.0 - (progress * 2.0));
+        } else {
+            result = incomingStatic * ((progress - 0.5) * 2.0);
+        }
+    } else if (uTransitionType == 3) {
+        float feather = max(0.0025, 1.5 / max(uViewportSize.x, 1.0));
+        float wipeMix = smoothstep(progress - feather, progress + feather, fragTexCoord.x);
+        result = mix(outgoingStatic, incomingStatic, wipeMix);
+    } else if (uTransitionType == 4) {
+        result = outgoing + incoming;
+    } else {
+        result = mix(outgoingStatic, incomingStatic, progress);
+    }
+
+    outColor = vec4(clamp(result.rgb, 0.0, 1.0), clamp(result.a, 0.0, 1.0));
+}
+)";
+
 // Quad geometry: full-screen textured quad in NDC coordinates
 // Position: (-1, -1) to (1, 1), TexCoord: (0, 0) to (1, 1)
 static const float QUAD_VERTICES[] = {
@@ -141,6 +378,7 @@ EGLRenderer::EGLRenderer()
     , m_eglSurface(nullptr)
     , m_nativeWindow(nullptr)
     , m_programId(0)
+    , m_transitionProgramId(0)
     , m_vao(0)
     , m_vbo(0)
     , m_ebo(0)
@@ -251,10 +489,16 @@ bool EGLRenderer::initialize(ANativeWindow* nativeWindow) {
 
     // ========== OpenGL Setup ==========
 
-    // Create shader program
-    m_programId = createShaderProgram();
+    // Create shader programs
+    m_programId = createShaderProgram(FRAGMENT_SHADER_SRC);
     if (m_programId == 0) {
         setError("Failed to create shader program");
+        releaseResources();
+        return false;
+    }
+    m_transitionProgramId = createShaderProgram(TRANSITION_FRAGMENT_SHADER_SRC);
+    if (m_transitionProgramId == 0) {
+        setError("Failed to create transition shader program");
         releaseResources();
         return false;
     }
@@ -514,6 +758,122 @@ bool EGLRenderer::renderLayers(const std::vector<Layer>& layers) {
     return true;
 }
 
+bool EGLRenderer::renderTransition(
+    const Layer& outgoing,
+    const Layer& incoming,
+    int transitionType,
+    float progress) {
+    if (!m_initialized) {
+        setError("Renderer not initialized");
+        return false;
+    }
+    if (!outgoing.texture || !outgoing.texture->isValid() ||
+        !incoming.texture || !incoming.texture->isValid()) {
+        setError("Transition textures are not valid");
+        return false;
+    }
+    if (!makeCurrent()) {
+        setError("eglMakeCurrent failed");
+        return false;
+    }
+
+    glViewport(0, 0, m_viewportWidth, m_viewportHeight);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_BLEND);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glUseProgram(m_transitionProgramId);
+
+    auto applyLayerUniforms = [&](const char* suffix, const Layer& layer) {
+        const std::string suffixStr(suffix);
+        const bool transformEnabled =
+            std::fabs(layer.zoom - 1.0f) > 0.001f ||
+            std::fabs(layer.panXNorm) > 0.001f ||
+            std::fabs(layer.panYNorm) > 0.001f ||
+            std::fabs(layer.rotationDeg) > 0.001f ||
+            layer.mirrorX;
+
+        auto setUniform1f = [&](const char* name, float value) {
+            const GLint loc = glGetUniformLocation(m_transitionProgramId, (std::string(name) + suffixStr).c_str());
+            if (loc >= 0) glUniform1f(loc, value);
+        };
+        auto setUniform1i = [&](const char* name, int value) {
+            const GLint loc = glGetUniformLocation(m_transitionProgramId, (std::string(name) + suffixStr).c_str());
+            if (loc >= 0) glUniform1i(loc, value);
+        };
+        auto setUniform2f = [&](const char* name, float x, float y) {
+            const GLint loc = glGetUniformLocation(m_transitionProgramId, (std::string(name) + suffixStr).c_str());
+            if (loc >= 0) glUniform2f(loc, x, y);
+        };
+        auto setUniform3f = [&](const char* name, float x, float y, float z) {
+            const GLint loc = glGetUniformLocation(m_transitionProgramId, (std::string(name) + suffixStr).c_str());
+            if (loc >= 0) glUniform3f(loc, x, y, z);
+        };
+
+        setUniform1f("uOpacity", layer.opacity);
+        setUniform1i("uTransformEnabled", transformEnabled ? 1 : 0);
+        setUniform2f(
+            "uTextureSize",
+            static_cast<float>(std::max(1, layer.texture->getWidth())),
+            static_cast<float>(std::max(1, layer.texture->getHeight())));
+        setUniform1f("uZoom", std::max(1.0f, layer.zoom));
+        setUniform2f("uPanNorm", layer.panXNorm, layer.panYNorm);
+        setUniform1f("uRotationDeg", layer.rotationDeg);
+        setUniform1i("uMirrorX", layer.mirrorX ? 1 : 0);
+        setUniform1i("uChromaEnabled", layer.chromaEnabled ? 1 : 0);
+        setUniform3f(
+            "uChromaKeyColor",
+            layer.blueKey ? 0.0f : 0.0f,
+            layer.blueKey ? 0.0f : 1.0f,
+            layer.blueKey ? 1.0f : 0.0f);
+        setUniform1f("uChromaSimilarity", layer.chromaSimilarity);
+        setUniform1f("uChromaSmoothness", layer.chromaSmoothness);
+        setUniform1f("uChromaSpill", layer.chromaSpill);
+        setUniform1f("uBrightness", layer.brightness);
+        setUniform1f("uContrast", layer.contrast);
+        setUniform1f("uSaturation", layer.saturation);
+    };
+
+    const GLint viewportLoc = glGetUniformLocation(m_transitionProgramId, "uViewportSize");
+    if (viewportLoc >= 0) {
+        glUniform2f(
+            viewportLoc,
+            static_cast<float>(std::max(1, m_viewportWidth)),
+            static_cast<float>(std::max(1, m_viewportHeight)));
+    }
+    const GLint progressLoc = glGetUniformLocation(m_transitionProgramId, "uProgress");
+    if (progressLoc >= 0) {
+        glUniform1f(progressLoc, std::clamp(progress, 0.0f, 1.0f));
+    }
+    const GLint typeLoc = glGetUniformLocation(m_transitionProgramId, "uTransitionType");
+    if (typeLoc >= 0) {
+        glUniform1i(typeLoc, transitionType);
+    }
+
+    outgoing.texture->bind(0);
+    incoming.texture->bind(1);
+    const GLint texALoc = glGetUniformLocation(m_transitionProgramId, "textureSamplerA");
+    if (texALoc >= 0) glUniform1i(texALoc, 0);
+    const GLint texBLoc = glGetUniformLocation(m_transitionProgramId, "textureSamplerB");
+    if (texBLoc >= 0) glUniform1i(texBLoc, 1);
+
+    applyLayerUniforms("A", outgoing);
+    applyLayerUniforms("B", incoming);
+
+    glBindVertexArray(m_vao);
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
+    glBindVertexArray(0);
+    glUseProgram(0);
+
+    if (!checkGLError("renderTransition")) {
+        return false;
+    }
+    if (!eglSwapBuffers(m_eglDisplay, m_eglSurface)) {
+        setError("eglSwapBuffers failed: 0x%x", eglGetError());
+        return false;
+    }
+    return true;
+}
+
 bool EGLRenderer::acquireContext() {
     if (!m_initialized) {
         setError("Renderer not initialized");
@@ -615,13 +975,13 @@ uint32_t EGLRenderer::compileShader(const char* source, uint32_t type) {
     return shader;
 }
 
-uint32_t EGLRenderer::createShaderProgram() {
+uint32_t EGLRenderer::createShaderProgram(const char* fragmentSource) {
     uint32_t vertexShader = compileShader(VERTEX_SHADER_SRC, GL_VERTEX_SHADER);
     if (vertexShader == 0) {
         return 0;
     }
 
-    uint32_t fragmentShader = compileShader(FRAGMENT_SHADER_SRC, GL_FRAGMENT_SHADER);
+    uint32_t fragmentShader = compileShader(fragmentSource, GL_FRAGMENT_SHADER);
     if (fragmentShader == 0) {
         glDeleteShader(vertexShader);
         return 0;
@@ -716,6 +1076,10 @@ void EGLRenderer::releaseResources() {
     if (m_programId != 0) {
         glDeleteProgram(m_programId);
         m_programId = 0;
+    }
+    if (m_transitionProgramId != 0) {
+        glDeleteProgram(m_transitionProgramId);
+        m_transitionProgramId = 0;
     }
 
     if (m_vao != 0) {

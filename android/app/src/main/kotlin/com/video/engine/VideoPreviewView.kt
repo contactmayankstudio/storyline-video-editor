@@ -10,6 +10,9 @@ import android.view.SurfaceHolder
 import android.util.Log
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import com.video.engine.transition.Transition
+import com.video.engine.transition.TransitionType
+import org.json.JSONArray
 import kotlin.math.max
 import kotlin.math.min
 import java.util.concurrent.Executors
@@ -1148,8 +1151,11 @@ class VideoPreviewView @JvmOverloads constructor(
      */
     private external fun nativeUpdateTransition(
         transitionId: Long,
+        outClipId: Int,
+        inClipId: Int,
         typeId: Int,
-        durationMs: Int
+        durationMs: Int,
+        startTimeMs: Long
     )
 
     /**
@@ -1182,8 +1188,11 @@ class VideoPreviewView @JvmOverloads constructor(
         try {
             nativeUpdateTransition(
                 transition.id,
+                transition.outgoingClipId,
+                transition.incomingClipId,
                 transition.type.ordinal,
-                transition.durationMs
+                transition.durationMs,
+                transition.startTimeMs
             )
         } catch (e: UnsatisfiedLinkError) {
             android.util.Log.w(TAG, "nativeUpdateTransition JNI not implemented")
@@ -1198,6 +1207,46 @@ class VideoPreviewView @JvmOverloads constructor(
             nativeRemoveTransition(transitionId)
         } catch (e: UnsatisfiedLinkError) {
             android.util.Log.w(TAG, "nativeRemoveTransition JNI not implemented")
+        }
+    }
+
+    fun getTransitions(): List<Transition> {
+        val rawJson = try {
+            nativeGetTransitionsJson()
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "nativeGetTransitionsJson JNI not implemented")
+            return emptyList()
+        }
+        return runCatching {
+            val items = JSONArray(rawJson)
+            buildList(items.length()) {
+                for (index in 0 until items.length()) {
+                    val item = items.optJSONObject(index) ?: continue
+                    add(
+                        Transition(
+                            id = item.optLong("id", -1L),
+                            type = transitionTypeFromId(item.optInt("typeId", 0)),
+                            durationMs = item.optInt("durationMs", 300).coerceAtLeast(1),
+                            outgoingClipId = item.optInt("outgoingClipId", -1),
+                            incomingClipId = item.optInt("incomingClipId", -1),
+                            startTimeMs = item.optLong("startTimeMs", 0L).coerceAtLeast(0L),
+                        ),
+                    )
+                }
+            }
+        }.getOrElse { error ->
+            Log.w(TAG, "Failed to parse transitions JSON: ${error.message}")
+            emptyList()
+        }
+    }
+
+    private fun transitionTypeFromId(typeId: Int): TransitionType {
+        return when (typeId) {
+            1 -> TransitionType.FADE
+            2 -> TransitionType.CROSS
+            3 -> TransitionType.WIPE
+            4 -> TransitionType.SLIDE
+            else -> TransitionType.NONE
         }
     }
 
@@ -1226,6 +1275,8 @@ class VideoPreviewView @JvmOverloads constructor(
             return nativeLibraryLoaded
         }
     }
+
+    private external fun nativeGetTransitionsJson(): String
 
     private fun resolvePreviewBufferSize(viewWidth: Int, viewHeight: Int): Pair<Int, Int> {
         val profile = DeviceDetector.getQualityProfile()

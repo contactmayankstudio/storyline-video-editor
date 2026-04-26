@@ -2784,6 +2784,21 @@ transcode_clip_done:
     std::map<int64_t, Transition> g_transitions;
     int64_t g_nextTransitionId = 1;
 
+    static void requestPreviewRefreshLocked() {
+        if (!g_preview) {
+            return;
+        }
+        const int64_t currentTime = g_currentTimeMs.load(std::memory_order_acquire);
+        if (g_isRenderingActive.load(std::memory_order_acquire)) {
+            g_pendingScrubMs.store(static_cast<long long>(currentTime), std::memory_order_release);
+            return;
+        }
+        g_pendingScrubMs.store(-1, std::memory_order_release);
+        g_preview->scrubToTimelineTime(currentTime);
+        const int64_t scrubTime = g_preview->getPlaybackTimelineTimeMs();
+        g_currentTimeMs.store(scrubTime, std::memory_order_release);
+    }
+
     // Simple GL program for colored quad placeholder (used until glyph textures are provided)
     GLuint g_overlayProgram = 0;
     GLint g_overlayPosLoc = -1;
@@ -3377,6 +3392,16 @@ Java_com_video_engine_VideoPreviewView_nativeAddTransition(
     t.isEnabled = true;
 
     g_transitions[t.id] = t;
+    if (g_preview) {
+        g_preview->upsertTransition(
+            t.id,
+            t.outgoingClipId,
+            t.incomingClipId,
+            t.typeId,
+            t.durationMs,
+            t.startTimeMs);
+    }
+    requestPreviewRefreshLocked();
     LOGI("[TRANSITION] add id=%lld type=%d duration=%dms between %d -> %d", (long long)t.id, t.typeId, t.durationMs, t.outgoingClipId, t.incomingClipId);
     return static_cast<jlong>(t.id);
 }
@@ -3386,18 +3411,43 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_video_engine_VideoPreviewView_nativeUpdateTransition(
     JNIEnv* env, jobject thiz,
     jlong transitionId,
+    jint outgoingClipId,
+    jint incomingClipId,
     jint typeId,
-    jint durationMs) {
+    jint durationMs,
+    jlong startTimeMs) {
 
     std::lock_guard<std::mutex> lock(g_mutex);
-    auto it = g_transitions.find(transitionId);
-    if (it == g_transitions.end()) {
-        LOGW("[TRANSITION] update missing id=%lld", (long long)transitionId);
+    if (transitionId <= 0) {
+        LOGW("[TRANSITION] update ignored invalid id=%lld", (long long)transitionId);
         return;
     }
-    it->second.typeId = typeId;
-    it->second.durationMs = durationMs;
-    LOGI("[TRANSITION] update id=%lld type=%d duration=%dms", (long long)transitionId, typeId, durationMs);
+    Transition& transition = g_transitions[transitionId];
+    transition.id = transitionId;
+    transition.outgoingClipId = outgoingClipId;
+    transition.incomingClipId = incomingClipId;
+    transition.typeId = typeId;
+    transition.durationMs = durationMs;
+    transition.startTimeMs = startTimeMs;
+    transition.isEnabled = true;
+    if (g_preview) {
+        g_preview->upsertTransition(
+            transition.id,
+            transition.outgoingClipId,
+            transition.incomingClipId,
+            transition.typeId,
+            transition.durationMs,
+            transition.startTimeMs);
+    }
+    requestPreviewRefreshLocked();
+    LOGI(
+        "[TRANSITION] update id=%lld type=%d duration=%dms between %d -> %d start=%lld",
+        (long long)transitionId,
+        typeId,
+        durationMs,
+        outgoingClipId,
+        incomingClipId,
+        (long long)startTimeMs);
 }
 
 // JNI: Remove a transition
@@ -3411,9 +3461,39 @@ Java_com_video_engine_VideoPreviewView_nativeRemoveTransition(
     if (it != g_transitions.end()) {
         LOGI("[TRANSITION] remove id=%lld", (long long)transitionId);
         g_transitions.erase(it);
+        if (g_preview) {
+            g_preview->removeTransition(static_cast<int64_t>(transitionId));
+        }
+        requestPreviewRefreshLocked();
     } else {
         LOGW("[TRANSITION] remove missing id=%lld", (long long)transitionId);
     }
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_video_engine_VideoPreviewView_nativeGetTransitionsJson(
+    JNIEnv* env, jobject thiz) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    std::ostringstream json;
+    json << "[";
+    bool first = true;
+    for (const auto& [transitionId, transition] : g_transitions) {
+        if (!first) {
+            json << ",";
+        }
+        first = false;
+        json << "{"
+             << "\"id\":" << transitionId
+             << ",\"outgoingClipId\":" << transition.outgoingClipId
+             << ",\"incomingClipId\":" << transition.incomingClipId
+             << ",\"typeId\":" << transition.typeId
+             << ",\"durationMs\":" << transition.durationMs
+             << ",\"startTimeMs\":" << transition.startTimeMs
+             << "}";
+    }
+    json << "]";
+    return env->NewStringUTF(json.str().c_str());
 }
 
 
@@ -6262,18 +6342,7 @@ Java_com_video_engine_VideoPreviewView_nativeSetClipEffects(
         return;
     }
 
-    if (g_eglDisplay != EGL_NO_DISPLAY && g_eglContext != EGL_NO_CONTEXT &&
-        g_eglSurface != EGL_NO_SURFACE) {
-        if (eglMakeCurrent(g_eglDisplay, g_eglSurface, g_eglSurface, g_eglContext)) {
-            const long long currentTime = g_currentTimeMs.load(std::memory_order_acquire);
-            renderTextOverlays(currentTime);
-            if (!eglSwapBuffers(g_eglDisplay, g_eglSurface)) {
-                LOGW("[Effects] eglSwapBuffers failed: 0x%x", eglGetError());
-            }
-        }
-    }
-    // Post scrub to render thread so effects are visible immediately
-    g_pendingScrubMs.store(g_currentTimeMs.load(std::memory_order_acquire), std::memory_order_release);
+    requestPreviewRefreshLocked();
 }
 
 /**

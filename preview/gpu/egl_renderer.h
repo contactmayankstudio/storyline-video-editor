@@ -103,6 +103,17 @@ public:
     bool renderLayers(const std::vector<Layer>& layers);
 
     /**
+     * Render a transition between two layers in a single full-screen pass.
+     * Transition type ids follow the Android TransitionType enum:
+     * 1=Fade, 2=Cross, 3=Wipe, 4=Slide.
+     */
+    bool renderTransition(
+        const Layer& outgoing,
+        const Layer& incoming,
+        int transitionType,
+        float progress);
+
+    /**
      * Render only a dirty region of the frame.
      * Coordinates are in top-left origin pixel space (Android UI style).
      * Renderer converts to GL scissor coordinates internally.
@@ -159,6 +170,7 @@ private:
 
     // Render state
     uint32_t m_programId;   // Linked shader program
+    uint32_t m_transitionProgramId; // Linked transition shader program
     uint32_t m_vao;         // Vertex array object (quad mesh)
     uint32_t m_vbo;         // Vertex buffer object
     uint32_t m_ebo;         // Element buffer object (indices)
@@ -195,7 +207,7 @@ private:
      * Internal: Create and link shader program.
      * @return Program ID on success, 0 on failure
      */
-    uint32_t createShaderProgram();
+    uint32_t createShaderProgram(const char* fragmentSource);
 
     /**
      * Internal: Create full-screen quad geometry (VAO/VBO/EBO).

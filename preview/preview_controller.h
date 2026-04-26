@@ -13,9 +13,11 @@
 #include <condition_variable>
 #include <chrono>
 #include <cmath>
+#include <algorithm>
 
 #include "core/clip.h"
 #include "backend/ffmpeg/video_decoder.h"
+#include "gpu/egl_renderer.h"
 
 // Forward declarations
 struct ANativeWindow;
@@ -27,7 +29,6 @@ namespace VideoEngine::Backend {
 
 namespace VideoEngine::GPU {
     class GLTexture;
-    class EGLRenderer;
 }
 
 namespace VideoEngine {
@@ -230,6 +231,15 @@ public:
         bool mirrorX);
     void clearClipPreviewTransform(int clipId);
     void clearClipPreviewTransforms();
+    void upsertTransition(
+        int64_t transitionId,
+        int outgoingClipId,
+        int incomingClipId,
+        int typeId,
+        int durationMs,
+        int64_t startTimeMs);
+    void removeTransition(int64_t transitionId);
+    void resetTimelinePreviewState();
 
     /**
      * Predictive frame caching controls for scrubbing.
@@ -280,6 +290,32 @@ private:
         }
     };
 
+    struct ClipTransition {
+        int64_t id = -1;
+        int outgoingClipId = -1;
+        int incomingClipId = -1;
+        int typeId = 0;
+        int durationMs = 0;
+        int64_t startTimeMs = 0;
+        bool enabled = true;
+
+        bool isActive(int64_t timelineMs) const {
+            if (!enabled || durationMs <= 0) {
+                return false;
+            }
+            const int64_t elapsedMs = timelineMs - startTimeMs;
+            return elapsedMs >= 0 && elapsedMs < durationMs;
+        }
+
+        float progressAt(int64_t timelineMs) const {
+            if (!isActive(timelineMs)) {
+                return -1.0f;
+            }
+            return static_cast<float>(timelineMs - startTimeMs) /
+                static_cast<float>(std::max(1, durationMs));
+        }
+    };
+
     // Timeline state
     std::shared_ptr<Timeline> m_timeline;
 
@@ -303,6 +339,7 @@ private:
     };
     std::map<int, ClipDecodeState> m_clipDecoders; // clipId -> state
     std::unordered_map<int, ClipPreviewTransform> m_clipPreviewTransforms;
+    std::map<int64_t, ClipTransition> m_transitions;
 
     // Playback state
     std::atomic<bool> m_isPlaying;
@@ -393,6 +430,11 @@ private:
         bool allowPredictiveCache,
         bool updatePredictiveCache,
         int64_t* renderedTimelineMs);
+    bool renderTransitionFrameLocked(
+        const ClipTransition& transition,
+        int64_t timelineMs,
+        bool keyframeOnlyScrub,
+        int64_t* renderedTimelineMs);
     bool switchDecoderSourceLocked(const std::shared_ptr<Clip>& clip);
     int64_t clampTimelineTimeMsLocked(int64_t timeMs) const;
     int64_t mapClipTimelineToSourceMs(
@@ -415,6 +457,15 @@ private:
     bool shouldBypassOverlayCompositionLocked() const;
     ClipPreviewTransform clipPreviewTransformLocked(int clipId) const;
     bool hasClipPreviewTransformLocked(const std::shared_ptr<Clip>& clip) const;
+    const ClipTransition* findActiveTransitionLocked(int64_t timelineMs) const;
+    std::shared_ptr<Clip> findTimelineClipByIdLocked(int clipId) const;
+    bool uploadClipFrameToTextureLocked(
+        ClipDecodeState& state,
+        const Backend::DecodedFrame& frame,
+        int64_t renderedSourceMs);
+    GPU::EGLRenderer::Layer buildLayerForClipLocked(
+        const std::shared_ptr<Clip>& clip,
+        GPU::GLTexture* texture) const;
 
     mutable std::mutex m_playbackMutex;
 

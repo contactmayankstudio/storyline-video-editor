@@ -3,13 +3,15 @@
 
 #include <jni.h>
 #include <algorithm>
+#include <cctype>
 #include <memory>
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 
 #include "../../engine/project.h"
 #include "../../core/timeline.h"
-#include "../../engine/preview_controller.h" // Corrected path
+#include "native_preview_shared.h"
 #include "../../text_overlay.h"
 
 using namespace VideoEngine; // Add this line
@@ -19,6 +21,7 @@ using namespace VideoEngine; // Add this line
 #define LOG_TAG "ProjectJNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 #else
 #define LOG_TAG_DESKTOP "ProjectJNI" // Set the tag for desktop logging
 #include "../../desktop_log.h"
@@ -34,11 +37,44 @@ VideoEngine::Clip::TrackRole trackRoleFromString(const std::string& role) {
     if (role == "AUDIO") return VideoEngine::Clip::TrackRole::Audio;
     return VideoEngine::Clip::TrackRole::MainVideo;
 }
+
+std::string normalizeTransitionType(std::string type) {
+    std::transform(
+        type.begin(),
+        type.end(),
+        type.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return type;
+}
+
+std::string projectTransitionTypeFromId(int32_t typeId) {
+    switch (typeId) {
+        case 1: return "fade";
+        case 2: return "cross";
+        case 3: return "wipe";
+        case 4: return "slide";
+        default: return "none";
+    }
+}
+
+int32_t projectTransitionTypeToId(const std::string& type) {
+    const std::string normalized = normalizeTransitionType(type);
+    if (normalized == "fade") {
+        return 1;
+    }
+    if (normalized == "cross" || normalized == "crossfade" || normalized == "cross_dissolve") {
+        return 2;
+    }
+    if (normalized == "wipe") {
+        return 3;
+    }
+    if (normalized == "slide" || normalized == "slide_left" || normalized == "slide_right") {
+        return 4;
+    }
+    return 0;
+}
 }  // namespace
 
-// Forward declarations (from native_preview.cpp)
-extern std::mutex g_mutex;
-extern std::unique_ptr<VideoEngine::PreviewController> g_preview;
 struct ClipExportSource {
     int clipId = -1;
     std::string path;
@@ -87,6 +123,17 @@ Java_com_video_engine_VideoPreviewView_nativeSaveProject(
         meta.name = projectNameStr;
         meta.version = "1.0";
         project.setMetadata(meta);
+
+        for (const auto& [transitionId, transition] : g_transitions) {
+            VideoEngine::Project::TransitionEntry entry;
+            entry.id = transitionId;
+            entry.type = projectTransitionTypeFromId(transition.typeId);
+            entry.fromClipId = transition.outgoingClipId;
+            entry.toClipId = transition.incomingClipId;
+            entry.startTimeMs = transition.startTimeMs;
+            entry.durationMs = std::max<int64_t>(1, transition.durationMs);
+            project.addTransition(entry);
+        }
         
         if (project.saveToFile(outputPathStr)) {
             LOGI("[Project] Saved: %s -> %s", projectNameStr.c_str(), outputPathStr.c_str());
@@ -137,6 +184,14 @@ Java_com_video_engine_VideoPreviewView_nativeLoadProject(
         
         timeline->clear();
         g_timelineClipPaths.clear();
+        std::unordered_map<int64_t, int> loadedClipIdMap;
+        loadedClipIdMap.reserve(project.getClips().size());
+
+        if (g_preview) {
+            g_preview->resetTimelinePreviewState();
+        }
+        g_transitions.clear();
+        g_nextTransitionId = 1;
         
         for (const auto& clipEntry : project.getClips()) {
             LOGI("[Project] Loading clip: id=%ld path=%s", static_cast<long>(clipEntry.id), clipEntry.mediaPath.c_str());
@@ -175,7 +230,9 @@ Java_com_video_engine_VideoPreviewView_nativeLoadProject(
             clip->setChromaKeySmoothness(clipEntry.chromaKey.smoothness);
             clip->setChromaKeySpill(clipEntry.chromaKey.spill);
             timeline->addClip(clip);
-            g_timelineClipPaths.push_back({static_cast<int>(clip->getId()), clipEntry.mediaPath, clipEntry.durationMs});
+            const int clipId = static_cast<int>(clip->getId());
+            loadedClipIdMap[clipEntry.id] = clipId;
+            g_timelineClipPaths.push_back({clipId, clipEntry.mediaPath, clipEntry.durationMs});
         }
         
         for (const auto& textEntry : project.getTextOverlays()) {
@@ -199,6 +256,45 @@ Java_com_video_engine_VideoPreviewView_nativeLoadProject(
             timeline->addTextOverlay(textOverlay);
             LOGI("[Project] Loaded text: id=%ld text=%s", static_cast<long>(textEntry.id), textEntry.text.c_str());
         }
+
+        int64_t nextTransitionId = 1;
+        for (const auto& transitionEntry : project.getTransitions()) {
+            const auto outgoingIt = loadedClipIdMap.find(transitionEntry.fromClipId);
+            const auto incomingIt = loadedClipIdMap.find(transitionEntry.toClipId);
+            if (outgoingIt == loadedClipIdMap.end() || incomingIt == loadedClipIdMap.end()) {
+                LOGW(
+                    "[Project] Skipping transition id=%ld because clip mapping is missing (%ld -> %ld)",
+                    static_cast<long>(transitionEntry.id),
+                    static_cast<long>(transitionEntry.fromClipId),
+                    static_cast<long>(transitionEntry.toClipId));
+                continue;
+            }
+
+            const int64_t transitionId =
+                transitionEntry.id > 0 ? transitionEntry.id : nextTransitionId;
+            nextTransitionId = std::max(nextTransitionId, transitionId + 1);
+
+            Transition transition;
+            transition.id = transitionId;
+            transition.outgoingClipId = outgoingIt->second;
+            transition.incomingClipId = incomingIt->second;
+            transition.typeId = projectTransitionTypeToId(transitionEntry.type);
+            transition.durationMs = static_cast<int32_t>(std::max<int64_t>(1, transitionEntry.durationMs));
+            transition.startTimeMs = std::max<int64_t>(0, transitionEntry.startTimeMs);
+            transition.isEnabled = true;
+            g_transitions[transition.id] = transition;
+
+            if (g_preview) {
+                g_preview->upsertTransition(
+                    transition.id,
+                    transition.outgoingClipId,
+                    transition.incomingClipId,
+                    transition.typeId,
+                    transition.durationMs,
+                    transition.startTimeMs);
+            }
+        }
+        g_nextTransitionId = std::max<int64_t>(1, nextTransitionId);
         
         LOGI("[Project] Loaded successfully: %s", filePathStr.c_str());
 

@@ -48,6 +48,7 @@ import com.video.engine.stickers.StickerClipStore
 import com.video.engine.stickers.StickerOverlayView
 import com.video.engine.timeline.MultiClipTimeline
 import com.video.engine.timeline.TimelineManager
+import com.video.engine.transition.TransitionStore
 import com.video.engine.transition.TransitionType
 import java.io.File
 import java.io.FileOutputStream
@@ -1625,6 +1626,7 @@ class MainActivity : Activity() {
             onPrepareLoadedProject = { clearEditorShellState() },
             onProjectLoaded = { filePath, pv ->
                 setStartScreenVisible(false)
+                TransitionStore.replaceAll(pv.getTransitions().map { it.copy() })
                 timeline.syncFromEngine(pv)
                 timelineManager?.syncClips(timeline.getClips(), recordHistory = false, clearHistory = true)
                 videoDurationMs = maxOf(
@@ -3669,7 +3671,9 @@ class MainActivity : Activity() {
 
     private fun applySelectedClipEffects(clipId: Int, params: EffectParams) {
         clipEffects[clipId] = params
-        previewView?.setClipEffects(clipId, params.brightness, params.contrast, params.saturation)
+        previewView?.let { pv ->
+            NativeBridge.setClipEffects(pv, clipId, params.brightness, params.contrast, params.saturation)
+        }
         refreshEffectSliderLabels(params)
         execCmd(
             action = "SET_CLIP_EFFECTS",
@@ -6976,7 +6980,7 @@ class MainActivity : Activity() {
         currentTimeMs = targetTimeMs
         playbackController?.scrubTo(targetTimeMs)
         timelineManager?.updateDisplayedTime(targetTimeMs)
-        multiTrackTimelineView?.setCurrentTimeMs(targetTimeMs)
+        multiTrackTimelineView?.setCurrentTimeMs(targetTimeMs, animate = false)
         activeCanvasTimelineView()?.setPlayheadMs(targetTimeMs)
         timelineCurrentTimeText?.text = formatAutomationTime(targetTimeMs)
         previewAudioPlayer?.seekTo(targetTimeMs, continuePlaying = continueAudio && isPlaying)
@@ -8062,9 +8066,8 @@ class MainActivity : Activity() {
         when (selectedClipKind()) {
             ClipKind.VIDEO, ClipKind.OVERLAY -> {
                 selectedVideoClipId()?.let { timelineManager?.selectClip(it) }
-                syncEffectSlidersForClip(selectedVideoClipId())
-                val sliders = findViewById<View>(R.id.effectSlidersContainer)
-                sliders?.visibility = if (sliders?.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                val opened = uiChromeController?.showSelectedClipColorStudio() == true
+                if (!opened) showClipToolPending("Color")
                 noteAppHealthAction("clip_color_action_handled")
             }
             ClipKind.TEXT -> {

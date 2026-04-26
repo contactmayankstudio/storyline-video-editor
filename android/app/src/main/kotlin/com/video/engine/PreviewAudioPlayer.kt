@@ -288,12 +288,19 @@ class PreviewAudioPlayer(
             return
         }
 
-        val sameSource = currentSelection?.key == selection.key && currentSelection?.path == selection.path
+        val sameSource = canReuseCurrentPlayerFor(selection)
         currentSelection = selection
         if (!sameSource || mediaPlayer == null) {
             Log.d(TAG, "createPlayer key=${selection.key} path=${selection.path}")
             createPlayer(selection)
             return
+        }
+
+        if (lastAppliedSelectionKey != selection.key) {
+            Log.d(
+                TAG,
+                "reusePlayer oldKey=$lastAppliedSelectionKey newKey=${selection.key} path=${selection.path}",
+            )
         }
 
         if (!prepared) {
@@ -357,6 +364,28 @@ class PreviewAudioPlayer(
         lastAppliedSelectionKey = selection.key
         lastAppliedMediaSeekMs = targetMs
         lastAppliedAutoPlay = autoPlay
+    }
+
+    private fun canReuseCurrentPlayerFor(selection: SourceSelection): Boolean {
+        val existingPlayer = mediaPlayer ?: return false
+        val current = currentSelection ?: return false
+        val currentPath = currentPlayerPath ?: return false
+        val nextPath = resolvePreferredPlayerPath(selection.path)
+        if (nextPath != currentPath) {
+            return false
+        }
+        // Reuse one MediaPlayer across split/contiguous timeline clips that point to the
+        // same backing media. Timing/volume are updated through seek/applyVolume.
+        if (current.freezeFrameEnabled != selection.freezeFrameEnabled) {
+            return false
+        }
+        if (current.reversePlayback != selection.reversePlayback) {
+            return false
+        }
+        if (abs(effectivePlaybackSpeed(current) - effectivePlaybackSpeed(selection)) >= 0.01f) {
+            return false
+        }
+        return existingPlayer === mediaPlayer
     }
 
     private fun createPlayer(selection: SourceSelection) {

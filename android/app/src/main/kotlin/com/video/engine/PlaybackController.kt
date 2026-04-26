@@ -222,7 +222,7 @@ class PlaybackController(
         setCurrentTimeMs(timelineMs)
         timelineManagerProvider()?.updateDisplayedTime(timelineMs)
         if (syncTimelineUi) {
-            multiTrackTimelineViewProvider()?.setCurrentTimeMs(timelineMs)
+            multiTrackTimelineViewProvider()?.setCurrentTimeMs(timelineMs, animate = false)
         }
         // Always update pending seek — only latest position matters
         pendingScrubTimeMs = timelineMs
@@ -305,7 +305,7 @@ class PlaybackController(
             ?.takeIf { it.visibility == View.VISIBLE }
             ?.text = formatRemainingTime(timeMs, totalDurationMsProvider())
         timelineManagerProvider()?.updateDisplayedTime(timeMs)
-        multiTrackTimelineViewProvider()?.setCurrentTimeMs(timeMs)
+        multiTrackTimelineViewProvider()?.setCurrentTimeMs(timeMs, animate = false)
         // Update canvas timeline playhead
         onPlaybackTimeChanged?.invoke(timeMs)
         lastLoggedPlaybackTimeMs = timeMs

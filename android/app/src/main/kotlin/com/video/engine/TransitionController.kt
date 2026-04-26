@@ -15,6 +15,13 @@ class TransitionController(
     private val onRecordTimelineUndo: () -> Unit,
     private val setCurrentTransitionId: (Long) -> Unit,
 ) {
+    private fun focusPreviewOnTransition(transition: Transition, previewView: VideoPreviewView?) {
+        val view = previewView ?: return
+        val previewTimeMs = maxOf(0L, transition.startTimeMs + (transition.durationMs / 2L))
+        runCatching { NativeBridge.seekToTime(view, previewTimeMs) }
+        timelineManagerProvider()?.updateDisplayedTime(previewTimeMs)
+    }
+
     private fun buildTransition(
         outgoingClipId: Int,
         incomingClipId: Int,
@@ -25,7 +32,7 @@ class TransitionController(
         val existingTransition = timelineManager?.getTransitionByOutgoingClip(outgoingClipId)
         return existingTransition ?: run {
             val outgoingClip = timelineManager?.getClips()?.find { it.id == outgoingClipId }
-            val startTimeMs = (outgoingClip?.endTimeMs ?: currentTimeMsProvider()) as? Long ?: currentTimeMsProvider()
+            val startTimeMs = outgoingClip?.endTimeMs ?: currentTimeMsProvider()
             Transition(
                 type = defaultType,
                 durationMs = defaultDurationMs,
@@ -42,7 +49,7 @@ class TransitionController(
             return false
         }
         onRecordTimelineUndo()
-        val result = runCatching {
+        runCatching {
             NativeBridge.executeCommand(
                 action = "TRANSITION",
                 params = mapOf(
@@ -51,9 +58,7 @@ class TransitionController(
                 ),
             )
         }.getOrNull()
-        if (result?.success != true) {
-            previewView?.removeTransition(updatedTransition.id)
-        }
+        previewView?.removeTransition(updatedTransition.id)
         setCurrentTransitionId(-1L)
         timelineManager?.notifyDatasetChanged()
         Log.d("[TRANSITION]", "removed id=${updatedTransition.id}")
@@ -80,12 +85,24 @@ class TransitionController(
         if (isNewTransition && result?.success == true) {
             updatedTransition.id = result.data.optLong("transitionId", updatedTransition.id)
         }
+        previewView?.let { view ->
+            if (updatedTransition.id > 0L) {
+                view.updateTransition(updatedTransition)
+            } else {
+                val previewId = view.addTransition(updatedTransition)
+                if (previewId > 0L) {
+                    updatedTransition.id = previewId
+                }
+            }
+        }
+        if (isNewTransition && updatedTransition.id <= 0L) {
+            Log.w("[TRANSITION]", "failed to resolve transition id for outgoing=${updatedTransition.outgoingClipId}")
+            return false
+        }
         timelineManager?.upsertTransition(updatedTransition)
         onRecordTimelineUndo()
         setCurrentTransitionId(updatedTransition.id)
-        if (result?.success != true) {
-            previewView?.updateTransition(updatedTransition)
-        }
+        focusPreviewOnTransition(updatedTransition, previewView)
         timelineManager?.notifyDatasetChanged()
         Log.d("[TRANSITION]", "updated type=${updatedTransition.type} duration=${updatedTransition.durationMs}ms")
         return true
@@ -131,7 +148,7 @@ class TransitionController(
     }
 
     fun deleteTransition(transitionId: Long) {
-        val result = runCatching {
+        runCatching {
             NativeBridge.executeCommand(
                 action = "TRANSITION",
                 params = mapOf(
@@ -140,9 +157,7 @@ class TransitionController(
                 ),
             )
         }.getOrNull()
-        if (result?.success != true) {
-            previewViewProvider()?.removeTransition(transitionId)
-        }
+        previewViewProvider()?.removeTransition(transitionId)
         if (timelineManagerProvider()?.removeTransition(transitionId) == true) {
             onRecordTimelineUndo()
             setCurrentTransitionId(-1L)

@@ -3640,8 +3640,12 @@ public:
                 return CommandResult::fail(action(), "Transition not found");
             }
             m_previousTransition = it->second;
+            it->second.outgoingClipId = m_outgoingClipId;
+            it->second.incomingClipId = m_incomingClipId;
             it->second.typeId = m_typeId;
             it->second.durationMs = m_durationMs;
+            it->second.startTimeMs = m_startTimeMs;
+            it->second.isEnabled = true;
             return CommandResult::ok(
                 action(),
                 "Transition updated",

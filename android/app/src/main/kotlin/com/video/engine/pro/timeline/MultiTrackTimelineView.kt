@@ -208,21 +208,30 @@ class MultiTrackTimelineView @JvmOverloads constructor(
         return computePlayheadTimeMs(scrollOffsetPxFloat)
     }
 
-    fun setCurrentTimeMs(timeMs: Long) {
-        if (timeMs == lastAppliedTimeMs && !animationFrameScheduled) {
+    fun setCurrentTimeMs(timeMs: Long, animate: Boolean = true) {
+        val targetTimeMs = timeMs.coerceAtLeast(0L)
+        if (targetTimeMs == lastAppliedTimeMs && !animationFrameScheduled) {
             return
         }
-        val targetOffsetPx = (contentInsetPx + (timeMs * metrics.pxPerMs) - playheadRecyclerX()).coerceAtLeast(0f)
+        val targetOffsetPx =
+            (contentInsetPx + (targetTimeMs * metrics.pxPerMs) - playheadRecyclerX()).coerceAtLeast(0f)
         animatedTargetOffsetPx = targetOffsetPx
+        if (!animate) {
+            cancelTimelineAnimationFrame()
+            lastAnimationFrameNs = 0L
+            lastAppliedTimeMs = targetTimeMs
+            syncRowsTo(targetOffsetPx)
+            return
+        }
         if (abs(targetOffsetPx - scrollOffsetPxFloat) <= 0.75f) {
             cancelTimelineAnimationFrame()
-            lastAppliedTimeMs = timeMs
-            rowViews.values.forEach { it.setPlayheadTimeMs(timeMs) }
+            lastAppliedTimeMs = targetTimeMs
+            rowViews.values.forEach { it.setPlayheadTimeMs(targetTimeMs) }
             playheadOverlay.invalidate()
             rulerHeader.invalidate()
             return
         }
-        lastAppliedTimeMs = timeMs
+        lastAppliedTimeMs = targetTimeMs
         scheduleTimelineAnimationFrame()
     }
 

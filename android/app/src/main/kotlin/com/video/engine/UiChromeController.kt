@@ -8,6 +8,7 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import com.video.engine.UiToast as Toast
 import com.video.engine.effects.EffectParams
+import com.video.engine.effects.ProFilterPresets
 import com.video.engine.stickers.StickersPanel
 import com.video.engine.timeline.TimelineManager
 import com.video.engine.transition.TransitionType
@@ -151,17 +152,17 @@ class UiChromeController(
     }
 
     private fun effectPresetByName(name: String): EffectParams {
-        return when (name) {
-            "Vivid" -> EffectParams(brightness = 0.05f, contrast = 1.15f, saturation = 1.40f)
-            "Matte" -> EffectParams(brightness = 0.08f, contrast = 0.85f, saturation = 0.75f)
-            "Warm" -> EffectParams(brightness = 0.06f, contrast = 1.05f, saturation = 1.10f)
-            "Cool" -> EffectParams(brightness = -0.04f, contrast = 1.05f, saturation = 0.90f)
-            "Vintage" -> EffectParams(brightness = 0.04f, contrast = 0.90f, saturation = 0.65f)
-            "B&W" -> EffectParams(brightness = 0.00f, contrast = 1.10f, saturation = 0.00f)
-            "Cinematic" -> EffectParams(brightness = -0.02f, contrast = 1.20f, saturation = 0.85f)
-            "Drama" -> EffectParams(brightness = -0.05f, contrast = 1.35f, saturation = 1.10f)
-            "Punch" -> EffectParams(brightness = 0.02f, contrast = 1.28f, saturation = 1.22f)
-            "Soft" -> EffectParams(brightness = 0.05f, contrast = 0.92f, saturation = 0.95f)
+        return ProFilterPresets.findByName(name)?.params ?: when (name) {
+            "Vivid" -> EffectParams(brightness = 0.10f, contrast = 1.24f, saturation = 1.55f)
+            "Matte" -> EffectParams(brightness = 0.12f, contrast = 0.78f, saturation = 0.62f)
+            "Warm" -> EffectParams(brightness = 0.14f, contrast = 1.12f, saturation = 1.28f)
+            "Cool" -> EffectParams(brightness = -0.08f, contrast = 1.10f, saturation = 0.74f)
+            "Vintage" -> EffectParams(brightness = 0.10f, contrast = 0.82f, saturation = 0.46f)
+            "B&W" -> EffectParams(brightness = -0.02f, contrast = 1.28f, saturation = 0.00f)
+            "Cinematic" -> EffectParams(brightness = -0.06f, contrast = 1.34f, saturation = 0.68f)
+            "Drama" -> EffectParams(brightness = -0.10f, contrast = 1.46f, saturation = 1.06f)
+            "Punch" -> EffectParams(brightness = 0.06f, contrast = 1.34f, saturation = 1.36f)
+            "Soft" -> EffectParams(brightness = 0.12f, contrast = 0.84f, saturation = 0.88f)
             "Neutral" -> EffectParams()
             else -> EffectParams()
         }
@@ -179,10 +180,9 @@ class UiChromeController(
             return false
         }
         val currentParams = clipEffects[selectedClipId] ?: EffectParams()
-        EffectsPanel(activity, previewView, selectedClipId, currentParams) { ep, enabled ->
-            val applied = if (enabled) ep else EffectParams()
-            clipEffects[selectedClipId] = applied
-            persistClipEffectsAsync(selectedClipId, applied)
+        EffectsPanel(activity, previewView, selectedClipId, currentParams) { ep, _ ->
+            clipEffects[selectedClipId] = ep
+            persistClipEffectsAsync(selectedClipId, ep)
         }.show()
         return true
     }
@@ -197,7 +197,7 @@ class UiChromeController(
             return false
         }
         val current = clipEffects[clipId] ?: EffectParams()
-        LutPanel.show(activity, clipId, current) { updated ->
+        LutPanel.show(activity, current) { updated ->
             applyColorPreview(previewView, clipId, updated)
         }
         return true
@@ -289,7 +289,6 @@ class UiChromeController(
     }
 
     private fun showEffectsToolSheet() {
-        pausePlaybackForPanel()
         onHealthAction("effects_tool_sheet_opened")
         ModernSheet.show(activity, "Effects") {
             chips("Studio", listOf("Studio FX", "LUT Library", "Chroma Key", "Reset FX"), -1) { _, option ->
@@ -300,10 +299,10 @@ class UiChromeController(
                     "Reset FX" -> applyEffectPreset(EffectParams())
                 }
             }
-            chips("Quick Looks", listOf("Vivid", "Matte", "Warm", "Cool", "Vintage", "B&W"), -1) { _, option ->
+            chips("Quick Looks", listOf("Beauty Lift", "Bridal Glow", "Cine Matte", "Teal Punch", "Golden Hour", "Noir Mono"), -1) { _, option ->
                 applyEffectPreset(effectPresetByName(option))
             }
-            chips("Finish", listOf("Cinematic", "Drama", "Punch", "Soft", "Neutral"), -1) { _, option ->
+            chips("Finish", listOf("Fair Lift", "Soft Skin", "Seoul Vlog", "Market Pop", "Night Neon", "Retro Print"), -1) { _, option ->
                 applyEffectPreset(effectPresetByName(option))
             }
         }
@@ -343,7 +342,6 @@ class UiChromeController(
     }
 
     private fun showTransitionToolSheet() {
-        pausePlaybackForPanel()
         onHealthAction("transition_tool_sheet_opened")
         ModernSheet.show(activity, "Transition") {
             chips("Quick", listOf("Cross 250", "Fade 250", "Cross 500", "Fade 500", "Wipe 450", "Slide 450"), -1) { _, option ->
@@ -416,7 +414,6 @@ class UiChromeController(
     }
 
     private fun showColorToolSheet() {
-        pausePlaybackForPanel()
         onHealthAction("color_tool_sheet_opened")
         ModernSheet.show(activity, "Color") {
             chips("Studio", listOf("Grade Controls", "LUT Library", "Chroma Key", "Reset Color"), -1) { _, option ->
@@ -427,10 +424,10 @@ class UiChromeController(
                     "Reset Color" -> applyEffectPreset(EffectParams())
                 }
             }
-            chips("Quick Looks", listOf("Warm", "Cool", "Vintage", "B&W", "Vivid", "Cinematic"), -1) { _, option ->
+            chips("Quick Looks", listOf("Fair Lift", "Beauty Lift", "Cine Matte", "Teal Punch", "Golden Hour", "Noir Mono"), -1) { _, option ->
                 applyEffectPreset(effectPresetByName(option))
             }
-            chips("Finish", listOf("Drama", "Punch", "Soft", "Neutral"), -1) { _, option ->
+            chips("Finish", listOf("Bridal Glow", "Soft Skin", "Seoul Vlog", "Night Neon", "Retro Print", "Neutral"), -1) { _, option ->
                 applyEffectPreset(effectPresetByName(option))
             }
         }
@@ -438,6 +435,11 @@ class UiChromeController(
 
     fun showEffectsSheet() {
         showEffectsToolSheet()
+    }
+
+    fun showSelectedClipColorStudio(): Boolean {
+        onHealthAction("selected_clip_color_studio_opened")
+        return showColorStudio()
     }
 
     fun showGraphicsSheet() {
@@ -696,7 +698,7 @@ class UiChromeController(
 
     private fun applyColorPreview(previewView: VideoPreviewView, clipId: Int, params: EffectParams) {
         clipEffects[clipId] = params
-        previewView.setClipEffects(clipId, params.brightness, params.contrast, params.saturation)
+        NativeBridge.setClipEffects(previewView, clipId, params.brightness, params.contrast, params.saturation)
         runCatching { NativeBridge.seekToTime(previewView, currentTimeMsProvider().coerceAtLeast(0L)) }
         persistClipEffectsAsync(clipId, params)
     }

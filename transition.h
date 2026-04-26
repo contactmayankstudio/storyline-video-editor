@@ -163,5 +163,3 @@ struct Transition {
  *     fragColor = result;
  * }
  */
-
-#endif  // TRANSITION_H

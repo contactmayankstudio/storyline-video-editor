@@ -514,6 +514,8 @@ void PreviewController::destroy() {
             if (state.texture) state.texture->release();
         }
         m_clipDecoders.clear();
+        m_clipPreviewTransforms.clear();
+        m_transitions.clear();
 
         m_hasDecodedFrame = false;
         m_openVideoPath.clear();
@@ -797,6 +799,229 @@ bool PreviewController::switchDecoderSourceLocked(const std::shared_ptr<Clip>& c
     return true;
 }
 
+const PreviewController::ClipTransition* PreviewController::findActiveTransitionLocked(int64_t timelineMs) const {
+    const ClipTransition* best = nullptr;
+    for (const auto& [transitionId, transition] : m_transitions) {
+        (void)transitionId;
+        if (!transition.isActive(timelineMs)) {
+            continue;
+        }
+        if (!findTimelineClipByIdLocked(transition.outgoingClipId) ||
+            !findTimelineClipByIdLocked(transition.incomingClipId)) {
+            continue;
+        }
+        if (!best || transition.startTimeMs > best->startTimeMs) {
+            best = &transition;
+        }
+    }
+    return best;
+}
+
+std::shared_ptr<Clip> PreviewController::findTimelineClipByIdLocked(int clipId) const {
+    if (!m_timeline || clipId <= 0) {
+        return nullptr;
+    }
+    for (const auto& clip : m_timeline->clips()) {
+        if (clip && static_cast<int>(clip->getId()) == clipId) {
+            return clip;
+        }
+    }
+    return nullptr;
+}
+
+bool PreviewController::uploadClipFrameToTextureLocked(
+    ClipDecodeState& state,
+    const Backend::DecodedFrame& frame,
+    int64_t renderedSourceMs) {
+    const int frameWidth = static_cast<int>(frame.width);
+    const int frameHeight = static_cast<int>(frame.height);
+    if (frameWidth <= 0 || frameHeight <= 0 || frame.rgb.empty()) {
+        return false;
+    }
+
+    if (!state.texture) {
+        state.texture = std::make_unique<GPU::GLTexture>();
+    }
+    if (!state.texture->initialize(frameWidth, frameHeight)) {
+        return false;
+    }
+
+    const size_t pixelCount = static_cast<size_t>(frameWidth) * frameHeight;
+    const size_t expectedRgbaBytes = pixelCount * 4;
+    const size_t expectedRgbBytes = pixelCount * 3;
+    const uint8_t* rgbaPixels = nullptr;
+
+    if (frame.rgb.size() >= expectedRgbaBytes) {
+        rgbaPixels = frame.rgb.data();
+    } else if (frame.rgb.size() >= expectedRgbBytes) {
+        if (m_rgbaScratch.size() != expectedRgbaBytes) {
+            m_rgbaScratch.resize(expectedRgbaBytes);
+        }
+        const uint8_t* src = frame.rgb.data();
+        uint8_t* dst = m_rgbaScratch.data();
+        for (size_t i = 0; i < pixelCount; ++i) {
+            const size_t srcIndex = i * 3;
+            const size_t dstIndex = i * 4;
+            dst[dstIndex + 0] = src[srcIndex + 0];
+            dst[dstIndex + 1] = src[srcIndex + 1];
+            dst[dstIndex + 2] = src[srcIndex + 2];
+            dst[dstIndex + 3] = 0xFF;
+        }
+        rgbaPixels = m_rgbaScratch.data();
+    } else {
+        return false;
+    }
+
+    state.texture->update(rgbaPixels);
+    state.lastRenderedSourceMs = renderedSourceMs;
+    return true;
+}
+
+GPU::EGLRenderer::Layer PreviewController::buildLayerForClipLocked(
+    const std::shared_ptr<Clip>& clip,
+    GPU::GLTexture* texture) const {
+    GPU::EGLRenderer::Layer layer;
+    layer.texture = texture;
+    if (!clip) {
+        return layer;
+    }
+
+    layer.opacity = clip->getProperties().opacity;
+    const auto transform = clipPreviewTransformLocked(static_cast<int>(clip->getId()));
+    layer.zoom = transform.zoom;
+    layer.panXNorm = transform.panXNorm;
+    layer.panYNorm = transform.panYNorm;
+    layer.rotationDeg = transform.rotationDeg;
+    layer.mirrorX = transform.mirrorX;
+    const auto& chromaKey = clip->getChromaKey();
+    layer.chromaEnabled = chromaKey.enabled;
+    layer.blueKey = (chromaKey.color == Clip::ChromaKeyParams::KeyColor::Blue);
+    layer.chromaSimilarity = chromaKey.similarity;
+    layer.chromaSmoothness = chromaKey.smoothness;
+    layer.chromaSpill = chromaKey.spill;
+    const auto& effects = clip->getEffects();
+    layer.brightness = effects.brightness;
+    layer.contrast = effects.contrast;
+    layer.saturation = effects.saturation;
+    return layer;
+}
+
+bool PreviewController::renderTransitionFrameLocked(
+    const ClipTransition& transition,
+    int64_t timelineMs,
+    bool keyframeOnlyScrub,
+    int64_t* renderedTimelineMs) {
+    const float rawProgress = transition.progressAt(timelineMs);
+    if (rawProgress < 0.0f) {
+        return false;
+    }
+    const float progress = std::clamp(rawProgress, 0.0f, 1.0f);
+
+    const auto outgoingClip = findTimelineClipByIdLocked(transition.outgoingClipId);
+    const auto incomingClip = findTimelineClipByIdLocked(transition.incomingClipId);
+    if (!outgoingClip || !incomingClip) {
+        return false;
+    }
+    if (!outgoingClip->getProperties().enabled || !incomingClip->getProperties().enabled) {
+        return false;
+    }
+
+    if (m_timeline) {
+        for (const auto& clip : m_timeline->clips()) {
+            if (!clip || !clip->getProperties().enabled) {
+                continue;
+            }
+            const auto role = clip->getTrackRole();
+            const bool isVisualTrack =
+                role == Clip::TrackRole::MainVideo ||
+                role == Clip::TrackRole::Overlay;
+            if (!isVisualTrack) {
+                continue;
+            }
+            const int64_t startMs = clip->getStartTime();
+            const int64_t endMs = startMs + std::max<int64_t>(1, clip->getDuration());
+            if (timelineMs < startMs || timelineMs >= endMs) {
+                continue;
+            }
+            const int clipId = static_cast<int>(clip->getId());
+            if (clipId != transition.outgoingClipId && clipId != transition.incomingClipId) {
+                return false;
+            }
+        }
+    }
+
+    if (!m_renderer || !m_renderer->acquireContext()) {
+        setError("Render context acquire failed for transition");
+        return false;
+    }
+
+    bool rendered = false;
+    do {
+        auto& outgoingState = m_clipDecoders[transition.outgoingClipId];
+        auto& incomingState = m_clipDecoders[transition.incomingClipId];
+
+        const int64_t outgoingTimelineMs = std::min<int64_t>(
+            timelineMs,
+            outgoingClip->getStartTime() + std::max<int64_t>(1, outgoingClip->getDuration()) - 1);
+        const int64_t incomingTimelineMs = std::max<int64_t>(timelineMs, incomingClip->getStartTime());
+
+        Backend::DecodedFrame outgoingFrame;
+        Backend::DecodedFrame incomingFrame;
+        int64_t outgoingRenderedSourceMs = 0;
+        int64_t incomingRenderedSourceMs = 0;
+
+        const int64_t outgoingSourceMs = clampTimeMs(
+            mapClipTimelineToSourceMs(outgoingClip, outgoingTimelineMs, false));
+        const int64_t incomingSourceMs = clampTimeMs(
+            mapClipTimelineToSourceMs(incomingClip, incomingTimelineMs, false));
+
+        if (!decodeClipFrameLocked(
+                outgoingClip,
+                outgoingState,
+                outgoingSourceMs,
+                keyframeOnlyScrub,
+                &outgoingFrame,
+                &outgoingRenderedSourceMs)) {
+            break;
+        }
+        if (!decodeClipFrameLocked(
+                incomingClip,
+                incomingState,
+                incomingSourceMs,
+                keyframeOnlyScrub,
+                &incomingFrame,
+                &incomingRenderedSourceMs)) {
+            break;
+        }
+        if (!uploadClipFrameToTextureLocked(outgoingState, outgoingFrame, outgoingRenderedSourceMs) ||
+            !uploadClipFrameToTextureLocked(incomingState, incomingFrame, incomingRenderedSourceMs)) {
+            break;
+        }
+
+        auto outgoingLayer = buildLayerForClipLocked(outgoingClip, outgoingState.texture.get());
+        auto incomingLayer = buildLayerForClipLocked(incomingClip, incomingState.texture.get());
+        rendered = m_renderer->renderTransition(
+            outgoingLayer,
+            incomingLayer,
+            transition.typeId,
+            progress);
+        if (!rendered) {
+            break;
+        }
+
+        m_chromaKey = {};
+        m_hasDecodedFrame = false;
+        m_lastRenderedClipId = -1;
+        m_lastRenderedSourceMs = -1;
+        if (renderedTimelineMs) {
+            *renderedTimelineMs = timelineMs;
+        }
+    } while (false);
+
+    m_renderer->releaseContext();
+    return rendered;
+}
+
 bool PreviewController::renderTimelineFrameLocked(
     int64_t timelineMs,
     bool keyframeOnlyScrub,
@@ -809,6 +1034,16 @@ bool PreviewController::renderTimelineFrameLocked(
     }
 
     const int64_t clampedTimelineMs = clampTimelineTimeMsLocked(timelineMs);
+    if (const auto* activeTransition = findActiveTransitionLocked(clampedTimelineMs)) {
+        if (renderTransitionFrameLocked(
+                *activeTransition,
+                clampedTimelineMs,
+                keyframeOnlyScrub,
+                renderedTimelineMs)) {
+            return true;
+        }
+    }
+
     std::shared_ptr<Clip> activeClip;
     auto visualTrackPriority = [](Clip::TrackRole role) {
         switch (role) {
@@ -1693,6 +1928,67 @@ void PreviewController::clearClipPreviewTransform(int clipId) {
 void PreviewController::clearClipPreviewTransforms() {
     std::lock_guard<std::mutex> lock(m_playbackMutex);
     m_clipPreviewTransforms.clear();
+}
+
+void PreviewController::upsertTransition(
+    int64_t transitionId,
+    int outgoingClipId,
+    int incomingClipId,
+    int typeId,
+    int durationMs,
+    int64_t startTimeMs) {
+    if (transitionId <= 0 || outgoingClipId <= 0 || incomingClipId <= 0) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(m_playbackMutex);
+    ClipTransition transition;
+    transition.id = transitionId;
+    transition.outgoingClipId = outgoingClipId;
+    transition.incomingClipId = incomingClipId;
+    transition.typeId = std::max(0, typeId);
+    transition.durationMs = std::max(1, durationMs);
+    transition.startTimeMs = std::max<int64_t>(0, startTimeMs);
+    transition.enabled = true;
+    m_transitions[transitionId] = transition;
+}
+
+void PreviewController::removeTransition(int64_t transitionId) {
+    if (transitionId <= 0) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(m_playbackMutex);
+    m_transitions.erase(transitionId);
+}
+
+void PreviewController::resetTimelinePreviewState() {
+    std::lock_guard<std::mutex> lock(m_playbackMutex);
+    stopDecodeWorkerLocked();
+    clearQueuedFramesLocked();
+    cancelPredictivePrefetchLocked(true);
+
+    if (m_decoder) {
+        m_decoder->close();
+        m_decoder.reset();
+    }
+    m_openVideoPath.clear();
+
+    for (auto& [id, state] : m_clipDecoders) {
+        if (state.decoder) {
+            state.decoder->close();
+        }
+        if (state.texture) {
+            state.texture->release();
+        }
+    }
+    m_clipDecoders.clear();
+    m_clipPreviewTransforms.clear();
+    m_transitions.clear();
+
+    m_hasDecodedFrame = false;
+    m_hasLastScrubRequestSample = false;
+    m_lastRenderedClipId = -1;
+    m_lastRenderedSourceMs = -1;
+    m_chromaKey = {};
 }
 
 void PreviewController::setPredictiveCachingPolicy(
