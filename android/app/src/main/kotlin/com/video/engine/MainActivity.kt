@@ -1824,7 +1824,7 @@ class MainActivity : Activity() {
     }
 
     private fun setupAspectRatioButton() {
-        val aspectButton = findViewById<ImageView?>(R.id.aspectRatioButton) ?: return
+        val aspectButton = findViewById<View?>(R.id.aspectRatioButton) ?: return
         aspectButton.setOnClickListener {
             noteUiButtonTap("aspect_ratio", "top_bar")
             showAspectRatioPickerDialog()

@@ -65,6 +65,7 @@
     <string name="preview_crop_reset">Reset</string>
     <string name="preview_crop_fill">Fill</string>
     <string name="preview_crop_done">Done</string>
+    <string name="top_crop_button">Crop</string>
     <string name="timeline_section_title">Timeline</string>
     <string name="timeline_section_badge">Multi-Track</string>
     <string name="timeline_section_hint">Tap lane to import • Double tap to focus</string>

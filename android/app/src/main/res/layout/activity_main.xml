@@ -72,45 +72,49 @@
         <LinearLayout
             android:id="@+id/topActionRail"
             android:layout_width="wrap_content"
-            android:layout_height="32dp"
+            android:layout_height="wrap_content"
             android:layoutDirection="ltr"
             android:layout_marginStart="8dp"
             android:layout_marginEnd="8dp"
-            android:background="@drawable/top_action_cluster_background"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingStart="3dp"
-            android:paddingTop="2dp"
-            android:paddingEnd="3dp"
-            android:paddingBottom="2dp"
-            app:layout_constraintStart_toEndOf="@id/loadProjectButton"
-            app:layout_constraintEnd_toStartOf="@id/exportButton"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintHorizontal_bias="0.5">
 
-            <ImageView
+            <TextView
                 android:id="@+id/aspectRatioButton"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
+                android:layout_width="wrap_content"
+                android:layout_height="30dp"
+                android:minWidth="84dp"
                 android:background="@drawable/top_action_button_background"
-                android:contentDescription="@string/aspect_ratio_label"
-                android:padding="6dp"
-                android:src="@drawable/ic_aspect_ratio_toolbar"
-                android:tint="@color/text_primary" />
-
-            <ImageView
-                android:id="@+id/saveProjectButton"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:layout_marginStart="3dp"
-                android:background="@drawable/top_action_button_background"
-                android:contentDescription="@string/save_label"
-                android:padding="6dp"
-                android:src="@drawable/ic_save_toolbar"
-                android:tint="@color/text_primary" />
+                android:contentDescription="@string/top_crop_button"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:text="@string/top_crop_button"
+                android:textColor="@color/text_primary"
+                android:textSize="10sp"
+                android:textStyle="bold" />
 
         </LinearLayout>
+
+        <ImageView
+            android:id="@+id/saveProjectButton"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/top_action_button_background"
+            android:contentDescription="@string/save_label"
+            android:padding="6dp"
+            android:src="@drawable/ic_save_toolbar"
+            android:tint="@color/text_primary"
+            app:layout_constraintEnd_toStartOf="@id/exportButton"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent" />
 
         <TextView
             android:id="@+id/exportButton"
@@ -578,7 +582,8 @@
             android:paddingStart="12dp"
             android:paddingTop="8dp"
             android:paddingEnd="12dp"
-            android:paddingBottom="8dp">
+            android:paddingBottom="8dp"
+            android:visibility="gone">
 
             <TextView
                 android:layout_width="wrap_content"
