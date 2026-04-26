@@ -157,7 +157,13 @@ object ModernSheet {
             root.addView(row)
         }
 
-        fun chips(label: String, options: List<String>, selected: Int = -1, onSelect: (Int, String) -> Unit) {
+        fun chips(
+            label: String,
+            options: List<String>,
+            selected: Int = -1,
+            dismissOnSelect: Boolean = true,
+            onSelect: (Int, String) -> Unit,
+        ) {
             root.addView(TextView(context).apply {
                 text = label; textSize = 12f; setTextColor(Color.parseColor("#8E99A5"))
                 setPadding(0, px(context, 8), 0, px(context, 4))
@@ -181,7 +187,10 @@ object ModernSheet {
                         LinearLayout.LayoutParams.WRAP_CONTENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT
                     ).also { it.setMargins(px(context, 4), 0, px(context, 4), 0) }
-                    setOnClickListener { onSelect(i, opt); dialog.dismiss() }
+                    setOnClickListener {
+                        onSelect(i, opt)
+                        if (dismissOnSelect) dialog.dismiss()
+                    }
                 }
                 row.addView(chip)
             }
@@ -194,6 +203,7 @@ object ModernSheet {
             options: List<String>,
             selected: Int = -1,
             columns: Int = 4,
+            dismissOnSelect: Boolean = true,
             onSelect: (Int, String) -> Unit,
         ) {
             root.addView(TextView(context).apply {
@@ -240,7 +250,10 @@ object ModernSheet {
                                 ).also { lp ->
                                     if (columnIndex > 0) lp.marginStart = px(context, 8)
                                 }
-                                setOnClickListener { onSelect(optionIndex, opt); dialog.dismiss() }
+                                setOnClickListener {
+                                    onSelect(optionIndex, opt)
+                                    if (dismissOnSelect) dialog.dismiss()
+                                }
                             }
                         } else {
                             Space(context).apply {

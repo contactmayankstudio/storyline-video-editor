@@ -13,14 +13,14 @@ object LutPanel {
         var live = current
         ModernSheet.show(activity, "Pro Filters") {
             ProFilterPresets.sections.forEach { section ->
-                chipGrid(section.title, section.presets.map { it.name }, -1, columns = 3) { index, _ ->
+                chipGrid(section.title, section.presets.map { it.name }, -1, columns = 3, dismissOnSelect = false) { index, _ ->
                     val preset = section.presets[index]
                     live = preset.params
                     onChange(live)
                 }
             }
             divider()
-            chips("Utility", listOf("Reset"), -1) { _, _ ->
+            chips("Utility", listOf("Reset"), -1, dismissOnSelect = false) { _, _ ->
                 live = EffectParams()
                 onChange(live)
             }

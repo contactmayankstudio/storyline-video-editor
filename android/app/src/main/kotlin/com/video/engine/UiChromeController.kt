@@ -240,7 +240,7 @@ class UiChromeController(
                 val updated = (clipEffects[clipId] ?: current).copy(saturation = v)
                 applyColorPreview(previewView, clipId, updated)
             }
-            chips("LUT Presets", listOf("Warm", "Cool", "Vintage", "B&W", "Cinematic"), -1) { _, lut ->
+            chips("LUT Presets", listOf("Warm", "Cool", "Vintage", "B&W", "Cinematic"), -1, dismissOnSelect = false) { _, lut ->
                 applyEffectPreset(effectPresetByName(lut))
             }
         }
@@ -304,10 +304,10 @@ class UiChromeController(
                     "Reset FX" -> applyEffectPreset(EffectParams())
                 }
             }
-            chips("Quick Looks", listOf("Beauty Lift", "Bridal Glow", "Cine Matte", "Teal Punch", "Golden Hour", "Noir Mono"), -1) { _, option ->
+            chips("Quick Looks", listOf("Beauty Lift", "Bridal Glow", "Cine Matte", "Teal Punch", "Golden Hour", "Noir Mono"), -1, dismissOnSelect = false) { _, option ->
                 applyEffectPreset(effectPresetByName(option))
             }
-            chips("Finish", listOf("Fair Lift", "Soft Skin", "Seoul Vlog", "Market Pop", "Night Neon", "Retro Print"), -1) { _, option ->
+            chips("Finish", listOf("Fair Lift", "Soft Skin", "Seoul Vlog", "Market Pop", "Night Neon", "Retro Print"), -1, dismissOnSelect = false) { _, option ->
                 applyEffectPreset(effectPresetByName(option))
             }
         }
@@ -430,10 +430,10 @@ class UiChromeController(
                     "Reset Color" -> applyEffectPreset(EffectParams())
                 }
             }
-            chips("Quick Looks", listOf("Fair Lift", "Beauty Lift", "Cine Matte", "Teal Punch", "Golden Hour", "Noir Mono"), -1) { _, option ->
+            chips("Quick Looks", listOf("Fair Lift", "Beauty Lift", "Cine Matte", "Teal Punch", "Golden Hour", "Noir Mono"), -1, dismissOnSelect = false) { _, option ->
                 applyEffectPreset(effectPresetByName(option))
             }
-            chips("Finish", listOf("Bridal Glow", "Soft Skin", "Seoul Vlog", "Night Neon", "Retro Print", "Neutral"), -1) { _, option ->
+            chips("Finish", listOf("Bridal Glow", "Soft Skin", "Seoul Vlog", "Night Neon", "Retro Print", "Neutral"), -1, dismissOnSelect = false) { _, option ->
                 applyEffectPreset(effectPresetByName(option))
             }
         }

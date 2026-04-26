@@ -25,10 +25,9 @@ class EffectsPanel(
                 saturation = it; push(false)
             }
             divider()
-            chips("", listOf("Reset All"), -1) { _, _ ->
+            chips("", listOf("Reset All"), -1, dismissOnSelect = false) { _, _ ->
                 brightness = 0f; contrast = 1f; saturation = 1f
                 push(true)
-                dismiss()
             }
         }
     }
