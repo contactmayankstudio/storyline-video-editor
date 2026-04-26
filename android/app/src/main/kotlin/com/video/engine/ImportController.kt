@@ -42,6 +42,7 @@ class ImportController(
     private var pendingImportPath: String? = null
     private var pendingImportTrackType: TrackType = TrackType.VIDEO
     private var nextImportTrackType: TrackType = TrackType.VIDEO
+    private var pickerImportTrackType: TrackType = TrackType.VIDEO
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pendingProxyBuilds = mutableMapOf<Int, Runnable>()
     @Volatile private var latestWarmupGeneration = 0
@@ -49,6 +50,11 @@ class ImportController(
 
     fun setNextImportTrackType(trackType: TrackType) {
         nextImportTrackType = trackType
+    }
+
+    fun preparePickerImportTrackType(trackType: TrackType) {
+        nextImportTrackType = trackType
+        pickerImportTrackType = trackType
     }
 
     fun importFromPath(path: String) {
@@ -68,6 +74,7 @@ class ImportController(
     fun handlePickerResult(requestCode: Int, expectedRequestCode: Int, resultCode: Int, data: Intent?): Boolean {
         if (requestCode != expectedRequestCode || resultCode != Activity.RESULT_OK) return false
         val uri = data?.data ?: return true
+        val requestedTrackType = pickerImportTrackType
 
         // Copy file on background thread to avoid UI freeze
         Thread {
@@ -79,7 +86,7 @@ class ImportController(
             }
             mainHandler.post {
                 pendingImportPath = resolvedVideoPath
-                pendingImportTrackType = nextImportTrackType
+                pendingImportTrackType = requestedTrackType
                 maybeImportPendingClip()
             }
         }.start()

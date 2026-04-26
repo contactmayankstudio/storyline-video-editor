@@ -2109,10 +2109,14 @@ class MainActivity : Activity() {
         previewTrimSession = null
         previewTrimStartHandleView?.visibility = View.GONE
         previewTrimEndHandleView?.visibility = View.GONE
-        findViewById<View?>(R.id.playbackUndoRedoRow)?.visibility = if (showCropUi) View.GONE else View.VISIBLE
+        findViewById<View?>(R.id.playbackUndoRedoRow)?.apply {
+            visibility = View.VISIBLE
+            bringToFront()
+        }
         if (showCropUi) {
             refreshPreviewCropStatus()
             previewCropOverlayView?.bringToFront()
+            findViewById<View?>(R.id.playbackUndoRedoRow)?.bringToFront()
         }
     }
 
@@ -4716,7 +4720,7 @@ class MainActivity : Activity() {
 
     private fun openVideoTrackImport() {
         if (!ensureTrackEditable(TrackType.VIDEO, "import")) return
-        importController?.setNextImportTrackType(TrackType.VIDEO)
+        importController?.preparePickerImportTrackType(TrackType.VIDEO)
         noteAppHealthAction("video_import_picker_opened")
         if (::uiFreezeWatchdog.isInitialized) {
             uiFreezeWatchdog.suspendFor(12_000L)
@@ -4731,7 +4735,7 @@ class MainActivity : Activity() {
 
     private fun openOverlayTrackImport() {
         if (!ensureTrackEditable(TrackType.OVERLAY, "import")) return
-        importController?.setNextImportTrackType(TrackType.OVERLAY)
+        importController?.preparePickerImportTrackType(TrackType.OVERLAY)
         noteAppHealthAction("overlay_import_picker_opened")
         if (::uiFreezeWatchdog.isInitialized) {
             uiFreezeWatchdog.suspendFor(12_000L)
@@ -4746,7 +4750,7 @@ class MainActivity : Activity() {
 
     private fun openLayerTrackImport() {
         if (!ensureTrackEditable(TrackType.LAYER, "import")) return
-        importController?.setNextImportTrackType(TrackType.LAYER)
+        importController?.preparePickerImportTrackType(TrackType.LAYER)
         noteAppHealthAction("layer_import_picker_opened")
         if (::uiFreezeWatchdog.isInitialized) {
             uiFreezeWatchdog.suspendFor(12_000L)
