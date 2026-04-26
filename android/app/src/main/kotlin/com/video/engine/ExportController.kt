@@ -775,9 +775,10 @@ class ExportController(
         exportWidth: Int = 1280,
         exportHeight: Int = 720,
     ): Int? {
-        // Watermark = ~12% of the shorter edge, capped 80..256px
+        // Keep export watermark subtle and ratio-safe across portrait, square, and landscape renders.
         val shortEdge = minOf(exportWidth, exportHeight)
-        val sizePx = (shortEdge * 0.12f).toInt().coerceIn(80, 256)
+        val sizePx = (shortEdge * 0.095f).toInt().coerceIn(64, 176)
+        val insetPx = (shortEdge * 0.03f).toInt().coerceIn(18, 42)
         val bitmap = createWatermarkBitmap(sizePx) ?: return null
         val width = bitmap.width
         val height = bitmap.height
@@ -785,15 +786,18 @@ class ExportController(
         bitmap.recycle()
 
         val watermarkDurationMs = durationMs.coerceAtLeast(1L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        // scale in normalised coords: watermark width / export width
         val normScale = sizePx.toFloat() / exportWidth.toFloat()
+        val halfWidthNorm = sizePx.toFloat() / (exportWidth.toFloat() * 2f)
+        val halfHeightNorm = sizePx.toFloat() / (exportHeight.toFloat() * 2f)
+        val centerX = 1f - (insetPx.toFloat() / exportWidth.toFloat()) - halfWidthNorm
+        val centerY = 1f - (insetPx.toFloat() / exportHeight.toFloat()) - halfHeightNorm
         val nativeId = previewView.addTextOverlay(
-            0, "", 0.885f, 0.9f, normScale, 0f,
+            0, "", centerX, centerY, normScale, 0f,
             Color.WHITE, 72f, 0, watermarkDurationMs,
         ).toInt()
         if (nativeId <= 0) return null
         previewView.setTextOverlayBitmap(nativeId, pixels, width, height)
-        previewView.updateTextOverlayOpacity(nativeId, 0.72f, 0, 0)
+        previewView.updateTextOverlayOpacity(nativeId, 0.68f, 0, 0)
         previewView.setTextZOrder(nativeId, 9_000)
         return nativeId
     }
