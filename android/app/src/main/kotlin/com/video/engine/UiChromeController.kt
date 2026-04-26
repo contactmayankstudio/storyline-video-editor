@@ -48,6 +48,7 @@ class UiChromeController(
     private val onUiButtonTap: (String, String, String) -> Unit = { _, _, _ -> },
     private val onShowProblemReportDialog: (String) -> Unit = {},
     private val clipEffects: MutableMap<Int, EffectParams>,
+    private val onRevealSelectedClipPreview: () -> Unit = {},
     private val onTransitionRequested: (Int, Int) -> Unit = { _, _ -> },
     private val onApplyTransitionPreset: (TransitionType, Int) -> Boolean = { _, _ -> false },
     private val onRemoveTransitionPreset: () -> Boolean = { false },
@@ -147,6 +148,7 @@ class UiChromeController(
             Toast.makeText(activity, "Select a clip first", Toast.LENGTH_SHORT).show()
             return false
         }
+        onRevealSelectedClipPreview()
         applyColorPreview(previewView, clipId, params)
         return true
     }
@@ -179,6 +181,7 @@ class UiChromeController(
             Toast.makeText(activity, "Select a clip first", Toast.LENGTH_SHORT).show()
             return false
         }
+        onRevealSelectedClipPreview()
         val currentParams = clipEffects[selectedClipId] ?: EffectParams()
         EffectsPanel(activity, previewView, selectedClipId, currentParams) { ep, _ ->
             clipEffects[selectedClipId] = ep
@@ -196,6 +199,7 @@ class UiChromeController(
             Toast.makeText(activity, "Select a clip first", Toast.LENGTH_SHORT).show()
             return false
         }
+        onRevealSelectedClipPreview()
         val current = clipEffects[clipId] ?: EffectParams()
         LutPanel.show(activity, current) { updated ->
             applyColorPreview(previewView, clipId, updated)
@@ -221,6 +225,7 @@ class UiChromeController(
             Toast.makeText(activity, "Select a clip first", Toast.LENGTH_SHORT).show()
             return false
         }
+        onRevealSelectedClipPreview()
         ModernSheet.show(activity, "Color Grading") {
             val current = clipEffects[clipId] ?: EffectParams()
             slider("Brightness", -1f, 1f, current.brightness, { "${(it * 100).toInt()}%" }) { v ->
@@ -415,6 +420,7 @@ class UiChromeController(
 
     private fun showColorToolSheet() {
         onHealthAction("color_tool_sheet_opened")
+        onRevealSelectedClipPreview()
         ModernSheet.show(activity, "Color") {
             chips("Studio", listOf("Grade Controls", "LUT Library", "Chroma Key", "Reset Color"), -1) { _, option ->
                 when (option) {
@@ -697,6 +703,7 @@ class UiChromeController(
     }
 
     private fun applyColorPreview(previewView: VideoPreviewView, clipId: Int, params: EffectParams) {
+        onRevealSelectedClipPreview()
         clipEffects[clipId] = params
         NativeBridge.setClipEffects(previewView, clipId, params.brightness, params.contrast, params.saturation)
         runCatching { NativeBridge.seekToTime(previewView, currentTimeMsProvider().coerceAtLeast(0L)) }

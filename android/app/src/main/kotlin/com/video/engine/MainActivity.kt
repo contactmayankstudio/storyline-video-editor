@@ -1767,6 +1767,7 @@ class MainActivity : Activity() {
             onUiButtonTap = { control, surface, mode -> noteUiButtonTap(control, surface, mode) },
             onShowProblemReportDialog = { source -> showProblemReportDialog(source) },
             clipEffects = clipEffects,
+            onRevealSelectedClipPreview = { revealSelectedClipInPreview(force = true) },
             onTransitionRequested = { outgoing, incoming ->
                 transitionController?.showTransitionEditor(outgoing, incoming)
             },
