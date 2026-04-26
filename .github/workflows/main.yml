@@ -28,7 +28,6 @@ jobs:
         with:
           java-version: "17"
           distribution: "temurin"
-          cache: gradle
 
       - name: Set up Node.js
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
