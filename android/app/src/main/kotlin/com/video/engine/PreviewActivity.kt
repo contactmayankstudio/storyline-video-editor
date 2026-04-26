@@ -111,6 +111,12 @@ class PreviewActivity : AppCompatActivity() {
                     Log.d(TAG, "[Scrub] Stop dragging")
                     isScrubbingActive = false
                     // Render final frame and stay there
+                    if (::previewView.isInitialized) {
+                        val currentProgress = seekBar.progress
+                        val timeMs = (currentProgress.toLong() * videoDurationMs) / 1000L
+                        previewView.seekToTime(timeMs)
+                        updateTimeDisplay(timeMs)
+                    }
                 }
             })
         }
