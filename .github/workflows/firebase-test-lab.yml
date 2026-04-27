@@ -43,22 +43,25 @@ jobs:
   robo-test:
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     env:
-      FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
-      FIREBASE_RESULTS_BUCKET: ${{ vars.FIREBASE_RESULTS_BUCKET }}
+      FIREBASE_TEST_LAB_PROJECT_ID: ${{ vars.FIREBASE_TEST_LAB_PROJECT_ID || vars.FIREBASE_PROJECT_ID }}
+      FIREBASE_TEST_LAB_RESULTS_BUCKET: ${{ vars.FIREBASE_TEST_LAB_RESULTS_BUCKET || vars.FIREBASE_RESULTS_BUCKET }}
       FIREBASE_TEST_LAB_CREDENTIALS_JSON: ${{ secrets.FIREBASE_TEST_LAB_SERVICE_ACCOUNT_JSON || secrets.FIREBASE_OPS_SERVICE_ACCOUNT_JSON }}
       ANDROID_GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        env:
+          CI_CHECKOUT_REF: ${{ github.ref }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/checkout-ci.sh
 
       - name: Check Firebase Test Lab configuration
         id: preflight
         run: |
           set -euo pipefail
           missing=0
-          if [ -z "${FIREBASE_PROJECT_ID}" ]; then
-            echo "::warning::Missing FIREBASE_PROJECT_ID repository variable."
+          if [ -z "${FIREBASE_TEST_LAB_PROJECT_ID}" ]; then
+            echo "::warning::Missing FIREBASE_TEST_LAB_PROJECT_ID or FIREBASE_PROJECT_ID repository variable."
             missing=1
           fi
           if [ -z "${FIREBASE_TEST_LAB_CREDENTIALS_JSON}" ]; then
@@ -81,7 +84,6 @@ jobs:
         with:
           java-version: "17"
           distribution: "temurin"
-          cache: gradle
 
       - name: Authenticate to Google Cloud
         if: steps.preflight.outputs.ready == 'true'
@@ -93,7 +95,7 @@ jobs:
         if: steps.preflight.outputs.ready == 'true'
         uses: google-github-actions/setup-gcloud@v3
         with:
-          project_id: ${{ vars.FIREBASE_PROJECT_ID }}
+          project_id: ${{ env.FIREBASE_TEST_LAB_PROJECT_ID }}
 
       - name: Ensure Firebase Test Lab APIs
         if: steps.preflight.outputs.ready == 'true'
@@ -101,23 +103,54 @@ jobs:
         run: |
           set -euo pipefail
           ready=true
-          for service in testing.googleapis.com toolresults.googleapis.com; do
+          for service in firebase.googleapis.com testing.googleapis.com toolresults.googleapis.com; do
             if gcloud services list \
               --enabled \
-              --project "${FIREBASE_PROJECT_ID}" \
+              --project "${FIREBASE_TEST_LAB_PROJECT_ID}" \
               --format="value(config.name)" | grep -Fxq "${service}"; then
               echo "Service ${service} already enabled."
               continue
             fi
 
             echo "Enabling ${service}..."
-            if ! gcloud services enable "${service}" --project "${FIREBASE_PROJECT_ID}"; then
+            if ! gcloud services enable "${service}" --project "${FIREBASE_TEST_LAB_PROJECT_ID}"; then
               echo "::warning::Unable to enable ${service}. Skipping Firebase Test Lab run for this project."
               ready=false
               break
             fi
           done
           echo "ready=${ready}" >> "${GITHUB_OUTPUT}"
+
+      - name: Detect Firebase Test Lab device model
+        if: steps.preflight.outputs.ready == 'true' && steps.service_apis.outputs.ready == 'true'
+        id: device_model
+        env:
+          INPUT_DEVICE_MODEL: ${{ inputs.device_model }}
+        run: |
+          set -euo pipefail
+          gcloud firebase test android models list \
+            --format="value(id)" \
+            | sort -u > firebase-test-lab-models.txt
+
+          requested="${INPUT_DEVICE_MODEL}"
+          resolved=""
+          if grep -Fxq "${requested}" firebase-test-lab-models.txt; then
+            resolved="${requested}"
+          elif grep -Fxq "MediumPhone.arm" firebase-test-lab-models.txt; then
+            resolved="MediumPhone.arm"
+            echo "::warning::Requested device model ${requested} is unavailable. Falling back to ${resolved}."
+          else
+            resolved="$(head -n 1 firebase-test-lab-models.txt)"
+            echo "::warning::Requested device model ${requested} is unavailable. Falling back to ${resolved}."
+          fi
+
+          echo "resolved=${resolved}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "## Firebase Test Lab Device Detection"
+            echo ""
+            echo "- Requested model: \`${requested}\`"
+            echo "- Resolved model: \`${resolved}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Restore google-services.json
         if: steps.preflight.outputs.ready == 'true' && steps.service_apis.outputs.ready == 'true'
@@ -148,15 +181,15 @@ jobs:
       - name: Run Robo test in Firebase Test Lab
         if: steps.preflight.outputs.ready == 'true' && steps.service_apis.outputs.ready == 'true'
         env:
-          INPUT_DEVICE_MODEL: ${{ inputs.device_model }}
+          RESOLVED_DEVICE_MODEL: ${{ steps.device_model.outputs.resolved }}
           INPUT_ANDROID_VERSION: ${{ inputs.android_version }}
           INPUT_LOCALE: ${{ inputs.locale }}
           INPUT_ORIENTATION: ${{ inputs.orientation }}
           INPUT_TIMEOUT: ${{ inputs.timeout }}
         run: |
           set -euo pipefail
-          if [ -z "${FIREBASE_PROJECT_ID}" ]; then
-            echo "Missing repository variable FIREBASE_PROJECT_ID"
+          if [ -z "${FIREBASE_TEST_LAB_PROJECT_ID}" ]; then
+            echo "Missing repository variable FIREBASE_TEST_LAB_PROJECT_ID"
             exit 1
           fi
 
@@ -166,15 +199,15 @@ jobs:
           CMD=(
             gcloud firebase test android run
             --type robo
-            --project "${FIREBASE_PROJECT_ID}"
+            --project "${FIREBASE_TEST_LAB_PROJECT_ID}"
             --app "${APK_PATH}"
-            --device "model=${INPUT_DEVICE_MODEL},version=${INPUT_ANDROID_VERSION},locale=${INPUT_LOCALE},orientation=${INPUT_ORIENTATION}"
+            --device "model=${RESOLVED_DEVICE_MODEL},version=${INPUT_ANDROID_VERSION},locale=${INPUT_LOCALE},orientation=${INPUT_ORIENTATION}"
             --timeout "${INPUT_TIMEOUT}"
             --results-dir "${RESULTS_DIR}"
           )
 
-          if [ -n "${FIREBASE_RESULTS_BUCKET}" ]; then
-            CMD+=(--results-bucket "${FIREBASE_RESULTS_BUCKET}")
+          if [ -n "${FIREBASE_TEST_LAB_RESULTS_BUCKET}" ]; then
+            CMD+=(--results-bucket "${FIREBASE_TEST_LAB_RESULTS_BUCKET}")
           fi
 
           printf 'Running: %s\n' "${CMD[*]}"
@@ -183,15 +216,15 @@ jobs:
           {
             echo "## Firebase Test Lab"
             echo ""
-            echo "- Project: \`${FIREBASE_PROJECT_ID}\`"
-            echo "- Device: \`${INPUT_DEVICE_MODEL}\`"
+            echo "- Project: \`${FIREBASE_TEST_LAB_PROJECT_ID}\`"
+            echo "- Device: \`${RESOLVED_DEVICE_MODEL}\`"
             echo "- Android: \`${INPUT_ANDROID_VERSION}\`"
             echo "- Locale: \`${INPUT_LOCALE}\`"
             echo "- Orientation: \`${INPUT_ORIENTATION}\`"
             echo "- Timeout: \`${INPUT_TIMEOUT}\`"
             echo "- Results dir: \`${RESULTS_DIR}\`"
-            if [ -n "${FIREBASE_RESULTS_BUCKET}" ]; then
-              echo "- Results bucket: \`${FIREBASE_RESULTS_BUCKET}\`"
+            if [ -n "${FIREBASE_TEST_LAB_RESULTS_BUCKET}" ]; then
+              echo "- Results bucket: \`${FIREBASE_TEST_LAB_RESULTS_BUCKET}\`"
             fi
           } >> "${GITHUB_STEP_SUMMARY}"
 
@@ -201,6 +234,13 @@ jobs:
         with:
           name: firebase-test-lab-log
           path: firebase-test-lab.log
+
+      - name: Upload Firebase Test Lab device catalog
+        if: steps.preflight.outputs.ready == 'true' && steps.service_apis.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: firebase-test-lab-models
+          path: firebase-test-lab-models.txt
 
       - name: Skip summary when Firebase Test Lab is not configured
         if: steps.preflight.outputs.ready != 'true' || steps.service_apis.outputs.ready != 'true'
