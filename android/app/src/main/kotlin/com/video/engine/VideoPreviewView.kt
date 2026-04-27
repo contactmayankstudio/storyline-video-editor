@@ -67,18 +67,6 @@ class VideoPreviewView @JvmOverloads constructor(
     init {
         // Get the SurfaceHolder and register this view as the callback
         holder.addCallback(this)
-        // If surface already exists (view reuse), init immediately
-        if (holder.surface?.isValid == true) {
-            post {
-                try {
-                    nativeInitPreview(holder.surface)
-                    nativeSurfaceInitialized = true
-                    Log.d(TAG, "surfaceCreated (deferred init)")
-                } catch (e: UnsatisfiedLinkError) {
-                    Log.w(TAG, "nativeInitPreview JNI not available")
-                }
-            }
-        }
         // Initialize pinch detector for scaling text overlays
         scaleGestureDetector = ScaleGestureDetector(context, PinchScaleListener())
     }
@@ -139,6 +127,10 @@ class VideoPreviewView @JvmOverloads constructor(
         Log.d(TAG, "surfaceCreated - nativeLibraryLoaded=$nativeLibraryLoaded")
         if (!nativeLibraryLoaded) {
             nativeSurfaceInitialized = false
+            return
+        }
+        if (nativeSurfaceInitialized) {
+            Log.d(TAG, "surfaceCreated ignored - native surface already initialized")
             return
         }
         val surface = holder.surface
@@ -664,7 +656,7 @@ class VideoPreviewView @JvmOverloads constructor(
         try {
             nativeSetClipPreviewTransform(
                 clipId,
-                zoom.coerceAtLeast(1.0f),
+                zoom.coerceIn(0.35f, 4.0f),
                 panXNorm.coerceIn(-1.0f, 1.0f),
                 panYNorm.coerceIn(-1.0f, 1.0f),
                 rotationDeg.coerceIn(-180.0f, 180.0f),
@@ -970,11 +962,17 @@ class VideoPreviewView @JvmOverloads constructor(
     private external fun nativeLoadProject(filePath: String): Boolean
 
     /**
-     * Add a clip to the timeline.
+     * Add a clip to the timeline with track-specific parameters.
      */
-    fun addClip(videoPath: String): Int {
+    fun addClip(
+        videoPath: String,
+        trackType: String = "VIDEO",
+        startTimeMs: Long = -1,
+        trackLane: Int = 0,
+        zOrder: Int = 0
+    ): Int {
         return try {
-            nativeAddClip(videoPath)
+            nativeAddClip(videoPath, trackType, startTimeMs, trackLane, zOrder)
         } catch (e: UnsatisfiedLinkError) {
             Log.w(TAG, "nativeAddClip JNI not implemented")
             -1
@@ -1017,9 +1015,15 @@ class VideoPreviewView @JvmOverloads constructor(
     }
 
     /**
-     * Native: Add clip to timeline, returns clip ID.
+     * Native: Add clip to timeline with multi-track support.
      */
-    private external fun nativeAddClip(videoPath: String): Int
+    private external fun nativeAddClip(
+        videoPath: String,
+        trackType: String,
+        startTimeMs: Long,
+        trackLane: Int,
+        zOrder: Int
+    ): Int
 
     /**
      * Native: Remove clip from timeline.

@@ -6,10 +6,19 @@
 #ifdef __APPLE__
     #include <OpenGLES/ES3/gl.h>
 #else
+    #include <EGL/egl.h>
     #include <GLES3/gl3.h>
 #endif
 
 namespace VideoEngine::GPU {
+
+namespace {
+#ifndef __APPLE__
+bool hasActiveGlContext() {
+    return eglGetCurrentContext() != EGL_NO_CONTEXT;
+}
+#endif
+}  // namespace
 
 GLTexture::GLTexture()
     : m_textureId(0)
@@ -125,8 +134,20 @@ void GLTexture::bind(int textureUnit) const {
 
 void GLTexture::release() {
     if (m_textureId != 0) {
+        const uint32_t releasedTextureId = m_textureId;
+#ifndef __APPLE__
+        if (hasActiveGlContext()) {
+            glDeleteTextures(1, &m_textureId);
+            std::cout << "[GLTexture] Released RGBA texture " << releasedTextureId << "\n";
+        } else {
+            std::cout
+                << "[GLTexture] Dropping texture handle without active GL context "
+                << releasedTextureId << "\n";
+        }
+#else
         glDeleteTextures(1, &m_textureId);
-        std::cout << "[GLTexture] Released RGBA texture " << m_textureId << "\n";
+        std::cout << "[GLTexture] Released RGBA texture " << releasedTextureId << "\n";
+#endif
         m_textureId = 0;
     }
     m_width = 0;

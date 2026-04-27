@@ -18,8 +18,7 @@ namespace VideoEngine::GPU {
 
 // Embedded GLSL shaders (GLSL 300 es for OpenGL ES 3.0)
 
-static const char* VERTEX_SHADER_SRC = R"(
-#version 300 es
+static const char* VERTEX_SHADER_SRC = R"(#version 300 es
 precision highp float;
 
 layout(location = 0) in vec2 position;
@@ -33,8 +32,7 @@ void main() {
 }
 )";
 
-static const char* FRAGMENT_SHADER_SRC = R"(
-#version 300 es
+static const char* FRAGMENT_SHADER_SRC = R"(#version 300 es
 precision mediump float;
 
 in vec2 fragTexCoord;
@@ -49,6 +47,7 @@ uniform float uZoom;
 uniform vec2 uPanNorm;
 uniform float uRotationDeg;
 uniform bool uMirrorX;
+uniform bool uObjectTransform;
 uniform bool uChromaEnabled;
 uniform vec3 uChromaKeyColor;
 uniform float uChromaSimilarity;
@@ -71,8 +70,13 @@ void main() {
         } else {
             baseRenderedSize = vec2(viewportSize.x, viewportSize.x / max(sourceAspect, 0.0001));
         }
-        vec2 renderedSize = max(baseRenderedSize * max(uZoom, 1.0), vec2(1.0));
-        vec2 maxPanPx = max((renderedSize - viewportSize) * 0.5, vec2(0.0));
+        vec2 renderedSize = max(baseRenderedSize * max(uZoom, 0.35), vec2(1.0));
+        vec2 maxPanPx;
+        if (uObjectTransform) {
+            maxPanPx = max(renderedSize, viewportSize) * 0.5;
+        } else {
+            maxPanPx = max((renderedSize - viewportSize) * 0.5, vec2(0.0));
+        }
         vec2 localPx = (fragTexCoord - vec2(0.5)) * viewportSize;
         localPx -= clamp(uPanNorm, vec2(-1.0), vec2(1.0)) * maxPanPx;
 
@@ -120,8 +124,7 @@ void main() {
 }
 )";
 
-static const char* TRANSITION_FRAGMENT_SHADER_SRC = R"(
-#version 300 es
+static const char* TRANSITION_FRAGMENT_SHADER_SRC = R"(#version 300 es
 precision mediump float;
 
 in vec2 fragTexCoord;
@@ -139,6 +142,7 @@ uniform float uZoomA;
 uniform vec2 uPanNormA;
 uniform float uRotationDegA;
 uniform bool uMirrorXA;
+uniform bool uObjectTransformA;
 uniform bool uChromaEnabledA;
 uniform vec3 uChromaKeyColorA;
 uniform float uChromaSimilarityA;
@@ -156,6 +160,7 @@ uniform float uZoomB;
 uniform vec2 uPanNormB;
 uniform float uRotationDegB;
 uniform bool uMirrorXB;
+uniform bool uObjectTransformB;
 uniform bool uChromaEnabledB;
 uniform vec3 uChromaKeyColorB;
 uniform float uChromaSimilarityB;
@@ -172,7 +177,8 @@ vec2 resolveSampleCoord(
     float zoom,
     vec2 panNorm,
     float rotationDeg,
-    bool mirrorX) {
+    bool mirrorX,
+    bool objectTransform) {
     if (!transformEnabled) {
         return baseCoord;
     }
@@ -188,8 +194,13 @@ vec2 resolveSampleCoord(
         baseRenderedSize = vec2(viewportSize.x, viewportSize.x / max(sourceAspect, 0.0001));
     }
 
-    vec2 renderedSize = max(baseRenderedSize * max(zoom, 1.0), vec2(1.0));
-    vec2 maxPanPx = max((renderedSize - viewportSize) * 0.5, vec2(0.0));
+    vec2 renderedSize = max(baseRenderedSize * max(zoom, 0.35), vec2(1.0));
+    vec2 maxPanPx;
+    if (objectTransform) {
+        maxPanPx = max(renderedSize, viewportSize) * 0.5;
+    } else {
+        maxPanPx = max((renderedSize - viewportSize) * 0.5, vec2(0.0));
+    }
     vec2 localPx = (baseCoord - vec2(0.5)) * viewportSize;
     localPx -= clamp(panNorm, vec2(-1.0), vec2(1.0)) * maxPanPx;
 
@@ -215,6 +226,7 @@ vec4 sampleLayer(
     vec2 panNorm,
     float rotationDeg,
     bool mirrorX,
+    bool objectTransform,
     bool chromaEnabled,
     vec3 chromaKeyColor,
     float chromaSimilarity,
@@ -231,7 +243,8 @@ vec4 sampleLayer(
         zoom,
         panNorm,
         rotationDeg,
-        mirrorX);
+        mirrorX,
+        objectTransform);
     if (sampleCoord.x < 0.0 || sampleCoord.x > 1.0 ||
         sampleCoord.y < 0.0 || sampleCoord.y > 1.0) {
         return vec4(0.0);
@@ -271,6 +284,7 @@ void main() {
         uPanNormA,
         uRotationDegA,
         uMirrorXA,
+        uObjectTransformA,
         uChromaEnabledA,
         uChromaKeyColorA,
         uChromaSimilarityA,
@@ -289,6 +303,7 @@ void main() {
         uPanNormB,
         uRotationDegB,
         uMirrorXB,
+        uObjectTransformB,
         uChromaEnabledB,
         uChromaKeyColorB,
         uChromaSimilarityB,
@@ -308,6 +323,7 @@ void main() {
         uPanNormA,
         uRotationDegA,
         uMirrorXA,
+        uObjectTransformA,
         uChromaEnabledA,
         uChromaKeyColorA,
         uChromaSimilarityA,
@@ -326,6 +342,7 @@ void main() {
         uPanNormB,
         uRotationDegB,
         uMirrorXB,
+        uObjectTransformB,
         uChromaEnabledB,
         uChromaKeyColorB,
         uChromaSimilarityB,
@@ -492,13 +509,17 @@ bool EGLRenderer::initialize(ANativeWindow* nativeWindow) {
     // Create shader programs
     m_programId = createShaderProgram(FRAGMENT_SHADER_SRC);
     if (m_programId == 0) {
-        setError("Failed to create shader program");
+        if (m_lastError.empty()) {
+            setError("Failed to create shader program");
+        }
         releaseResources();
         return false;
     }
     m_transitionProgramId = createShaderProgram(TRANSITION_FRAGMENT_SHADER_SRC);
     if (m_transitionProgramId == 0) {
-        setError("Failed to create transition shader program");
+        if (m_lastError.empty()) {
+            setError("Failed to create transition shader program");
+        }
         releaseResources();
         return false;
     }
@@ -687,6 +708,7 @@ bool EGLRenderer::renderLayers(const std::vector<Layer>& layers) {
     const GLint panNormLoc = glGetUniformLocation(m_programId, "uPanNorm");
     const GLint rotationLoc = glGetUniformLocation(m_programId, "uRotationDeg");
     const GLint mirrorXLoc = glGetUniformLocation(m_programId, "uMirrorX");
+    const GLint objectTransformLoc = glGetUniformLocation(m_programId, "uObjectTransform");
 
     for (const auto& layer : layers) {
         if (!layer.texture || !layer.texture->isValid()) continue;
@@ -712,13 +734,15 @@ bool EGLRenderer::renderLayers(const std::vector<Layer>& layers) {
                 static_cast<float>(std::max(1, layer.texture->getWidth())),
                 static_cast<float>(std::max(1, layer.texture->getHeight())));
         if (zoomLoc >= 0)
-            glUniform1f(zoomLoc, std::max(1.0f, layer.zoom));
+            glUniform1f(zoomLoc, std::max(0.35f, layer.zoom));
         if (panNormLoc >= 0)
             glUniform2f(panNormLoc, layer.panXNorm, layer.panYNorm);
         if (rotationLoc >= 0)
             glUniform1f(rotationLoc, layer.rotationDeg);
         if (mirrorXLoc >= 0)
             glUniform1i(mirrorXLoc, layer.mirrorX ? 1 : 0);
+        if (objectTransformLoc >= 0)
+            glUniform1i(objectTransformLoc, layer.objectTransform ? 1 : 0);
         if (m_uChromaEnabledLoc >= 0)
             glUniform1i(m_uChromaEnabledLoc, layer.chromaEnabled ? 1 : 0);
         if (layer.chromaEnabled) {
@@ -815,10 +839,11 @@ bool EGLRenderer::renderTransition(
             "uTextureSize",
             static_cast<float>(std::max(1, layer.texture->getWidth())),
             static_cast<float>(std::max(1, layer.texture->getHeight())));
-        setUniform1f("uZoom", std::max(1.0f, layer.zoom));
+        setUniform1f("uZoom", std::max(0.35f, layer.zoom));
         setUniform2f("uPanNorm", layer.panXNorm, layer.panYNorm);
         setUniform1f("uRotationDeg", layer.rotationDeg);
         setUniform1i("uMirrorX", layer.mirrorX ? 1 : 0);
+        setUniform1i("uObjectTransform", layer.objectTransform ? 1 : 0);
         setUniform1i("uChromaEnabled", layer.chromaEnabled ? 1 : 0);
         setUniform3f(
             "uChromaKeyColor",

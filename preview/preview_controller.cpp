@@ -225,15 +225,25 @@ bool PreviewController::attachSurface(ANativeWindow* window) {
 
     m_nativeWindow = window;
 
+    auto releasePrimaryTextureLocked = [&]() {
+        if (!m_texture) {
+            return;
+        }
+        const bool acquired = m_renderer && m_renderer->acquireContext();
+        m_texture->release();
+        if (acquired && m_renderer) {
+            m_renderer->releaseContext();
+        }
+        m_texture = nullptr;
+    };
+
     // Shutdown existing renderer before creating new one
     if (m_renderer) {
+        releasePrimaryTextureLocked();
         m_renderer->shutdown();
         m_renderer = nullptr;
     }
-    if (m_texture) {
-        m_texture->release();
-        m_texture = nullptr;
-    }
+    releasePrimaryTextureLocked();
 
     // Create renderer — retry on EGL_BAD_ALLOC (0x3003) conflict
     // 0x3003 happens when previous render thread hasn't released EGL surface yet
@@ -289,14 +299,23 @@ void PreviewController::detachSurface() {
     m_isPlaying.store(false);
     stopDecodeWorkerLocked();
 
+    auto releasePrimaryTextureLocked = [&]() {
+        if (!m_texture) {
+            return;
+        }
+        const bool acquired = m_renderer && m_renderer->acquireContext();
+        m_texture->release();
+        if (acquired && m_renderer) {
+            m_renderer->releaseContext();
+        }
+        m_texture = nullptr;
+    };
+
+    releasePrimaryTextureLocked();
+
     if (m_renderer) {
         m_renderer->shutdown();
         m_renderer = nullptr;
-    }
-
-    if (m_texture) {
-        m_texture->release();
-        m_texture = nullptr;
     }
 
     m_nativeWindow = nullptr;
@@ -489,14 +508,23 @@ void PreviewController::destroy() {
         clearQueuedFramesLocked();
         clearPredictiveCacheLocked();
 
+        auto releasePrimaryTextureLocked = [&]() {
+            if (!m_texture) {
+                return;
+            }
+            const bool acquired = m_renderer && m_renderer->acquireContext();
+            m_texture->release();
+            if (acquired && m_renderer) {
+                m_renderer->releaseContext();
+            }
+            m_texture = nullptr;
+        };
+
+        releasePrimaryTextureLocked();
+
         if (m_renderer) {
             m_renderer->shutdown();
             m_renderer = nullptr;
-        }
-
-        if (m_texture) {
-            m_texture->release();
-            m_texture = nullptr;
         }
 
         if (m_converter) {
@@ -893,6 +921,7 @@ GPU::EGLRenderer::Layer PreviewController::buildLayerForClipLocked(
     layer.panYNorm = transform.panYNorm;
     layer.rotationDeg = transform.rotationDeg;
     layer.mirrorX = transform.mirrorX;
+    layer.objectTransform = clip->getTrackRole() == Clip::TrackRole::Overlay;
     const auto& chromaKey = clip->getChromaKey();
     layer.chromaEnabled = chromaKey.enabled;
     layer.blueKey = (chromaKey.color == Clip::ChromaKeyParams::KeyColor::Blue);
@@ -1338,6 +1367,7 @@ bool PreviewController::renderTimelineFrameLocked(
                 base.panYNorm = transform.panYNorm;
                 base.rotationDeg = transform.rotationDeg;
                 base.mirrorX = transform.mirrorX;
+                base.objectTransform = activeClip->getTrackRole() == Clip::TrackRole::Overlay;
                 const auto& ck = activeClip->getChromaKey();
                 base.chromaEnabled = ck.enabled;
                 base.blueKey = (ck.color == Clip::ChromaKeyParams::KeyColor::Blue);
@@ -1427,6 +1457,7 @@ bool PreviewController::renderTimelineFrameLocked(
             layer.panYNorm = transform.panYNorm;
             layer.rotationDeg = transform.rotationDeg;
             layer.mirrorX = transform.mirrorX;
+            layer.objectTransform = clip->getTrackRole() == Clip::TrackRole::Overlay;
             const auto& ck = clip->getChromaKey();
             layer.chromaEnabled = ck.enabled;
             layer.blueKey = (ck.color == Clip::ChromaKeyParams::KeyColor::Blue);
@@ -1905,7 +1936,7 @@ void PreviewController::setClipPreviewTransform(
     }
     std::lock_guard<std::mutex> lock(m_playbackMutex);
     ClipPreviewTransform transform;
-    transform.zoom = std::max(1.0f, zoom);
+    transform.zoom = std::clamp(zoom, 0.35f, 4.0f);
     transform.panXNorm = std::clamp(panXNorm, -1.0f, 1.0f);
     transform.panYNorm = std::clamp(panYNorm, -1.0f, 1.0f);
     transform.rotationDeg = std::clamp(rotationDeg, -180.0f, 180.0f);

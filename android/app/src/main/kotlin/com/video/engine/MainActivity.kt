@@ -60,6 +60,7 @@ import java.util.TimeZone
 import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.hypot
+import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 import org.json.JSONArray
@@ -321,6 +322,15 @@ class MainActivity : Activity() {
     private var hostedReleaseInfo: HostedReleaseInfo? = null
     private var hostedReleaseFetchInFlight = false
     private var lastHostedReleaseFetchElapsedMs = 0L
+
+    private fun storeAdsEnabled(): Boolean =
+        resources.getBoolean(R.bool.storyline_runtime_ads_enabled)
+
+    private fun storeHostedUpdatesEnabled(): Boolean =
+        resources.getBoolean(R.bool.storyline_runtime_hosted_updates_enabled)
+
+    private fun storeOpsEnabled(): Boolean =
+        resources.getBoolean(R.bool.storyline_runtime_ops_enabled)
 
     // Text overlays
     private var nextTextOverlayId = 1
@@ -627,11 +637,17 @@ class MainActivity : Activity() {
             openExternalUrl(resolveAdminPanelUrl())
         }
 
+        val hostedUpdatesEnabled = storeHostedUpdatesEnabled()
+        startAiUpdateButton?.visibility = if (hostedUpdatesEnabled) View.VISIBLE else View.GONE
+        startAiAdminButton?.visibility = if (hostedUpdatesEnabled) View.VISIBLE else View.GONE
+
         startRecentProjectsList?.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
         startRecentProjectsList?.adapter = ProjectListAdapter(emptyList()) { }
         refreshRecentProjects()
         refreshAiCompanionUi()
-        fetchHostedReleaseInfo(force = true)
+        if (hostedUpdatesEnabled) {
+            fetchHostedReleaseInfo(force = true)
+        }
     }
 
     private fun setStartScreenVisible(visible: Boolean) {
@@ -644,7 +660,9 @@ class MainActivity : Activity() {
             clearSelectedTimelineItem()
             refreshRecentProjects()
             overlay.bringToFront()
-            fetchHostedReleaseInfo()
+            if (storeHostedUpdatesEnabled()) {
+                fetchHostedReleaseInfo()
+            }
         }
         scheduleTopBannerPlacement()
         updatePreviewEmptyState()
@@ -712,6 +730,12 @@ class MainActivity : Activity() {
     }
 
     private fun fetchHostedReleaseInfo(force: Boolean = false) {
+        if (!storeHostedUpdatesEnabled()) {
+            hostedReleaseFetchInFlight = false
+            hostedReleaseInfo = null
+            refreshAiCompanionUi()
+            return
+        }
         val now = SystemClock.elapsedRealtime()
         if (!force && hostedReleaseFetchInFlight) return
         if (!force && now - lastHostedReleaseFetchElapsedMs < 90_000L) {
@@ -824,6 +848,25 @@ class MainActivity : Activity() {
     }
 
     private fun refreshAiCompanionUi() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { refreshAiCompanionUi() }
+            return
+        }
+        if (!storeOpsEnabled() && !storeHostedUpdatesEnabled()) {
+            startAiSummaryText?.text =
+                "This store build runs the local editor only. Hosted updates, remote commands, and device telemetry are disabled."
+            startAiUpdateText?.text =
+                if (storeAdsEnabled()) {
+                    "Remote services are unavailable for this distribution build."
+                } else {
+                    "Ads and remote services are disabled for this distribution build."
+                }
+            startAiUpdateButton?.visibility = View.GONE
+            startAiAdminButton?.visibility = View.GONE
+            editorAiStatusPill?.text = "LOCAL BUILD"
+            return
+        }
+
         val actionLabel = humanizeHealthAction(latestHealthAction.ifBlank { "launch" })
         val screen = currentHealthScreenName()
         val summary =
@@ -2046,8 +2089,26 @@ class MainActivity : Activity() {
         val clipId = selectedVideoClipId()
         val transform = clipId?.let { clipPreviewTransforms[it] } ?: ClipPreviewTransform()
         val label = selectedNativeClipLabel()
+        val minZoom = clipId?.let { if (isObjectPreviewTransformClip(it)) 0.35f else 1.0f } ?: 1.0f
         previewCropStatusText?.text =
-            "$label Edit • ${"%.2fx".format(Locale.US, transform.zoom.coerceIn(1.0f, 4.0f))} • Move / Pinch / Double tap"
+            "$label Edit • ${"%.2fx".format(Locale.US, transform.zoom.coerceIn(minZoom, 4.0f))} • Move / Pinch / Double tap"
+    }
+
+    private fun isObjectPreviewTransformClip(clipId: Int): Boolean {
+        return when (nativeClipTrackType[clipId]) {
+            TrackType.OVERLAY,
+            TrackType.LAYER,
+            -> true
+            else -> false
+        }
+    }
+
+    private fun resolvePreviewZoomRange(clipId: Int): ClosedFloatingPointRange<Float> {
+        return if (isObjectPreviewTransformClip(clipId)) {
+            0.35f..4.0f
+        } else {
+            1.0f..4.0f
+        }
     }
 
     private fun canPreviewTrimClip(clipId: Int): Boolean {
@@ -2255,6 +2316,10 @@ class MainActivity : Activity() {
     }
 
     private fun syncAppHealth(force: Boolean = false, action: String? = null) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { syncAppHealth(force = force, action = action) }
+            return
+        }
         if (!::appHealthReporter.isInitialized) return
         if (!action.isNullOrBlank()) {
             latestHealthAction = action.take(120)
@@ -2278,6 +2343,10 @@ class MainActivity : Activity() {
     }
 
     private fun noteAppHealthAction(action: String, force: Boolean = true) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { noteAppHealthAction(action, force) }
+            return
+        }
         val actionName = action.take(120)
         latestHealthAction = actionName
         refreshAiCompanionUi()
@@ -6406,8 +6475,13 @@ class MainActivity : Activity() {
         }
         val renderedWidth = baseRenderedWidth * zoom
         val renderedHeight = baseRenderedHeight * zoom
-        return ((renderedWidth - previewWidth) * 0.5f).coerceAtLeast(0f) to
-            ((renderedHeight - previewHeight) * 0.5f).coerceAtLeast(0f)
+        return if (isObjectPreviewTransformClip(clipId)) {
+            max(previewWidth, renderedWidth) * 0.5f to
+                max(previewHeight, renderedHeight) * 0.5f
+        } else {
+            ((renderedWidth - previewWidth) * 0.5f).coerceAtLeast(0f) to
+                ((renderedHeight - previewHeight) * 0.5f).coerceAtLeast(0f)
+        }
     }
 
     private fun normalizeClipPreviewTransform(
@@ -6415,7 +6489,8 @@ class MainActivity : Activity() {
         transform: ClipPreviewTransform,
         preview: View,
     ): ClipPreviewTransform {
-        val safeZoom = transform.zoom.coerceIn(1.0f, 4.0f)
+        val zoomRange = resolvePreviewZoomRange(clipId)
+        val safeZoom = transform.zoom.coerceIn(zoomRange.start, zoomRange.endInclusive)
         val (maxPanX, maxPanY) = resolvePreviewPanBounds(clipId, safeZoom, preview)
         val centerSnapThreshold = resolvePreviewCenterSnapThreshold(safeZoom)
         return transform.copy(
@@ -6729,10 +6804,11 @@ class MainActivity : Activity() {
                     val clipId = previewTransformGestureClipId ?: selectedVideoClipId() ?: return false
                     val preview = previewView ?: return false
                     val base = previewTransformBase
+                    val zoomRange = resolvePreviewZoomRange(clipId)
                     val scaleFactor = smoothPreviewScaleFactor(detector.scaleFactor, base.zoom)
                     previewTransformScaleAccumulator =
                         (previewTransformScaleAccumulator * scaleFactor).coerceIn(0.1f, 8.0f)
-                    val nextZoom = (base.zoom * previewTransformScaleAccumulator).coerceIn(1.0f, 4.0f)
+                    val nextZoom = (base.zoom * previewTransformScaleAccumulator).coerceIn(zoomRange.start, zoomRange.endInclusive)
                     val centerX = preview.width * 0.5f
                     val centerY = preview.height * 0.5f
                     val zoomRatio = nextZoom / base.zoom.coerceAtLeast(0.001f)
@@ -6871,6 +6947,7 @@ class MainActivity : Activity() {
         if (!shouldShowDirectPreviewEdit()) return false
         val clipId = selectedVideoClipId() ?: return false
         val preview = previewView ?: return false
+        val zoomRange = resolvePreviewZoomRange(clipId)
         val current =
             normalizeClipPreviewTransform(
                 clipId = clipId,
@@ -6881,14 +6958,14 @@ class MainActivity : Activity() {
         val centerY = preview.height * 0.5f
         val targetZoom =
             when {
-                current.zoom < 1.05f -> 1.35f
+                current.zoom < (zoomRange.start + 0.05f) -> max(1.15f, zoomRange.start + 0.35f)
                 current.zoom < 1.75f -> 2.0f
                 current.zoom < 2.45f -> 2.75f
                 else -> 1.0f
             }
         val updated =
             if (targetZoom == 1.0f) {
-                ClipPreviewTransform()
+                ClipPreviewTransform(zoom = max(zoomRange.start, 1.0f))
             } else {
                 val zoomRatio = targetZoom / current.zoom.coerceAtLeast(0.001f)
                 normalizeClipPreviewTransform(
@@ -7080,8 +7157,12 @@ class MainActivity : Activity() {
         return when (selectedClipKind()) {
             ClipKind.VIDEO,
             ClipKind.OVERLAY,
-            -> updateSelectedVideoPreviewTransform { current ->
-                current.copy(zoom = (current.zoom * safeFactor).coerceIn(1.0f, 4.0f))
+            -> {
+                val clipId = selectedVideoClipId() ?: return false
+                val zoomRange = resolvePreviewZoomRange(clipId)
+                updateSelectedVideoPreviewTransform { current ->
+                    current.copy(zoom = (current.zoom * safeFactor).coerceIn(zoomRange.start, zoomRange.endInclusive))
+                }
             }
             ClipKind.TEXT -> {
                 val overlayId = selectedTextOverlayId() ?: return false
@@ -7495,7 +7576,7 @@ class MainActivity : Activity() {
     private fun performSelectedClipPanZoomAction() {
         when (selectedClipKind()) {
             ClipKind.VIDEO, ClipKind.OVERLAY -> {
-                safeToast("Preview par finger se move, pinch aur trim karein", Toast.LENGTH_SHORT)
+                safeToast("Preview par finger se move aur pinch karein", Toast.LENGTH_SHORT)
             }
             ClipKind.TEXT -> {
                 val overlayId = selectedTextOverlayId() ?: return
