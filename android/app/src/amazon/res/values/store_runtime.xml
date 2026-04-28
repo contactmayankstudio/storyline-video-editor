@@ -1,0 +1,6 @@
+<resources>
+    <bool name="storyline_runtime_ads_enabled">false</bool>
+    <bool name="storyline_runtime_hosted_updates_enabled">false</bool>
+    <bool name="storyline_runtime_ops_enabled">false</bool>
+    <bool name="storyline_runtime_startup_media_permissions_enabled">false</bool>
+</resources>

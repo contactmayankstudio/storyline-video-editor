@@ -1,0 +1,1909 @@
+"roboscript": {
+  "executionMode": {
+    "strict": true,
+    "shouldWaitForElement": true,
+    "notify": true,
+    "minScoreThreshold": 0
+  },
+  "postscript": {
+    "terminate": true
+  }
+}
+[
+  {
+    "id": 800,
+    "description": "ReproScript",
+    "crawlStage": "crawl",
+    "maxNumberOfRuns": 1,
+    "contextDescriptor": {
+      "condition": "app_under_test_shown",
+      "activationProbability": 1.0
+    },
+    "actions": [
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 1
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 2
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.Button",
+            "groupViewChildPosition": 0,
+            "resourceId": "android:id/button2",
+            "text": "CANCEL"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.ScrollView",
+            "groupViewChildPosition": 3,
+            "resourceId": "android:id/buttonPanel"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 3
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewContainer"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "android:id/content"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 4
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.TextView",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/aspectRatioButton",
+            "contentDescription": "Crop",
+            "text": "Crop"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/topActionRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/topBar"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 5
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.TextView",
+            "groupViewChildPosition": 0,
+            "text": "16:9"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 1
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 6
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageView",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/saveProjectButton",
+            "contentDescription": "Save"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/topBar"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 7
+      },
+      {
+        "eventType": "ENTER_TEXT",
+        "replacementText": "jhhzqy",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.EditText",
+            "groupViewChildPosition": 1
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.ScrollView",
+            "groupViewChildPosition": 2
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 8
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.TextView",
+            "groupViewChildPosition": 0,
+            "text": "Save"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 3
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 9
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/redoButton",
+            "contentDescription": "Redo"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 10
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 11
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 12
+      },
+      {
+        "eventType": "ENTER_TEXT",
+        "replacementText": "hhkthk",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.EditText",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "android:id/custom"
+          },
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 2,
+            "resourceId": "android:id/customPanel"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 13
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.Button",
+            "groupViewChildPosition": 1,
+            "resourceId": "android:id/button1",
+            "text": "SEND"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.ScrollView",
+            "groupViewChildPosition": 3,
+            "resourceId": "android:id/buttonPanel"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 14
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewContainer"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "android:id/content"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 15
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/voiceoverButton"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/mainToolbar"
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/normalToolbarScroll"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 16
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.view.View",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/touch_outside"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/coordinator"
+          },
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/container"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 17
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 3,
+            "resourceId": "com.storyline.app:id/cutButton"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/mainToolbar"
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/normalToolbarScroll"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 18
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.view.View",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/touch_outside"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/coordinator"
+          },
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/container"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 19
+      },
+      {
+        "eventType": "VIEW_SWIPED",
+        "swipeDirection": "Left",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/normalToolbarScroll"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/bottomContainer"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 20
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 21
+      },
+      {
+        "eventType": "PRESSED_BACK",
+        "reproActionSeq": 22
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 23
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewContainer"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "android:id/content"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 24
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.TextView",
+            "groupViewChildPosition": 3,
+            "resourceId": "com.storyline.app:id/exportButton",
+            "text": "Export"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/topBar"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 25
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.Button",
+            "groupViewChildPosition": 1,
+            "resourceId": "android:id/button1",
+            "text": "SEND"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.ScrollView",
+            "groupViewChildPosition": 3,
+            "resourceId": "android:id/buttonPanel"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 26
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageView",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/loadProjectButton",
+            "contentDescription": "Back"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/topBar"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 27
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 28
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 29
+      },
+      {
+        "eventType": "PRESSED_BACK",
+        "reproActionSeq": 30
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 31
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 32
+      },
+      {
+        "eventType": "PRESSED_BACK",
+        "reproActionSeq": 33
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 9,
+            "resourceId": "com.storyline.app:id/layersButton"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/mainToolbar"
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/normalToolbarScroll"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 34
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/startImportMediaButton"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 1
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 5,
+            "resourceId": "com.storyline.app:id/startActionsContainer"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 35
+      },
+      {
+        "eventType": "PRESSED_BACK",
+        "reproActionSeq": 36
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 5,
+            "resourceId": "com.storyline.app:id/audioButton"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/mainToolbar"
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/normalToolbarScroll"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 37
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 9,
+            "resourceId": "com.storyline.app:id/layersButton"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/mainToolbar"
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/normalToolbarScroll"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 38
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.view.View",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/touch_outside"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/coordinator"
+          },
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/container"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 39
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 4,
+            "resourceId": "com.storyline.app:id/overlayImportButton"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/mainToolbar"
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/normalToolbarScroll"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 40
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.TextView",
+            "groupViewChildPosition": 1,
+            "text": "Quick Sample"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 41
+      },
+      {
+        "eventType": "VIEW_SWIPED",
+        "swipeDirection": "Right",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/normalToolbarScroll"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/bottomContainer"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 42
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/colorGradingButton"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/mainToolbar"
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/normalToolbarScroll"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 43
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.TextView",
+            "groupViewChildPosition": 3,
+            "resourceId": "com.storyline.app:id/exportButton",
+            "text": "Export"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/topBar"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 44
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.Button",
+            "groupViewChildPosition": 0,
+            "resourceId": "android:id/button2",
+            "text": "CANCEL"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.ScrollView",
+            "groupViewChildPosition": 3,
+            "resourceId": "android:id/buttonPanel"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 45
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 3,
+            "resourceId": "com.storyline.app:id/cutButton"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/mainToolbar"
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/normalToolbarScroll"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 46
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/bottomContainer"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "android:id/content"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 47
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 6,
+            "resourceId": "com.storyline.app:id/textButton"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/mainToolbar"
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/normalToolbarScroll"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 48
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.TextView",
+            "groupViewChildPosition": 0,
+            "text": "Hook"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 3
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 49
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 50
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 51
+      },
+      {
+        "eventType": "PRESSED_BACK",
+        "reproActionSeq": 52
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 6,
+            "resourceId": "com.storyline.app:id/clipPanZoomButton"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/audioEditToolbar"
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/audioEditToolbarScroll"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 53
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.view.View",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/touch_outside"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/coordinator"
+          },
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/container"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 54
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/clipSplitButton"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/audioEditToolbar"
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/audioEditToolbarScroll"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 55
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.TextView",
+            "groupViewChildPosition": 3,
+            "resourceId": "com.storyline.app:id/exportButton",
+            "text": "Export"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/topBar"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 56
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.Button",
+            "groupViewChildPosition": 0,
+            "resourceId": "android:id/button2",
+            "text": "CANCEL"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.ScrollView",
+            "groupViewChildPosition": 3,
+            "resourceId": "android:id/buttonPanel"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 57
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 3,
+            "resourceId": "com.storyline.app:id/clipVolumeButton"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/audioEditToolbar"
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/audioEditToolbarScroll"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 58
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.view.View",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/touch_outside"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/coordinator"
+          },
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/container"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 59
+      },
+      {
+        "eventType": "VIEW_SWIPED",
+        "swipeDirection": "Left",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/audioEditToolbarScroll"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/bottomContainer"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 60
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 61
+      },
+      {
+        "eventType": "PRESSED_BACK",
+        "reproActionSeq": 62
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 63
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/timelineLayout"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/bottomContainer"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 64
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 65
+      },
+      {
+        "eventType": "PRESSED_BACK",
+        "reproActionSeq": 66
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 67
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/colorGradingButton"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/mainToolbar"
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/normalToolbarScroll"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 68
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.TextView",
+            "groupViewChildPosition": 2,
+            "text": "Seoul Vlog"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 5
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 69
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.TextView",
+            "groupViewChildPosition": 1,
+            "text": "Soft Skin"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 5
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 70
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.TextView",
+            "groupViewChildPosition": 1,
+            "text": "LUT Library"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 71
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 4,
+            "resourceId": "com.storyline.app:id/overlayImportButton"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/mainToolbar"
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/normalToolbarScroll"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 72
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.TextView",
+            "groupViewChildPosition": 0,
+            "text": "Browse Device"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 73
+      },
+      {
+        "eventType": "PRESSED_BACK",
+        "reproActionSeq": 74
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 3,
+            "resourceId": "com.storyline.app:id/cutButton"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/mainToolbar"
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/normalToolbarScroll"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 75
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageView",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/saveProjectButton",
+            "contentDescription": "Save"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/topBar"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 76
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.view.View",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/touch_outside"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/coordinator"
+          },
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/container"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 77
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.TextView",
+            "groupViewChildPosition": 3,
+            "resourceId": "com.storyline.app:id/exportButton",
+            "text": "Export"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/topBar"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 78
+      },
+      {
+        "eventType": "VIEW_SWIPED",
+        "swipeDirection": "Up",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ScrollView",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/design_bottom_sheet"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/coordinator"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 79
+      },
+      {
+        "eventType": "VIEW_SWIPED",
+        "swipeDirection": "Up",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ScrollView",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/design_bottom_sheet"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/coordinator"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 80
+      },
+      {
+        "eventType": "VIEW_SWIPED",
+        "swipeDirection": "Down",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ScrollView",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.FrameLayout",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/design_bottom_sheet"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/coordinator"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 81
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/undoButton",
+            "contentDescription": "Undo"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 82
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 83
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 84
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.Button",
+            "groupViewChildPosition": 1,
+            "resourceId": "android:id/button1",
+            "text": "SEND"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.ScrollView",
+            "groupViewChildPosition": 3,
+            "resourceId": "android:id/buttonPanel"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 85
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 4,
+            "resourceId": "com.storyline.app:id/overlayImportButton"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/mainToolbar"
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/normalToolbarScroll"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 86
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageView",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/saveProjectButton",
+            "contentDescription": "Save"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/topBar"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 87
+      },
+      {
+        "eventType": "PRESSED_BACK",
+        "reproActionSeq": 88
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 6,
+            "resourceId": "com.storyline.app:id/textButton"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/mainToolbar"
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/normalToolbarScroll"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 89
+      },
+      {
+        "eventType": "VIEW_SWIPED",
+        "swipeDirection": "Left",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 7
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.ScrollView",
+            "groupViewChildPosition": 2
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 90
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.TextView",
+            "groupViewChildPosition": 4,
+            "text": "Badge"
+          },
+          {
+            "className": "android.widget.LinearLayout",
+            "groupViewChildPosition": 0
+          },
+          {
+            "className": "android.widget.HorizontalScrollView",
+            "groupViewChildPosition": 7
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 91
+      },
+      {
+        "eventType": "VIEW_LONG_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 92
+      },
+      {
+        "eventType": "PRESSED_BACK",
+        "reproActionSeq": 93
+      },
+      {
+        "eventType": "VIEW_CLICKED",
+        "elementDescriptors": [
+          {
+            "className": "android.widget.ImageButton",
+            "groupViewChildPosition": 1,
+            "resourceId": "com.storyline.app:id/previewPlayPauseButton",
+            "contentDescription": "Play / Pause"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 0,
+            "resourceId": "com.storyline.app:id/playbackControlRail"
+          },
+          {
+            "className": "android.view.ViewGroup",
+            "groupViewChildPosition": 2,
+            "resourceId": "com.storyline.app:id/playbackUndoRedoRow"
+          }
+        ],
+        "extractionMode": "UIAUTOMATOR",
+        "reproActionSeq": 94
+      }
+    ]
+  }
+]

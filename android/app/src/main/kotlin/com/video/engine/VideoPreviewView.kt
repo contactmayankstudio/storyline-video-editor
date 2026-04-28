@@ -648,19 +648,21 @@ class VideoPreviewView @JvmOverloads constructor(
     fun setClipPreviewTransform(
         clipId: Int,
         zoom: Float,
-        panXNorm: Float,
-        panYNorm: Float,
+        panXPx: Float,
+        panYPx: Float,
         rotationDeg: Float,
         mirrorX: Boolean,
+        immediate: Boolean = false,
     ) {
         try {
             nativeSetClipPreviewTransform(
                 clipId,
                 zoom.coerceIn(0.35f, 4.0f),
-                panXNorm.coerceIn(-1.0f, 1.0f),
-                panYNorm.coerceIn(-1.0f, 1.0f),
+                panXPx,
+                panYPx,
                 rotationDeg.coerceIn(-180.0f, 180.0f),
                 mirrorX,
+                immediate,
             )
         } catch (e: UnsatisfiedLinkError) {
             Log.w(TAG, "nativeSetClipPreviewTransform JNI not implemented")
@@ -680,6 +682,112 @@ class VideoPreviewView @JvmOverloads constructor(
             nativeClearClipPreviewTransforms()
         } catch (e: UnsatisfiedLinkError) {
             Log.w(TAG, "nativeClearClipPreviewTransforms JNI not implemented")
+        }
+    }
+
+    fun getClipPreviewMinZoom(clipId: Int): Float {
+        return try {
+            nativeGetClipPreviewMinZoom(clipId)
+        } catch (e: UnsatisfiedLinkError) {
+            1.0f
+        }
+    }
+
+    fun getClipPreviewTransform(clipId: Int): FloatArray? {
+        return try {
+            nativeGetClipPreviewTransform(clipId)
+        } catch (e: UnsatisfiedLinkError) {
+            null
+        }
+    }
+
+    fun computeScaleGesturePreviewTransform(
+        clipId: Int,
+        baseZoom: Float,
+        basePanXPx: Float,
+        basePanYPx: Float,
+        scaleAccumulator: Float,
+        focusOffsetXPx: Float,
+        focusOffsetYPx: Float,
+    ): FloatArray? {
+        return try {
+            nativeComputeScaleGesturePreviewTransform(
+                clipId,
+                baseZoom,
+                basePanXPx,
+                basePanYPx,
+                scaleAccumulator,
+                focusOffsetXPx,
+                focusOffsetYPx,
+            )
+        } catch (e: UnsatisfiedLinkError) {
+            null
+        }
+    }
+
+    fun computeNormalizedPreviewTransform(
+        clipId: Int,
+        zoom: Float,
+        panXPx: Float,
+        panYPx: Float,
+        rotationDeg: Float,
+        mirrorX: Boolean,
+    ): FloatArray? {
+        return try {
+            nativeComputeNormalizedPreviewTransform(
+                clipId,
+                zoom,
+                panXPx,
+                panYPx,
+                rotationDeg,
+                mirrorX,
+            )
+        } catch (e: UnsatisfiedLinkError) {
+            null
+        }
+    }
+
+    fun computeDoubleTapPreviewTransform(
+        clipId: Int,
+        currentZoom: Float,
+        currentPanXPx: Float,
+        currentPanYPx: Float,
+        tapOffsetXPx: Float,
+        tapOffsetYPx: Float,
+    ): FloatArray? {
+        return try {
+            nativeComputeDoubleTapPreviewTransform(
+                clipId,
+                currentZoom,
+                currentPanXPx,
+                currentPanYPx,
+                tapOffsetXPx,
+                tapOffsetYPx,
+            )
+        } catch (e: UnsatisfiedLinkError) {
+            null
+        }
+    }
+
+    fun computeDragPanPreviewTransform(
+        clipId: Int,
+        currentZoom: Float,
+        currentPanXPx: Float,
+        currentPanYPx: Float,
+        deltaXPx: Float,
+        deltaYPx: Float,
+    ): FloatArray? {
+        return try {
+            nativeComputeDragPanPreviewTransform(
+                clipId,
+                currentZoom,
+                currentPanXPx,
+                currentPanYPx,
+                deltaXPx,
+                deltaYPx,
+            )
+        } catch (e: UnsatisfiedLinkError) {
+            null
         }
     }
 
@@ -722,13 +830,49 @@ class VideoPreviewView @JvmOverloads constructor(
     private external fun nativeSetClipPreviewTransform(
         clipId: Int,
         zoom: Float,
-        panXNorm: Float,
-        panYNorm: Float,
+        panXPx: Float,
+        panYPx: Float,
         rotationDeg: Float,
         mirrorX: Boolean,
+        immediate: Boolean,
     )
     private external fun nativeClearClipPreviewTransform(clipId: Int)
     private external fun nativeClearClipPreviewTransforms()
+    private external fun nativeGetClipPreviewMinZoom(clipId: Int): Float
+    private external fun nativeGetClipPreviewTransform(clipId: Int): FloatArray?
+    private external fun nativeComputeScaleGesturePreviewTransform(
+        clipId: Int,
+        baseZoom: Float,
+        basePanXPx: Float,
+        basePanYPx: Float,
+        scaleAccumulator: Float,
+        focusOffsetXPx: Float,
+        focusOffsetYPx: Float,
+    ): FloatArray?
+    private external fun nativeComputeNormalizedPreviewTransform(
+        clipId: Int,
+        zoom: Float,
+        panXPx: Float,
+        panYPx: Float,
+        rotationDeg: Float,
+        mirrorX: Boolean,
+    ): FloatArray?
+    private external fun nativeComputeDoubleTapPreviewTransform(
+        clipId: Int,
+        currentZoom: Float,
+        currentPanXPx: Float,
+        currentPanYPx: Float,
+        tapOffsetXPx: Float,
+        tapOffsetYPx: Float,
+    ): FloatArray?
+    private external fun nativeComputeDragPanPreviewTransform(
+        clipId: Int,
+        currentZoom: Float,
+        currentPanXPx: Float,
+        currentPanYPx: Float,
+        deltaXPx: Float,
+        deltaYPx: Float,
+    ): FloatArray?
 
     /**
      * Native: Add text overlay (create texture from text bitmap on native side).

@@ -782,11 +782,12 @@ class TimelineCanvasView @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         scaleDetector.onTouchEvent(event)
         velocityTracker.addMovement(event)
-        if (scaleDetector.isInProgress) {
+
+        if (event.pointerCount > 1 || scaleDetector.isInProgress) {
+            longPressHandler.removeCallbacks(longPressRunnable)
             gesture = GestureKind.NONE
             return true
         }
-        if (event.pointerCount > 1) return true
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> { scroller.abortAnimation(); onDown(event) }
@@ -972,12 +973,10 @@ class TimelineCanvasView @JvmOverloads constructor(
                     scrollX = (scrollX - stepX).coerceAtLeast(0f)
                     scheduleAssetRequests()
                     invalidate()
-                } else {
-                    // Already set in onDown — just start
                 }
             }
             GestureKind.TRIM_START, GestureKind.TRIM_END, GestureKind.MOVE -> {
-                val snap = gestureClipId?.let { applyGesture(it, dx) }
+                val snap = gestureClipId?.let { applyGesture(it, dx, dy) }
                 snapTimeMs = snap
                 invalidate()
             }
@@ -989,7 +988,7 @@ class TimelineCanvasView @JvmOverloads constructor(
         longPressClipId = null
         showPlayheadTooltip = false
         if (gestureStarted && gesture in listOf(GestureKind.TRIM_START, GestureKind.TRIM_END, GestureKind.MOVE)) {
-            gestureClipId?.let { commitGesture(it, event.x - touchDownX) }
+            gestureClipId?.let { commitGesture(it, event.x - touchDownX, event.y - touchDownY) }
         } else if (!gestureStarted && gesture == GestureKind.NONE && gestureClipId == null) {
             if (event.x >= headerWidthPx && event.y >= rulerHeightPx) {
                 val ms = xToMs(event.x)
@@ -1011,9 +1010,9 @@ class TimelineCanvasView @JvmOverloads constructor(
     }
 
     // ── Gesture math ──────────────────────────────────────────────────────────
-    private fun applyGesture(clipId: String, deltaPx: Float): Long? {
+    private fun applyGesture(clipId: String, deltaPx: Float, deltaYPx: Float): Long? {
         val snap = gestureClipSnapshot ?: return null
-        val update = buildUpdate(snap, deltaPx) ?: return null
+        val update = buildUpdate(snap, deltaPx, deltaYPx) ?: return null
         listener?.onClipUpdatePreview(update)
         // Update visual immediately
         updateClipPreview(clipId, update)
@@ -1021,13 +1020,13 @@ class TimelineCanvasView @JvmOverloads constructor(
         return snapTimeMs
     }
 
-    private fun commitGesture(clipId: String, deltaPx: Float) {
+    private fun commitGesture(clipId: String, deltaPx: Float, deltaYPx: Float) {
         val snap = gestureClipSnapshot ?: return
-        val update = buildUpdate(snap, deltaPx) ?: return
+        val update = buildUpdate(snap, deltaPx, deltaYPx) ?: return
         listener?.onClipUpdateCommitted(update)
     }
 
-    private fun buildUpdate(clip: ClipSegment, deltaPx: Float): ClipUpdate? {
+    private fun buildUpdate(clip: ClipSegment, deltaPx: Float, deltaYPx: Float): ClipUpdate? {
         val deltaMs = (deltaPx / pxPerMs).roundToLong()
         return when (gesture) {
             GestureKind.TRIM_START -> {
@@ -1083,9 +1082,14 @@ class TimelineCanvasView @JvmOverloads constructor(
                 var snapped = snapToTargets(rawStart, allSnaps)
 
                 // Prevent overlap with other clips on same track
-                val sameTrackClips = tracks
-                    .firstOrNull { t -> t.clips.any { it.id == clip.id } }
-                    ?.clips?.filter { it.id != clip.id } ?: emptyList()
+                val currentTrackIndex = tracks.indexOfFirst { t -> t.clips.any { it.id == clip.id } }
+                val targetTrackIndex = if (currentTrackIndex >= 0) {
+                    val trackShift = (deltaYPx / (trackHeightPx + trackGapPx)).roundToInt()
+                    (currentTrackIndex + trackShift).coerceIn(0, tracks.lastIndex)
+                } else currentTrackIndex
+
+                val targetTrack = tracks.getOrNull(targetTrackIndex)
+                val sameTrackClips = targetTrack?.clips?.filter { it.id != clip.id } ?: emptyList()
 
                 val newEnd = snapped + clip.durationMs
                 for (other in sameTrackClips) {
@@ -1102,7 +1106,7 @@ class TimelineCanvasView @JvmOverloads constructor(
                 snapped = snapped.coerceAtLeast(0L)
 
                 ClipUpdate(
-                    clipId = clip.id, trackType = clip.trackType,
+                    clipId = clip.id, trackType = targetTrack?.type ?: clip.trackType,
                     startTimeMs = snapped, durationMs = clip.durationMs,
                     sourceInMs = clip.sourceInMs, sourceOutMs = clip.sourceOutMs,
                     originalStartTimeMs = clip.startTimeMs, originalDurationMs = clip.durationMs,

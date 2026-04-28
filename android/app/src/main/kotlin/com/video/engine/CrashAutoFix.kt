@@ -18,6 +18,7 @@ object CrashAutoFix {
 
     // Crash report karo — quota nahi hai to queue mein save ho, baad mein retry
     fun reportCrash(context: Context, throwable: Throwable) {
+        if (!context.resources.getBoolean(R.bool.storyline_runtime_ops_enabled)) return
         val stackTrace = throwable.stackTraceToString()
         CoroutineScope(Dispatchers.IO).launch {
             val sent = sendToApi(stackTrace)
@@ -30,6 +31,7 @@ object CrashAutoFix {
 
     // App start hone pe pending crashes retry karo
     fun retryPending(context: Context) {
+        if (!context.resources.getBoolean(R.bool.storyline_runtime_ops_enabled)) return
         CoroutineScope(Dispatchers.IO).launch {
             val queue = loadQueue(context).toMutableList()
             if (queue.isEmpty()) return@launch

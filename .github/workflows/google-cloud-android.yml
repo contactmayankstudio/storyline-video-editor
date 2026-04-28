@@ -1,0 +1,166 @@
+name: Google Cloud Android CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      device_model:
+        description: "Firebase Test Lab device model"
+        required: true
+        default: "MediumPhone.arm"
+        type: string
+      android_version:
+        description: "Android version to test"
+        required: true
+        default: "34"
+        type: string
+      locale:
+        description: "Device locale"
+        required: true
+        default: "en"
+        type: string
+      orientation:
+        description: "Device orientation"
+        required: true
+        default: "portrait"
+        type: choice
+        options:
+          - portrait
+          - landscape
+      timeout:
+        description: "Robo test timeout"
+        required: true
+        default: "5m"
+        type: string
+
+concurrency:
+  group: google-cloud-android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cloud-build-robo:
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    env:
+      GCP_AUTOMATION_PROJECT_ID: ${{ vars.GCP_AUTOMATION_PROJECT_ID || vars.FIREBASE_TEST_LAB_PROJECT_ID || vars.FIREBASE_PROJECT_ID }}
+      GCP_AUTOMATION_RESULTS_BUCKET: ${{ vars.GCP_AUTOMATION_RESULTS_BUCKET || vars.FIREBASE_TEST_LAB_RESULTS_BUCKET || vars.FIREBASE_RESULTS_BUCKET }}
+      GCP_AUTOMATION_MACHINE_TYPE: ${{ vars.GCP_AUTOMATION_MACHINE_TYPE || 'E2_HIGHCPU_8' }}
+      GCP_AUTOMATION_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_AUTOMATION_SERVICE_ACCOUNT_JSON || secrets.FIREBASE_TEST_LAB_SERVICE_ACCOUNT_JSON || secrets.FIREBASE_OPS_SERVICE_ACCOUNT_JSON }}
+
+    steps:
+      - name: Checkout repository
+        env:
+          CI_CHECKOUT_REF: ${{ github.ref }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/checkout-ci.sh
+
+      - name: Check Google Cloud Build configuration
+        id: preflight
+        run: |
+          set -euo pipefail
+          missing=0
+          if [ -z "${GCP_AUTOMATION_PROJECT_ID}" ]; then
+            echo "::warning::Missing GCP_AUTOMATION_PROJECT_ID, FIREBASE_TEST_LAB_PROJECT_ID, or FIREBASE_PROJECT_ID."
+            missing=1
+          fi
+          if [ -z "${GCP_AUTOMATION_SERVICE_ACCOUNT_JSON}" ]; then
+            echo "::warning::Missing GCP_AUTOMATION_SERVICE_ACCOUNT_JSON, FIREBASE_TEST_LAB_SERVICE_ACCOUNT_JSON, or FIREBASE_OPS_SERVICE_ACCOUNT_JSON."
+            missing=1
+          fi
+          if [ "${missing}" -eq 0 ]; then
+            echo "ready=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "ready=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Authenticate to Google Cloud
+        if: steps.preflight.outputs.ready == 'true'
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ env.GCP_AUTOMATION_SERVICE_ACCOUNT_JSON }}
+
+      - name: Set up gcloud
+        if: steps.preflight.outputs.ready == 'true'
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_AUTOMATION_PROJECT_ID }}
+
+      - name: Ensure Cloud Build APIs
+        if: steps.preflight.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          for service in cloudbuild.googleapis.com firebase.googleapis.com testing.googleapis.com toolresults.googleapis.com; do
+            if gcloud services list \
+              --enabled \
+              --project "${GCP_AUTOMATION_PROJECT_ID}" \
+              --format="value(config.name)" | grep -Fxq "${service}"; then
+              echo "Service ${service} already enabled."
+              continue
+            fi
+            echo "Enabling ${service}..."
+            gcloud services enable "${service}" --project "${GCP_AUTOMATION_PROJECT_ID}"
+          done
+
+      - name: Restore build secrets into Cloud Build source
+        if: steps.preflight.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          if [ -z "${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}" ]; then
+            echo "Missing repository secret ANDROID_GOOGLE_SERVICES_JSON"
+            exit 1
+          fi
+          if [ -z "${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}" ]; then
+            echo "Missing repository secret ANDROID_DEBUG_KEYSTORE_B64"
+            exit 1
+          fi
+          printf '%s' '${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
+          printf '%s' '${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}' | base64 --decode > android/debug.keystore.stable
+
+      - name: Submit Cloud Build Robo run
+        if: steps.preflight.outputs.ready == 'true'
+        id: submit
+        env:
+          INPUT_DEVICE_MODEL: ${{ inputs.device_model }}
+          INPUT_ANDROID_VERSION: ${{ inputs.android_version }}
+          INPUT_LOCALE: ${{ inputs.locale }}
+          INPUT_ORIENTATION: ${{ inputs.orientation }}
+          INPUT_TIMEOUT: ${{ inputs.timeout }}
+        run: |
+          set -euo pipefail
+          RESULTS_BUCKET="${GCP_AUTOMATION_RESULTS_BUCKET}"
+          SUBS="_FIREBASE_PROJECT_ID=${GCP_AUTOMATION_PROJECT_ID},_DEVICE_MODEL=${INPUT_DEVICE_MODEL},_ANDROID_VERSION=${INPUT_ANDROID_VERSION},_LOCALE=${INPUT_LOCALE},_ORIENTATION=${INPUT_ORIENTATION},_TIMEOUT=${INPUT_TIMEOUT},_MACHINE_TYPE=${GCP_AUTOMATION_MACHINE_TYPE},_RESULTS_BUCKET=${RESULTS_BUCKET}"
+
+          BUILD_ID="$(gcloud builds submit \
+            --config cloudbuild/android-robo.yaml \
+            --substitutions "${SUBS}" \
+            --project "${GCP_AUTOMATION_PROJECT_ID}" \
+            --format='value(id)')"
+
+          echo "build_id=${BUILD_ID}" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "## Google Cloud Android CI"
+            echo ""
+            echo "- Project: \`${GCP_AUTOMATION_PROJECT_ID}\`"
+            echo "- Cloud Build ID: \`${BUILD_ID}\`"
+            echo "- Device model: \`${INPUT_DEVICE_MODEL}\`"
+            echo "- Android version: \`${INPUT_ANDROID_VERSION}\`"
+            echo "- Locale: \`${INPUT_LOCALE}\`"
+            echo "- Orientation: \`${INPUT_ORIENTATION}\`"
+            echo "- Timeout: \`${INPUT_TIMEOUT}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Clean restored build secrets
+        if: always()
+        run: |
+          rm -f android/app/google-services.json android/debug.keystore.stable
+
+      - name: Skip summary when Google Cloud Build is not configured
+        if: steps.preflight.outputs.ready != 'true'
+        run: |
+          {
+            echo "## Google Cloud Android CI"
+            echo ""
+            echo "Skipped because project variables or service account credentials are unavailable."
+          } >> "${GITHUB_STEP_SUMMARY}"

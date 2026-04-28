@@ -16,6 +16,12 @@
 
 namespace VideoEngine::GPU {
 
+namespace {
+int transitionUniformLocation(uint32_t programId, const char* baseName, const char* suffix) {
+    return glGetUniformLocation(programId, (std::string(baseName) + suffix).c_str());
+}
+}
+
 // Embedded GLSL shaders (GLSL 300 es for OpenGL ES 3.0)
 
 static const char* VERTEX_SHADER_SRC = R"(#version 300 es
@@ -44,7 +50,7 @@ uniform bool uTransformEnabled;
 uniform vec2 uViewportSize;
 uniform vec2 uTextureSize;
 uniform float uZoom;
-uniform vec2 uPanNorm;
+uniform vec2 uPanPx;
 uniform float uRotationDeg;
 uniform bool uMirrorX;
 uniform bool uObjectTransform;
@@ -78,7 +84,7 @@ void main() {
             maxPanPx = max((renderedSize - viewportSize) * 0.5, vec2(0.0));
         }
         vec2 localPx = (fragTexCoord - vec2(0.5)) * viewportSize;
-        localPx -= clamp(uPanNorm, vec2(-1.0), vec2(1.0)) * maxPanPx;
+        localPx -= clamp(uPanPx, -maxPanPx, maxPanPx);
 
         float angleRad = radians(uRotationDeg);
         float cosA = cos(angleRad);
@@ -139,7 +145,7 @@ uniform float uOpacityA;
 uniform bool uTransformEnabledA;
 uniform vec2 uTextureSizeA;
 uniform float uZoomA;
-uniform vec2 uPanNormA;
+uniform vec2 uPanPxA;
 uniform float uRotationDegA;
 uniform bool uMirrorXA;
 uniform bool uObjectTransformA;
@@ -157,7 +163,7 @@ uniform float uOpacityB;
 uniform bool uTransformEnabledB;
 uniform vec2 uTextureSizeB;
 uniform float uZoomB;
-uniform vec2 uPanNormB;
+uniform vec2 uPanPxB;
 uniform float uRotationDegB;
 uniform bool uMirrorXB;
 uniform bool uObjectTransformB;
@@ -175,7 +181,7 @@ vec2 resolveSampleCoord(
     bool transformEnabled,
     vec2 textureSize,
     float zoom,
-    vec2 panNorm,
+    vec2 panPx,
     float rotationDeg,
     bool mirrorX,
     bool objectTransform) {
@@ -202,7 +208,7 @@ vec2 resolveSampleCoord(
         maxPanPx = max((renderedSize - viewportSize) * 0.5, vec2(0.0));
     }
     vec2 localPx = (baseCoord - vec2(0.5)) * viewportSize;
-    localPx -= clamp(panNorm, vec2(-1.0), vec2(1.0)) * maxPanPx;
+    localPx -= clamp(panPx, -maxPanPx, maxPanPx);
 
     float angleRad = radians(rotationDeg);
     float cosA = cos(angleRad);
@@ -223,7 +229,7 @@ vec4 sampleLayer(
     bool transformEnabled,
     vec2 textureSize,
     float zoom,
-    vec2 panNorm,
+    vec2 panPx,
     float rotationDeg,
     bool mirrorX,
     bool objectTransform,
@@ -241,7 +247,7 @@ vec4 sampleLayer(
         transformEnabled,
         textureSize,
         zoom,
-        panNorm,
+        panPx,
         rotationDeg,
         mirrorX,
         objectTransform);
@@ -281,7 +287,7 @@ void main() {
         uTransformEnabledA,
         uTextureSizeA,
         uZoomA,
-        uPanNormA,
+        uPanPxA,
         uRotationDegA,
         uMirrorXA,
         uObjectTransformA,
@@ -300,7 +306,7 @@ void main() {
         uTransformEnabledB,
         uTextureSizeB,
         uZoomB,
-        uPanNormB,
+        uPanPxB,
         uRotationDegB,
         uMirrorXB,
         uObjectTransformB,
@@ -320,7 +326,7 @@ void main() {
         uTransformEnabledA,
         uTextureSizeA,
         uZoomA,
-        uPanNormA,
+        uPanPxA,
         uRotationDegA,
         uMirrorXA,
         uObjectTransformA,
@@ -339,7 +345,7 @@ void main() {
         uTransformEnabledB,
         uTextureSizeB,
         uZoomB,
-        uPanNormB,
+        uPanPxB,
         uRotationDegB,
         uMirrorXB,
         uObjectTransformB,
@@ -533,6 +539,41 @@ bool EGLRenderer::initialize(ANativeWindow* nativeWindow) {
     m_uBrightnessLoc = glGetUniformLocation(m_programId, "uBrightness");
     m_uContrastLoc = glGetUniformLocation(m_programId, "uContrast");
     m_uSaturationLoc = glGetUniformLocation(m_programId, "uSaturation");
+    m_uTextureSamplerLoc = glGetUniformLocation(m_programId, "textureSampler");
+    m_uTransformEnabledLoc = glGetUniformLocation(m_programId, "uTransformEnabled");
+    m_uViewportSizeLoc = glGetUniformLocation(m_programId, "uViewportSize");
+    m_uTextureSizeLoc = glGetUniformLocation(m_programId, "uTextureSize");
+    m_uZoomLoc = glGetUniformLocation(m_programId, "uZoom");
+    m_uPanPxLoc = glGetUniformLocation(m_programId, "uPanPx");
+    m_uRotationDegLoc = glGetUniformLocation(m_programId, "uRotationDeg");
+    m_uMirrorXLoc = glGetUniformLocation(m_programId, "uMirrorX");
+    m_uObjectTransformLoc = glGetUniformLocation(m_programId, "uObjectTransform");
+    m_uTransitionViewportLoc = glGetUniformLocation(m_transitionProgramId, "uViewportSize");
+    m_uTransitionProgressLoc = glGetUniformLocation(m_transitionProgramId, "uProgress");
+    m_uTransitionTypeLoc = glGetUniformLocation(m_transitionProgramId, "uTransitionType");
+    m_uTransitionTextureSamplerALoc = glGetUniformLocation(m_transitionProgramId, "textureSamplerA");
+    m_uTransitionTextureSamplerBLoc = glGetUniformLocation(m_transitionProgramId, "textureSamplerB");
+
+    auto cacheTransitionUniforms = [&](const char* suffix, TransitionLayerUniformSet& uniforms) {
+        uniforms.opacity = transitionUniformLocation(m_transitionProgramId, "uOpacity", suffix);
+        uniforms.transformEnabled = transitionUniformLocation(m_transitionProgramId, "uTransformEnabled", suffix);
+        uniforms.textureSize = transitionUniformLocation(m_transitionProgramId, "uTextureSize", suffix);
+        uniforms.zoom = transitionUniformLocation(m_transitionProgramId, "uZoom", suffix);
+        uniforms.panPx = transitionUniformLocation(m_transitionProgramId, "uPanPx", suffix);
+        uniforms.rotationDeg = transitionUniformLocation(m_transitionProgramId, "uRotationDeg", suffix);
+        uniforms.mirrorX = transitionUniformLocation(m_transitionProgramId, "uMirrorX", suffix);
+        uniforms.objectTransform = transitionUniformLocation(m_transitionProgramId, "uObjectTransform", suffix);
+        uniforms.chromaEnabled = transitionUniformLocation(m_transitionProgramId, "uChromaEnabled", suffix);
+        uniforms.chromaKeyColor = transitionUniformLocation(m_transitionProgramId, "uChromaKeyColor", suffix);
+        uniforms.chromaSimilarity = transitionUniformLocation(m_transitionProgramId, "uChromaSimilarity", suffix);
+        uniforms.chromaSmoothness = transitionUniformLocation(m_transitionProgramId, "uChromaSmoothness", suffix);
+        uniforms.chromaSpill = transitionUniformLocation(m_transitionProgramId, "uChromaSpill", suffix);
+        uniforms.brightness = transitionUniformLocation(m_transitionProgramId, "uBrightness", suffix);
+        uniforms.contrast = transitionUniformLocation(m_transitionProgramId, "uContrast", suffix);
+        uniforms.saturation = transitionUniformLocation(m_transitionProgramId, "uSaturation", suffix);
+    };
+    cacheTransitionUniforms("A", m_transitionUniformsA);
+    cacheTransitionUniforms("B", m_transitionUniformsB);
 
     // Create quad mesh
     if (!createQuadMesh()) {
@@ -652,8 +693,7 @@ bool EGLRenderer::renderFrameRegion(
     texture.bind(0);
 
     // Set texture uniform
-    GLint texLoc = glGetUniformLocation(m_programId, "textureSampler");
-    glUniform1i(texLoc, 0);
+    glUniform1i(m_uTextureSamplerLoc, 0);
 
     // Bind and draw quad
     glBindVertexArray(m_vao);
@@ -699,16 +739,7 @@ bool EGLRenderer::renderLayers(const std::vector<Layer>& layers) {
     glClear(GL_COLOR_BUFFER_BIT);
     glUseProgram(m_programId);
 
-    GLint texLoc = glGetUniformLocation(m_programId, "textureSampler");
-    glUniform1i(texLoc, 0);
-    const GLint transformEnabledLoc = glGetUniformLocation(m_programId, "uTransformEnabled");
-    const GLint viewportSizeLoc = glGetUniformLocation(m_programId, "uViewportSize");
-    const GLint textureSizeLoc = glGetUniformLocation(m_programId, "uTextureSize");
-    const GLint zoomLoc = glGetUniformLocation(m_programId, "uZoom");
-    const GLint panNormLoc = glGetUniformLocation(m_programId, "uPanNorm");
-    const GLint rotationLoc = glGetUniformLocation(m_programId, "uRotationDeg");
-    const GLint mirrorXLoc = glGetUniformLocation(m_programId, "uMirrorX");
-    const GLint objectTransformLoc = glGetUniformLocation(m_programId, "uObjectTransform");
+    glUniform1i(m_uTextureSamplerLoc, 0);
 
     for (const auto& layer : layers) {
         if (!layer.texture || !layer.texture->isValid()) continue;
@@ -717,32 +748,32 @@ bool EGLRenderer::renderLayers(const std::vector<Layer>& layers) {
             glUniform1f(m_uOpacityLoc, layer.opacity);
         const bool transformEnabled =
             std::fabs(layer.zoom - 1.0f) > 0.001f ||
-            std::fabs(layer.panXNorm) > 0.001f ||
-            std::fabs(layer.panYNorm) > 0.001f ||
+            std::fabs(layer.panXPx) > 0.5f ||
+            std::fabs(layer.panYPx) > 0.5f ||
             std::fabs(layer.rotationDeg) > 0.001f ||
             layer.mirrorX;
-        if (transformEnabledLoc >= 0)
-            glUniform1i(transformEnabledLoc, transformEnabled ? 1 : 0);
-        if (viewportSizeLoc >= 0)
+        if (m_uTransformEnabledLoc >= 0)
+            glUniform1i(m_uTransformEnabledLoc, transformEnabled ? 1 : 0);
+        if (m_uViewportSizeLoc >= 0)
             glUniform2f(
-                viewportSizeLoc,
+                m_uViewportSizeLoc,
                 static_cast<float>(std::max(1, m_viewportWidth)),
                 static_cast<float>(std::max(1, m_viewportHeight)));
-        if (textureSizeLoc >= 0)
+        if (m_uTextureSizeLoc >= 0)
             glUniform2f(
-                textureSizeLoc,
+                m_uTextureSizeLoc,
                 static_cast<float>(std::max(1, layer.texture->getWidth())),
                 static_cast<float>(std::max(1, layer.texture->getHeight())));
-        if (zoomLoc >= 0)
-            glUniform1f(zoomLoc, std::max(0.35f, layer.zoom));
-        if (panNormLoc >= 0)
-            glUniform2f(panNormLoc, layer.panXNorm, layer.panYNorm);
-        if (rotationLoc >= 0)
-            glUniform1f(rotationLoc, layer.rotationDeg);
-        if (mirrorXLoc >= 0)
-            glUniform1i(mirrorXLoc, layer.mirrorX ? 1 : 0);
-        if (objectTransformLoc >= 0)
-            glUniform1i(objectTransformLoc, layer.objectTransform ? 1 : 0);
+        if (m_uZoomLoc >= 0)
+            glUniform1f(m_uZoomLoc, std::max(0.35f, layer.zoom));
+        if (m_uPanPxLoc >= 0)
+            glUniform2f(m_uPanPxLoc, layer.panXPx, layer.panYPx);
+        if (m_uRotationDegLoc >= 0)
+            glUniform1f(m_uRotationDegLoc, layer.rotationDeg);
+        if (m_uMirrorXLoc >= 0)
+            glUniform1i(m_uMirrorXLoc, layer.mirrorX ? 1 : 0);
+        if (m_uObjectTransformLoc >= 0)
+            glUniform1i(m_uObjectTransformLoc, layer.objectTransform ? 1 : 0);
         if (m_uChromaEnabledLoc >= 0)
             glUniform1i(m_uChromaEnabledLoc, layer.chromaEnabled ? 1 : 0);
         if (layer.chromaEnabled) {
@@ -807,82 +838,59 @@ bool EGLRenderer::renderTransition(
     glClear(GL_COLOR_BUFFER_BIT);
     glUseProgram(m_transitionProgramId);
 
-    auto applyLayerUniforms = [&](const char* suffix, const Layer& layer) {
-        const std::string suffixStr(suffix);
+    auto applyLayerUniforms = [&](const TransitionLayerUniformSet& uniforms, const Layer& layer) {
         const bool transformEnabled =
             std::fabs(layer.zoom - 1.0f) > 0.001f ||
-            std::fabs(layer.panXNorm) > 0.001f ||
-            std::fabs(layer.panYNorm) > 0.001f ||
+            std::fabs(layer.panXPx) > 0.5f ||
+            std::fabs(layer.panYPx) > 0.5f ||
             std::fabs(layer.rotationDeg) > 0.001f ||
             layer.mirrorX;
 
-        auto setUniform1f = [&](const char* name, float value) {
-            const GLint loc = glGetUniformLocation(m_transitionProgramId, (std::string(name) + suffixStr).c_str());
-            if (loc >= 0) glUniform1f(loc, value);
-        };
-        auto setUniform1i = [&](const char* name, int value) {
-            const GLint loc = glGetUniformLocation(m_transitionProgramId, (std::string(name) + suffixStr).c_str());
-            if (loc >= 0) glUniform1i(loc, value);
-        };
-        auto setUniform2f = [&](const char* name, float x, float y) {
-            const GLint loc = glGetUniformLocation(m_transitionProgramId, (std::string(name) + suffixStr).c_str());
-            if (loc >= 0) glUniform2f(loc, x, y);
-        };
-        auto setUniform3f = [&](const char* name, float x, float y, float z) {
-            const GLint loc = glGetUniformLocation(m_transitionProgramId, (std::string(name) + suffixStr).c_str());
-            if (loc >= 0) glUniform3f(loc, x, y, z);
-        };
-
-        setUniform1f("uOpacity", layer.opacity);
-        setUniform1i("uTransformEnabled", transformEnabled ? 1 : 0);
-        setUniform2f(
-            "uTextureSize",
+        if (uniforms.opacity >= 0) glUniform1f(uniforms.opacity, layer.opacity);
+        if (uniforms.transformEnabled >= 0) glUniform1i(uniforms.transformEnabled, transformEnabled ? 1 : 0);
+        if (uniforms.textureSize >= 0) glUniform2f(
+            uniforms.textureSize,
             static_cast<float>(std::max(1, layer.texture->getWidth())),
             static_cast<float>(std::max(1, layer.texture->getHeight())));
-        setUniform1f("uZoom", std::max(0.35f, layer.zoom));
-        setUniform2f("uPanNorm", layer.panXNorm, layer.panYNorm);
-        setUniform1f("uRotationDeg", layer.rotationDeg);
-        setUniform1i("uMirrorX", layer.mirrorX ? 1 : 0);
-        setUniform1i("uObjectTransform", layer.objectTransform ? 1 : 0);
-        setUniform1i("uChromaEnabled", layer.chromaEnabled ? 1 : 0);
-        setUniform3f(
-            "uChromaKeyColor",
+        if (uniforms.zoom >= 0) glUniform1f(uniforms.zoom, std::max(0.35f, layer.zoom));
+        if (uniforms.panPx >= 0) glUniform2f(uniforms.panPx, layer.panXPx, layer.panYPx);
+        if (uniforms.rotationDeg >= 0) glUniform1f(uniforms.rotationDeg, layer.rotationDeg);
+        if (uniforms.mirrorX >= 0) glUniform1i(uniforms.mirrorX, layer.mirrorX ? 1 : 0);
+        if (uniforms.objectTransform >= 0) glUniform1i(uniforms.objectTransform, layer.objectTransform ? 1 : 0);
+        if (uniforms.chromaEnabled >= 0) glUniform1i(uniforms.chromaEnabled, layer.chromaEnabled ? 1 : 0);
+        if (uniforms.chromaKeyColor >= 0) glUniform3f(
+            uniforms.chromaKeyColor,
             layer.blueKey ? 0.0f : 0.0f,
             layer.blueKey ? 0.0f : 1.0f,
             layer.blueKey ? 1.0f : 0.0f);
-        setUniform1f("uChromaSimilarity", layer.chromaSimilarity);
-        setUniform1f("uChromaSmoothness", layer.chromaSmoothness);
-        setUniform1f("uChromaSpill", layer.chromaSpill);
-        setUniform1f("uBrightness", layer.brightness);
-        setUniform1f("uContrast", layer.contrast);
-        setUniform1f("uSaturation", layer.saturation);
+        if (uniforms.chromaSimilarity >= 0) glUniform1f(uniforms.chromaSimilarity, layer.chromaSimilarity);
+        if (uniforms.chromaSmoothness >= 0) glUniform1f(uniforms.chromaSmoothness, layer.chromaSmoothness);
+        if (uniforms.chromaSpill >= 0) glUniform1f(uniforms.chromaSpill, layer.chromaSpill);
+        if (uniforms.brightness >= 0) glUniform1f(uniforms.brightness, layer.brightness);
+        if (uniforms.contrast >= 0) glUniform1f(uniforms.contrast, layer.contrast);
+        if (uniforms.saturation >= 0) glUniform1f(uniforms.saturation, layer.saturation);
     };
 
-    const GLint viewportLoc = glGetUniformLocation(m_transitionProgramId, "uViewportSize");
-    if (viewportLoc >= 0) {
+    if (m_uTransitionViewportLoc >= 0) {
         glUniform2f(
-            viewportLoc,
+            m_uTransitionViewportLoc,
             static_cast<float>(std::max(1, m_viewportWidth)),
             static_cast<float>(std::max(1, m_viewportHeight)));
     }
-    const GLint progressLoc = glGetUniformLocation(m_transitionProgramId, "uProgress");
-    if (progressLoc >= 0) {
-        glUniform1f(progressLoc, std::clamp(progress, 0.0f, 1.0f));
+    if (m_uTransitionProgressLoc >= 0) {
+        glUniform1f(m_uTransitionProgressLoc, std::clamp(progress, 0.0f, 1.0f));
     }
-    const GLint typeLoc = glGetUniformLocation(m_transitionProgramId, "uTransitionType");
-    if (typeLoc >= 0) {
-        glUniform1i(typeLoc, transitionType);
+    if (m_uTransitionTypeLoc >= 0) {
+        glUniform1i(m_uTransitionTypeLoc, transitionType);
     }
 
     outgoing.texture->bind(0);
     incoming.texture->bind(1);
-    const GLint texALoc = glGetUniformLocation(m_transitionProgramId, "textureSamplerA");
-    if (texALoc >= 0) glUniform1i(texALoc, 0);
-    const GLint texBLoc = glGetUniformLocation(m_transitionProgramId, "textureSamplerB");
-    if (texBLoc >= 0) glUniform1i(texBLoc, 1);
+    if (m_uTransitionTextureSamplerALoc >= 0) glUniform1i(m_uTransitionTextureSamplerALoc, 0);
+    if (m_uTransitionTextureSamplerBLoc >= 0) glUniform1i(m_uTransitionTextureSamplerBLoc, 1);
 
-    applyLayerUniforms("A", outgoing);
-    applyLayerUniforms("B", incoming);
+    applyLayerUniforms(m_transitionUniformsA, outgoing);
+    applyLayerUniforms(m_transitionUniformsB, incoming);
 
     glBindVertexArray(m_vao);
     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
@@ -1121,6 +1129,32 @@ void EGLRenderer::releaseResources() {
         glDeleteBuffers(1, &m_ebo);
         m_ebo = 0;
     }
+
+    m_uOpacityLoc = -1;
+    m_uChromaEnabledLoc = -1;
+    m_uChromaKeyColorLoc = -1;
+    m_uChromaSimilarityLoc = -1;
+    m_uChromaSmoothnessLoc = -1;
+    m_uChromaSpillLoc = -1;
+    m_uBrightnessLoc = -1;
+    m_uContrastLoc = -1;
+    m_uSaturationLoc = -1;
+    m_uTextureSamplerLoc = -1;
+    m_uTransformEnabledLoc = -1;
+    m_uViewportSizeLoc = -1;
+    m_uTextureSizeLoc = -1;
+    m_uZoomLoc = -1;
+    m_uPanPxLoc = -1;
+    m_uRotationDegLoc = -1;
+    m_uMirrorXLoc = -1;
+    m_uObjectTransformLoc = -1;
+    m_uTransitionViewportLoc = -1;
+    m_uTransitionProgressLoc = -1;
+    m_uTransitionTypeLoc = -1;
+    m_uTransitionTextureSamplerALoc = -1;
+    m_uTransitionTextureSamplerBLoc = -1;
+    m_transitionUniformsA = {};
+    m_transitionUniformsB = {};
 }
 
 bool EGLRenderer::checkGLError(const char* operation) {

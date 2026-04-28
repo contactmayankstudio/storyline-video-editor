@@ -6,7 +6,11 @@ set -euo pipefail
 
 WATCH_DIRS=(".")
 BUILD_DIR="build"
+# Optimized for low RAM laptops
 NPROC=$(nproc)
+if [ "$NPROC" -gt 2 ]; then
+  NPROC=2
+fi
 CMD=(cmake --build "$BUILD_DIR" --config Release -j "$NPROC")
 
 mkdir -p "$BUILD_DIR"

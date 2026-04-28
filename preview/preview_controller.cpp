@@ -917,8 +917,8 @@ GPU::EGLRenderer::Layer PreviewController::buildLayerForClipLocked(
     layer.opacity = clip->getProperties().opacity;
     const auto transform = clipPreviewTransformLocked(static_cast<int>(clip->getId()));
     layer.zoom = transform.zoom;
-    layer.panXNorm = transform.panXNorm;
-    layer.panYNorm = transform.panYNorm;
+    layer.panXPx = transform.panXPx;
+    layer.panYPx = transform.panYPx;
     layer.rotationDeg = transform.rotationDeg;
     layer.mirrorX = transform.mirrorX;
     layer.objectTransform = clip->getTrackRole() == Clip::TrackRole::Overlay;
@@ -1363,8 +1363,8 @@ bool PreviewController::renderTimelineFrameLocked(
             if (activeClip) {
                 const auto transform = clipPreviewTransformLocked(static_cast<int>(activeClip->getId()));
                 base.zoom = transform.zoom;
-                base.panXNorm = transform.panXNorm;
-                base.panYNorm = transform.panYNorm;
+                base.panXPx = transform.panXPx;
+                base.panYPx = transform.panYPx;
                 base.rotationDeg = transform.rotationDeg;
                 base.mirrorX = transform.mirrorX;
                 base.objectTransform = activeClip->getTrackRole() == Clip::TrackRole::Overlay;
@@ -1453,8 +1453,8 @@ bool PreviewController::renderTimelineFrameLocked(
             layer.opacity = clip->getProperties().opacity;
             const auto transform = clipPreviewTransformLocked(clipId);
             layer.zoom = transform.zoom;
-            layer.panXNorm = transform.panXNorm;
-            layer.panYNorm = transform.panYNorm;
+            layer.panXPx = transform.panXPx;
+            layer.panYPx = transform.panYPx;
             layer.rotationDeg = transform.rotationDeg;
             layer.mirrorX = transform.mirrorX;
             layer.objectTransform = clip->getTrackRole() == Clip::TrackRole::Overlay;
@@ -1893,6 +1893,39 @@ bool PreviewController::hasClipPreviewTransformLocked(const std::shared_ptr<Clip
     return !clipPreviewTransformLocked(static_cast<int>(clip->getId())).isIdentity();
 }
 
+float PreviewController::clipPreviewMinZoomLocked(int clipId) const {
+    if (clipId <= 0) {
+        return 1.0f;
+    }
+    const auto clip = findTimelineClipByIdLocked(clipId);
+    const bool objectClip = clip && clip->getTrackRole() == Clip::TrackRole::Overlay;
+    return objectClip ? 0.35f : 1.0f;
+}
+
+void PreviewController::normalizeClipPreviewTransformLocked(int clipId, ClipPreviewTransform& transform) const {
+    const auto clip = findTimelineClipByIdLocked(clipId);
+    const bool objectClip = clip && clip->getTrackRole() == Clip::TrackRole::Overlay;
+    transform.zoom = std::clamp(transform.zoom, clipPreviewMinZoomLocked(clipId), 4.0f);
+    transform.rotationDeg = std::clamp(transform.rotationDeg, -180.0f, 180.0f);
+    const float viewportSpan =
+        static_cast<float>(std::max(1, std::max(m_surfaceWidth, m_surfaceHeight)));
+    const float panLimitMultiplier = objectClip ? 2.8f : 4.5f;
+    const float maxPanPx = viewportSpan * panLimitMultiplier * std::max(transform.zoom, 1.0f);
+    transform.panXPx = std::clamp(transform.panXPx, -maxPanPx, maxPanPx);
+    transform.panYPx = std::clamp(transform.panYPx, -maxPanPx, maxPanPx);
+
+    const float centerSnapThresholdPx =
+        transform.zoom < 1.02f ? 8.0f :
+        transform.zoom < 1.2f ? 5.0f :
+        transform.zoom < 1.6f ? 2.0f : 0.5f;
+    if (std::fabs(transform.panXPx) < centerSnapThresholdPx) {
+        transform.panXPx = 0.0f;
+    }
+    if (std::fabs(transform.panYPx) < centerSnapThresholdPx) {
+        transform.panYPx = 0.0f;
+    }
+}
+
 void PreviewController::setGhostPreviewEnabled(bool enabled) {
     std::lock_guard<std::mutex> lock(m_playbackMutex);
     m_ghostPreviewEnabled = enabled;
@@ -1927,25 +1960,195 @@ void PreviewController::setDirtyRegionRedrawEnabled(bool enabled) {
 void PreviewController::setClipPreviewTransform(
     int clipId,
     float zoom,
-    float panXNorm,
-    float panYNorm,
+    float panXPx,
+    float panYPx,
     float rotationDeg,
-    bool mirrorX) {
+    bool mirrorX,
+    bool immediate) {
     if (clipId <= 0) {
         return;
     }
     std::lock_guard<std::mutex> lock(m_playbackMutex);
-    ClipPreviewTransform transform;
-    transform.zoom = std::clamp(zoom, 0.35f, 4.0f);
-    transform.panXNorm = std::clamp(panXNorm, -1.0f, 1.0f);
-    transform.panYNorm = std::clamp(panYNorm, -1.0f, 1.0f);
-    transform.rotationDeg = std::clamp(rotationDeg, -180.0f, 180.0f);
-    transform.mirrorX = mirrorX;
-    if (transform.isIdentity()) {
+    ClipPreviewTransform target;
+    target.zoom = zoom;
+    target.rotationDeg = rotationDeg;
+    target.mirrorX = mirrorX;
+    target.panXPx = panXPx;
+    target.panYPx = panYPx;
+    normalizeClipPreviewTransformLocked(clipId, target);
+    const auto clip = findTimelineClipByIdLocked(clipId);
+    const bool objectClip = clip && clip->getTrackRole() == Clip::TrackRole::Overlay;
+    const float viewportSpan =
+        static_cast<float>(std::max(1, std::max(m_surfaceWidth, m_surfaceHeight)));
+
+    auto storeTransform = [&](const ClipPreviewTransform& transform) {
+        m_clipPreviewTransforms.erase(clipId);
+        m_clipPreviewTransforms[clipId] = transform;
+    };
+
+    if (immediate) {
+        if (target.isIdentity()) {
+            m_clipPreviewTransforms.erase(clipId);
+        } else {
+            storeTransform(target);
+        }
+        return;
+    }
+
+    const auto current = clipPreviewTransformLocked(clipId);
+    if (current.isIdentity()) {
+        if (target.isIdentity()) {
+            m_clipPreviewTransforms.erase(clipId);
+        } else {
+            storeTransform(target);
+        }
+        return;
+    }
+
+    auto blendFloat = [](float from, float to, float alpha) -> float {
+        return from + ((to - from) * alpha);
+    };
+    auto shortestAngleDelta = [](float fromDeg, float toDeg) -> float {
+        float delta = std::fmod((toDeg - fromDeg), 360.0f);
+        if (delta > 180.0f) delta -= 360.0f;
+        if (delta < -180.0f) delta += 360.0f;
+        return delta;
+    };
+
+    const float panDeltaPx =
+        std::max(std::fabs(target.panXPx - current.panXPx), std::fabs(target.panYPx - current.panYPx));
+    const float panDelta = panDeltaPx / viewportSpan;
+    const float zoomDelta = std::fabs(target.zoom - current.zoom);
+    const float rotationDelta = std::fabs(shortestAngleDelta(current.rotationDeg, target.rotationDeg));
+
+    float response = objectClip ? 0.42f : 0.50f;
+    if (panDelta < 0.035f && zoomDelta < 0.045f && rotationDelta < 3.5f) {
+        response *= 0.82f;
+    }
+    if (panDelta > 0.45f || zoomDelta > 0.55f || rotationDelta > 24.0f || current.mirrorX != target.mirrorX) {
+        response = 1.0f;
+    }
+
+    ClipPreviewTransform smoothed;
+    smoothed.zoom = blendFloat(current.zoom, target.zoom, response);
+    smoothed.panXPx = blendFloat(current.panXPx, target.panXPx, response);
+    smoothed.panYPx = blendFloat(current.panYPx, target.panYPx, response);
+    smoothed.rotationDeg = current.rotationDeg + (shortestAngleDelta(current.rotationDeg, target.rotationDeg) * response);
+    smoothed.rotationDeg = std::clamp(smoothed.rotationDeg, -180.0f, 180.0f);
+    smoothed.mirrorX = (response >= 0.999f) ? target.mirrorX : current.mirrorX;
+
+    if (target.isIdentity() && smoothed.isIdentity()) {
         m_clipPreviewTransforms.erase(clipId);
     } else {
-        m_clipPreviewTransforms[clipId] = transform;
+        storeTransform(smoothed);
     }
+}
+
+float PreviewController::getClipPreviewMinZoom(int clipId) {
+    if (clipId <= 0) {
+        return 1.0f;
+    }
+    std::lock_guard<std::mutex> lock(m_playbackMutex);
+    return clipPreviewMinZoomLocked(clipId);
+}
+
+std::array<float, 5> PreviewController::getClipPreviewTransformValues(int clipId) {
+    std::lock_guard<std::mutex> lock(m_playbackMutex);
+    ClipPreviewTransform current = clipPreviewTransformLocked(clipId);
+    normalizeClipPreviewTransformLocked(clipId, current);
+    return {
+        current.zoom,
+        current.panXPx,
+        current.panYPx,
+        current.rotationDeg,
+        current.mirrorX ? 1.0f : 0.0f,
+    };
+}
+
+std::array<float, 5> PreviewController::computeNormalizedPreviewTransform(
+    int clipId,
+    float zoom,
+    float panXPx,
+    float panYPx,
+    float rotationDeg,
+    bool mirrorX) {
+    std::lock_guard<std::mutex> lock(m_playbackMutex);
+    ClipPreviewTransform target;
+    target.zoom = zoom;
+    target.panXPx = panXPx;
+    target.panYPx = panYPx;
+    target.rotationDeg = rotationDeg;
+    target.mirrorX = mirrorX;
+    normalizeClipPreviewTransformLocked(clipId, target);
+    return {
+        target.zoom,
+        target.panXPx,
+        target.panYPx,
+        target.rotationDeg,
+        target.mirrorX ? 1.0f : 0.0f,
+    };
+}
+
+std::array<float, 3> PreviewController::computeScaleGesturePreviewTransform(
+    int clipId,
+    float baseZoom,
+    float basePanXPx,
+    float basePanYPx,
+    float scaleAccumulator,
+    float focusOffsetXPx,
+    float focusOffsetYPx) {
+    std::lock_guard<std::mutex> lock(m_playbackMutex);
+    ClipPreviewTransform target;
+    target.zoom = baseZoom * std::clamp(scaleAccumulator, 0.1f, 8.0f);
+    const float zoomRatio = target.zoom / std::max(baseZoom, 0.001f);
+    target.panXPx = (basePanXPx * zoomRatio) + ((1.0f - zoomRatio) * focusOffsetXPx);
+    target.panYPx = (basePanYPx * zoomRatio) + ((1.0f - zoomRatio) * focusOffsetYPx);
+    normalizeClipPreviewTransformLocked(clipId, target);
+    return {target.zoom, target.panXPx, target.panYPx};
+}
+
+std::array<float, 2> PreviewController::computeDragPanPreviewTransform(
+    int clipId,
+    float currentZoom,
+    float currentPanXPx,
+    float currentPanYPx,
+    float deltaXPx,
+    float deltaYPx) {
+    std::lock_guard<std::mutex> lock(m_playbackMutex);
+    ClipPreviewTransform target;
+    target.zoom = currentZoom;
+    target.panXPx = currentPanXPx + deltaXPx;
+    target.panYPx = currentPanYPx + deltaYPx;
+    normalizeClipPreviewTransformLocked(clipId, target);
+    return {target.panXPx, target.panYPx};
+}
+
+std::array<float, 3> PreviewController::computeDoubleTapPreviewTransform(
+    int clipId,
+    float currentZoom,
+    float currentPanXPx,
+    float currentPanYPx,
+    float tapOffsetXPx,
+    float tapOffsetYPx) {
+    std::lock_guard<std::mutex> lock(m_playbackMutex);
+    const float minZoom = clipPreviewMinZoomLocked(clipId);
+    const float targetZoom =
+        currentZoom < (minZoom + 0.05f) ? std::max(1.15f, minZoom + 0.35f) :
+        currentZoom < 1.75f ? 2.0f :
+        currentZoom < 2.45f ? 2.75f : minZoom;
+    ClipPreviewTransform target;
+    if (std::fabs(targetZoom - minZoom) <= 0.001f) {
+        target.zoom = minZoom;
+        target.panXPx = 0.0f;
+        target.panYPx = 0.0f;
+    } else {
+        target.zoom = targetZoom;
+        const float zoomRatio = target.zoom / std::max(currentZoom, 0.001f);
+        target.panXPx = (currentPanXPx * zoomRatio) + ((1.0f - zoomRatio) * tapOffsetXPx);
+        target.panYPx = (currentPanYPx * zoomRatio) + ((1.0f - zoomRatio) * tapOffsetYPx);
+    }
+    normalizeClipPreviewTransformLocked(clipId, target);
+    return {target.zoom, target.panXPx, target.panYPx};
 }
 
 void PreviewController::clearClipPreviewTransform(int clipId) {

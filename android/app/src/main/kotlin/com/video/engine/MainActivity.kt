@@ -4,7 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.app.NotificationManager
 import android.content.Intent
-import android.graphics.BitmapFactory
+import android.graphics.Rect
 import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -176,6 +176,15 @@ class MainActivity : Activity() {
         val panYPx: Float = 0f,
         val rotationDeg: Float = 0f,
         val mirrorX: Boolean = false,
+    )
+
+    private data class NativeClipPreviewTransformState(
+        val zoom: Float,
+        val panXPx: Float,
+        val panYPx: Float,
+        val rotationDeg: Float,
+        val mirrorX: Boolean,
+        val cleared: Boolean,
     )
 
     private data class PreviewTrimSession(
@@ -365,6 +374,9 @@ class MainActivity : Activity() {
     private var previewTransformGestureClipId: Int? = null
     private var previewTransformBase = ClipPreviewTransform()
     private var previewTransformScaleAccumulator = 1.0f
+    private var previewTransformApplyScheduled = false
+    private var previewTransformTouchArmed = false
+    private var previewTransformNativeImmediatePending = false
     private var previewCropModeActive = false
     private var previewCropModeClipKey: String? = null
     private var previewTrimSession: PreviewTrimSession? = null
@@ -377,7 +389,12 @@ class MainActivity : Activity() {
     private val redoDomains = ArrayDeque<UndoDomain>()
     private val videoClipTimingOverrides = mutableMapOf<Int, ClipTimingSnapshot>()
     private val clipPreviewTransforms = mutableMapOf<Int, ClipPreviewTransform>()
-    private val sourceVisualSizeCache = mutableMapOf<String, Pair<Int, Int>>()
+    private val nativeAppliedClipPreviewTransforms = mutableMapOf<Int, NativeClipPreviewTransformState>()
+    private val previewTransformApplyRunnable =
+        Runnable {
+            previewTransformApplyScheduled = false
+            applySelectedClipPreviewTransform()
+        }
     private val audioClipGainOverrides = mutableMapOf<Int, Float>()
     private val videoClipGainOverrides = mutableMapOf<Int, Float>()
     private val videoClipReverseOverrides = mutableMapOf<Int, Boolean>()
@@ -390,6 +407,9 @@ class MainActivity : Activity() {
     private val duckingEnabledForKey = mutableMapOf<String, Boolean>()
     private val trackVisibilityOverrides = mutableMapOf<TrackType, Boolean>()
     private val trackLockedOverrides = mutableMapOf<TrackType, Boolean>()
+    private var timelineRefreshScheduled = false
+    private var timelineRefreshRequestedDuringRun = false
+    private var lastTimelineRefreshUptimeMs = 0L
     private val hardwareTelemetryHandler = Handler(Looper.getMainLooper())
     private var lastTimelineSeekTelemetryElapsedMs = 0L
     private var autoSaveRestorePromptShown = false
@@ -1381,6 +1401,7 @@ class MainActivity : Activity() {
                     )
                 }.getOrNull()
                 clipPreviewTransforms.remove(clipId)
+                nativeAppliedClipPreviewTransforms.remove(clipId)
                 previewView?.clearClipPreviewTransform(clipId)
                 if (result?.success != true) {
                     previewView?.removeClip(clipId)
@@ -2087,27 +2108,34 @@ class MainActivity : Activity() {
 
     private fun refreshPreviewCropStatus() {
         val clipId = selectedVideoClipId()
-        val transform = clipId?.let { clipPreviewTransforms[it] } ?: ClipPreviewTransform()
+        val transform = clipId?.let(::currentClipPreviewTransform) ?: ClipPreviewTransform()
         val label = selectedNativeClipLabel()
-        val minZoom = clipId?.let { if (isObjectPreviewTransformClip(it)) 0.35f else 1.0f } ?: 1.0f
+        val minZoom = clipId?.let(::resolvePreviewMinZoom) ?: 1.0f
         previewCropStatusText?.text =
-            "$label Edit • ${"%.2fx".format(Locale.US, transform.zoom.coerceIn(minZoom, 4.0f))} • Move / Pinch / Double tap"
+            "$label Edit • ${"%.2fx".format(Locale.US, transform.zoom.coerceIn(minZoom, 4.0f))} • Drag / Pinch / Double tap"
     }
 
-    private fun isObjectPreviewTransformClip(clipId: Int): Boolean {
+    private fun currentClipPreviewTransform(clipId: Int): ClipPreviewTransform {
+        val nativeValues = previewView?.getClipPreviewTransform(clipId)
+        if (nativeValues != null && nativeValues.size >= 5) {
+            return ClipPreviewTransform(
+                zoom = nativeValues[0],
+                panXPx = nativeValues[1],
+                panYPx = nativeValues[2],
+                rotationDeg = nativeValues[3],
+                mirrorX = nativeValues[4] >= 0.5f,
+            )
+        }
+        return clipPreviewTransforms[clipId] ?: ClipPreviewTransform()
+    }
+
+    private fun resolvePreviewMinZoom(clipId: Int): Float {
+        previewView?.let { return it.getClipPreviewMinZoom(clipId).coerceIn(0.35f, 1.0f) }
         return when (nativeClipTrackType[clipId]) {
             TrackType.OVERLAY,
             TrackType.LAYER,
-            -> true
-            else -> false
-        }
-    }
-
-    private fun resolvePreviewZoomRange(clipId: Int): ClosedFloatingPointRange<Float> {
-        return if (isObjectPreviewTransformClip(clipId)) {
-            0.35f..4.0f
-        } else {
-            1.0f..4.0f
+            -> 0.35f
+            else -> 1.0f
         }
     }
 
@@ -3801,6 +3829,7 @@ class MainActivity : Activity() {
         videoClipTimingOverrides.clear()
         previewTrimSession = null
         clipPreviewTransforms.clear()
+        nativeAppliedClipPreviewTransforms.clear()
         preview?.clearClipPreviewTransforms()
         audioClipGainOverrides.clear()
         videoClipGainOverrides.clear()
@@ -4892,12 +4921,41 @@ class MainActivity : Activity() {
     }
 
     private val refreshTimelineRunnable = Runnable {
-        if (!isFinishing && !isDestroyed) refreshMainTimelineTracksInternal()
+        if (isFinishing || isDestroyed) {
+            timelineRefreshScheduled = false
+            timelineRefreshRequestedDuringRun = false
+            return@Runnable
+        }
+        lastTimelineRefreshUptimeMs = SystemClock.uptimeMillis()
+        timelineRefreshRequestedDuringRun = false
+        refreshMainTimelineTracksInternal()
+        if (timelineRefreshRequestedDuringRun && !isFinishing && !isDestroyed) {
+            timelineRefreshRequestedDuringRun = false
+            mainHandler.postDelayed(refreshTimelineRunnable, 12L)
+        } else {
+            timelineRefreshScheduled = false
+        }
     }
 
     private fun refreshMainTimelineTracks() {
-        mainHandler.removeCallbacks(refreshTimelineRunnable)
-        mainHandler.postDelayed(refreshTimelineRunnable, 16L)
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(Runnable { refreshMainTimelineTracks() })
+            return
+        }
+        if (isFinishing || isDestroyed) return
+        if (timelineRefreshScheduled) {
+            timelineRefreshRequestedDuringRun = true
+            return
+        }
+        val elapsedMs = SystemClock.uptimeMillis() - lastTimelineRefreshUptimeMs
+        val delayMs = if (elapsedMs >= 12L) 0L else 12L - elapsedMs
+        timelineRefreshScheduled = true
+        timelineRefreshRequestedDuringRun = false
+        if (delayMs <= 0L) {
+            mainHandler.post(refreshTimelineRunnable)
+        } else {
+            mainHandler.postDelayed(refreshTimelineRunnable, delayMs)
+        }
     }
 
     private fun resolvedTrackVisibility(trackType: TrackType, computedDefault: Boolean): Boolean {
@@ -5904,6 +5962,7 @@ class MainActivity : Activity() {
             return false
         }
         clipPreviewTransforms.remove(clipId)
+        nativeAppliedClipPreviewTransforms.remove(clipId)
         previewView?.clearClipPreviewTransform(clipId)
         videoClipReverseOverrides.remove(clipId)
         videoClipFreezeOverrides.remove(clipId)
@@ -6349,6 +6408,10 @@ class MainActivity : Activity() {
     }
 
     private fun applySelectedClipPreviewTransform() {
+        val immediateNative = previewTransformNativeImmediatePending
+        previewTransformNativeImmediatePending = false
+        previewTransformApplyScheduled = false
+        previewView?.removeCallbacks(previewTransformApplyRunnable)
         val preview = previewView ?: return
         val clipId = selectedVideoClipId()
         if (preview.scaleX != 1f) preview.scaleX = 1f
@@ -6358,7 +6421,7 @@ class MainActivity : Activity() {
         if (preview.rotation != 0f) preview.rotation = 0f
         if (clipId != null) {
             val rawTransform = clipPreviewTransforms[clipId] ?: ClipPreviewTransform()
-            val transform = normalizeClipPreviewTransform(clipId, rawTransform, preview)
+            val transform = normalizeClipPreviewTransform(clipId, rawTransform)
             if (transform != rawTransform) {
                 clipPreviewTransforms[clipId] = transform
             }
@@ -6366,6 +6429,7 @@ class MainActivity : Activity() {
                 clipId = clipId,
                 transform = transform,
                 preview = preview,
+                immediate = immediateNative,
             )
         }
         if (shouldShowDirectPreviewEdit()) {
@@ -6373,130 +6437,59 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun requestSelectedClipPreviewTransformApply(immediate: Boolean = false) {
+        val preview = previewView ?: return
+        if (immediate) {
+            previewTransformNativeImmediatePending = true
+            preview.removeCallbacks(previewTransformApplyRunnable)
+            previewTransformApplyScheduled = false
+            applySelectedClipPreviewTransform()
+            return
+        }
+        if (previewTransformApplyScheduled) {
+            return
+        }
+        previewTransformApplyScheduled = true
+        preview.postOnAnimation(previewTransformApplyRunnable)
+    }
+
     private fun updateSelectedVideoPreviewTransform(
+        immediate: Boolean = false,
         mutator: (ClipPreviewTransform) -> ClipPreviewTransform,
     ): Boolean {
         val clipId = selectedVideoClipId() ?: return false
-        val preview = previewView
-        val updated =
-            if (preview != null) {
-                normalizeClipPreviewTransform(
-                    clipId = clipId,
-                    transform = mutator(clipPreviewTransforms[clipId] ?: ClipPreviewTransform()),
-                    preview = preview,
-                )
-            } else {
-                mutator(clipPreviewTransforms[clipId] ?: ClipPreviewTransform())
-            }
+        val updatedRaw = mutator(clipPreviewTransforms[clipId] ?: ClipPreviewTransform())
+        val updated = normalizeClipPreviewTransform(clipId, updatedRaw)
         clipPreviewTransforms[clipId] = updated
-        applySelectedClipPreviewTransform()
+        requestSelectedClipPreviewTransformApply(immediate = immediate)
         return true
-    }
-
-    private fun resolveClipSourceVisualSize(clipId: Int): Pair<Int, Int>? {
-        val sourcePath = nativeClipSourcePath[clipId].orEmpty()
-        if (sourcePath.isBlank()) return null
-        sourceVisualSizeCache[sourcePath]?.let { return it }
-        val resolved =
-            runCatching {
-                if (sourcePath.startsWith("content://")) {
-                    contentResolver.openInputStream(Uri.parse(sourcePath))?.use { stream ->
-                        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                        BitmapFactory.decodeStream(stream, null, options)
-                        if (options.outWidth > 0 && options.outHeight > 0) {
-                            return@runCatching options.outWidth to options.outHeight
-                        }
-                    }
-                } else if (File(sourcePath).exists()) {
-                    val imageOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeFile(sourcePath, imageOptions)
-                    if (imageOptions.outWidth > 0 && imageOptions.outHeight > 0) {
-                        return@runCatching imageOptions.outWidth to imageOptions.outHeight
-                    }
-                }
-
-                val retriever = MediaMetadataRetriever()
-                try {
-                    if (sourcePath.startsWith("content://")) {
-                        retriever.setDataSource(this, Uri.parse(sourcePath))
-                    } else if (File(sourcePath).exists()) {
-                        retriever.setDataSource(sourcePath)
-                    } else {
-                        return@runCatching null
-                    }
-                    val width =
-                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
-                            ?.toIntOrNull()
-                            ?: 0
-                    val height =
-                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
-                            ?.toIntOrNull()
-                            ?: 0
-                    val rotation =
-                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
-                            ?.toIntOrNull()
-                            ?: 0
-                    when {
-                        width <= 0 || height <= 0 -> null
-                        rotation == 90 || rotation == 270 -> height to width
-                        else -> width to height
-                    }
-                } finally {
-                    runCatching { retriever.release() }
-                }
-            }.getOrNull()
-        resolved?.let { sourceVisualSizeCache[sourcePath] = it }
-        return resolved
-    }
-
-    private fun resolvePreviewPanBounds(
-        clipId: Int,
-        zoom: Float,
-        preview: View,
-    ): Pair<Float, Float> {
-        val previewWidth = preview.width.takeIf { it > 0 }?.toFloat()
-            ?: preview.resources.displayMetrics.widthPixels.toFloat()
-        val previewHeight = preview.height.takeIf { it > 0 }?.toFloat()
-            ?: preview.resources.displayMetrics.heightPixels.toFloat()
-        val (sourceWidth, sourceHeight) =
-            resolveClipSourceVisualSize(clipId)
-                ?.takeIf { it.first > 0 && it.second > 0 }
-                ?: (previewWidth.roundToInt() to previewHeight.roundToInt())
-        val sourceAspect = sourceWidth.toFloat() / sourceHeight.toFloat().coerceAtLeast(1f)
-        val previewAspect = previewWidth / previewHeight.coerceAtLeast(1f)
-        val baseRenderedWidth: Float
-        val baseRenderedHeight: Float
-        if (sourceAspect > previewAspect) {
-            baseRenderedWidth = previewHeight * sourceAspect
-            baseRenderedHeight = previewHeight
-        } else {
-            baseRenderedWidth = previewWidth
-            baseRenderedHeight = previewWidth / sourceAspect.coerceAtLeast(0.0001f)
-        }
-        val renderedWidth = baseRenderedWidth * zoom
-        val renderedHeight = baseRenderedHeight * zoom
-        return if (isObjectPreviewTransformClip(clipId)) {
-            max(previewWidth, renderedWidth) * 0.5f to
-                max(previewHeight, renderedHeight) * 0.5f
-        } else {
-            ((renderedWidth - previewWidth) * 0.5f).coerceAtLeast(0f) to
-                ((renderedHeight - previewHeight) * 0.5f).coerceAtLeast(0f)
-        }
     }
 
     private fun normalizeClipPreviewTransform(
         clipId: Int,
         transform: ClipPreviewTransform,
-        preview: View,
     ): ClipPreviewTransform {
-        val zoomRange = resolvePreviewZoomRange(clipId)
-        val safeZoom = transform.zoom.coerceIn(zoomRange.start, zoomRange.endInclusive)
-        val (maxPanX, maxPanY) = resolvePreviewPanBounds(clipId, safeZoom, preview)
-        val centerSnapThreshold = resolvePreviewCenterSnapThreshold(safeZoom)
+        val nativeResult =
+            previewView?.computeNormalizedPreviewTransform(
+                clipId = clipId,
+                zoom = transform.zoom,
+                panXPx = transform.panXPx,
+                panYPx = transform.panYPx,
+                rotationDeg = transform.rotationDeg,
+                mirrorX = transform.mirrorX,
+            )
+        if (nativeResult != null && nativeResult.size >= 5) {
+            return ClipPreviewTransform(
+                zoom = nativeResult[0],
+                panXPx = nativeResult[1],
+                panYPx = nativeResult[2],
+                rotationDeg = nativeResult[3],
+                mirrorX = nativeResult[4] >= 0.5f,
+            )
+        }
+        val minZoom = resolvePreviewMinZoom(clipId)
         return transform.copy(
-            zoom = safeZoom,
-            panXPx = transform.panXPx.coerceIn(-maxPanX, maxPanX).let { if (abs(it) < centerSnapThreshold) 0f else it },
-            panYPx = transform.panYPx.coerceIn(-maxPanY, maxPanY).let { if (abs(it) < centerSnapThreshold) 0f else it },
+            zoom = transform.zoom.coerceIn(minZoom, 4.0f),
             rotationDeg = transform.rotationDeg.coerceIn(-180f, 180f).let { if (abs(it) < 0.75f) 0f else it },
         )
     }
@@ -6505,40 +6498,66 @@ class MainActivity : Activity() {
         clipId: Int,
         transform: ClipPreviewTransform,
         preview: View,
+        immediate: Boolean = false,
     ) {
         val previewApi = previewView ?: return
-        val normalized = normalizeClipPreviewTransform(clipId, transform, preview)
-        val (maxPanX, maxPanY) = resolvePreviewPanBounds(clipId, normalized.zoom, preview)
-        val panXNorm =
-            if (maxPanX > 0.5f) {
-                (normalized.panXPx / maxPanX).coerceIn(-1f, 1f)
-            } else {
-                0f
-            }
-        val panYNorm =
-            if (maxPanY > 0.5f) {
-                (normalized.panYPx / maxPanY).coerceIn(-1f, 1f)
-            } else {
-                0f
-            }
+        val normalized = normalizeClipPreviewTransform(clipId, transform)
         val isIdentity =
             normalized.zoom <= 1.001f &&
-                abs(panXNorm) <= 0.001f &&
-                abs(panYNorm) <= 0.001f &&
+                abs(normalized.panXPx) <= 0.5f &&
+                abs(normalized.panYPx) <= 0.5f &&
                 abs(normalized.rotationDeg) <= 0.001f &&
                 !normalized.mirrorX
+        val nativeState =
+            NativeClipPreviewTransformState(
+                zoom = normalized.zoom,
+                panXPx = normalized.panXPx,
+                panYPx = normalized.panYPx,
+                rotationDeg = normalized.rotationDeg,
+                mirrorX = normalized.mirrorX,
+                cleared = isIdentity,
+            )
+        val lastState = nativeAppliedClipPreviewTransforms[clipId]
+        if (!immediate && lastState == nativeState) {
+            return
+        }
         if (isIdentity) {
             previewApi.clearClipPreviewTransform(clipId)
+            nativeAppliedClipPreviewTransforms[clipId] = nativeState
         } else {
             previewApi.setClipPreviewTransform(
                 clipId = clipId,
                 zoom = normalized.zoom,
-                panXNorm = panXNorm,
-                panYNorm = panYNorm,
+                panXPx = normalized.panXPx,
+                panYPx = normalized.panYPx,
                 rotationDeg = normalized.rotationDeg,
                 mirrorX = normalized.mirrorX,
+                immediate = immediate,
             )
+            nativeAppliedClipPreviewTransforms[clipId] = nativeState
         }
+    }
+
+    private fun motionEventInsideView(event: MotionEvent, view: View?): Boolean {
+        if (view == null || view.visibility != View.VISIBLE) return false
+        val rect = Rect()
+        if (!view.getGlobalVisibleRect(rect)) return false
+        return rect.contains(event.rawX.roundToInt(), event.rawY.roundToInt())
+    }
+
+    private fun canStartPreviewTransformAt(event: MotionEvent): Boolean {
+        if (!motionEventInsideView(event, previewCropFrameGuideView)) {
+            return false
+        }
+        val blockedViews =
+            listOf(
+                findViewById<View?>(R.id.previewPanelHeader),
+                findViewById<View?>(R.id.playbackUndoRedoRow),
+                findViewById<View?>(R.id.previewHud),
+                findViewById<View?>(R.id.previewCropTopRail),
+                findViewById<View?>(R.id.previewCropActionRail),
+            )
+        return blockedViews.none { motionEventInsideView(event, it) }
     }
 
     private fun updateNativeClipTiming(
@@ -6769,7 +6788,7 @@ class MainActivity : Activity() {
     }
 
     private fun setupPreviewTransformGestures() {
-        previewTransformTouchSlop = ViewConfiguration.get(this).scaledTouchSlop
+        previewTransformTouchSlop = (ViewConfiguration.get(this).scaledTouchSlop * 1.6f).roundToInt()
         previewTransformGestureDetector =
             GestureDetector(
                 this,
@@ -6786,14 +6805,8 @@ class MainActivity : Activity() {
             object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                 override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
                     val clipId = selectedVideoClipId() ?: return false
-                    val preview = previewView ?: return false
                     previewTransformGestureClipId = clipId
-                    previewTransformBase =
-                        normalizeClipPreviewTransform(
-                            clipId = clipId,
-                            transform = clipPreviewTransforms[clipId] ?: ClipPreviewTransform(),
-                            preview = preview,
-                        )
+                    previewTransformBase = currentClipPreviewTransform(clipId)
                     previewTransformScaleAccumulator = 1.0f
                     previewTransformPinching = true
                     previewView?.setLayerType(View.LAYER_TYPE_HARDWARE, null)
@@ -6804,31 +6817,36 @@ class MainActivity : Activity() {
                     val clipId = previewTransformGestureClipId ?: selectedVideoClipId() ?: return false
                     val preview = previewView ?: return false
                     val base = previewTransformBase
-                    val zoomRange = resolvePreviewZoomRange(clipId)
-                    val scaleFactor = smoothPreviewScaleFactor(detector.scaleFactor, base.zoom)
                     previewTransformScaleAccumulator =
-                        (previewTransformScaleAccumulator * scaleFactor).coerceIn(0.1f, 8.0f)
-                    val nextZoom = (base.zoom * previewTransformScaleAccumulator).coerceIn(zoomRange.start, zoomRange.endInclusive)
+                        (previewTransformScaleAccumulator * detector.scaleFactor).coerceIn(0.1f, 8.0f)
                     val centerX = preview.width * 0.5f
                     val centerY = preview.height * 0.5f
-                    val zoomRatio = nextZoom / base.zoom.coerceAtLeast(0.001f)
-                    clipPreviewTransforms[clipId] =
-                        normalizeClipPreviewTransform(
+                    val nativeResult =
+                        preview.computeScaleGesturePreviewTransform(
                             clipId = clipId,
-                            transform = base.copy(
-                                zoom = nextZoom,
-                                panXPx = (base.panXPx * zoomRatio) + ((1f - zoomRatio) * (detector.focusX - centerX)),
-                                panYPx = (base.panYPx * zoomRatio) + ((1f - zoomRatio) * (detector.focusY - centerY)),
-                            ),
-                            preview = preview,
+                            baseZoom = base.zoom,
+                            basePanXPx = base.panXPx,
+                            basePanYPx = base.panYPx,
+                            scaleAccumulator = previewTransformScaleAccumulator,
+                            focusOffsetXPx = detector.focusX - centerX,
+                            focusOffsetYPx = detector.focusY - centerY,
                         )
-                    applySelectedClipPreviewTransform()
+                    if (nativeResult != null && nativeResult.size >= 3) {
+                        clipPreviewTransforms[clipId] =
+                            base.copy(
+                                zoom = nativeResult[0],
+                                panXPx = nativeResult[1],
+                                panYPx = nativeResult[2],
+                            )
+                    }
+                    requestSelectedClipPreviewTransformApply()
                     return true
                 }
 
                 override fun onScaleEnd(detector: ScaleGestureDetector) {
                     previewTransformPinching = false
                     previewTransformScaleAccumulator = 1.0f
+                    requestSelectedClipPreviewTransformApply(immediate = true)
                     previewView?.setLayerType(View.LAYER_TYPE_NONE, null)
                 }
             },
@@ -6841,36 +6859,6 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun resolvePreviewPanDamping(zoom: Float): Float {
-        return when {
-            zoom < 1.08f -> 0.86f
-            zoom < 1.6f -> 0.92f
-            else -> 0.96f
-        }
-    }
-
-    private fun resolvePreviewCenterSnapThreshold(zoom: Float): Float {
-        return when {
-            zoom < 1.02f -> 8f
-            zoom < 1.2f -> 5f
-            zoom < 1.6f -> 2f
-            else -> 0.5f
-        }
-    }
-
-    private fun smoothPreviewScaleFactor(
-        rawScaleFactor: Float,
-        zoom: Float,
-    ): Float {
-        val sensitivity =
-            when {
-                zoom < 1.1f -> 0.88f
-                zoom < 2.0f -> 0.82f
-                else -> 0.76f
-            }
-        return (1f + ((rawScaleFactor - 1f) * sensitivity)).coerceIn(0.75f, 1.35f)
-    }
-
     private fun handlePreviewTransformTouch(event: MotionEvent): Boolean {
         if (!shouldShowDirectPreviewEdit()) {
             return false
@@ -6880,6 +6868,7 @@ class MainActivity : Activity() {
             previewTransformPinching = false
             previewTransformGestureClipId = null
             previewTransformScaleAccumulator = 1.0f
+            previewTransformTouchArmed = false
             previewView?.setLayerType(View.LAYER_TYPE_NONE, null)
             return false
         }
@@ -6894,6 +6883,7 @@ class MainActivity : Activity() {
             ) {
                 previewTransformPinching = false
                 previewTransformScaleAccumulator = 1.0f
+                previewTransformTouchArmed = false
                 previewView?.setLayerType(View.LAYER_TYPE_NONE, null)
             }
             return true
@@ -6901,15 +6891,24 @@ class MainActivity : Activity() {
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                if (!canStartPreviewTransformAt(event)) {
+                    previewTransformTouchArmed = false
+                    previewView?.setLayerType(View.LAYER_TYPE_NONE, null)
+                    return false
+                }
                 previewTransformGestureClipId = selectedVideoClipId()
                 previewTransformLastX = event.x
                 previewTransformLastY = event.y
                 previewTransformDragging = false
+                previewTransformTouchArmed = true
                 previewView?.setLayerType(View.LAYER_TYPE_HARDWARE, null)
                 return true
             }
 
             MotionEvent.ACTION_MOVE -> {
+                if (!previewTransformTouchArmed) {
+                    return false
+                }
                 val dx = event.x - previewTransformLastX
                 val dy = event.y - previewTransformLastY
                 if (!previewTransformDragging &&
@@ -6920,21 +6919,37 @@ class MainActivity : Activity() {
                 previewTransformDragging = true
                 previewTransformLastX = event.x
                 previewTransformLastY = event.y
-                updateSelectedVideoPreviewTransform { current ->
-                    val panDamping = resolvePreviewPanDamping(current.zoom)
-                    current.copy(
-                        panXPx = current.panXPx + (dx * panDamping),
-                        panYPx = current.panYPx + (dy * panDamping),
+                val clipId = selectedVideoClipId() ?: return false
+                val current = currentClipPreviewTransform(clipId)
+                val nativeResult =
+                    previewView?.computeDragPanPreviewTransform(
+                        clipId = clipId,
+                        currentZoom = current.zoom,
+                        currentPanXPx = current.panXPx,
+                        currentPanYPx = current.panYPx,
+                        deltaXPx = dx,
+                        deltaYPx = dy,
                     )
+                if (nativeResult != null && nativeResult.size >= 2) {
+                    clipPreviewTransforms[clipId] =
+                        current.copy(
+                            panXPx = nativeResult[0],
+                            panYPx = nativeResult[1],
+                        )
+                    requestSelectedClipPreviewTransformApply()
                 }
                 return true
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (previewTransformTouchArmed) {
+                    requestSelectedClipPreviewTransformApply(immediate = true)
+                }
                 previewTransformDragging = false
                 previewTransformPinching = false
                 previewTransformGestureClipId = null
                 previewTransformScaleAccumulator = 1.0f
+                previewTransformTouchArmed = false
                 previewView?.setLayerType(View.LAYER_TYPE_NONE, null)
                 return true
             }
@@ -6947,39 +6962,27 @@ class MainActivity : Activity() {
         if (!shouldShowDirectPreviewEdit()) return false
         val clipId = selectedVideoClipId() ?: return false
         val preview = previewView ?: return false
-        val zoomRange = resolvePreviewZoomRange(clipId)
-        val current =
-            normalizeClipPreviewTransform(
-                clipId = clipId,
-                transform = clipPreviewTransforms[clipId] ?: ClipPreviewTransform(),
-                preview = preview,
-            )
+        val current = currentClipPreviewTransform(clipId)
         val centerX = preview.width * 0.5f
         val centerY = preview.height * 0.5f
-        val targetZoom =
-            when {
-                current.zoom < (zoomRange.start + 0.05f) -> max(1.15f, zoomRange.start + 0.35f)
-                current.zoom < 1.75f -> 2.0f
-                current.zoom < 2.45f -> 2.75f
-                else -> 1.0f
-            }
-        val updated =
-            if (targetZoom == 1.0f) {
-                ClipPreviewTransform(zoom = max(zoomRange.start, 1.0f))
-            } else {
-                val zoomRatio = targetZoom / current.zoom.coerceAtLeast(0.001f)
-                normalizeClipPreviewTransform(
-                    clipId = clipId,
-                    transform = current.copy(
-                        zoom = targetZoom,
-                        panXPx = (current.panXPx * zoomRatio) + ((1f - zoomRatio) * (event.x - centerX)),
-                        panYPx = (current.panYPx * zoomRatio) + ((1f - zoomRatio) * (event.y - centerY)),
-                    ),
-                    preview = preview,
+        val nativeResult =
+            preview.computeDoubleTapPreviewTransform(
+                clipId = clipId,
+                currentZoom = current.zoom,
+                currentPanXPx = current.panXPx,
+                currentPanYPx = current.panYPx,
+                tapOffsetXPx = event.x - centerX,
+                tapOffsetYPx = event.y - centerY,
+            )
+        if (nativeResult != null && nativeResult.size >= 3) {
+            clipPreviewTransforms[clipId] =
+                current.copy(
+                    zoom = nativeResult[0],
+                    panXPx = nativeResult[1],
+                    panYPx = nativeResult[2],
                 )
-            }
-        clipPreviewTransforms[clipId] = updated
-        applySelectedClipPreviewTransform()
+        }
+        requestSelectedClipPreviewTransformApply(immediate = true)
         refreshPreviewCropStatus()
         noteUiButtonTap("crop_double_tap", "preview_crop")
         return true
@@ -7040,8 +7043,24 @@ class MainActivity : Activity() {
             ClipKind.STICKER -> "GRAPHIC LAYER"
             ClipKind.NONE -> ""
         }
+        val contextName =
+            selectedClipContextName(kind)
+                ?.replace('\n', ' ')
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { if (it.length > 24) "${it.take(21)}..." else it }
         val isLocked = selectedTrackType?.let(::isTrackLocked) == true
-        header.text = if (isLocked) "$label • LOCKED" else label
+        header.text =
+            buildString {
+                append(label)
+                if (!contextName.isNullOrBlank()) {
+                    append(" • ")
+                    append(contextName)
+                }
+                if (isLocked) {
+                    append(" • LOCKED")
+                }
+            }
         header.setTextColor(if (isLocked) resources.getColor(R.color.accent_cyan) else resources.getColor(R.color.accent_blue))
         header.alpha = if (isLocked) 0.88f else 1f
         header.visibility = View.VISIBLE
@@ -7159,7 +7178,7 @@ class MainActivity : Activity() {
             ClipKind.OVERLAY,
             -> {
                 val clipId = selectedVideoClipId() ?: return false
-                val zoomRange = resolvePreviewZoomRange(clipId)
+                val zoomRange = resolvePreviewMinZoom(clipId)..4.0f
                 updateSelectedVideoPreviewTransform { current ->
                     current.copy(zoom = (current.zoom * safeFactor).coerceIn(zoomRange.start, zoomRange.endInclusive))
                 }
@@ -7816,7 +7835,7 @@ class MainActivity : Activity() {
             ClipKind.VIDEO, ClipKind.OVERLAY -> {
                 val selected = selectedVideoClipId() ?: return
                 val clipLabel = selectedNativeClipLabel()
-                val cur = clipPreviewTransforms[selected] ?: ClipPreviewTransform()
+                val cur = currentClipPreviewTransform(selected)
                 ModernSheet.show(this, "$clipLabel Rotate & Mirror") {
                     slider("Rotation", -180f, 180f, cur.rotationDeg, { "${it.toInt()}°" }) { v ->
                         updateSelectedVideoPreviewTransform { it.copy(rotationDeg = v) }

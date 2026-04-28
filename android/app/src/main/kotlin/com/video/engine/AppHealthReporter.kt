@@ -26,9 +26,12 @@ class AppHealthReporter(
     private val appContext = context.applicationContext
     private val prefs: SharedPreferences =
         appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-    private val firestore = FirebaseFirestore.getInstance()
-    private val awsControlPlaneClient = AwsControlPlaneClient(appContext)
-    private val crashlytics = FirebaseCrashlytics.getInstance()
+    private val opsEnabled = context.resources.getBoolean(R.bool.storyline_runtime_ops_enabled)
+    private val firestore =
+        if (opsEnabled) runCatching { FirebaseFirestore.getInstance() }.getOrNull() else null
+    private val awsControlPlaneClient = if (opsEnabled) AwsControlPlaneClient(appContext) else null
+    private val crashlytics =
+        if (opsEnabled) runCatching { FirebaseCrashlytics.getInstance() }.getOrNull() else null
     private val writerExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "app-health-writer").apply { isDaemon = true }
     }
@@ -44,9 +47,9 @@ class AppHealthReporter(
 
     fun bindSession(sessionId: String) {
         this.sessionId = sessionId.ifBlank { "unknown" }
-        crashlytics.setCustomKey("ops_installation_id", installationId)
-        crashlytics.setCustomKey("ops_session_id", this.sessionId)
-        crashlytics.setCustomKey("ops_app_state", appState)
+        crashlytics?.setCustomKey("ops_installation_id", installationId)
+        crashlytics?.setCustomKey("ops_session_id", this.sessionId)
+        crashlytics?.setCustomKey("ops_app_state", appState)
     }
 
     fun installationId(): String = installationId
@@ -71,10 +74,10 @@ class AppHealthReporter(
         lastScreen = screen.ifBlank { "editor" }
         hasProjectContent = hasContent
         isPlaying = playing
-        crashlytics.setCustomKey("ops_screen", lastScreen)
-        crashlytics.setCustomKey("ops_has_project_content", hasProjectContent)
-        crashlytics.setCustomKey("ops_is_playing", isPlaying)
-        crashlytics.setCustomKey("ops_app_state", appState)
+        crashlytics?.setCustomKey("ops_screen", lastScreen)
+        crashlytics?.setCustomKey("ops_has_project_content", hasProjectContent)
+        crashlytics?.setCustomKey("ops_is_playing", isPlaying)
+        crashlytics?.setCustomKey("ops_app_state", appState)
         flush(force)
     }
 
@@ -87,7 +90,7 @@ class AppHealthReporter(
     ) {
         if (closed.get()) return
         lastAction = action.ifBlank { lastAction }
-        crashlytics.setCustomKey("ops_last_action", lastAction)
+        crashlytics?.setCustomKey("ops_last_action", lastAction)
         updateSurface(screen, hasContent, playing, force)
     }
 
@@ -95,7 +98,7 @@ class AppHealthReporter(
         if (closed.get()) return
         appState = "background"
         lastAction = "activity_destroy"
-        crashlytics.setCustomKey("ops_last_action", lastAction)
+        crashlytics?.setCustomKey("ops_last_action", lastAction)
         updateSurface(screen, hasContent, playing, force = true)
         if (!closed.compareAndSet(false, true)) return
         writerExecutor.shutdown()
@@ -107,6 +110,9 @@ class AppHealthReporter(
             return
         }
         lastUpdatedAtMs = now
+        if (!opsEnabled) {
+            return
+        }
         val sessionSnapshot = sessionId
         val screenSnapshot = lastScreen
         val actionSnapshot = lastAction
@@ -150,23 +156,27 @@ class AppHealthReporter(
                 .put("source", "android-client")
 
         writerExecutor.execute {
+            val firestore = firestore
             runCatching {
-                firestore.collection("ops_installations")
-                    .document(installationId)
-                    .set(payload, SetOptions.merge())
-                    .addOnSuccessListener {
-                        Log.d(
-                            TAG,
-                            "Health ping updated state=$appStateSnapshot screen=$screenSnapshot action=$actionSnapshot session=$sessionSnapshot",
-                        )
-                    }
-                    .addOnFailureListener { error ->
-                        Log.w(TAG, "Failed to write health ping: ${error.message}")
-                    }
+                if (firestore != null) {
+                    firestore.collection("ops_installations")
+                        .document(installationId)
+                        .set(payload, SetOptions.merge())
+                        .addOnSuccessListener {
+                            Log.d(
+                                TAG,
+                                "Health ping updated state=$appStateSnapshot screen=$screenSnapshot action=$actionSnapshot session=$sessionSnapshot",
+                            )
+                        }
+                        .addOnFailureListener { error ->
+                            Log.w(TAG, "Failed to write health ping: ${error.message}")
+                        }
+                }
             }.onFailure { error ->
                 Log.w(TAG, "Failed to queue health ping: ${error.message}")
             }
-            if (awsControlPlaneClient.isConfigured()) {
+            val awsControlPlaneClient = awsControlPlaneClient
+            if (awsControlPlaneClient != null && awsControlPlaneClient.isConfigured()) {
                 awsControlPlaneClient.postHeartbeat(awsPayload)
             }
         }

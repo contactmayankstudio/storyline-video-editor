@@ -148,6 +148,14 @@ public:
     [[nodiscard]] int getTrackZOrder() const { return trackZOrder_; }
 
     void setTrackRole(TrackRole role) { trackRole_ = role; }
+    
+    void setTrackType(const std::string& type) {
+        if (type == "VIDEO" || type == "MainVideo") trackRole_ = TrackRole::MainVideo;
+        else if (type == "OVERLAY" || type == "Overlay" || type == "LAYER" || type == "Layer") trackRole_ = TrackRole::Overlay;
+        else if (type == "TEXT" || type == "TextSticker") trackRole_ = TrackRole::TextSticker;
+        else if (type == "AUDIO" || type == "Audio") trackRole_ = TrackRole::Audio;
+    }
+
     void setTrackLane(int lane) { trackLane_ = std::max(0, lane); }
     void setTrackZOrder(int zOrder) { trackZOrder_ = zOrder; }
 

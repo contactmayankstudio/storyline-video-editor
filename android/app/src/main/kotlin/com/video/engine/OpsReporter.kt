@@ -39,9 +39,13 @@ class OpsReporter(
         val startedAtMs: Long,
     )
 
-    private val analytics: FirebaseAnalytics = Firebase.analytics
-    private val crashlytics = FirebaseCrashlytics.getInstance()
-    private val remoteConfig: FirebaseRemoteConfig = Firebase.remoteConfig
+    private val opsEnabled = context.resources.getBoolean(R.bool.storyline_runtime_ops_enabled)
+    private val analytics: FirebaseAnalytics? =
+        if (opsEnabled) runCatching { Firebase.analytics }.getOrNull() else null
+    private val crashlytics =
+        if (opsEnabled) runCatching { FirebaseCrashlytics.getInstance() }.getOrNull() else null
+    private val remoteConfig: FirebaseRemoteConfig? =
+        if (opsEnabled) runCatching { Firebase.remoteConfig }.getOrNull() else null
     private val activeTraces = ConcurrentHashMap<String, ActiveTrace>()
     private var configListenerRegistration: ConfigUpdateListenerRegistration? = null
 
@@ -50,7 +54,9 @@ class OpsReporter(
     @Volatile private var forceFlushActions = defaultForceFlushActions()
 
     init {
-        configureRemoteConfig()
+        if (opsEnabled) {
+            configureRemoteConfig()
+        }
     }
 
     fun heartbeatIntervalMs(): Long = heartbeatIntervalMs
@@ -61,6 +67,7 @@ class OpsReporter(
         action: String,
         metadata: Map<String, Any?> = emptyMap(),
     ) {
+        if (!opsEnabled) return
         val sanitizedAction = sanitizeEventValue(action)
         val bundle = Bundle().apply {
             putString("action", sanitizedAction)
@@ -78,8 +85,8 @@ class OpsReporter(
                 }
             }
         }
-        analytics.logEvent(EVENT_NAME, bundle)
-        crashlytics.log(
+        analytics?.logEvent(EVENT_NAME, bundle)
+        crashlytics?.log(
             buildString {
                 append("ops_action=")
                 append(sanitizedAction)
@@ -96,9 +103,9 @@ class OpsReporter(
         traceName: String,
         attributes: Map<String, String> = emptyMap(),
     ) {
-        if (!perfTracingEnabled) return
+        if (!opsEnabled || !perfTracingEnabled) return
         stopTrace(slot, success = false, attributes = mapOf("replaced" to "true"))
-        val trace = Firebase.performance.newTrace(sanitizeTraceName(traceName))
+        val trace = runCatching { Firebase.performance.newTrace(sanitizeTraceName(traceName)) }.getOrNull() ?: return
         trace.putAttribute("session", sanitizeEventValue(sessionIdProvider()))
         attributes.forEach { (key, value) ->
             trace.putAttribute(sanitizeMetricName(key), sanitizeEventValue(value))
@@ -138,6 +145,7 @@ class OpsReporter(
     }
 
     private fun configureRemoteConfig() {
+        val remoteConfig = remoteConfig ?: return
         remoteConfig.setConfigSettingsAsync(
             remoteConfigSettings {
                 minimumFetchIntervalInSeconds = 900
@@ -169,6 +177,7 @@ class OpsReporter(
     }
 
     private fun registerRealtimeListener() {
+        val remoteConfig = remoteConfig ?: return
         configListenerRegistration?.remove()
         configListenerRegistration = remoteConfig.addOnConfigUpdateListener(
             object : ConfigUpdateListener {
@@ -182,13 +191,13 @@ class OpsReporter(
                         }
                         .addOnFailureListener { error ->
                             Log.w(TAG, "Remote config realtime activation failed: ${error.message}")
-                            crashlytics.log("remote_config_realtime_activation_failed=${error.message}")
+                            crashlytics?.log("remote_config_realtime_activation_failed=${error.message}")
                         }
                 }
 
                 override fun onError(error: FirebaseRemoteConfigException) {
                     Log.w(TAG, "Remote config realtime listener error: ${error.message}")
-                    crashlytics.log("remote_config_realtime_listener_error=${error.message}")
+                    crashlytics?.log("remote_config_realtime_listener_error=${error.message}")
                 }
             },
         )
@@ -198,6 +207,7 @@ class OpsReporter(
         updatedKeys: Set<String>,
         source: String,
     ) {
+        val remoteConfig = remoteConfig ?: return
         perfTracingEnabled = remoteConfig.getBoolean("ops_perf_tracing_enabled")
         heartbeatIntervalMs = remoteConfig
             .getLong("ops_health_heartbeat_interval_ms")
@@ -219,7 +229,7 @@ class OpsReporter(
             TAG,
             "Remote config applied source=$source keys=$changedKeys tracing=$perfTracingEnabled heartbeatMs=$heartbeatIntervalMs",
         )
-        crashlytics.log("remote_config_applied source=$source keys=$changedKeys")
+        crashlytics?.log("remote_config_applied source=$source keys=$changedKeys")
         onRemoteConfigApplied?.invoke(updatedKeys)
     }
 

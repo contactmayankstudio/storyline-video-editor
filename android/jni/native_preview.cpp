@@ -99,6 +99,12 @@ std::mutex g_mutex;
 EGLDisplay g_eglDisplay = EGL_NO_DISPLAY;
 EGLContext g_eglContext = EGL_NO_CONTEXT;
 EGLSurface g_eglSurface = EGL_NO_SURFACE;
+
+// Forward declarations
+static bool makeOuterEglCurrentLocked(const char* logPrefix);
+static bool shouldRenderTextOverlaysInPreviewLocked();
+static bool hasActiveTextOverlayAtTimeLocked(long long timelineMs);
+// removed ambiguous renderTextOverlays declaration
 ANativeWindow* g_nativeWindow = nullptr;
 
 // Engine state
@@ -2789,12 +2795,26 @@ transcode_clip_done:
             return;
         }
         const int64_t currentTime = g_currentTimeMs.load(std::memory_order_acquire);
+        
+        // If playback is active, the render thread will pick up the new uniforms in the next frame
         if (g_isRenderingActive.load(std::memory_order_acquire)) {
             g_pendingScrubMs.store(static_cast<long long>(currentTime), std::memory_order_release);
             return;
         }
+        
+        // If playback is paused, we need to force a redraw to see the effect changes
         g_pendingScrubMs.store(-1, std::memory_order_release);
         g_preview->scrubToTimelineTime(currentTime);
+        
+        // IMPORTANT: Manually render one frame and swap buffers to show live effects
+        if (makeOuterEglCurrentLocked("[LiveEffects]")) {
+            if (g_preview->renderFrame()) {
+                if (!eglSwapBuffers(g_eglDisplay, g_eglSurface)) {
+                    LOGE("[LiveEffects] eglSwapBuffers failed: 0x%x", eglGetError());
+                }
+            }
+        }
+        
         const int64_t scrubTime = g_preview->getPlaybackTimelineTimeMs();
         g_currentTimeMs.store(scrubTime, std::memory_order_release);
     }
@@ -3855,14 +3875,19 @@ Java_com_video_engine_VideoPreviewView_nativeReleasePreview(
  */
 JNIEXPORT jint JNICALL
 Java_com_video_engine_VideoPreviewView_nativeAddClip(
-    JNIEnv* env, jobject thiz, jstring videoPathJ) {
-    
+    JNIEnv* env, jobject thiz, 
+    jstring videoPathJ, 
+    jstring trackTypeJ,
+    jlong startTimeMs,
+    jint trackLane,
+    jint zOrder) {
+
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_preview) {
         LOGE("[Timeline] Cannot add clip: preview controller missing");
         return -1;
     }
-    
+
     auto timeline = g_preview->getTimeline();
     if (!timeline) {
         LOGE("[Timeline] Cannot add clip: timeline missing");
@@ -3872,6 +3897,10 @@ Java_com_video_engine_VideoPreviewView_nativeAddClip(
     const char* path = env->GetStringUTFChars(videoPathJ, nullptr);
     std::string videoPath(path);
     env->ReleaseStringUTFChars(videoPathJ, path);
+
+    const char* trackTypeStr = env->GetStringUTFChars(trackTypeJ, nullptr);
+    std::string trackType(trackTypeStr);
+    env->ReleaseStringUTFChars(trackTypeJ, trackTypeStr);
 
     if (!g_preview->isReady()) {
         if (!g_preview->open(videoPath)) {
@@ -3897,20 +3926,30 @@ Java_com_video_engine_VideoPreviewView_nativeAddClip(
     const int64_t probedDurationMs = probeClipDurationMs(videoPath);
     const int64_t clipDurationMs =
         probedDurationMs > 0 ? probedDurationMs : g_preview->getVideoDurationMs();
+
+    // Use requested startTimeMs or append to end if -1
+    int64_t actualStartMs = (startTimeMs >= 0) ? startTimeMs : timeline->getDuration();
+
     auto clip = std::make_shared<VideoEngine::Clip>(
         videoPath,
-        timeline->getDuration(),
+        actualStartMs,
         clipDurationMs);
+
+    // Set advanced track properties
+    clip->setTrackType(trackType);
+    clip->setTrackLane(trackLane);
+    clip->setTrackZOrder(zOrder);
+
     timeline->addClip(clip);
     cacheClipExportSource(
         static_cast<int>(clip->getId()),
         videoPath,
         clip->getDuration());
-    
-    LOGI("[Timeline] Added clip id=%d path=%s", clip->getId(), videoPath.c_str());
+
+    LOGI("[Timeline] Added clip id=%d path=%s track=%s start=%lld lane=%d z=%d", 
+         clip->getId(), videoPath.c_str(), trackType.c_str(), (long long)actualStartMs, trackLane, zOrder);
     return (jint)clip->getId();
 }
-
 /**
  * JNI: Remove clip from timeline.
  */
@@ -4085,10 +4124,11 @@ Java_com_video_engine_VideoPreviewView_nativeSetClipPreviewTransform(
     jobject thiz,
     jint clipId,
     jfloat zoom,
-    jfloat panXNorm,
-    jfloat panYNorm,
+    jfloat panXPx,
+    jfloat panYPx,
     jfloat rotationDeg,
-    jboolean mirrorX) {
+    jboolean mirrorX,
+    jboolean immediate) {
 
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_preview) {
@@ -4097,10 +4137,14 @@ Java_com_video_engine_VideoPreviewView_nativeSetClipPreviewTransform(
     g_preview->setClipPreviewTransform(
         static_cast<int>(clipId),
         static_cast<float>(zoom),
-        static_cast<float>(panXNorm),
-        static_cast<float>(panYNorm),
+        static_cast<float>(panXPx),
+        static_cast<float>(panYPx),
         static_cast<float>(rotationDeg),
-        mirrorX == JNI_TRUE);
+        mirrorX == JNI_TRUE,
+        immediate == JNI_TRUE);
+    if (!g_preview->isPlaying()) {
+        g_preview->redrawCachedFrame();
+    }
 }
 
 JNIEXPORT void JNICALL
@@ -4114,6 +4158,9 @@ Java_com_video_engine_VideoPreviewView_nativeClearClipPreviewTransform(
         return;
     }
     g_preview->clearClipPreviewTransform(static_cast<int>(clipId));
+    if (!g_preview->isPlaying()) {
+        g_preview->redrawCachedFrame();
+    }
 }
 
 JNIEXPORT void JNICALL
@@ -4126,6 +4173,163 @@ Java_com_video_engine_VideoPreviewView_nativeClearClipPreviewTransforms(
         return;
     }
     g_preview->clearClipPreviewTransforms();
+    if (!g_preview->isPlaying()) {
+        g_preview->redrawCachedFrame();
+    }
+}
+
+JNIEXPORT jfloat JNICALL
+Java_com_video_engine_VideoPreviewView_nativeGetClipPreviewMinZoom(
+    JNIEnv* env,
+    jobject thiz,
+    jint clipId) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_preview) {
+        return 1.0f;
+    }
+    return static_cast<jfloat>(g_preview->getClipPreviewMinZoom(static_cast<int>(clipId)));
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_com_video_engine_VideoPreviewView_nativeGetClipPreviewTransform(
+    JNIEnv* env,
+    jobject thiz,
+    jint clipId) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_preview) {
+        return nullptr;
+    }
+    const auto values = g_preview->getClipPreviewTransformValues(static_cast<int>(clipId));
+    jfloatArray result = env->NewFloatArray(5);
+    if (!result) {
+        return nullptr;
+    }
+    env->SetFloatArrayRegion(result, 0, 5, values.data());
+    return result;
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_com_video_engine_VideoPreviewView_nativeComputeScaleGesturePreviewTransform(
+    JNIEnv* env,
+    jobject thiz,
+    jint clipId,
+    jfloat baseZoom,
+    jfloat basePanXPx,
+    jfloat basePanYPx,
+    jfloat scaleAccumulator,
+    jfloat focusOffsetXPx,
+    jfloat focusOffsetYPx) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_preview) {
+        return nullptr;
+    }
+    const auto values = g_preview->computeScaleGesturePreviewTransform(
+        static_cast<int>(clipId),
+        static_cast<float>(baseZoom),
+        static_cast<float>(basePanXPx),
+        static_cast<float>(basePanYPx),
+        static_cast<float>(scaleAccumulator),
+        static_cast<float>(focusOffsetXPx),
+        static_cast<float>(focusOffsetYPx));
+    jfloatArray result = env->NewFloatArray(3);
+    if (!result) {
+        return nullptr;
+    }
+    env->SetFloatArrayRegion(result, 0, 3, values.data());
+    return result;
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_com_video_engine_VideoPreviewView_nativeComputeNormalizedPreviewTransform(
+    JNIEnv* env,
+    jobject thiz,
+    jint clipId,
+    jfloat zoom,
+    jfloat panXPx,
+    jfloat panYPx,
+    jfloat rotationDeg,
+    jboolean mirrorX) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_preview) {
+        return nullptr;
+    }
+    const auto values = g_preview->computeNormalizedPreviewTransform(
+        static_cast<int>(clipId),
+        static_cast<float>(zoom),
+        static_cast<float>(panXPx),
+        static_cast<float>(panYPx),
+        static_cast<float>(rotationDeg),
+        mirrorX == JNI_TRUE);
+    jfloatArray result = env->NewFloatArray(5);
+    if (!result) {
+        return nullptr;
+    }
+    env->SetFloatArrayRegion(result, 0, 5, values.data());
+    return result;
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_com_video_engine_VideoPreviewView_nativeComputeDragPanPreviewTransform(
+    JNIEnv* env,
+    jobject thiz,
+    jint clipId,
+    jfloat currentZoom,
+    jfloat currentPanXPx,
+    jfloat currentPanYPx,
+    jfloat deltaXPx,
+    jfloat deltaYPx) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_preview) {
+        return nullptr;
+    }
+    const auto values = g_preview->computeDragPanPreviewTransform(
+        static_cast<int>(clipId),
+        static_cast<float>(currentZoom),
+        static_cast<float>(currentPanXPx),
+        static_cast<float>(currentPanYPx),
+        static_cast<float>(deltaXPx),
+        static_cast<float>(deltaYPx));
+    jfloatArray result = env->NewFloatArray(2);
+    if (!result) {
+        return nullptr;
+    }
+    env->SetFloatArrayRegion(result, 0, 2, values.data());
+    return result;
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_com_video_engine_VideoPreviewView_nativeComputeDoubleTapPreviewTransform(
+    JNIEnv* env,
+    jobject thiz,
+    jint clipId,
+    jfloat currentZoom,
+    jfloat currentPanXPx,
+    jfloat currentPanYPx,
+    jfloat tapOffsetXPx,
+    jfloat tapOffsetYPx) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_preview) {
+        return nullptr;
+    }
+    const auto values = g_preview->computeDoubleTapPreviewTransform(
+        static_cast<int>(clipId),
+        static_cast<float>(currentZoom),
+        static_cast<float>(currentPanXPx),
+        static_cast<float>(currentPanYPx),
+        static_cast<float>(tapOffsetXPx),
+        static_cast<float>(tapOffsetYPx));
+    jfloatArray result = env->NewFloatArray(3);
+    if (!result) {
+        return nullptr;
+    }
+    env->SetFloatArrayRegion(result, 0, 3, values.data());
+    return result;
 }
 
 /**

@@ -24,11 +24,13 @@ class AdsController(
     }
 
     private val bannerViews = linkedMapOf<Int, AdView>()
+    private val enabled = activity.resources.getBoolean(R.bool.storyline_runtime_ads_enabled)
     private var initialized = false
     private var interstitialAd: InterstitialAd? = null
     private var interstitialLoading = false
 
     fun initialize() {
+        if (!enabled) return
         if (initialized) return
         initialized = true
         Log.d(TAG, "Initializing banner/interstitial ads")
@@ -38,6 +40,10 @@ class AdsController(
 
     // Call once after export completes
     fun showPostExportInterstitial(onDismissed: () -> Unit = {}) {
+        if (!enabled) {
+            onDismissed()
+            return
+        }
         val ad = interstitialAd
         if (ad == null) {
             onDismissed()
@@ -59,6 +65,7 @@ class AdsController(
     }
 
     private fun preloadInterstitial() {
+        if (!enabled) return
         if (interstitialLoading || interstitialAd != null) return
         if (activity.isFinishing || activity.isDestroyed) return
         interstitialLoading = true
@@ -81,6 +88,10 @@ class AdsController(
     }
 
     fun attachTopBanner(container: FrameLayout?) {
+        if (!enabled) {
+            releaseBanner(container)
+            return
+        }
         initialize()
         val target = container ?: return
         target.post {
@@ -135,14 +146,17 @@ class AdsController(
     }
 
     fun onResume() {
+        if (!enabled) return
         bannerViews.values.forEach { runCatching { it.resume() } }
     }
 
     fun onPause() {
+        if (!enabled) return
         bannerViews.values.forEach { runCatching { it.pause() } }
     }
 
     fun onDestroy() {
+        if (!enabled) return
         bannerViews.values.forEach { adView ->
             runCatching { adView.destroy() }
         }

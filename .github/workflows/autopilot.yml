@@ -19,7 +19,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        env:
+          CI_CHECKOUT_REF: ${{ github.ref }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/checkout-ci.sh
 
       - name: Load autopilot config
         id: config

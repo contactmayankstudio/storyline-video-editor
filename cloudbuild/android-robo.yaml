@@ -1,0 +1,106 @@
+timeout: 3600s
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: ${_MACHINE_TYPE}
+  dynamicSubstitutions: true
+
+substitutions:
+  _MACHINE_TYPE: E2_HIGHCPU_8
+  _FIREBASE_PROJECT_ID: reflected-space-493612-b4
+  _DEVICE_MODEL: MediumPhone.arm
+  _ANDROID_VERSION: "34"
+  _LOCALE: en
+  _ORIENTATION: portrait
+  _TIMEOUT: 5m
+  _RESULTS_BUCKET: ""
+
+steps:
+  - id: build-debug-apk
+    name: ghcr.io/cirruslabs/android-sdk:34
+    entrypoint: bash
+    env:
+      - ANDROID_SDK_ROOT=/opt/android-sdk
+      - ANDROID_HOME=/opt/android-sdk
+      - JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+    args:
+      - -lc
+      - |
+        set -euo pipefail
+        cd android
+        if [ ! -f app/google-services.json ]; then
+          echo "Missing android/app/google-services.json in submitted source."
+          exit 1
+        fi
+        if [ ! -f debug.keystore.stable ]; then
+          echo "Missing android/debug.keystore.stable in submitted source."
+          exit 1
+        fi
+        mkdir -p "$HOME/.android"
+        cp debug.keystore.stable "$HOME/.android/debug.keystore"
+        chmod +x gradlew
+        ./gradlew assembleDebug --console=plain
+
+  - id: detect-test-lab-device
+    name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+        set -euo pipefail
+        gcloud firebase test android models list --format='value(id)' | sort -u > /workspace/firebase-test-lab-models.txt
+        requested="${_DEVICE_MODEL}"
+        resolved=""
+        if grep -Fxq "$requested" /workspace/firebase-test-lab-models.txt; then
+          resolved="$requested"
+        elif grep -Fxq "MediumPhone.arm" /workspace/firebase-test-lab-models.txt; then
+          resolved="MediumPhone.arm"
+        else
+          resolved="$(head -n 1 /workspace/firebase-test-lab-models.txt)"
+        fi
+        printf '%s' "$resolved" > /workspace/firebase-test-lab-selected-model.txt
+        echo "Requested model: $requested"
+        echo "Resolved model: $resolved"
+
+  - id: run-robo-test
+    name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+        set -euo pipefail
+        cd /workspace
+        APK_PATH="android/app/build/outputs/apk/debug/app-debug.apk"
+        RESULTS_DIR="cloudbuild-${BUILD_ID}"
+        RESOLVED_DEVICE_MODEL="$(cat /workspace/firebase-test-lab-selected-model.txt)"
+
+        CMD=(
+          gcloud firebase test android run
+          --type robo
+          --project "${_FIREBASE_PROJECT_ID}"
+          --app "$APK_PATH"
+          --device "model=${RESOLVED_DEVICE_MODEL},version=${_ANDROID_VERSION},locale=${_LOCALE},orientation=${_ORIENTATION}"
+          --timeout "${_TIMEOUT}"
+          --results-dir "${RESULTS_DIR}"
+        )
+
+        if [ -n "${_RESULTS_BUCKET}" ]; then
+          CMD+=(--results-bucket "${_RESULTS_BUCKET}")
+        fi
+
+        printf 'Running: %s\n' "${CMD[*]}"
+        "${CMD[@]}" | tee /workspace/firebase-test-lab.log
+
+  - id: upload-cloudbuild-artifacts
+    name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+        set -euo pipefail
+        if [ -z "${_RESULTS_BUCKET}" ]; then
+          echo "No _RESULTS_BUCKET configured; skipping Cloud Storage upload."
+          exit 0
+        fi
+        gsutil cp /workspace/firebase-test-lab.log "${_RESULTS_BUCKET%/}/cloudbuild/${BUILD_ID}/firebase-test-lab.log"
+        gsutil cp /workspace/firebase-test-lab-models.txt "${_RESULTS_BUCKET%/}/cloudbuild/${BUILD_ID}/firebase-test-lab-models.txt"

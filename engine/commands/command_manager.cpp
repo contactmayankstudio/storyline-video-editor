@@ -1316,7 +1316,7 @@ VideoEngine::Clip::TrackRole parseTrackRoleString(const std::string& role) {
         normalized.end(),
         normalized.begin(),
         [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-    if (normalized == "OVERLAY") return VideoEngine::Clip::TrackRole::Overlay;
+    if (normalized == "OVERLAY" || normalized == "LAYER") return VideoEngine::Clip::TrackRole::Overlay;
     if (normalized == "TEXT" || normalized == "TEXT_STICKER") return VideoEngine::Clip::TrackRole::TextSticker;
     if (normalized == "AUDIO") return VideoEngine::Clip::TrackRole::Audio;
     return VideoEngine::Clip::TrackRole::MainVideo;

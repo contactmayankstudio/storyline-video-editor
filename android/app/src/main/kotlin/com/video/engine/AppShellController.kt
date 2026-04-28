@@ -23,7 +23,11 @@ class AppShellController(
     fun setup() {
         // Keep editor shell clean: hide settings entry (Privacy/Terms routes).
         onCreateNotificationChannel()
-        requestStoragePermissions()
+        if (activity.resources.getBoolean(R.bool.storyline_runtime_startup_media_permissions_enabled)) {
+            requestStoragePermissions()
+        } else {
+            Log.d(TAG, "Startup media permissions disabled for this store build")
+        }
     }
 
     fun onRequestPermissionsResult(

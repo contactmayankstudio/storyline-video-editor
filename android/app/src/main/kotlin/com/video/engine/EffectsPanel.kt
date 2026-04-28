@@ -32,8 +32,15 @@ class EffectsPanel(
         }
     }
 
+    private var lastPushTime = 0L
+    private val PUSH_THROTTLE_MS = 32L // ~30fps update rate for sliders
+
     private fun push(reset: Boolean) {
-        NativeBridge.setClipEffects(previewView, clipId, brightness, contrast, saturation)
-        onChange?.invoke(EffectParams(brightness, contrast, saturation), reset)
+        val now = System.currentTimeMillis()
+        if (reset || (now - lastPushTime) > PUSH_THROTTLE_MS) {
+            NativeBridge.setClipEffects(previewView, clipId, brightness, contrast, saturation)
+            onChange?.invoke(EffectParams(brightness, contrast, saturation), reset)
+            lastPushTime = now
+        }
     }
 }

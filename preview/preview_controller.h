@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cmath>
 #include <algorithm>
+#include <array>
 
 #include "core/clip.h"
 #include "backend/ffmpeg/video_decoder.h"
@@ -225,10 +226,42 @@ public:
     void setClipPreviewTransform(
         int clipId,
         float zoom,
-        float panXNorm,
-        float panYNorm,
+        float panXPx,
+        float panYPx,
+        float rotationDeg,
+        bool mirrorX,
+        bool immediate = false);
+    float getClipPreviewMinZoom(int clipId);
+    std::array<float, 5> getClipPreviewTransformValues(int clipId);
+    std::array<float, 5> computeNormalizedPreviewTransform(
+        int clipId,
+        float zoom,
+        float panXPx,
+        float panYPx,
         float rotationDeg,
         bool mirrorX);
+    std::array<float, 3> computeScaleGesturePreviewTransform(
+        int clipId,
+        float baseZoom,
+        float basePanXPx,
+        float basePanYPx,
+        float scaleAccumulator,
+        float focusOffsetXPx,
+        float focusOffsetYPx);
+    std::array<float, 2> computeDragPanPreviewTransform(
+        int clipId,
+        float currentZoom,
+        float currentPanXPx,
+        float currentPanYPx,
+        float deltaXPx,
+        float deltaYPx);
+    std::array<float, 3> computeDoubleTapPreviewTransform(
+        int clipId,
+        float currentZoom,
+        float currentPanXPx,
+        float currentPanYPx,
+        float tapOffsetXPx,
+        float tapOffsetYPx);
     void clearClipPreviewTransform(int clipId);
     void clearClipPreviewTransforms();
     void upsertTransition(
@@ -276,15 +309,15 @@ private:
 
     struct ClipPreviewTransform {
         float zoom = 1.0f;
-        float panXNorm = 0.0f;
-        float panYNorm = 0.0f;
+        float panXPx = 0.0f;
+        float panYPx = 0.0f;
         float rotationDeg = 0.0f;
         bool mirrorX = false;
 
         bool isIdentity() const {
             return std::fabs(zoom - 1.0f) <= 0.001f &&
-                std::fabs(panXNorm) <= 0.001f &&
-                std::fabs(panYNorm) <= 0.001f &&
+                std::fabs(panXPx) <= 0.5f &&
+                std::fabs(panYPx) <= 0.5f &&
                 std::fabs(rotationDeg) <= 0.001f &&
                 !mirrorX;
         }
@@ -457,6 +490,8 @@ private:
     bool shouldBypassOverlayCompositionLocked() const;
     ClipPreviewTransform clipPreviewTransformLocked(int clipId) const;
     bool hasClipPreviewTransformLocked(const std::shared_ptr<Clip>& clip) const;
+    float clipPreviewMinZoomLocked(int clipId) const;
+    void normalizeClipPreviewTransformLocked(int clipId, ClipPreviewTransform& transform) const;
     const ClipTransition* findActiveTransitionLocked(int64_t timelineMs) const;
     std::shared_ptr<Clip> findTimelineClipByIdLocked(int clipId) const;
     bool uploadClipFrameToTextureLocked(

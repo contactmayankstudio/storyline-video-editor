@@ -82,10 +82,11 @@ public:
         const GLTexture* texture = nullptr;
         float opacity = 1.0f;
         float zoom = 1.0f;
-        float panXNorm = 0.0f;
-        float panYNorm = 0.0f;
+        float panXPx = 0.0f;
+        float panYPx = 0.0f;
         float rotationDeg = 0.0f;
         bool mirrorX = false;
+        bool objectTransform = false;
         bool chromaEnabled = false;
         bool blueKey = false;
         float chromaSimilarity = 0.35f;
@@ -162,6 +163,25 @@ public:
     void setChromaKey(bool enabled, bool blueKey, float similarity, float smoothness, float spill);
 
 private:
+    struct TransitionLayerUniformSet {
+        int opacity = -1;
+        int transformEnabled = -1;
+        int textureSize = -1;
+        int zoom = -1;
+        int panPx = -1;
+        int rotationDeg = -1;
+        int mirrorX = -1;
+        int objectTransform = -1;
+        int chromaEnabled = -1;
+        int chromaKeyColor = -1;
+        int chromaSimilarity = -1;
+        int chromaSmoothness = -1;
+        int chromaSpill = -1;
+        int brightness = -1;
+        int contrast = -1;
+        int saturation = -1;
+    };
+
     // EGL state
     EGLDisplay m_eglDisplay;
     EGLContext m_eglContext;
@@ -194,6 +214,22 @@ private:
     int m_uBrightnessLoc = -1;
     int m_uContrastLoc = -1;
     int m_uSaturationLoc = -1;
+    int m_uTextureSamplerLoc = -1;
+    int m_uTransformEnabledLoc = -1;
+    int m_uViewportSizeLoc = -1;
+    int m_uTextureSizeLoc = -1;
+    int m_uZoomLoc = -1;
+    int m_uPanPxLoc = -1;
+    int m_uRotationDegLoc = -1;
+    int m_uMirrorXLoc = -1;
+    int m_uObjectTransformLoc = -1;
+    int m_uTransitionViewportLoc = -1;
+    int m_uTransitionProgressLoc = -1;
+    int m_uTransitionTypeLoc = -1;
+    int m_uTransitionTextureSamplerALoc = -1;
+    int m_uTransitionTextureSamplerBLoc = -1;
+    TransitionLayerUniformSet m_transitionUniformsA;
+    TransitionLayerUniformSet m_transitionUniformsB;
 
     /**
      * Internal: Compile a shader and return shader ID.

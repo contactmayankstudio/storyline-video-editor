@@ -18,21 +18,24 @@ class RewardedUnlockController(
         private const val TAG = "[Reward]"
     }
 
+    private val enabled = activity.resources.getBoolean(R.bool.storyline_runtime_ads_enabled)
     private var rewardedAd: RewardedAd? = null
     private var loading = false
     private var pendingUnlockCallback: ((Boolean) -> Unit)? = null
     private var pendingShowAfterLoad = false
     private var watermarkUnlockCredits = 0
 
-    fun isWatermarkUnlocked(): Boolean = watermarkUnlockCredits > 0
+    fun isWatermarkUnlocked(): Boolean = !enabled || watermarkUnlockCredits > 0
 
     fun consumeWatermarkUnlock() {
+        if (!enabled) return
         if (watermarkUnlockCredits > 0) {
             watermarkUnlockCredits -= 1
         }
     }
 
     fun preload() {
+        if (!enabled) return
         if (rewardedAd != null || loading || activity.isFinishing || activity.isDestroyed) {
             return
         }
@@ -40,6 +43,10 @@ class RewardedUnlockController(
     }
 
     fun requestWatermarkUnlock(onResult: (Boolean) -> Unit) {
+        if (!enabled) {
+            onResult(true)
+            return
+        }
         if (watermarkUnlockCredits > 0) {
             onResult(true)
             return
@@ -65,6 +72,7 @@ class RewardedUnlockController(
     }
 
     private fun loadRewardedAd(showOnLoad: Boolean) {
+        if (!enabled) return
         if (loading || activity.isFinishing || activity.isDestroyed) {
             return
         }

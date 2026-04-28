@@ -20,10 +20,10 @@
     <dimen name="corner_radius_large">12dp</dimen>
     <dimen name="elevation_app_bar">4dp</dimen>
     <dimen name="elevation_surface">2dp</dimen>
-    <dimen name="studio_toolbar_height">64dp</dimen>
-    <dimen name="toolbar_icon_size">16dp</dimen>
+    <dimen name="studio_toolbar_height">68dp</dimen>
+    <dimen name="toolbar_icon_size">17dp</dimen>
     <dimen name="toolbar_text_size">9sp</dimen>
-    <dimen name="toolbar_item_width">58dp</dimen>
+    <dimen name="toolbar_item_width">64dp</dimen>
     <dimen name="timeline_scrubber_height">90dp</dimen>
     <dimen name="timeline_padding">200dp</dimen>
     <dimen name="playhead_width">2dp</dimen>

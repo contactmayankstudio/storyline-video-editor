@@ -24,8 +24,10 @@ class RemoteCommandManager(
         private const val POLL_HEARTBEAT_EVERY = 6
     }
 
-    private val firestore = FirebaseFirestore.getInstance()
-    private val awsControlPlaneClient = AwsControlPlaneClient(context)
+    private val opsEnabled = context.resources.getBoolean(R.bool.storyline_runtime_ops_enabled)
+    private val firestore =
+        if (opsEnabled) runCatching { FirebaseFirestore.getInstance() }.getOrNull() else null
+    private val awsControlPlaneClient = if (opsEnabled) AwsControlPlaneClient(context) else null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val awsPollExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "aws-command-poll").apply { isDaemon = true }
@@ -47,6 +49,10 @@ class RemoteCommandManager(
         }
 
     fun start() {
+        if (!opsEnabled) {
+            Log.i(TAG, "Remote command receiver disabled for this store build")
+            return
+        }
         if (active) return
         val installationId = installationIdProvider().trim()
         if (installationId.isEmpty()) {
@@ -71,6 +77,7 @@ class RemoteCommandManager(
     }
 
     private fun attachLiveListener(installationId: String) {
+        val firestore = firestore ?: return
         listenerRegistration?.remove()
         listenerRegistration =
             firestore.collection("ops_device_channels")
@@ -100,6 +107,7 @@ class RemoteCommandManager(
     }
 
     private fun pollLatestCommand() {
+        val firestore = firestore ?: return
         val installationId = installationIdProvider().trim()
         if (installationId.isEmpty()) return
         if (pollRequestInFlight) return
@@ -156,6 +164,7 @@ class RemoteCommandManager(
     }
 
     private fun pollAwsCommands(installationId: String) {
+        val awsControlPlaneClient = awsControlPlaneClient ?: return
         if (!awsControlPlaneClient.isConfigured() || awsPollRequestInFlight) return
         awsPollRequestInFlight = true
         awsPollExecutor.execute {
@@ -255,6 +264,7 @@ class RemoteCommandManager(
     ) {
         val now = System.currentTimeMillis()
         if (backend == "aws") {
+            val awsControlPlaneClient = awsControlPlaneClient ?: return
             awsPollExecutor.execute {
                 awsControlPlaneClient.ackCommand(
                     installationId = installationId,
@@ -278,6 +288,7 @@ class RemoteCommandManager(
         }
 
         Log.d(TAG, "Updating command state id=$commandId status=$status message=$resultMessage")
+        val firestore = firestore ?: return
         firestore.collection("ops_device_channels")
             .document(installationId)
             .set(payload, SetOptions.merge())

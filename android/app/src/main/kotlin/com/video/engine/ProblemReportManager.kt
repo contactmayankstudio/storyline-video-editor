@@ -22,7 +22,9 @@ class ProblemReportManager(
     }
 
     private val appContext = context.applicationContext
-    private val firestore = FirebaseFirestore.getInstance()
+    private val opsEnabled = context.resources.getBoolean(R.bool.storyline_runtime_ops_enabled)
+    private val firestore =
+        if (opsEnabled) runCatching { FirebaseFirestore.getInstance() }.getOrNull() else null
     private val writerExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "problem-report-writer").apply { isDaemon = true }
     }
@@ -156,6 +158,10 @@ class ProblemReportManager(
         metadata: Map<String, Any>,
         onComplete: (Boolean) -> Unit,
     ) {
+        if (!opsEnabled) {
+            onComplete(false)
+            return
+        }
         val trimmedDescription = description.trim().take(800)
         if (trimmedDescription.isBlank()) {
             onComplete(false)
@@ -185,6 +191,11 @@ class ProblemReportManager(
         )
         metadata.forEach { (key, value) -> payload[key] = value }
         writerExecutor.execute {
+            val firestore = firestore
+            if (firestore == null) {
+                onComplete(false)
+                return@execute
+            }
             firestore.collection("ops_reports")
                 .document(reportId)
                 .set(payload)

@@ -22,7 +22,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        env:
+          CI_CHECKOUT_REF: ${{ github.ref }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/checkout-ci.sh
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3

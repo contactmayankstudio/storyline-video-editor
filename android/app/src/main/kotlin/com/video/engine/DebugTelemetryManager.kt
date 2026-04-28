@@ -37,7 +37,13 @@ class DebugTelemetryManager(
     private val snapshotsDir = File(sessionDir, "snapshots").apply { mkdirs() }
     private val eventsFile = File(sessionDir, "events.jsonl")
     private val metadataFile = File(sessionDir, "session.json")
-    private val firebaseAnalytics: FirebaseAnalytics = Firebase.analytics
+    private val firebaseTelemetryEnabled = context.resources.getBoolean(R.bool.storyline_runtime_ops_enabled)
+    private val firebaseAnalytics: FirebaseAnalytics? =
+        if (firebaseTelemetryEnabled) {
+            runCatching { Firebase.analytics }.getOrNull()
+        } else {
+            null
+        }
 
     init {
         writeSessionMetadata()
@@ -114,6 +120,7 @@ class DebugTelemetryManager(
 
     // Send key events to Firebase Analytics for remote debugging
     private fun sendToFirebase(category: String, name: String, payload: JSONObject) {
+        val analytics = firebaseAnalytics ?: return
         // Only send important events to avoid quota limits
         val rawEventName = "${FIREBASE_EVENT_PREFIX}${category}_${name}"
             .lowercase(Locale.US)
@@ -142,7 +149,7 @@ class DebugTelemetryManager(
                 }
             }
         }
-        firebaseAnalytics.logEvent(eventName, bundle)
+        analytics.logEvent(eventName, bundle)
     }
 
     private fun writeSessionMetadata() {

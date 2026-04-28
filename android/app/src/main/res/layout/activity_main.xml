@@ -703,7 +703,7 @@
                 <LinearLayout android:id="@+id/transitionButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_transition"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Trans"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Transit"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/voiceoverButton"
@@ -745,7 +745,7 @@
                 <LinearLayout android:id="@+id/effectsButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_fx"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Effect"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Effects"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/stickersButton"
@@ -757,7 +757,7 @@
                 <LinearLayout android:id="@+id/layersButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_add_layer"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Layer+"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Layer"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/exportButtonContainer"

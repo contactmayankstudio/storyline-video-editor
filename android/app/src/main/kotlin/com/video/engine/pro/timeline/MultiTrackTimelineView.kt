@@ -262,7 +262,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         gestureDetector.onTouchEvent(event)
         scaleDetector.onTouchEvent(event)
-        if (event.pointerCount > 1) {
+        if (event.pointerCount > 1 || scaleDetector.isInProgress) {
             return true
         }
         if (event.actionMasked == MotionEvent.ACTION_UP) {
@@ -278,14 +278,18 @@ class MultiTrackTimelineView @JvmOverloads constructor(
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
         if (ev.pointerCount > 1) {
-            return true
+            // Let dispatchTouchEvent handle scale detector, don't intercept yet
+            return false
         }
         return super.onInterceptTouchEvent(ev)
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        gestureDetector.onTouchEvent(ev)
-        scaleDetector.onTouchEvent(ev)
+        // Feed scale detector during dispatch to ensure it sees events before children consume them
+        if (ev.pointerCount > 1) {
+            scaleDetector.onTouchEvent(ev)
+            return true // Consume to ensure zoom works reliably
+        }
         return super.dispatchTouchEvent(ev)
     }
 
@@ -1432,7 +1436,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                         }
                         gestureStarted = true
                         val previewUpdate = when (activeGestureKind ?: ClipGestureKind.MOVE) {
-                            ClipGestureKind.MOVE -> buildMoveUpdate(clip, deltaPx, snapTargetsMs)
+                            ClipGestureKind.MOVE -> buildMoveUpdate(clip, deltaPx, deltaYPx, snapTargetsMs)
                             ClipGestureKind.TRIM_START -> buildTrimStartUpdate(clip, deltaPx, snapTargetsMs)
                             ClipGestureKind.TRIM_END -> buildTrimEndUpdate(clip, deltaPx, snapTargetsMs)
                         }
@@ -1535,6 +1539,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
         private fun buildMoveUpdate(
             clip: ClipSegment,
             deltaPx: Float,
+            deltaYPx: Float,
             snapTargetsMs: List<Long>,
         ): ClipUpdate {
             val rawStartTimeMs = (clip.startTimeMs + pxToMs(deltaPx, sensitivity = 1.5f)).coerceAtLeast(0L)
@@ -1544,9 +1549,18 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                 thresholdDp = 4,
                 applyGrid = false,
             )
+
+            // Calculate track shift
+            val rowHeight = dpPx(TRACK_ROW_HEIGHT_DP)
+            val trackShift = (deltaYPx / rowHeight).roundToInt()
+            val displayOrder = TrackType.displayOrder()
+            val currentIndex = displayOrder.indexOf(clip.trackType)
+            val targetIndex = (currentIndex + trackShift).coerceIn(0, displayOrder.lastIndex)
+            val targetTrackType = displayOrder[targetIndex]
+
             return ClipUpdate(
                 clipId = clip.id,
-                trackType = clip.trackType,
+                trackType = targetTrackType,
                 startTimeMs = snappedStartTimeMs,
                 durationMs = clip.durationMs,
                 sourceInMs = clip.sourceInMs,

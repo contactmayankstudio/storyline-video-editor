@@ -22,7 +22,8 @@ enum class TrackType {
 
     fun nativeRoleName(): String = when (this) {
         TEXT -> "TEXT"
-        OVERLAY, LAYER -> "OVERLAY"
+        OVERLAY -> "OVERLAY"
+        LAYER -> "LAYER"
         VIDEO -> "VIDEO"
         AUDIO -> "AUDIO"
     }
@@ -43,11 +44,20 @@ enum class TrackType {
         fun displayOrder(): List<TrackType> = listOf(TEXT, OVERLAY, LAYER, VIDEO, AUDIO)
 
         fun fromNativeRole(trackTypeRaw: String?, zOrder: Int = 0): TrackType {
+            fun inferVisualTrackFromZOrder(): TrackType {
+                return when {
+                    zOrder >= 200 -> OVERLAY
+                    zOrder in 100 until 200 -> LAYER
+                    else -> VIDEO
+                }
+            }
             return when (trackTypeRaw?.uppercase(Locale.US)) {
+                "LAYER" -> LAYER
                 "OVERLAY" -> if (zOrder in 100 until 200) LAYER else OVERLAY
                 "TEXT", "TEXT_STICKER" -> TEXT
                 "AUDIO" -> AUDIO
-                else -> VIDEO
+                "VIDEO", "MAINVIDEO", "MAIN_VIDEO", "", null -> inferVisualTrackFromZOrder()
+                else -> inferVisualTrackFromZOrder()
             }
         }
     }

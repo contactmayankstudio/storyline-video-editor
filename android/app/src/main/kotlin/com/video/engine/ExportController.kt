@@ -9,6 +9,9 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Typeface
 import android.content.Intent
 import android.media.MediaScannerConnection
 import android.net.Uri
@@ -777,39 +780,86 @@ class ExportController(
     ): Int? {
         // Keep export watermark subtle and ratio-safe across portrait, square, and landscape renders.
         val shortEdge = minOf(exportWidth, exportHeight)
-        val sizePx = (shortEdge * 0.095f).toInt().coerceIn(64, 176)
+        val targetHeightPx = (shortEdge * 0.095f).toInt().coerceIn(64, 176)
         val insetPx = (shortEdge * 0.03f).toInt().coerceIn(18, 42)
-        val bitmap = createWatermarkBitmap(sizePx) ?: return null
+        val bitmap = createWatermarkBitmap(targetHeightPx) ?: return null
         val width = bitmap.width
         val height = bitmap.height
         val pixels = TextBitmapHelper.bitmapToPixelArray(bitmap)
+        val scale = targetHeightPx.toFloat() / height.toFloat()
+        val scaledWidthPx = width * scale
+        val scaledHeightPx = height * scale
         bitmap.recycle()
 
         val watermarkDurationMs = durationMs.coerceAtLeast(1L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        val normScale = sizePx.toFloat() / exportWidth.toFloat()
-        val halfWidthNorm = sizePx.toFloat() / (exportWidth.toFloat() * 2f)
-        val halfHeightNorm = sizePx.toFloat() / (exportHeight.toFloat() * 2f)
+        val halfWidthNorm = scaledWidthPx / (exportWidth.toFloat() * 2f)
+        val halfHeightNorm = scaledHeightPx / (exportHeight.toFloat() * 2f)
         val centerX = 1f - (insetPx.toFloat() / exportWidth.toFloat()) - halfWidthNorm
         val centerY = 1f - (insetPx.toFloat() / exportHeight.toFloat()) - halfHeightNorm
         val nativeId = previewView.addTextOverlay(
-            0, "", centerX, centerY, normScale, 0f,
+            0, "", centerX, centerY, scale, 0f,
             Color.WHITE, 72f, 0, watermarkDurationMs,
         ).toInt()
         if (nativeId <= 0) return null
         previewView.setTextOverlayBitmap(nativeId, pixels, width, height)
-        previewView.updateTextOverlayOpacity(nativeId, 0.68f, 0, 0)
+        previewView.updateTextOverlayOpacity(nativeId, 0.76f, 0, 0)
         previewView.setTextZOrder(nativeId, 9_000)
         return nativeId
     }
 
     private fun createWatermarkBitmap(sizePx: Int = 160): Bitmap? {
-        val drawable = AppCompatResources.getDrawable(activity, R.drawable.ic_storyline_logo)
-            ?: return TextBitmapHelper.createTextBitmap("Storyline", 40f, Color.WHITE)
-        return Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888).also { bitmap ->
-            val canvas = Canvas(bitmap)
-            drawable.setBounds(0, 0, sizePx, sizePx)
+        val height = sizePx.coerceAtLeast(64)
+        val horizontalPadding = (height * 0.20f).toInt().coerceAtLeast(16)
+        val verticalPadding = (height * 0.14f).toInt().coerceAtLeast(10)
+        val iconSize = (height * 0.72f).toInt().coerceAtLeast(40)
+        val gap = (height * 0.14f).toInt().coerceAtLeast(10)
+        val label = "Storyline"
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = height * 0.40f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            setShadowLayer(height * 0.08f, 0f, height * 0.03f, 0x88000000.toInt())
+        }
+        val textWidth = textPaint.measureText(label)
+        val width = (horizontalPadding * 2 + iconSize + gap + textWidth).toInt().coerceAtLeast(height * 2)
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        val platePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0x5410181F
+        }
+        val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0x24FFFFFF
+            style = Paint.Style.STROKE
+            strokeWidth = (height * 0.035f).coerceAtLeast(2f)
+        }
+        val radius = height * 0.28f
+        val plateRect = RectF(0f, 0f, width.toFloat(), height.toFloat())
+        canvas.drawRoundRect(plateRect, radius, radius, platePaint)
+        canvas.drawRoundRect(
+            RectF(
+                highlightPaint.strokeWidth * 0.5f,
+                highlightPaint.strokeWidth * 0.5f,
+                width - highlightPaint.strokeWidth * 0.5f,
+                height - highlightPaint.strokeWidth * 0.5f,
+            ),
+            radius,
+            radius,
+            highlightPaint,
+        )
+
+        val iconLeft = horizontalPadding
+        val iconTop = (height - iconSize) / 2
+        AppCompatResources.getDrawable(activity, R.drawable.ic_storyline_logo)?.let { drawable ->
+            drawable.alpha = 235
+            drawable.setBounds(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize)
             drawable.draw(canvas)
         }
+
+        val textX = iconLeft + iconSize + gap.toFloat()
+        val textY = height * 0.5f - ((textPaint.descent() + textPaint.ascent()) * 0.5f)
+        canvas.drawText(label, textX, textY, textPaint)
+        return bitmap
     }
 
     private fun createStickerPixels(clip: StickerClip): Triple<IntArray, Int, Int>? {
