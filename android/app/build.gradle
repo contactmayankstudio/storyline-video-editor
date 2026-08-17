@@ -30,23 +30,13 @@ def resolvedDebugKeystorePath = envDebugKeystorePath ?: (
         ? bundledDebugKeystore.absolutePath
         : "${System.properties['user.home']}/.android/debug.keystore"
 )
-def defaultReleaseKeystore = file("${System.properties['user.home']}/.keystores/video_engine.keystore")
-def envReleaseKeystorePath = System.getenv('KEYSTORE_PATH')?.trim()
-def useDebugFallbackForRelease = !isCiBuild && !envReleaseKeystorePath && !defaultReleaseKeystore.exists()
-def resolvedReleaseKeystorePath = envReleaseKeystorePath ?: (
-    defaultReleaseKeystore.exists()
-        ? defaultReleaseKeystore.absolutePath
-        : resolvedDebugKeystorePath
-)
-def resolvedReleaseStorePassword = useDebugFallbackForRelease
-    ? (System.getenv('ANDROID_DEBUG_KEYSTORE_PASSWORD') ?: "android")
-    : (System.getenv('KEYSTORE_PASSWORD') ?: "")
-def resolvedReleaseKeyAlias = useDebugFallbackForRelease
-    ? (System.getenv('ANDROID_DEBUG_KEY_ALIAS') ?: "androiddebugkey")
-    : (System.getenv('KEY_ALIAS') ?: "video_engine")
-def resolvedReleaseKeyPassword = useDebugFallbackForRelease
-    ? (System.getenv('ANDROID_DEBUG_KEY_PASSWORD') ?: "android")
-    : (System.getenv('KEY_PASSWORD') ?: "")
+def releaseKeystoreFile = envReleaseKeystorePath ? file(envReleaseKeystorePath) : defaultReleaseKeystore
+def hasValidReleaseKeystore = releaseKeystoreFile.exists()
+def resolvedReleaseKeystorePath = hasValidReleaseKeystore ? releaseKeystoreFile.absolutePath : resolvedDebugKeystorePath
+def resolvedReleaseStorePassword = hasValidReleaseKeystore ? (System.getenv('KEYSTORE_PASSWORD') ?: "") : (System.getenv('ANDROID_DEBUG_KEYSTORE_PASSWORD') ?: "android")
+def resolvedReleaseKeyAlias = hasValidReleaseKeystore ? (System.getenv('KEY_ALIAS') ?: "video_engine") : (System.getenv('ANDROID_DEBUG_KEY_ALIAS') ?: "androiddebugkey")
+def resolvedReleaseKeyPassword = hasValidReleaseKeystore ? (System.getenv('KEY_PASSWORD') ?: "") : (System.getenv('ANDROID_DEBUG_KEY_PASSWORD') ?: "android")
+
 android {
     namespace = "com.video.engine"
     compileSdk = 35

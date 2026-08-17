@@ -50,10 +50,9 @@ jobs:
 
     steps:
       - name: Checkout repository
-        env:
-          CI_CHECKOUT_REF: ${{ github.ref }}
-          GITHUB_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/checkout-ci.sh
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Check Firebase Test Lab configuration
         id: preflight

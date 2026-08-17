@@ -29,10 +29,9 @@ jobs:
 
     steps:
       - name: Checkout repository
-        env:
-          CI_CHECKOUT_REF: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/merge', github.event.pull_request.number) || github.ref }}
-          GITHUB_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/checkout-ci.sh
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Check code scanning availability
         id: code_scanning
