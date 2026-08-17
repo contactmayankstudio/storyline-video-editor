@@ -30,6 +30,8 @@ def resolvedDebugKeystorePath = envDebugKeystorePath ?: (
         ? bundledDebugKeystore.absolutePath
         : "${System.properties['user.home']}/.android/debug.keystore"
 )
+def defaultReleaseKeystore = file("${System.properties['user.home']}/.keystores/video_engine.keystore")
+def envReleaseKeystorePath = System.getenv('KEYSTORE_PATH')?.trim()
 def releaseKeystoreFile = envReleaseKeystorePath ? file(envReleaseKeystorePath) : defaultReleaseKeystore
 def hasValidReleaseKeystore = releaseKeystoreFile.exists()
 def resolvedReleaseKeystorePath = hasValidReleaseKeystore ? releaseKeystoreFile.absolutePath : resolvedDebugKeystorePath
