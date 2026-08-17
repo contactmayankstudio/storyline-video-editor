@@ -51,7 +51,7 @@ permissions:
 
 jobs:
   google-cloud-android:
-    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    runs-on: ubuntu-latest
     env:
       GCP_AUTOMATION_PROJECT_ID: ${{ vars.GCP_AUTOMATION_PROJECT_ID || vars.FIREBASE_TEST_LAB_PROJECT_ID || vars.FIREBASE_PROJECT_ID }}
       GCP_AUTOMATION_RESULTS_BUCKET: ${{ vars.GCP_AUTOMATION_RESULTS_BUCKET || vars.FIREBASE_TEST_LAB_RESULTS_BUCKET || vars.FIREBASE_RESULTS_BUCKET }}

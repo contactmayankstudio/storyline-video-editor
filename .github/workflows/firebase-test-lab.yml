@@ -41,7 +41,7 @@ permissions:
 
 jobs:
   robo-test:
-    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    runs-on: ubuntu-latest
     env:
       FIREBASE_TEST_LAB_PROJECT_ID: ${{ vars.FIREBASE_TEST_LAB_PROJECT_ID || vars.FIREBASE_PROJECT_ID }}
       FIREBASE_TEST_LAB_RESULTS_BUCKET: ${{ vars.FIREBASE_TEST_LAB_RESULTS_BUCKET || vars.FIREBASE_RESULTS_BUCKET }}
