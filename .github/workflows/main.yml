@@ -39,38 +39,7 @@ jobs:
           if [ -n "${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}" ]; then
             printf '%s' '${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}' > app/google-services.json
           elif [ ! -f "app/google-services.json" ]; then
-            echo "Creating fallback google-services.json for CI build"
-            cat << 'EOF' > app/google-services.json
-{
-  "project_info": {
-    "project_number": "394439942843",
-    "project_id": "storyline-video-editor",
-    "storage_bucket": "storyline-video-editor.firebasestorage.app"
-  },
-  "client": [
-    {
-      "client_info": {
-        "mobilesdk_app_id": "1:394439942843:android:bf3aa9f3e5dc1184f83f9e",
-        "android_client_info": {
-          "package_name": "com.storyline.videoeditor"
-        }
-      },
-      "oauth_client": [],
-      "api_key": [
-        {
-          "current_key": "AIzaSyBue3Tfx9rE970EnVIjTbQVok6i6GnCjZ0"
-        }
-      ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": []
-        }
-      }
-    }
-  ],
-  "configuration_version": "1"
-}
-EOF
+            echo '{"project_info":{"project_number":"394439942843","project_id":"storyline-video-editor","storage_bucket":"storyline-video-editor.firebasestorage.app"},"client":[{"client_info":{"mobilesdk_app_id":"1:394439942843:android:bf3aa9f3e5dc1184f83f9e","android_client_info":{"package_name":"com.storyline.videoeditor"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyBue3Tfx9rE970EnVIjTbQVok6i6GnCjZ0"}],"services":{"appinvite_service":{"other_platform_oauth_client":[]}}}],"configuration_version":"1"}' > app/google-services.json
           fi
 
       - name: Restore stable debug keystore
