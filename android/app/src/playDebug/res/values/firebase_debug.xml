@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <bool name="storyline_debug_firebase_collection_enabled">true</bool>
+    <bool name="storyline_debug_firebase_analytics_deactivated">false</bool>
+    <bool name="storyline_debug_firebase_performance_deactivated">false</bool>
+    <bool name="storyline_runtime_ops_enabled">false</bool>
+</resources>

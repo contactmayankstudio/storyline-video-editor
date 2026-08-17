@@ -19,6 +19,17 @@
 #include "core/clip.h"
 #include "backend/ffmpeg/video_decoder.h"
 #include "gpu/egl_renderer.h"
+#include "preview/transform_engine.h"
+#include "smooth_engine/AdaptiveResolution.h"
+#include "smooth_engine/AudioEnginePro.h"
+#include "smooth_engine/FrameBudgetController.h"
+#include "smooth_engine/FramePrefetcher.h"
+#include "smooth_engine/ProxyManager.h"
+#include "smooth_engine/SmartCache.h"
+#include "smooth_engine/SuperResolution.h"
+#include "smooth_engine/ThermalManager.h"
+#include "smooth_engine/TripleBuffer.h"
+#include "smooth_engine/VulkanRenderer.h"
 
 // Forward declarations
 struct ANativeWindow;
@@ -217,6 +228,8 @@ public:
      * Audio timeline remains continuous; video frames may be dropped in preview.
      */
     void setAdaptiveFrameDropPolicy(bool enabled, int targetFps, int minFps);
+    void setLoopingLiveTransitionsEnabled(bool enabled);
+    void setAdaptiveProxyEnabled(bool enabled);
 
     /**
      * Dirty-region redraw controls.
@@ -226,16 +239,20 @@ public:
     void setClipPreviewTransform(
         int clipId,
         float zoom,
+        float scaleX,
+        float scaleY,
         float panXPx,
         float panYPx,
         float rotationDeg,
         bool mirrorX,
         bool immediate = false);
     float getClipPreviewMinZoom(int clipId);
-    std::array<float, 5> getClipPreviewTransformValues(int clipId);
-    std::array<float, 5> computeNormalizedPreviewTransform(
+    std::array<float, 7> getClipPreviewTransformValues(int clipId);
+    std::array<float, 7> computeNormalizedPreviewTransform(
         int clipId,
         float zoom,
+        float scaleX,
+        float scaleY,
         float panXPx,
         float panYPx,
         float rotationDeg,
@@ -255,6 +272,38 @@ public:
         float currentPanYPx,
         float deltaXPx,
         float deltaYPx);
+    std::array<float, 7> beginPreviewTransformGesture(
+        int clipId,
+        float zoom,
+        float scaleX,
+        float scaleY,
+        float panXPx,
+        float panYPx,
+        float rotationDeg,
+        bool mirrorX,
+        float centroidOffsetXPx,
+        float centroidOffsetYPx,
+        float spanPx,
+        float angleDeg,
+        int mode,
+        float edgeSignX,
+        float edgeSignY,
+        bool allowRotation);
+    std::array<float, 7> updatePreviewTransformGesture(
+        float centroidOffsetXPx,
+        float centroidOffsetYPx,
+        float spanPx,
+        float angleDeg);
+    void endPreviewTransformGesture();
+    std::array<float, 3> computeCornerHandlePreviewTransform(
+        int clipId,
+        float baseZoom,
+        float basePanXPx,
+        float basePanYPx,
+        float deltaXPx,
+        float deltaYPx,
+        float cornerSignX,
+        float cornerSignY);
     std::array<float, 3> computeDoubleTapPreviewTransform(
         int clipId,
         float currentZoom,
@@ -272,7 +321,20 @@ public:
         int durationMs,
         int64_t startTimeMs);
     void removeTransition(int64_t transitionId);
+    bool setClipEffects(int clipId, float brightness, float contrast, float saturation);
     void resetTimelinePreviewState();
+    void invalidateVisualState();
+
+    /**
+     * Notify the preview controller that a proxy has finished building for a clip.
+     * Evicts the old decoder and texture for that clip so the next renderFrame()
+     * call will re-open the clip using the newly available proxy path.
+     *
+     * Call this from the BUILD_CLIP_PROXY completion handler in command_manager.cpp.
+     *
+     * @param clipId The clip ID whose proxy is now ready.
+     */
+    void notifyProxyReady(int clipId);
 
     /**
      * Predictive frame caching controls for scrubbing.
@@ -307,21 +369,7 @@ private:
         int64_t ptsMs = 0;
     };
 
-    struct ClipPreviewTransform {
-        float zoom = 1.0f;
-        float panXPx = 0.0f;
-        float panYPx = 0.0f;
-        float rotationDeg = 0.0f;
-        bool mirrorX = false;
-
-        bool isIdentity() const {
-            return std::fabs(zoom - 1.0f) <= 0.001f &&
-                std::fabs(panXPx) <= 0.5f &&
-                std::fabs(panYPx) <= 0.5f &&
-                std::fabs(rotationDeg) <= 0.001f &&
-                !mirrorX;
-        }
-    };
+    using ClipPreviewTransform = TransformState;
 
     struct ClipTransition {
         int64_t id = -1;
@@ -355,7 +403,8 @@ private:
     // Component instances
     std::unique_ptr<Backend::VideoDecoder> m_decoder;
     std::unique_ptr<Backend::FrameConverter> m_converter;
-    std::unique_ptr<GPU::GLTexture> m_texture;
+    GPU::GLTexture* m_texture = nullptr;  // Non-owning alias to TripleBuffer front texture
+    std::unique_ptr<VideoEngine::Performance::TripleBuffer> m_tripleBuffer;
     std::unique_ptr<GPU::EGLRenderer> m_renderer;
 
     // Per-clip decoders and textures for multi-track compositing
@@ -371,7 +420,7 @@ private:
         int64_t sequentialDecodeWindowMs = 420;
     };
     std::map<int, ClipDecodeState> m_clipDecoders; // clipId -> state
-    std::unordered_map<int, ClipPreviewTransform> m_clipPreviewTransforms;
+    TransformEngine m_transformEngine;
     std::map<int64_t, ClipTransition> m_transitions;
 
     // Playback state
@@ -408,14 +457,33 @@ private:
     int m_ghostPreviewLongEdgePx;
     bool m_adaptiveFrameDropEnabled;
     int m_targetPreviewFps;
+    bool m_loopingLiveTransitionsEnabled = true;
+    bool m_adaptiveProxyEnabled = true;
     int m_minPreviewFps;
     int m_frameDropOverloadScore;
+    int m_budgetPreviewFps = 30;
+    int m_budgetPreviewLongEdgePx = 640;
+    bool m_budgetBypassOverlayComposition = false;
+    bool m_budgetPredictivePrefetchAllowed = true;
+    std::unique_ptr<VideoEngine::Performance::AdaptiveResolution> m_adaptiveResolution;
+    int m_dynamicPreviewScaleLimitPx = 0;
+    std::unique_ptr<VideoEngine::DeepPro::AudioEnginePro> m_audioSyncEngine;
+    std::unique_ptr<VideoEngine::Performance::FrameBudgetController> m_frameBudgetController;
+    std::unique_ptr<VideoEngine::Performance::FramePrefetcher> m_framePrefetcher;
+    std::unique_ptr<VideoEngine::DeepPro::ProxyManager> m_proxyManager;
+    std::unique_ptr<VideoEngine::Performance::SmartCache> m_smartCache;
+    std::unique_ptr<VideoEngine::AI::SuperResolution> m_superResolution;
+    std::unique_ptr<VideoEngine::Android::ThermalManager> m_thermalManager;
+    std::unique_ptr<VideoEngine::Backend::VulkanRenderer> m_vulkanRenderer;
 
     /**
      * Internal: Set error message with formatted string.
      */
     void setError(const char* fmt, ...);
     void clearError();
+    bool ensurePrimaryTripleBufferLocked(int width, int height);
+    void refreshPrimaryTextureAliasLocked();
+    void releasePrimaryTextureLocked();
 
     /**
      * Internal: Decode next frame, convert to RGBA, upload to texture, render.
@@ -486,12 +554,36 @@ private:
     void requestPredictivePrefetchLocked(int64_t centerMs);
     void predictivePrefetchLoop();
     void stopPredictivePrefetchWorker();
+    VideoEngine::Performance::FrameBudgetInput makeFrameBudgetInputLocked(int64_t renderCostMs) const;
+    void applyFrameBudgetDecisionLocked(
+        const VideoEngine::Performance::FrameBudgetDecision& decision);
+    void resetFrameBudgetLocked();
     void updateAdaptiveOverloadScoreLocked(int64_t renderCostMs);
     bool shouldBypassOverlayCompositionLocked() const;
+    int64_t playbackCompositeReuseWindowMsLocked(int64_t approximateFrameMs) const;
+    void maybeQueueProxyBuildLocked(const std::shared_ptr<Clip>& clip);
+    void maybeQueueProxyBuildForSourceLocked(
+        const std::string& sourcePath,
+        int width,
+        int height,
+        double fps);
+    bool shouldAutoRequestPreviewProxyLocked(
+        const std::string& sourcePath,
+        int width,
+        int height,
+        double fps) const;
+    void syncClipProxyPathLocked(const std::shared_ptr<Clip>& clip);
+    void rebuildSmartCacheHintsLocked();
+    int resolvePreviewScaleLimitLocked() const;
+    int resolveSuperResolutionPreviewScaleLimitLocked(int baseLimitPx, int sourceWidth, int sourceHeight) const;
+    void applyPreviewScaleLimitLocked();
+    void updateAdaptivePreviewScaleLocked(int64_t scrubVelocityMsPerSec);
     ClipPreviewTransform clipPreviewTransformLocked(int clipId) const;
     bool hasClipPreviewTransformLocked(const std::shared_ptr<Clip>& clip) const;
     float clipPreviewMinZoomLocked(int clipId) const;
+    float clipPreviewMaxZoomLocked(int clipId) const;
     void normalizeClipPreviewTransformLocked(int clipId, ClipPreviewTransform& transform) const;
+    void markVisualStateDirtyLocked();
     const ClipTransition* findActiveTransitionLocked(int64_t timelineMs) const;
     std::shared_ptr<Clip> findTimelineClipByIdLocked(int clipId) const;
     bool uploadClipFrameToTextureLocked(
@@ -506,11 +598,17 @@ private:
 
     bool m_dirtyRegionRedrawEnabled = true;
     bool m_predictiveCachingEnabled = true;
+    int m_predictiveLookAroundBaseMs = 2000;
+    int m_predictiveSampleStepBaseMs = 120;
+    int m_predictiveCacheBaseMaxFrames = 40;
     int m_predictiveLookAroundMs = 2000;
     int m_predictiveSampleStepMs = 120;
     int m_predictiveCacheMaxFrames = 40;
     bool m_hasDecodedFrame = false;
+    uint64_t m_visualStateVersion = 1;
+    uint64_t m_lastRenderedVisualStateVersion = 0;
     std::string m_openVideoPath;
+    int64_t m_lastPlaybackPrefetchRequestMs = std::numeric_limits<int64_t>::min();
 
     std::map<int64_t, Backend::DecodedFrame> m_predictiveFrameCache;
     std::deque<int64_t> m_predictiveFrameOrder;

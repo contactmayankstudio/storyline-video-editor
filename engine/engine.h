@@ -6,6 +6,7 @@
 #include <atomic>
 #include <thread>
 #include <functional>
+#include "../export_config.h"
 
 #ifdef __ANDROID__
 #include <android/native_window.h>
@@ -51,6 +52,12 @@ public:
     void seekPreview(int64_t timeMs);
     void resizePreview(int width, int height);
     void setPreviewChroma(bool enabled, int color, float similarity, float smoothness, float spill);
+
+    // --- Project Import/Export & Video Rendering ---
+    bool loadProject(const std::string& path);
+    bool saveProject(const std::string& path);
+    bool exportProject(const ExportConfig& config, std::function<void(float, const std::string&)> progressCallback, std::function<void(bool)> completionCallback);
+    void cancelExport();
 
     // --- MediaCodec Preview Pipeline Skeleton Methods ---
 

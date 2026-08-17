@@ -1,17 +1,12 @@
 {
   "version": 2,
-  "public": true,
   "headers": [
     {
-      "source": "/app.apk",
+      "source": "/app-ads.txt",
       "headers": [
-        { "key": "Content-Type", "value": "application/vnd.android.package-archive" },
+        { "key": "Content-Type", "value": "text/plain; charset=utf-8" },
         { "key": "Cache-Control", "value": "public, max-age=300" }
       ]
-    },
-    {
-      "source": "/build.json",
-      "headers": [{ "key": "Cache-Control", "value": "no-store, max-age=0" }]
     }
   ]
 }

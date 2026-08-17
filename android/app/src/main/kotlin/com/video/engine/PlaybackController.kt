@@ -11,6 +11,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.video.engine.pro.timeline.MultiTrackTimelineView
 import com.video.engine.timeline.TimelineManager
+import kotlin.math.abs
 
 class PlaybackController(
     private val activity: Activity,
@@ -35,13 +36,32 @@ class PlaybackController(
 ) {
     companion object {
         private const val TAG = "[UI]"
-        private const val MAX_UI_TIMELINE_FPS = 20L
-        private const val MIN_UI_FRAME_INTERVAL_MS = 1000L / MAX_UI_TIMELINE_FPS
+        private const val HIGH_TIER_UI_FRAME_INTERVAL_MS = 16L
+        private const val MID_TIER_UI_FRAME_INTERVAL_MS = 24L
+        private const val LOW_TIER_UI_FRAME_INTERVAL_MS = 33L
+        private const val HIGH_TIER_HEAVY_UI_FRAME_INTERVAL_MS = 33L
+        private const val MID_TIER_HEAVY_UI_FRAME_INTERVAL_MS = 40L
+        private const val LOW_TIER_HEAVY_UI_FRAME_INTERVAL_MS = 50L
+        private const val PLAYBACK_UI_JUMP_REFRESH_DISTANCE_MS = 900L
+        private const val LOW_TIER_PLAYBACK_UI_JUMP_REFRESH_DISTANCE_MS = 900L
         private const val NATIVE_PLAYBACK_START_GRACE_MS = 750L
-        private const val NATIVE_SEEK_DUPLICATE_TOLERANCE_MS = 8L
-        private const val LOW_END_PLAY_PREROLL_MS = 54L
-        private const val MID_TIER_PLAY_PREROLL_MS = 32L
-        private const val HIGH_END_PLAY_PREROLL_MS = 16L
+        private const val NATIVE_SEEK_DUPLICATE_TOLERANCE_MS = 14L
+        private const val PAUSED_PREVIEW_DUPLICATE_TOLERANCE_MS = 12L
+        private const val PAUSED_PREVIEW_MIN_INTERVAL_MS = 140L
+        private const val PAUSED_PREVIEW_RECOVERY_DELAY_MS = 90L
+        private const val PAUSED_PREVIEW_CONFIRM_DELAY_MS = 260L
+        private const val HIGH_TIER_PLAYBACK_SAMPLE_DELAY_MS = 16L
+        private const val MID_TIER_PLAYBACK_SAMPLE_DELAY_MS = 16L
+        private const val LOW_TIER_PLAYBACK_SAMPLE_DELAY_MS = 24L
+        private const val HIGH_TIER_SCRUB_DISPATCH_INTERVAL_MS = 16L
+        private const val MID_TIER_SCRUB_DISPATCH_INTERVAL_MS = 16L
+        private const val LOW_TIER_SCRUB_DISPATCH_INTERVAL_MS = 24L
+        private const val HIGH_TIER_SCRUB_COMMIT_DELAY_MS = 80L
+        private const val MID_TIER_SCRUB_COMMIT_DELAY_MS = 100L
+        private const val LOW_TIER_SCRUB_COMMIT_DELAY_MS = 130L
+        private const val LOW_END_PLAY_PREROLL_MS = 0L
+        private const val MID_TIER_PLAY_PREROLL_MS = 0L
+        private const val HIGH_END_PLAY_PREROLL_MS = 0L
     }
 
     private val choreographer = Choreographer.getInstance()
@@ -51,10 +71,13 @@ class PlaybackController(
     private var lastRenderedPlaybackTimeMs = Long.MIN_VALUE
     private var lastLoggedPlaybackTimeMs = Long.MIN_VALUE
     private var lastUiApplyRealtimeMs = 0L
+    private var lastHeavyUiApplyRealtimeMs = 0L
     private var playbackFrameScheduled = false
     private var lastScrubNativeSeekMs = Long.MIN_VALUE
     private var lastNativeSeekTimelineMs = Long.MIN_VALUE
     private var lastScrubTimeMs = Long.MIN_VALUE
+    private var lastPausedPreviewRefreshTimeMs = Long.MIN_VALUE
+    private var lastPausedPreviewRefreshElapsedMs = 0L
     private var nativePlaybackStartGraceDeadlineMs = 0L
     private var pendingSmoothPlayToken = 0
     var onPlaybackTimeChanged: ((Long) -> Unit)? = null
@@ -64,6 +87,32 @@ class PlaybackController(
     private val pendingScrubCommit = Runnable {
         if (lastScrubTimeMs != Long.MIN_VALUE) commitScrub(lastScrubTimeMs)
     }
+    private val initialPreviewRefreshRunnable =
+        object : Runnable {
+            override fun run() {
+                val preview = previewViewProvider()
+                val durationFromPreview =
+                    if (preview != null) {
+                        preview.getDuration()
+                    } else {
+                        totalDurationMsProvider()
+                    }
+                val durationMs = durationFromPreview.coerceAtLeast(totalDurationMsProvider())
+                setVideoDurationMs(durationMs)
+                Log.d(TAG, "Video duration: $durationMs ms")
+                if (durationMs <= 0L || isPlayingProvider()) return
+                if (preview == null) return
+                refreshPreviewFrame(preview, playheadTimeMsProvider().coerceAtLeast(0L))
+            }
+        }
+    private val resumePreviewRefreshRunnable =
+        object : Runnable {
+            override fun run() {
+                if (isPlayingProvider()) return
+                val preview = previewViewProvider() ?: return
+                refreshPreviewFrame(preview, playheadTimeMsProvider().coerceAtLeast(0L))
+            }
+        }
     private val playbackFrameCallback = Choreographer.FrameCallback { frameTimeNanos ->
         playbackFrameScheduled = false
         if (!isPlayingProvider()) {
@@ -94,7 +143,12 @@ class PlaybackController(
     private fun schedulePlaybackFrame() {
         if (playbackFrameScheduled) return
         playbackFrameScheduled = true
-        choreographer.postFrameCallback(playbackFrameCallback)
+        val sampleDelayMs = resolvePlaybackFrameSampleDelayMs()
+        if (sampleDelayMs <= 0L) {
+            choreographer.postFrameCallback(playbackFrameCallback)
+        } else {
+            choreographer.postFrameCallbackDelayed(playbackFrameCallback, sampleDelayMs)
+        }
     }
 
     private fun cancelPlaybackFrames() {
@@ -115,7 +169,7 @@ class PlaybackController(
         val timelineManager = TimelineManager(
             recyclerView = recyclerView,
             timeDisplay = timeDisplay,
-            timeFormatter = { timelineMs, _ -> formatRemainingTime(timelineMs, totalDurationMsProvider()) },
+            timeFormatter = { timelineMs, _ -> formatTimelineClock(timelineMs, totalDurationMsProvider()) },
         )
         timelineManager.setScrubListener(object : TimelineManager.OnScrubListener {
             override fun onScrub(timelineMs: Long) {
@@ -134,15 +188,16 @@ class PlaybackController(
     }
 
     fun scheduleInitialDurationRefresh() {
-        Handler(Looper.getMainLooper()).postDelayed({
-            val durationMs = previewViewProvider()?.getDuration() ?: totalDurationMsProvider()
-            setVideoDurationMs(durationMs)
-            Log.d(TAG, "Video duration: $durationMs ms")
-        }, 500)
+        mainHandler.removeCallbacks(initialPreviewRefreshRunnable)
+        mainHandler.postDelayed(initialPreviewRefreshRunnable, 500L)
     }
 
     fun onResume() {
         previewViewProvider()?.onResume()
+        if (!isPlayingProvider()) {
+            mainHandler.removeCallbacks(resumePreviewRefreshRunnable)
+            mainHandler.postDelayed(resumePreviewRefreshRunnable, 180L)
+        }
         if (isPlayingProvider()) {
             nativePlay()
         }
@@ -162,7 +217,13 @@ class PlaybackController(
             android.util.Log.e("PlaybackController", "nativePlay: previewView is NULL — cannot play!")
             return
         }
-        val availableDurationMs = maxOf(totalDurationMsProvider(), view.getDuration())
+        val timelineDurationMs = totalDurationMsProvider().coerceAtLeast(0L)
+        val availableDurationMs =
+            if (timelineDurationMs > 0L) {
+                timelineDurationMs
+            } else {
+                view.getDuration().coerceAtLeast(0L)
+            }
         if (availableDurationMs <= 0L) {
             Log.w(TAG, "nativePlay ignored: no timeline media loaded")
             return
@@ -207,7 +268,12 @@ class PlaybackController(
         cancelPlaybackFrames()
         onPauseRequested()
         previewViewProvider()?.let { view ->
+            val pausedTimeMs =
+                NativeBridge.getCurrentPlaybackTime(view)
+                    .takeIf { it > 0L }
+                    ?: currentTimeMsProvider().coerceAtLeast(0L)
             NativeBridge.stopPlayback(view)
+            schedulePausedPreviewRecovery(pausedTimeMs)
         }
         resetPlaybackClock()
     }
@@ -218,6 +284,7 @@ class PlaybackController(
 
     private fun onTimelineScrub(timelineMs: Long, syncTimelineUi: Boolean) {
         cancelPendingSmoothPlay()
+        pauseActivePlaybackForScrub()
         resetPlaybackClock(anchorTimeMs = timelineMs)
         setCurrentTimeMs(timelineMs)
         timelineManagerProvider()?.updateDisplayedTime(timelineMs)
@@ -227,11 +294,22 @@ class PlaybackController(
         // Always update pending seek — only latest position matters
         pendingScrubTimeMs = timelineMs
         val now = SystemClock.elapsedRealtime()
-        if (now - lastScrubNativeSeekMs >= 50L) {
+        if (now - lastScrubNativeSeekMs >= resolveScrubDispatchIntervalMs()) {
             lastScrubNativeSeekMs = now
             dispatchScrubToNative(timelineMs)
         }
         lastScrubTimeMs = timelineMs
+    }
+
+    private fun pauseActivePlaybackForScrub() {
+        if (!isPlayingProvider()) return
+        setIsPlaying(false)
+        nativePlaybackStartGraceDeadlineMs = 0L
+        cancelPlaybackFrames()
+        previewViewProvider()?.let { view ->
+            runCatching { NativeBridge.stopPlayback(view) }
+        }
+        onPauseRequested()
     }
 
     @Volatile private var pendingScrubTimeMs = -1L
@@ -254,18 +332,34 @@ class PlaybackController(
         pendingScrubTimeMs = -1L
         lastScrubNativeSeekMs = SystemClock.elapsedRealtime()
         previewViewProvider()?.let { view ->
+            view.ensureNativeSurfaceBinding()
+            view.syncNativeSurfaceSizeToView()
+            lastNativeSeekTimelineMs = Long.MIN_VALUE
             if (shouldDispatchNativeSeek(finalMs)) {
                 NativeBridge.seekToTime(view, finalMs)
             }
         }
-        onSeekRequested(finalMs, isPlayingProvider())
+        onSeekRequested(finalMs, false)
+        schedulePausedPreviewRecovery(finalMs)
     }
 
     fun scrubTo(timelineMs: Long, syncTimelineUi: Boolean = true) {
         scrubHandler.removeCallbacks(pendingScrubCommit)
         onTimelineScrub(timelineMs, syncTimelineUi = syncTimelineUi)
         // Always commit final position after finger stops
-        scrubHandler.postDelayed(pendingScrubCommit, 80L)
+        scrubHandler.postDelayed(pendingScrubCommit, resolveScrubCommitDelayMs())
+    }
+
+    fun refreshPausedPreviewAt(timelineMs: Long) {
+        if (isPlayingProvider()) return
+        scrubHandler.removeCallbacks(pendingScrubCommit)
+        pendingScrubTimeMs = -1L
+        lastScrubNativeSeekMs = 0L
+        resetPlaybackClock(anchorTimeMs = timelineMs)
+        setCurrentTimeMs(timelineMs.coerceAtLeast(0L))
+        previewViewProvider()?.let { preview ->
+            refreshPreviewFrame(preview, timelineMs)
+        }
     }
 
     private fun resolvePlaybackTimeMs(previewView: VideoPreviewView): Long {
@@ -286,28 +380,47 @@ class PlaybackController(
         onPauseRequested()
         applyPlaybackTime(stoppedTimeMs)
         resetPlaybackClock(anchorTimeMs = stoppedTimeMs)
+        schedulePausedPreviewRecovery(stoppedTimeMs)
         Log.d(TAG, "Native playback stopped at ${stoppedTimeMs}ms")
     }
 
     private fun applyPlaybackTime(timeMs: Long) {
         if (timeMs == lastRenderedPlaybackTimeMs) return
         val nowMs = SystemClock.elapsedRealtime()
-        if (lastUiApplyRealtimeMs > 0L &&
-            nowMs - lastUiApplyRealtimeMs < MIN_UI_FRAME_INTERVAL_MS &&
-            lastRenderedPlaybackTimeMs != Long.MIN_VALUE &&
-            kotlin.math.abs(timeMs - lastRenderedPlaybackTimeMs) < 8L
-        ) {
+        val isFirstUiSample = lastRenderedPlaybackTimeMs == Long.MIN_VALUE
+        val isLargeTimelineJump =
+            !isFirstUiSample && abs(timeMs - lastRenderedPlaybackTimeMs) >= resolvePlaybackUiJumpRefreshDistanceMs()
+        val uiDue =
+            isFirstUiSample ||
+                isLargeTimelineJump ||
+                lastUiApplyRealtimeMs <= 0L ||
+                nowMs - lastUiApplyRealtimeMs >= resolveUiFrameIntervalMs()
+        if (!uiDue) {
             return
         }
         lastUiApplyRealtimeMs = nowMs
         setCurrentTimeMs(timeMs)
         timelineCurrentTimeTextProvider()
             ?.takeIf { it.visibility == View.VISIBLE }
-            ?.text = formatRemainingTime(timeMs, totalDurationMsProvider())
-        timelineManagerProvider()?.updateDisplayedTime(timeMs)
-        multiTrackTimelineViewProvider()?.setCurrentTimeMs(timeMs, animate = false)
-        // Update canvas timeline playhead
-        onPlaybackTimeChanged?.invoke(timeMs)
+            ?.text = formatTimelineClock(timeMs, totalDurationMsProvider())
+        val lowTierTimelineLightMode = DeviceDetector.getDeviceTier() == DeviceDetector.DeviceTier.LOW
+        if (!lowTierTimelineLightMode) {
+            onPlaybackTimeChanged?.invoke(timeMs)
+        }
+        val heavyUiDue =
+            lastHeavyUiApplyRealtimeMs <= 0L ||
+                nowMs - lastHeavyUiApplyRealtimeMs >= resolveHeavyUiFrameIntervalMs() ||
+                isFirstUiSample ||
+                isLargeTimelineJump
+        if (heavyUiDue) {
+            multiTrackTimelineViewProvider()
+                ?.takeIf { it.isShown }
+                ?.setCurrentTimeMs(timeMs, animate = false)
+            if (lowTierTimelineLightMode) {
+                onPlaybackTimeChanged?.invoke(timeMs)
+            }
+            lastHeavyUiApplyRealtimeMs = nowMs
+        }
         lastLoggedPlaybackTimeMs = timeMs
         lastRenderedPlaybackTimeMs = timeMs
     }
@@ -337,19 +450,25 @@ class PlaybackController(
         lastRenderedPlaybackTimeMs = Long.MIN_VALUE
         lastLoggedPlaybackTimeMs = Long.MIN_VALUE
         lastUiApplyRealtimeMs = 0L
+        lastHeavyUiApplyRealtimeMs = 0L
     }
 
-    private fun formatRemainingTime(timeMs: Long, totalDurationMs: Long): String {
-        val remainingMs = (totalDurationMs - timeMs).coerceAtLeast(0L)
-        val totalSeconds = remainingMs / 1000
+    private fun formatTimelineClock(timeMs: Long, totalDurationMs: Long): String {
+        val safeTimeMs = timeMs.coerceAtLeast(0L)
+        val safeTotalMs = totalDurationMs.coerceAtLeast(safeTimeMs)
+        return "${formatTimelineTime(safeTimeMs)} / ${formatTimelineTime(safeTotalMs)}"
+    }
+
+    private fun formatTimelineTime(timeMs: Long): String {
+        val totalSeconds = timeMs / 1000
         val seconds = totalSeconds % 60
         val totalMinutes = totalSeconds / 60
         val minutes = totalMinutes % 60
         val hours = totalMinutes / 60
         return if (hours > 0) {
-            String.format("-%02d:%02d:%02d", hours, minutes, seconds)
+            String.format("%02d:%02d:%02d", hours, minutes, seconds)
         } else {
-            String.format("-%02d:%02d", minutes, seconds)
+            String.format("%02d:%02d", minutes, seconds)
         }
     }
 
@@ -370,5 +489,101 @@ class PlaybackController(
             DeviceDetector.DeviceTier.MID -> MID_TIER_PLAY_PREROLL_MS
             DeviceDetector.DeviceTier.HIGH -> HIGH_END_PLAY_PREROLL_MS
         }
+    }
+
+    private fun resolvePlaybackFrameSampleDelayMs(): Long {
+        return when (DeviceDetector.getDeviceTier()) {
+            DeviceDetector.DeviceTier.LOW -> LOW_TIER_PLAYBACK_SAMPLE_DELAY_MS
+            DeviceDetector.DeviceTier.MID -> MID_TIER_PLAYBACK_SAMPLE_DELAY_MS
+            DeviceDetector.DeviceTier.HIGH -> HIGH_TIER_PLAYBACK_SAMPLE_DELAY_MS
+        }
+    }
+
+    private fun resolveUiFrameIntervalMs(): Long {
+        return when (DeviceDetector.getDeviceTier()) {
+            DeviceDetector.DeviceTier.LOW -> LOW_TIER_UI_FRAME_INTERVAL_MS
+            DeviceDetector.DeviceTier.MID -> MID_TIER_UI_FRAME_INTERVAL_MS
+            DeviceDetector.DeviceTier.HIGH -> HIGH_TIER_UI_FRAME_INTERVAL_MS
+        }
+    }
+
+    private fun resolveHeavyUiFrameIntervalMs(): Long {
+        return when (DeviceDetector.getDeviceTier()) {
+            DeviceDetector.DeviceTier.LOW -> LOW_TIER_HEAVY_UI_FRAME_INTERVAL_MS
+            DeviceDetector.DeviceTier.MID -> MID_TIER_HEAVY_UI_FRAME_INTERVAL_MS
+            DeviceDetector.DeviceTier.HIGH -> HIGH_TIER_HEAVY_UI_FRAME_INTERVAL_MS
+        }
+    }
+
+    private fun resolvePlaybackUiJumpRefreshDistanceMs(): Long {
+        return when (DeviceDetector.getDeviceTier()) {
+            DeviceDetector.DeviceTier.LOW -> LOW_TIER_PLAYBACK_UI_JUMP_REFRESH_DISTANCE_MS
+            DeviceDetector.DeviceTier.MID,
+            DeviceDetector.DeviceTier.HIGH -> PLAYBACK_UI_JUMP_REFRESH_DISTANCE_MS
+        }
+    }
+
+    private fun resolveScrubDispatchIntervalMs(): Long {
+        return when (DeviceDetector.getDeviceTier()) {
+            DeviceDetector.DeviceTier.LOW -> LOW_TIER_SCRUB_DISPATCH_INTERVAL_MS
+            DeviceDetector.DeviceTier.MID -> MID_TIER_SCRUB_DISPATCH_INTERVAL_MS
+            DeviceDetector.DeviceTier.HIGH -> HIGH_TIER_SCRUB_DISPATCH_INTERVAL_MS
+        }
+    }
+
+    private fun resolveScrubCommitDelayMs(): Long {
+        return when (DeviceDetector.getDeviceTier()) {
+            DeviceDetector.DeviceTier.LOW -> LOW_TIER_SCRUB_COMMIT_DELAY_MS
+            DeviceDetector.DeviceTier.MID -> MID_TIER_SCRUB_COMMIT_DELAY_MS
+            DeviceDetector.DeviceTier.HIGH -> HIGH_TIER_SCRUB_COMMIT_DELAY_MS
+        }
+    }
+
+    private fun refreshPreviewFrame(preview: VideoPreviewView, requestedTimeMs: Long) {
+        val now = SystemClock.elapsedRealtime()
+        if (!isPlayingProvider() &&
+            lastPausedPreviewRefreshTimeMs != Long.MIN_VALUE &&
+            abs(requestedTimeMs - lastPausedPreviewRefreshTimeMs) <= PAUSED_PREVIEW_DUPLICATE_TOLERANCE_MS &&
+            now - lastPausedPreviewRefreshElapsedMs < PAUSED_PREVIEW_MIN_INTERVAL_MS
+        ) {
+            return
+        }
+        preview.ensureNativeSurfaceBinding()
+        preview.syncNativeSurfaceSizeToView()
+        val timelineDurationMs = totalDurationMsProvider().coerceAtLeast(0L)
+        val durationMs =
+            if (timelineDurationMs > 0L) {
+                timelineDurationMs
+            } else {
+                preview.getDuration().coerceAtLeast(0L)
+            }
+        val clampedTimeMs =
+            if (durationMs > 0L) {
+                requestedTimeMs.coerceIn(0L, durationMs.coerceAtLeast(1L) - 1L)
+            } else {
+                requestedTimeMs.coerceAtLeast(0L)
+            }
+        if (!isPlayingProvider()) {
+            lastPausedPreviewRefreshTimeMs = clampedTimeMs
+            lastPausedPreviewRefreshElapsedMs = now
+        }
+        lastNativeSeekTimelineMs = Long.MIN_VALUE
+        NativeBridge.seekToTime(preview, clampedTimeMs)
+        if (durationMs > 0L) {
+            onSeekRequested(clampedTimeMs, false)
+        }
+    }
+
+    private fun schedulePausedPreviewRecovery(requestedTimeMs: Long) {
+        if (isPlayingProvider()) return
+        val clampedTimeMs = requestedTimeMs.coerceAtLeast(0L)
+        fun refreshNow() {
+            if (isPlayingProvider()) return
+            previewViewProvider()?.let { preview ->
+                refreshPreviewFrame(preview, clampedTimeMs)
+            }
+        }
+        mainHandler.postDelayed({ refreshNow() }, PAUSED_PREVIEW_RECOVERY_DELAY_MS)
+        mainHandler.postDelayed({ refreshNow() }, PAUSED_PREVIEW_CONFIRM_DELAY_MS)
     }
 }

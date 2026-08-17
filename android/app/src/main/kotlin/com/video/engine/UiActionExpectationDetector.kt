@@ -176,9 +176,9 @@ class UiActionExpectationDetector(
             )
             "clip_toolbar" to "clipAddLayerButton" -> ExpectationTemplate(
                 key = "clip_toolbar:clipAddLayerButton",
-                source = "clip_layer_button_no_followup",
+                source = "clip_overlay_button_no_followup",
                 timeoutMs = 1_600L,
-                expectedActions = setOf("clip_layer_action_handled", "layers_source_sheet_opened"),
+                expectedActions = setOf("clip_layer_action_handled", "overlay_import_picker_opened"),
             )
             "start_screen" to "start_open_project" -> ExpectationTemplate(
                 key = "start_screen:open_project",

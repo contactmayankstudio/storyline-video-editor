@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <provider
+            android:name="com.google.android.gms.ads.MobileAdsInitProvider"
+            tools:node="remove" />
+        <meta-data
+            android:name="firebase_data_collection_default_enabled"
+            android:value="@bool/storyline_debug_firebase_collection_enabled" />
+        <meta-data
+            android:name="firebase_crashlytics_collection_enabled"
+            android:value="@bool/storyline_debug_firebase_collection_enabled" />
+        <meta-data
+            android:name="firebase_analytics_collection_deactivated"
+            android:value="@bool/storyline_debug_firebase_analytics_deactivated" />
+        <meta-data
+            android:name="firebase_performance_collection_deactivated"
+            android:value="@bool/storyline_debug_firebase_performance_deactivated" />
+    </application>
+</manifest>

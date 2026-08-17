@@ -7,6 +7,7 @@
 #include <functional>
 #include <stdexcept>
 #include "engine/engine.h"
+#include "core/clip.h"
 
 namespace VideoEngine::Backend {
 
@@ -44,6 +45,9 @@ public:
         int channels = 0;
         TimeMs startTimeMs = 0;
         TimeMs endTimeMs = 0;
+        VideoEngine::Clip::TrackRole trackRole = VideoEngine::Clip::TrackRole::Audio;
+        bool duckingController = false;
+        float duckingAmount = 0.35f;
     };
 
     using ProgressCallback = std::function<void(int clipIdx, int totalClips)>;

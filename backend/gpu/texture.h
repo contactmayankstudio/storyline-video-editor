@@ -89,6 +89,11 @@ public:
     uint32_t getHandle() const { return m_handle; }
 
     /**
+     * Get texture format.
+     */
+    Format getFormat() const { return m_format; }
+
+    /**
      * Check if texture is valid.
      */
     bool isValid() const { return m_handle != 0; }

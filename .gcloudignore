@@ -1,0 +1,19 @@
+.gcloudignore
+.git
+.gitignore
+#!include:.gitignore
+
+# Keep local secrets out of Cloud Build source uploads.
+android/debug.keystore.stable
+
+# Trim large local artifacts that are not needed to compile the Android app.
+*.mp4
+preview/**
+testlab-direct-*/
+testlab-direct-*/**
+android/build/local-device/**
+android/build/github-device/**
+android/build/live-capture/**
+android/build/github-run-*-artifact/**
+android/build/github-run-*
+.tmp-run-*/

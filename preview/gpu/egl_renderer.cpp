@@ -50,6 +50,7 @@ uniform bool uTransformEnabled;
 uniform vec2 uViewportSize;
 uniform vec2 uTextureSize;
 uniform float uZoom;
+uniform vec2 uScale;
 uniform vec2 uPanPx;
 uniform float uRotationDeg;
 uniform bool uMirrorX;
@@ -62,6 +63,54 @@ uniform float uChromaSpill;
 uniform float uBrightness;
 uniform float uContrast;
 uniform float uSaturation;
+
+float chromaKeyMatte(vec3 rgb, vec3 keyColor, float similarityValue, float smoothnessValue) {
+    bool blueKey = keyColor.b > keyColor.g;
+    vec3 target = vec3(0.12, blueKey ? 0.24 : 0.94, blueKey ? 0.92 : 0.14);
+    float similarity = clamp(similarityValue, 0.02, 1.0);
+    float smoothness = clamp(smoothnessValue, 0.01, 1.0);
+
+    float luma = dot(rgb, vec3(0.299, 0.587, 0.114));
+    float cb = (rgb.b - luma) * 0.564;
+    float cr = (rgb.r - luma) * 0.713;
+    float keyLuma = dot(target, vec3(0.299, 0.587, 0.114));
+    float keyCb = (target.b - keyLuma) * 0.564;
+    float keyCr = (target.r - keyLuma) * 0.713;
+    float chromaDist = distance(vec2(cb, cr), vec2(keyCb, keyCr));
+
+    float keyDominance = blueKey
+        ? (rgb.b - max(rgb.r, rgb.g))
+        : (rgb.g - max(rgb.r, rgb.b));
+    float dominanceCenter = 0.03 + (similarity * 0.42);
+    float dominanceSoftness = 0.015 + (smoothness * 0.20);
+    float matteByDominance = smoothstep(
+        dominanceCenter - dominanceSoftness,
+        dominanceCenter + dominanceSoftness,
+        keyDominance);
+
+    float distanceCenter = 0.015 + (similarity * 0.26);
+    float distanceSoftness = 0.025 + (smoothness * 0.28);
+    float matteByDistance = 1.0 - smoothstep(
+        distanceCenter,
+        distanceCenter + distanceSoftness,
+        chromaDist);
+
+    return clamp(max(matteByDistance, matteByDominance * 0.96), 0.0, 1.0);
+}
+
+vec3 despillChroma(vec3 rgb, vec3 keyColor, float matte, float spillValue) {
+    float spill = clamp(spillValue, 0.0, 1.0);
+    if (spill <= 0.0 || matte <= 0.0) {
+        return rgb;
+    }
+    float spillMix = matte * spill;
+    if (keyColor.b > keyColor.g) {
+        rgb.b = mix(rgb.b, (rgb.r + rgb.g) * 0.5, spillMix);
+    } else {
+        rgb.g = mix(rgb.g, (rgb.r + rgb.b) * 0.5, spillMix);
+    }
+    return rgb;
+}
 
 void main() {
     vec2 sampleCoord = fragTexCoord;
@@ -76,10 +125,13 @@ void main() {
         } else {
             baseRenderedSize = vec2(viewportSize.x, viewportSize.x / max(sourceAspect, 0.0001));
         }
-        vec2 renderedSize = max(baseRenderedSize * max(uZoom, 0.35), vec2(1.0));
+        float minZoom = uObjectTransform ? 0.15 : 0.35;
+        vec2 renderedSize = max(
+            baseRenderedSize * max(uZoom, minZoom) * max(uScale, vec2(0.15)),
+            vec2(1.0));
         vec2 maxPanPx;
         if (uObjectTransform) {
-            maxPanPx = max(renderedSize, viewportSize) * 0.5;
+            maxPanPx = (renderedSize * 0.5) + (viewportSize * 0.92);
         } else {
             maxPanPx = max((renderedSize - viewportSize) * 0.5, vec2(0.0));
         }
@@ -106,13 +158,9 @@ void main() {
 
     vec4 color = texture(textureSampler, sampleCoord);
     if (uChromaEnabled) {
-        float d = distance(color.rgb, uChromaKeyColor);
-        float alpha = smoothstep(uChromaSimilarity, uChromaSimilarity + uChromaSmoothness, d);
-        if (uChromaKeyColor.g > 0.5) {
-            color.g = mix(color.g, (color.r + color.b) * 0.5, uChromaSpill);
-        } else if (uChromaKeyColor.b > 0.5) {
-            color.b = mix(color.b, (color.r + color.g) * 0.5, uChromaSpill);
-        }
+        float matte = chromaKeyMatte(color.rgb, uChromaKeyColor, uChromaSimilarity, uChromaSmoothness);
+        float alpha = 1.0 - matte;
+        color.rgb = despillChroma(color.rgb, uChromaKeyColor, matte, uChromaSpill);
         color.a *= alpha;
         color.rgb *= alpha;
     }
@@ -145,6 +193,7 @@ uniform float uOpacityA;
 uniform bool uTransformEnabledA;
 uniform vec2 uTextureSizeA;
 uniform float uZoomA;
+uniform vec2 uScaleA;
 uniform vec2 uPanPxA;
 uniform float uRotationDegA;
 uniform bool uMirrorXA;
@@ -163,6 +212,7 @@ uniform float uOpacityB;
 uniform bool uTransformEnabledB;
 uniform vec2 uTextureSizeB;
 uniform float uZoomB;
+uniform vec2 uScaleB;
 uniform vec2 uPanPxB;
 uniform float uRotationDegB;
 uniform bool uMirrorXB;
@@ -176,11 +226,60 @@ uniform float uBrightnessB;
 uniform float uContrastB;
 uniform float uSaturationB;
 
+float chromaKeyMatte(vec3 rgb, vec3 keyColor, float similarityValue, float smoothnessValue) {
+    bool blueKey = keyColor.b > keyColor.g;
+    vec3 target = vec3(0.12, blueKey ? 0.24 : 0.94, blueKey ? 0.92 : 0.14);
+    float similarity = clamp(similarityValue, 0.02, 1.0);
+    float smoothness = clamp(smoothnessValue, 0.01, 1.0);
+
+    float luma = dot(rgb, vec3(0.299, 0.587, 0.114));
+    float cb = (rgb.b - luma) * 0.564;
+    float cr = (rgb.r - luma) * 0.713;
+    float keyLuma = dot(target, vec3(0.299, 0.587, 0.114));
+    float keyCb = (target.b - keyLuma) * 0.564;
+    float keyCr = (target.r - keyLuma) * 0.713;
+    float chromaDist = distance(vec2(cb, cr), vec2(keyCb, keyCr));
+
+    float keyDominance = blueKey
+        ? (rgb.b - max(rgb.r, rgb.g))
+        : (rgb.g - max(rgb.r, rgb.b));
+    float dominanceCenter = 0.03 + (similarity * 0.42);
+    float dominanceSoftness = 0.015 + (smoothness * 0.20);
+    float matteByDominance = smoothstep(
+        dominanceCenter - dominanceSoftness,
+        dominanceCenter + dominanceSoftness,
+        keyDominance);
+
+    float distanceCenter = 0.015 + (similarity * 0.26);
+    float distanceSoftness = 0.025 + (smoothness * 0.28);
+    float matteByDistance = 1.0 - smoothstep(
+        distanceCenter,
+        distanceCenter + distanceSoftness,
+        chromaDist);
+
+    return clamp(max(matteByDistance, matteByDominance * 0.96), 0.0, 1.0);
+}
+
+vec3 despillChroma(vec3 rgb, vec3 keyColor, float matte, float spillValue) {
+    float spill = clamp(spillValue, 0.0, 1.0);
+    if (spill <= 0.0 || matte <= 0.0) {
+        return rgb;
+    }
+    float spillMix = matte * spill;
+    if (keyColor.b > keyColor.g) {
+        rgb.b = mix(rgb.b, (rgb.r + rgb.g) * 0.5, spillMix);
+    } else {
+        rgb.g = mix(rgb.g, (rgb.r + rgb.b) * 0.5, spillMix);
+    }
+    return rgb;
+}
+
 vec2 resolveSampleCoord(
     vec2 baseCoord,
     bool transformEnabled,
     vec2 textureSize,
     float zoom,
+    vec2 scale,
     vec2 panPx,
     float rotationDeg,
     bool mirrorX,
@@ -200,10 +299,13 @@ vec2 resolveSampleCoord(
         baseRenderedSize = vec2(viewportSize.x, viewportSize.x / max(sourceAspect, 0.0001));
     }
 
-    vec2 renderedSize = max(baseRenderedSize * max(zoom, 0.35), vec2(1.0));
+    float minZoom = objectTransform ? 0.15 : 0.35;
+    vec2 renderedSize = max(
+        baseRenderedSize * max(zoom, minZoom) * max(scale, vec2(0.15)),
+        vec2(1.0));
     vec2 maxPanPx;
     if (objectTransform) {
-        maxPanPx = max(renderedSize, viewportSize) * 0.5;
+        maxPanPx = (renderedSize * 0.5) + (viewportSize * 0.92);
     } else {
         maxPanPx = max((renderedSize - viewportSize) * 0.5, vec2(0.0));
     }
@@ -229,6 +331,7 @@ vec4 sampleLayer(
     bool transformEnabled,
     vec2 textureSize,
     float zoom,
+    vec2 scale,
     vec2 panPx,
     float rotationDeg,
     bool mirrorX,
@@ -247,6 +350,7 @@ vec4 sampleLayer(
         transformEnabled,
         textureSize,
         zoom,
+        scale,
         panPx,
         rotationDeg,
         mirrorX,
@@ -258,13 +362,9 @@ vec4 sampleLayer(
 
     vec4 color = texture(textureSampler, sampleCoord);
     if (chromaEnabled) {
-        float d = distance(color.rgb, chromaKeyColor);
-        float alpha = smoothstep(chromaSimilarity, chromaSimilarity + chromaSmoothness, d);
-        if (chromaKeyColor.g > 0.5) {
-            color.g = mix(color.g, (color.r + color.b) * 0.5, chromaSpill);
-        } else if (chromaKeyColor.b > 0.5) {
-            color.b = mix(color.b, (color.r + color.g) * 0.5, chromaSpill);
-        }
+        float matte = chromaKeyMatte(color.rgb, chromaKeyColor, chromaSimilarity, chromaSmoothness);
+        float alpha = 1.0 - matte;
+        color.rgb = despillChroma(color.rgb, chromaKeyColor, matte, chromaSpill);
         color.a *= alpha;
         color.rgb *= alpha;
     }
@@ -287,6 +387,7 @@ void main() {
         uTransformEnabledA,
         uTextureSizeA,
         uZoomA,
+        uScaleA,
         uPanPxA,
         uRotationDegA,
         uMirrorXA,
@@ -306,6 +407,7 @@ void main() {
         uTransformEnabledB,
         uTextureSizeB,
         uZoomB,
+        uScaleB,
         uPanPxB,
         uRotationDegB,
         uMirrorXB,
@@ -326,6 +428,7 @@ void main() {
         uTransformEnabledA,
         uTextureSizeA,
         uZoomA,
+        uScaleA,
         uPanPxA,
         uRotationDegA,
         uMirrorXA,
@@ -345,6 +448,7 @@ void main() {
         uTransformEnabledB,
         uTextureSizeB,
         uZoomB,
+        uScaleB,
         uPanPxB,
         uRotationDegB,
         uMirrorXB,
@@ -368,7 +472,7 @@ void main() {
         }
     } else if (uTransitionType == 3) {
         float feather = max(0.0025, 1.5 / max(uViewportSize.x, 1.0));
-        float wipeMix = smoothstep(progress - feather, progress + feather, fragTexCoord.x);
+        float wipeMix = 1.0 - smoothstep(progress - feather, progress + feather, fragTexCoord.x);
         result = mix(outgoingStatic, incomingStatic, wipeMix);
     } else if (uTransitionType == 4) {
         result = outgoing + incoming;
@@ -544,6 +648,7 @@ bool EGLRenderer::initialize(ANativeWindow* nativeWindow) {
     m_uViewportSizeLoc = glGetUniformLocation(m_programId, "uViewportSize");
     m_uTextureSizeLoc = glGetUniformLocation(m_programId, "uTextureSize");
     m_uZoomLoc = glGetUniformLocation(m_programId, "uZoom");
+    m_uScaleLoc = glGetUniformLocation(m_programId, "uScale");
     m_uPanPxLoc = glGetUniformLocation(m_programId, "uPanPx");
     m_uRotationDegLoc = glGetUniformLocation(m_programId, "uRotationDeg");
     m_uMirrorXLoc = glGetUniformLocation(m_programId, "uMirrorX");
@@ -559,6 +664,7 @@ bool EGLRenderer::initialize(ANativeWindow* nativeWindow) {
         uniforms.transformEnabled = transitionUniformLocation(m_transitionProgramId, "uTransformEnabled", suffix);
         uniforms.textureSize = transitionUniformLocation(m_transitionProgramId, "uTextureSize", suffix);
         uniforms.zoom = transitionUniformLocation(m_transitionProgramId, "uZoom", suffix);
+        uniforms.scale = transitionUniformLocation(m_transitionProgramId, "uScale", suffix);
         uniforms.panPx = transitionUniformLocation(m_transitionProgramId, "uPanPx", suffix);
         uniforms.rotationDeg = transitionUniformLocation(m_transitionProgramId, "uRotationDeg", suffix);
         uniforms.mirrorX = transitionUniformLocation(m_transitionProgramId, "uMirrorX", suffix);
@@ -605,6 +711,17 @@ void EGLRenderer::resizeViewport(int width, int height) {
 
     m_viewportWidth = width;
     m_viewportHeight = height;
+    if (m_nativeWindow) {
+        ANativeWindow_setBuffersGeometry(
+            m_nativeWindow,
+            width,
+            height,
+            WINDOW_FORMAT_RGBA_8888);
+    }
+    if (m_initialized && acquireContext()) {
+        glViewport(0, 0, width, height);
+        releaseContext();
+    }
 }
 
 bool EGLRenderer::renderFrame(const GLTexture& texture) {
@@ -748,6 +865,8 @@ bool EGLRenderer::renderLayers(const std::vector<Layer>& layers) {
             glUniform1f(m_uOpacityLoc, layer.opacity);
         const bool transformEnabled =
             std::fabs(layer.zoom - 1.0f) > 0.001f ||
+            std::fabs(layer.scaleX - 1.0f) > 0.001f ||
+            std::fabs(layer.scaleY - 1.0f) > 0.001f ||
             std::fabs(layer.panXPx) > 0.5f ||
             std::fabs(layer.panYPx) > 0.5f ||
             std::fabs(layer.rotationDeg) > 0.001f ||
@@ -765,7 +884,9 @@ bool EGLRenderer::renderLayers(const std::vector<Layer>& layers) {
                 static_cast<float>(std::max(1, layer.texture->getWidth())),
                 static_cast<float>(std::max(1, layer.texture->getHeight())));
         if (m_uZoomLoc >= 0)
-            glUniform1f(m_uZoomLoc, std::max(0.35f, layer.zoom));
+            glUniform1f(m_uZoomLoc, std::max(layer.objectTransform ? 0.15f : 0.35f, layer.zoom));
+        if (m_uScaleLoc >= 0)
+            glUniform2f(m_uScaleLoc, std::max(0.15f, layer.scaleX), std::max(0.15f, layer.scaleY));
         if (m_uPanPxLoc >= 0)
             glUniform2f(m_uPanPxLoc, layer.panXPx, layer.panYPx);
         if (m_uRotationDegLoc >= 0)
@@ -841,6 +962,8 @@ bool EGLRenderer::renderTransition(
     auto applyLayerUniforms = [&](const TransitionLayerUniformSet& uniforms, const Layer& layer) {
         const bool transformEnabled =
             std::fabs(layer.zoom - 1.0f) > 0.001f ||
+            std::fabs(layer.scaleX - 1.0f) > 0.001f ||
+            std::fabs(layer.scaleY - 1.0f) > 0.001f ||
             std::fabs(layer.panXPx) > 0.5f ||
             std::fabs(layer.panYPx) > 0.5f ||
             std::fabs(layer.rotationDeg) > 0.001f ||
@@ -852,7 +975,8 @@ bool EGLRenderer::renderTransition(
             uniforms.textureSize,
             static_cast<float>(std::max(1, layer.texture->getWidth())),
             static_cast<float>(std::max(1, layer.texture->getHeight())));
-        if (uniforms.zoom >= 0) glUniform1f(uniforms.zoom, std::max(0.35f, layer.zoom));
+        if (uniforms.zoom >= 0) glUniform1f(uniforms.zoom, std::max(layer.objectTransform ? 0.15f : 0.35f, layer.zoom));
+        if (uniforms.scale >= 0) glUniform2f(uniforms.scale, std::max(0.15f, layer.scaleX), std::max(0.15f, layer.scaleY));
         if (uniforms.panPx >= 0) glUniform2f(uniforms.panPx, layer.panXPx, layer.panYPx);
         if (uniforms.rotationDeg >= 0) glUniform1f(uniforms.rotationDeg, layer.rotationDeg);
         if (uniforms.mirrorX >= 0) glUniform1i(uniforms.mirrorX, layer.mirrorX ? 1 : 0);
@@ -1144,6 +1268,7 @@ void EGLRenderer::releaseResources() {
     m_uViewportSizeLoc = -1;
     m_uTextureSizeLoc = -1;
     m_uZoomLoc = -1;
+    m_uScaleLoc = -1;
     m_uPanPxLoc = -1;
     m_uRotationDegLoc = -1;
     m_uMirrorXLoc = -1;

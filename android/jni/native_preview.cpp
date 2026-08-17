@@ -25,6 +25,7 @@
 
 #include <memory>
 #include <mutex>
+#include <condition_variable>
 #include <thread>
 #include <atomic>
 #include <chrono>
@@ -46,6 +47,12 @@
 #include "engine/preview_controller.h"
 #include "core/timeline.h"
 #include "backend/ffmpeg/video_decoder.h"
+#include "../../smooth_engine/AdvancedAnimation.h"
+#include "../../smooth_engine/DisplaySync.h"
+#include "../../smooth_engine/HardwareEncoderPro.h"
+#include "../../smooth_engine/SmoothRenderLoop.h"
+#include "../../smooth_engine/SpeedRamping.h"
+#include "../../smooth_engine/TransitionEngine.h"
 #include <vector>
 #include "../../text_overlay.h"
 #if defined(VIDEO_ENGINE_FFMPEG_DEMUX_AVAILABLE)
@@ -104,7 +111,8 @@ EGLSurface g_eglSurface = EGL_NO_SURFACE;
 static bool makeOuterEglCurrentLocked(const char* logPrefix);
 static bool shouldRenderTextOverlaysInPreviewLocked();
 static bool hasActiveTextOverlayAtTimeLocked(long long timelineMs);
-// removed ambiguous renderTextOverlays declaration
+struct DirtyRegionPx;
+static void renderTextOverlays(long long timelineMs, const DirtyRegionPx* dirtyRegion = nullptr);
 ANativeWindow* g_nativeWindow = nullptr;
 
 // Engine state
@@ -121,6 +129,12 @@ std::atomic<long long> g_currentTimeMs(0);
 std::atomic<int> g_timelineZoomMilliPxPerSecond(120000);
 std::atomic<long long> g_pendingScrubMs{-1}; // -1 = no pending scrub
 std::atomic<long long> g_pendingPlayMs{-1};  // -1 = no pending play
+std::atomic<uint64_t> g_vsyncSequence{0};
+long long g_lastQueuedPreviewRefreshTimelineMs = -1;
+std::chrono::steady_clock::time_point g_lastQueuedPreviewRefreshAt{};
+std::mutex g_vsyncMutex;
+std::condition_variable g_vsyncCv;
+VideoEngine::Performance::DisplaySync g_displaySync;
 
 static bool initializeEGL();
 bool releaseOuterEglForPreviewAttachLocked();
@@ -129,17 +143,98 @@ namespace {
 void configureRenderThreadPriority() {
     pthread_setname_np(pthread_self(), "ve-render");
 
-    sched_param sp{};
-    const int maxPrio = sched_get_priority_max(SCHED_FIFO);
-    if (maxPrio > 0) {
-        sp.sched_priority = std::max(1, maxPrio - 2);
-        if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) == 0) {
-            return;
+    if (g_javaVM) {
+        JNIEnv* env;
+        if (g_javaVM->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+            jclass processClass = env->FindClass("android/os/Process");
+            if (processClass) {
+                jmethodID setPrioMethod = env->GetStaticMethodID(processClass, "setThreadPriority", "(I)V");
+                if (setPrioMethod) {
+                    env->CallStaticVoidMethod(processClass, setPrioMethod, -8); // THREAD_PRIORITY_URGENT_DISPLAY
+                }
+                env->DeleteLocalRef(processClass);
+            }
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+            }
+            // Cannot DetachCurrentThread safely here if it's the main render loop thread
+            // that lives forever without causing issues, but since it's just priority config, we'll leave it attached.
         }
     }
+}
 
-    // Fallback when realtime scheduling is not allowed.
-    setpriority(PRIO_PROCESS, 0, -8);
+bool hasQueuedRenderWork() {
+    return g_shouldExit.load(std::memory_order_acquire) ||
+        g_pendingScrubMs.load(std::memory_order_acquire) >= 0 ||
+        g_pendingPlayMs.load(std::memory_order_acquire) >= 0;
+}
+
+int64_t adjustedPlaybackSleepMs(
+    VideoEngine::PreviewController* preview,
+    int64_t renderCostMs) {
+    if (!preview) {
+        return 8;
+    }
+    const int64_t preferredSleepMs = std::max<int64_t>(1, preview->preferredRenderSleepMs());
+    if (preferredSleepMs <= 1) {
+        return 1;
+    }
+    const int64_t boundedRenderCostMs = std::clamp<int64_t>(
+        std::max<int64_t>(0, renderCostMs),
+        0,
+        preferredSleepMs - 1);
+    return std::max<int64_t>(1, preferredSleepMs - boundedRenderCostMs);
+}
+
+void preciseRenderWait(
+    int64_t sleepMs,
+    bool usePrecisePacing,
+    bool useDisplaySync,
+    uint64_t& lastVsyncSequence,
+    bool& deadlinePrimed,
+    std::chrono::steady_clock::time_point& nextDeadline) {
+    const auto clampedSleepMs = std::max<int64_t>(1, sleepMs);
+    const auto frameDuration = std::chrono::milliseconds(clampedSleepMs);
+    if (!usePrecisePacing) {
+        deadlinePrimed = false;
+        std::this_thread::sleep_for(frameDuration);
+        return;
+    }
+
+    if (useDisplaySync && clampedSleepMs <= 20) {
+        std::unique_lock<std::mutex> lock(g_vsyncMutex);
+        g_vsyncCv.wait_for(lock, frameDuration, [&]() {
+            return g_vsyncSequence.load(std::memory_order_acquire) != lastVsyncSequence ||
+                hasQueuedRenderWork();
+        });
+        lastVsyncSequence = g_vsyncSequence.load(std::memory_order_acquire);
+        deadlinePrimed = false;
+        return;
+    }
+
+    if (useDisplaySync && clampedSleepMs >= 28 && clampedSleepMs <= 36) {
+        std::unique_lock<std::mutex> lock(g_vsyncMutex);
+        const uint64_t startSequence = lastVsyncSequence;
+        g_vsyncCv.wait_for(lock, frameDuration + std::chrono::milliseconds(8), [&]() {
+            return g_vsyncSequence.load(std::memory_order_acquire) >= startSequence + 2 ||
+                hasQueuedRenderWork();
+        });
+        lastVsyncSequence = g_vsyncSequence.load(std::memory_order_acquire);
+        deadlinePrimed = false;
+        return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if (!deadlinePrimed) {
+        nextDeadline = now + frameDuration;
+        deadlinePrimed = true;
+    } else {
+        nextDeadline += frameDuration;
+        if (now >= nextDeadline) {
+            nextDeadline = now + frameDuration;
+        }
+    }
+    VideoEngine::Performance::SmoothRenderLoop::preciseWaitUntil(nextDeadline);
 }
 }  // namespace
 
@@ -352,6 +447,18 @@ void configureRenderThreadPriority() {
         float chromaSmoothness = 0.10f;
         float chromaSpill     = 0.05f;
         bool  chromaIsBlue    = false;
+        // Preview/program-monitor transform. Export must render this same
+        // composition state instead of stretching every visual layer full-screen.
+        float transformZoom = 1.0f;
+        float transformScaleX = 1.0f;
+        float transformScaleY = 1.0f;
+        float transformPanXPx = 0.0f;
+        float transformPanYPx = 0.0f;
+        float transformRotationDeg = 0.0f;
+        bool transformMirrorX = false;
+        bool objectTransform = false;
+        int transformViewportWidth = 0;
+        int transformViewportHeight = 0;
     };
 
     // CPU-side pixel buffer for text overlays (for export compositing)
@@ -382,6 +489,8 @@ void configureRenderThreadPriority() {
         float curveSpeedStrength = 1.0f;
     };
     std::vector<AudioExportClip> g_audioExportClips;
+    std::map<int64_t, Transition> g_transitions;
+    int64_t g_nextTransitionId = 1;
 
     std::vector<ClipExportSource> g_timelineClipPaths;
     constexpr int64_t kDefaultStillImageDurationMs = 5000;
@@ -402,8 +511,31 @@ void configureRenderThreadPriority() {
 
     static bool isStillImagePath(const std::string& path) {
         const std::string ext = normalizedExtension(path);
-        return ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "webp" ||
-            ext == "bmp" || ext == "gif" || ext == "tif" || ext == "tiff";
+        return ext == "jpg" || ext == "jpeg" || ext == "jpe" || ext == "jfif" ||
+            ext == "png" || ext == "webp" || ext == "bmp" || ext == "gif" ||
+            ext == "tif" || ext == "tiff" || ext == "heic" || ext == "heif" ||
+            ext == "avif";
+    }
+
+    static bool isAudioPath(const std::string& path) {
+        const std::string ext = normalizedExtension(path);
+        return ext == "aac" || ext == "amr" || ext == "flac" || ext == "m4a" ||
+            ext == "mp3" || ext == "ogg" || ext == "opus" || ext == "wav" ||
+            ext == "wma";
+    }
+
+    static bool usesObjectStyleExportTransform(Clip::TrackRole role) {
+        return role == Clip::TrackRole::MainVideo || role == Clip::TrackRole::Overlay;
+    }
+
+    static bool hasExportVisualTransform(const TimelineClipExportSpec& spec) {
+        return std::fabs(spec.transformZoom - 1.0f) > 0.001f ||
+            std::fabs(spec.transformScaleX - 1.0f) > 0.001f ||
+            std::fabs(spec.transformScaleY - 1.0f) > 0.001f ||
+            std::fabs(spec.transformPanXPx) > 0.5f ||
+            std::fabs(spec.transformPanYPx) > 0.5f ||
+            std::fabs(spec.transformRotationDeg) > 0.001f ||
+            spec.transformMirrorX;
     }
 
     static std::vector<AudioGainKeyframe> sanitizeAudioGainKeyframes(
@@ -576,6 +708,19 @@ void configureRenderThreadPriority() {
         spec.trackRole = clip->getTrackRole();
         spec.trackLane = clip->getTrackLane();
         spec.trackZOrder = clip->getTrackZOrder();
+        spec.objectTransform = usesObjectStyleExportTransform(spec.trackRole);
+        if (g_preview) {
+            const auto transformValues = g_preview->getClipPreviewTransformValues(spec.clipId);
+            spec.transformZoom = transformValues[0];
+            spec.transformPanXPx = transformValues[1];
+            spec.transformPanYPx = transformValues[2];
+            spec.transformRotationDeg = transformValues[3];
+            spec.transformMirrorX = transformValues[4] > 0.5f;
+            spec.transformScaleX = transformValues[5];
+            spec.transformScaleY = transformValues[6];
+        }
+        spec.transformViewportWidth = std::max(1, g_surfaceWidth);
+        spec.transformViewportHeight = std::max(1, g_surfaceHeight);
         clip->getTrimPoints(spec.trimInMs, spec.trimOutMs);
         if (spec.trimOutMs <= spec.trimInMs) {
             spec.trimOutMs = spec.trimInMs + spec.durationMs;
@@ -623,6 +768,19 @@ void configureRenderThreadPriority() {
                 spec.trimOutMs,
                 spec.trimInMs + 1,
                 std::max<int64_t>(spec.trimInMs + 1, spec.sourceDurationMs));
+        }
+        if (hasExportVisualTransform(spec)) {
+            LOGI("[Export] clip=%d transform zoom=%.3f scale=%.3fx%.3f pan=%.1f,%.1f rot=%.1f mirror=%d viewport=%dx%d",
+                 spec.clipId,
+                 spec.transformZoom,
+                 spec.transformScaleX,
+                 spec.transformScaleY,
+                 spec.transformPanXPx,
+                 spec.transformPanYPx,
+                 spec.transformRotationDeg,
+                 spec.transformMirrorX,
+                 spec.transformViewportWidth,
+                 spec.transformViewportHeight);
         }
         cacheClipExportSource(spec.clipId, spec.path, spec.durationMs);
         return spec;
@@ -681,49 +839,15 @@ void configureRenderThreadPriority() {
 
         auto mapWithoutFreeze = [&](int64_t localTimelineMs) -> int64_t {
             const int64_t clampedLocalMs = std::clamp<int64_t>(localTimelineMs, 0, clipDuration - 1);
-            const double localProgress = clipDuration > 1
-                ? static_cast<double>(clampedLocalMs) / static_cast<double>(clipDuration - 1)
-                : 0.0;
-            const double t = std::clamp(localProgress, 0.0, 1.0);
-
-            double shaped = t;
-            const float clampedCurveStrength = std::clamp(spec.curveSpeedStrength, 0.1f, 4.0f);
-            if (spec.curveSpeedProfile == "ease_in") {
-                const double gamma = 1.0 + (std::max(0.0f, clampedCurveStrength - 1.0f) * 1.35);
-                shaped = std::pow(t, gamma);
-            } else if (spec.curveSpeedProfile == "ease_out") {
-                const double gamma = 1.0 + (std::max(0.0f, clampedCurveStrength - 1.0f) * 1.35);
-                shaped = 1.0 - std::pow(1.0 - t, gamma);
-            } else if (spec.curveSpeedProfile == "ease_in_out") {
-                shaped = t * t * (3.0 - 2.0 * t);
-            } else if (spec.curveSpeedProfile == "hyperlapse") {
-                const double alpha = std::clamp(1.4 - (clampedCurveStrength * 0.15), 0.55, 1.4);
-                shaped = std::pow(t, alpha);
-            }
-
-            const int64_t trimmedSpanMs = std::max<int64_t>(1, sourceOutMs - sourceInMs);
-            const int64_t curveSourceMs = sourceInMs + static_cast<int64_t>(
-                std::llround(shaped * static_cast<double>(trimmedSpanMs - 1)));
-            const double playbackSpeed = std::max(0.1f, spec.playbackSpeed);
-            const int64_t speedSourceMs = sourceInMs + static_cast<int64_t>(
-                std::llround(static_cast<double>(clampedLocalMs) * playbackSpeed));
-
-            int64_t mappedSourceMs = speedSourceMs;
-            if (spec.curveSpeedProfile != "linear") {
-                const double blend = std::clamp(
-                    static_cast<double>(clampedCurveStrength - 0.1f) / 3.9,
-                    0.15,
-                    0.9);
-                mappedSourceMs = static_cast<int64_t>(
-                    std::llround((1.0 - blend) * static_cast<double>(speedSourceMs) +
-                                 blend * static_cast<double>(curveSourceMs)));
-            }
-            mappedSourceMs = std::clamp<int64_t>(mappedSourceMs, sourceInMs, sourceOutMs - 1);
-            if (spec.reversePlayback) {
-                mappedSourceMs = sourceOutMs - 1 - (mappedSourceMs - sourceInMs);
-                mappedSourceMs = std::clamp<int64_t>(mappedSourceMs, sourceInMs, sourceOutMs - 1);
-            }
-            return mappedSourceMs;
+            return VideoEngine::Advanced::mapTimelineToSourceWithProfile(
+                clampedLocalMs,
+                clipDuration,
+                sourceInMs,
+                sourceOutMs,
+                spec.playbackSpeed,
+                spec.reversePlayback,
+                spec.curveSpeedProfile,
+                spec.curveSpeedStrength);
         };
 
         if (!ignoreFreeze && spec.freezeFrameEnabled && spec.freezeFrameDurationMs > 0) {
@@ -812,8 +936,63 @@ void configureRenderThreadPriority() {
         int fps = 30;
         AVPixelFormat pixelFormat = AV_PIX_FMT_YUV420P;
         int64_t nextPts = 0;
+        std::unique_ptr<VideoEngine::Backend::HardwareEncoderPro> hardwareEncoder;
+        bool hardwareEncoderPrepared = false;
+        std::string selectedEncoderName;
+
+        SimpleVideoEncoderContext() = default;
+        SimpleVideoEncoderContext(const SimpleVideoEncoderContext&) = delete;
+        SimpleVideoEncoderContext& operator=(const SimpleVideoEncoderContext&) = delete;
+
+        SimpleVideoEncoderContext(SimpleVideoEncoderContext&& other) noexcept {
+            *this = std::move(other);
+        }
+
+        SimpleVideoEncoderContext& operator=(SimpleVideoEncoderContext&& other) noexcept {
+            if (this == &other) {
+                return *this;
+            }
+            reset();
+            formatCtx = other.formatCtx;
+            videoStream = other.videoStream;
+            codecCtx = other.codecCtx;
+            frame = other.frame;
+            packet = other.packet;
+            width = other.width;
+            height = other.height;
+            fps = other.fps;
+            pixelFormat = other.pixelFormat;
+            nextPts = other.nextPts;
+            hardwareEncoder = std::move(other.hardwareEncoder);
+            hardwareEncoderPrepared = other.hardwareEncoderPrepared;
+            selectedEncoderName = std::move(other.selectedEncoderName);
+
+            other.formatCtx = nullptr;
+            other.videoStream = nullptr;
+            other.codecCtx = nullptr;
+            other.frame = nullptr;
+            other.packet = nullptr;
+            other.width = 0;
+            other.height = 0;
+            other.fps = 30;
+            other.pixelFormat = AV_PIX_FMT_YUV420P;
+            other.nextPts = 0;
+            other.hardwareEncoderPrepared = false;
+            return *this;
+        }
 
         ~SimpleVideoEncoderContext() {
+            reset();
+        }
+
+    private:
+        void reset() {
+            if (hardwareEncoderPrepared && hardwareEncoder) {
+                hardwareEncoder->finish();
+            }
+            hardwareEncoder.reset();
+            hardwareEncoderPrepared = false;
+            selectedEncoderName.clear();
             if (frame) av_frame_free(&frame);
             if (packet) av_packet_free(&packet);
             if (codecCtx) avcodec_free_context(&codecCtx);
@@ -823,6 +1002,11 @@ void configureRenderThreadPriority() {
                 }
                 avformat_free_context(formatCtx);
             }
+            formatCtx = nullptr;
+            videoStream = nullptr;
+            codecCtx = nullptr;
+            frame = nullptr;
+            packet = nullptr;
         }
     };
 
@@ -1001,6 +1185,7 @@ void configureRenderThreadPriority() {
                 ctx.codecCtx->framerate.num,
                 ctx.codecCtx->framerate.den,
                 static_cast<long long>(ctx.codecCtx->bit_rate));
+            ctx.selectedEncoderName = candidate.name;
             encoderOpened = true;
             break;
         }
@@ -1036,6 +1221,23 @@ void configureRenderThreadPriority() {
         if (av_frame_get_buffer(ctx.frame, 32) < 0) {
             errorOut = "Failed to allocate output frame buffer";
             return false;
+        }
+
+        if (ctx.selectedEncoderName.find("mediacodec") != std::string::npos) {
+            VideoEngine::Backend::HardwareEncoderPro::Config hwConfig;
+            hwConfig.width = width;
+            hwConfig.height = height;
+            hwConfig.bitrate = static_cast<int>(ctx.codecCtx->bit_rate);
+            hwConfig.fps = ctx.fps;
+            hwConfig.mimeType =
+                preferHevc ? "video/hevc" :
+                (preferredVideoCodec == "av1" ? "video/av01" : "video/avc");
+            ctx.hardwareEncoder = std::make_unique<VideoEngine::Backend::HardwareEncoderPro>();
+            ctx.hardwareEncoder->init(hwConfig);
+            ctx.hardwareEncoderPrepared = true;
+            LOGI("[Export] HardwareEncoderPro prepared for encoder=%s mime=%s",
+                 ctx.selectedEncoderName.c_str(),
+                 hwConfig.mimeType.c_str());
         }
         return true;
 #else
@@ -1216,6 +1418,7 @@ void configureRenderThreadPriority() {
                 const int priorityA = visualTrackPriority(a->trackRole);
                 const int priorityB = visualTrackPriority(b->trackRole);
                 if (priorityA != priorityB) return priorityA < priorityB;
+                if (a->trackLane != b->trackLane) return a->trackLane < b->trackLane;
                 if (a->startTimeMs != b->startTimeMs) return a->startTimeMs < b->startTimeMs;
                 return a->clipId < b->clipId;
             });
@@ -1811,42 +2014,25 @@ void configureRenderThreadPriority() {
 
         if (!overlay.keyframes.empty()) {
             const auto& kfs = overlay.keyframes;
-            if (kfs.size() == 1) {
-                state.x = kfs[0].posX;
-                state.y = kfs[0].posY;
-                state.scale = kfs[0].scale;
-                state.opacity = kfs[0].opacity;
-            } else if (timelineMs <= kfs.front().timeMs) {
-                state.x = kfs.front().posX;
-                state.y = kfs.front().posY;
-                state.scale = kfs.front().scale;
-                state.opacity = kfs.front().opacity;
-            } else if (timelineMs >= kfs.back().timeMs) {
-                state.x = kfs.back().posX;
-                state.y = kfs.back().posY;
-                state.scale = kfs.back().scale;
-                state.opacity = kfs.back().opacity;
-            } else {
-                size_t idx = 0;
-                while (idx + 1 < kfs.size() && kfs[idx + 1].timeMs <= timelineMs) {
-                    ++idx;
-                }
-                const auto& kf0 = kfs[idx];
-                const auto& kf1 = kfs[idx + 1];
-                const float dt = static_cast<float>(kf1.timeMs - kf0.timeMs);
-                float t = 0.0f;
-                if (dt > 0.0f) {
-                    t = static_cast<float>(timelineMs - kf0.timeMs) / dt;
-                }
-                t = std::clamp(t, 0.0f, 1.0f);
-                auto lerpf = [](float a, float b, float t) -> float {
-                    return a + (b - a) * t;
-                };
-                state.x = lerpf(kf0.posX, kf1.posX, t);
-                state.y = lerpf(kf0.posY, kf1.posY, t);
-                state.scale = lerpf(kf0.scale, kf1.scale, t);
-                state.opacity = lerpf(kf0.opacity, kf1.opacity, t);
+            VideoEngine::Advanced::AnimatableProperty posX;
+            VideoEngine::Advanced::AnimatableProperty posY;
+            VideoEngine::Advanced::AnimatableProperty scale;
+            VideoEngine::Advanced::AnimatableProperty opacity;
+            posX.setDefaultValue(overlay.x);
+            posY.setDefaultValue(overlay.y);
+            scale.setDefaultValue(overlay.scale);
+            opacity.setDefaultValue(overlay.opacity);
+            for (const auto& keyframe : kfs) {
+                const auto interpolation = VideoEngine::Advanced::InterpolationType::Bezier;
+                posX.addKeyframe({keyframe.timeMs, keyframe.posX, interpolation});
+                posY.addKeyframe({keyframe.timeMs, keyframe.posY, interpolation});
+                scale.addKeyframe({keyframe.timeMs, keyframe.scale, interpolation});
+                opacity.addKeyframe({keyframe.timeMs, keyframe.opacity, interpolation});
             }
+            state.x = posX.getValueAt(timelineMs);
+            state.y = posY.getValueAt(timelineMs);
+            state.scale = scale.getValueAt(timelineMs);
+            state.opacity = opacity.getValueAt(timelineMs);
         } else {
             if (overlay.fadeInMs > 0 && timelineMs < overlay.startTime + overlay.fadeInMs) {
                 state.opacity *= static_cast<float>(timelineMs - overlay.startTime) /
@@ -1888,6 +2074,135 @@ void configureRenderThreadPriority() {
                 std::clamp(outColor / outAlpha, 0.0f, 1.0f) * 255.0f);
         }
         dst[3] = static_cast<uint8_t>(std::clamp(outAlpha, 0.0f, 1.0f) * 255.0f);
+    }
+
+    static void sampleBilinearRgba(
+        const std::vector<uint8_t>& src,
+        int srcWidth,
+        int srcHeight,
+        float u,
+        float v,
+        uint8_t out[4]) {
+        const float x = std::clamp(u, 0.0f, 1.0f) * static_cast<float>(std::max(1, srcWidth - 1));
+        const float y = std::clamp(v, 0.0f, 1.0f) * static_cast<float>(std::max(1, srcHeight - 1));
+        const int x0 = std::clamp(static_cast<int>(std::floor(x)), 0, srcWidth - 1);
+        const int y0 = std::clamp(static_cast<int>(std::floor(y)), 0, srcHeight - 1);
+        const int x1 = std::min(srcWidth - 1, x0 + 1);
+        const int y1 = std::min(srcHeight - 1, y0 + 1);
+        const float tx = x - static_cast<float>(x0);
+        const float ty = y - static_cast<float>(y0);
+
+        const uint8_t* p00 = src.data() + ((y0 * srcWidth + x0) * 4);
+        const uint8_t* p10 = src.data() + ((y0 * srcWidth + x1) * 4);
+        const uint8_t* p01 = src.data() + ((y1 * srcWidth + x0) * 4);
+        const uint8_t* p11 = src.data() + ((y1 * srcWidth + x1) * 4);
+        for (int c = 0; c < 4; ++c) {
+            const float top = (static_cast<float>(p00[c]) * (1.0f - tx)) + (static_cast<float>(p10[c]) * tx);
+            const float bottom = (static_cast<float>(p01[c]) * (1.0f - tx)) + (static_cast<float>(p11[c]) * tx);
+            out[c] = static_cast<uint8_t>(std::clamp((top * (1.0f - ty)) + (bottom * ty), 0.0f, 255.0f));
+        }
+    }
+
+    static void compositeTransformedClipLayerOnRgba(
+        const TimelineClipExportSpec& spec,
+        const std::vector<uint8_t>& src,
+        int srcWidth,
+        int srcHeight,
+        int frameWidth,
+        int frameHeight,
+        std::vector<uint8_t>& dst) {
+        if (src.empty() || dst.empty() || srcWidth <= 0 || srcHeight <= 0 ||
+            frameWidth <= 0 || frameHeight <= 0) {
+            return;
+        }
+
+        const float viewportWidth = static_cast<float>(frameWidth);
+        const float viewportHeight = static_cast<float>(frameHeight);
+        const float sourceAspect = static_cast<float>(srcWidth) / std::max(1.0f, static_cast<float>(srcHeight));
+        const float viewportAspect = viewportWidth / std::max(1.0f, viewportHeight);
+        float baseRenderedWidth = viewportWidth;
+        float baseRenderedHeight = viewportHeight;
+        if (sourceAspect > viewportAspect) {
+            baseRenderedWidth = viewportHeight * sourceAspect;
+            baseRenderedHeight = viewportHeight;
+        } else {
+            baseRenderedWidth = viewportWidth;
+            baseRenderedHeight = viewportWidth / std::max(sourceAspect, 0.0001f);
+        }
+
+        const float minZoom = spec.objectTransform ? 0.15f : 0.35f;
+        const float zoom = std::max(minZoom, spec.transformZoom);
+        const float scaleX = std::max(0.15f, spec.transformScaleX);
+        const float scaleY = std::max(0.15f, spec.transformScaleY);
+        const float renderedWidth = std::max(1.0f, baseRenderedWidth * zoom * scaleX);
+        const float renderedHeight = std::max(1.0f, baseRenderedHeight * zoom * scaleY);
+
+        const float panScaleX = viewportWidth / static_cast<float>(std::max(1, spec.transformViewportWidth));
+        const float panScaleY = viewportHeight / static_cast<float>(std::max(1, spec.transformViewportHeight));
+        float panX = spec.transformPanXPx * panScaleX;
+        float panY = spec.transformPanYPx * panScaleY;
+        const float maxPanX = spec.objectTransform
+            ? (renderedWidth * 0.5f) + (viewportWidth * 0.92f)
+            : std::max((renderedWidth - viewportWidth) * 0.5f, 0.0f);
+        const float maxPanY = spec.objectTransform
+            ? (renderedHeight * 0.5f) + (viewportHeight * 0.92f)
+            : std::max((renderedHeight - viewportHeight) * 0.5f, 0.0f);
+        panX = std::clamp(panX, -maxPanX, maxPanX);
+        panY = std::clamp(panY, -maxPanY, maxPanY);
+
+        const float angleRad = spec.transformRotationDeg * 0.01745329251994329577f;
+        const float cosA = std::cos(angleRad);
+        const float sinA = std::sin(angleRad);
+        const float centerX = viewportWidth * 0.5f;
+        const float centerY = viewportHeight * 0.5f;
+        auto screenCorner = [&](float localX, float localY) {
+            return std::pair<float, float>{
+                centerX + panX + (localX * cosA) - (localY * sinA),
+                centerY + panY + (localX * sinA) + (localY * cosA)
+            };
+        };
+        const float halfW = renderedWidth * 0.5f;
+        const float halfH = renderedHeight * 0.5f;
+        const auto p0 = screenCorner(-halfW, -halfH);
+        const auto p1 = screenCorner(halfW, -halfH);
+        const auto p2 = screenCorner(halfW, halfH);
+        const auto p3 = screenCorner(-halfW, halfH);
+        const float minXf = std::min(std::min(p0.first, p1.first), std::min(p2.first, p3.first));
+        const float maxXf = std::max(std::max(p0.first, p1.first), std::max(p2.first, p3.first));
+        const float minYf = std::min(std::min(p0.second, p1.second), std::min(p2.second, p3.second));
+        const float maxYf = std::max(std::max(p0.second, p1.second), std::max(p2.second, p3.second));
+        const int minX = std::max(0, static_cast<int>(std::floor(minXf)));
+        const int maxX = std::min(frameWidth - 1, static_cast<int>(std::ceil(maxXf)));
+        const int minY = std::max(0, static_cast<int>(std::floor(minYf)));
+        const int maxY = std::min(frameHeight - 1, static_cast<int>(std::ceil(maxYf)));
+        if (minX > maxX || minY > maxY) {
+            return;
+        }
+
+        uint8_t sampled[4] = {0, 0, 0, 0};
+        for (int fy = minY; fy <= maxY; ++fy) {
+            for (int fx = minX; fx <= maxX; ++fx) {
+                float localX = ((static_cast<float>(fx) + 0.5f) - centerX) - panX;
+                float localY = ((static_cast<float>(fy) + 0.5f) - centerY) - panY;
+                float sampleLocalX = (localX * cosA) + (localY * sinA);
+                const float sampleLocalY = (-localX * sinA) + (localY * cosA);
+                if (spec.transformMirrorX) {
+                    sampleLocalX = -sampleLocalX;
+                }
+                const float sampleU = (sampleLocalX / renderedWidth) + 0.5f;
+                const float sampleV = (sampleLocalY / renderedHeight) + 0.5f;
+                if (sampleU < 0.0f || sampleU > 1.0f || sampleV < 0.0f || sampleV > 1.0f) {
+                    continue;
+                }
+
+                sampleBilinearRgba(src, srcWidth, srcHeight, sampleU, sampleV, sampled);
+                if (sampled[3] == 0) {
+                    continue;
+                }
+                uint8_t* out = dst.data() + ((fy * frameWidth + fx) * 4);
+                alphaBlendPixel(sampled, spec.opacity, out);
+            }
+        }
     }
 
     static void compositeBitmapOverlayOnRgba(
@@ -2012,6 +2327,7 @@ void configureRenderThreadPriority() {
                 }
                 return zA < zB;
             });
+        orderedIds.erase(std::unique(orderedIds.begin(), orderedIds.end()), orderedIds.end());
 
         for (int64_t overlayId : orderedIds) {
             const auto bitmapIt = g_overlayCpuBitmaps.find(overlayId);
@@ -2035,6 +2351,202 @@ void configureRenderThreadPriority() {
                 frameWidth,
                 frameHeight,
                 frameBuf);
+        }
+    }
+
+    static bool renderClipSpecToExportCanvas(
+        const TimelineClipExportSpec& clipSpec,
+        int64_t timelineMs,
+        int outputWidth,
+        int outputHeight,
+        std::map<int, ExportClipDecoderState>& decoderStates,
+        std::vector<uint8_t>& canvas,
+        bool& hasCompositedVisualLayer,
+        std::string& errorOut) {
+        auto& state = decoderStates[clipSpec.clipId];
+        const int64_t sourceMs = std::max<int64_t>(
+            0,
+            mapTimelineClipToSourceMs(clipSpec, timelineMs, /*ignoreFreeze=*/false));
+        VideoEngine::Backend::DecodedFrame decoded;
+        if (!decodeClipFrameForExport(
+                clipSpec,
+                sourceMs,
+                outputWidth,
+                outputHeight,
+                state,
+                decoded,
+                errorOut)) {
+            return false;
+        }
+
+        const bool transformedLayer = hasExportVisualTransform(clipSpec);
+        const int layerProcessWidth = transformedLayer
+            ? std::max(1, static_cast<int>(decoded.width))
+            : outputWidth;
+        const int layerProcessHeight = transformedLayer
+            ? std::max(1, static_cast<int>(decoded.height))
+            : outputHeight;
+
+        if (!prepareProcessedLayerRgbaForExport(
+                clipSpec,
+                decoded,
+                layerProcessWidth,
+                layerProcessHeight,
+                state,
+                errorOut)) {
+            return false;
+        }
+
+        if (transformedLayer) {
+            compositeTransformedClipLayerOnRgba(
+                clipSpec,
+                state.processedLayerRgba,
+                state.processedWidth,
+                state.processedHeight,
+                outputWidth,
+                outputHeight,
+                canvas);
+        } else if (!hasCompositedVisualLayer && clipSpec.opacity >= 0.999f) {
+            std::copy(
+                state.processedLayerRgba.begin(),
+                state.processedLayerRgba.end(),
+                canvas.begin());
+        } else {
+            blendFullFrameRgba(
+                state.processedLayerRgba,
+                outputWidth,
+                outputHeight,
+                clipSpec.opacity,
+                canvas);
+        }
+        hasCompositedVisualLayer = true;
+        return true;
+    }
+
+    static const TimelineClipExportSpec* findClipSpecById(
+        const std::vector<TimelineClipExportSpec>& clipSpecs,
+        int clipId) {
+        for (const auto& spec : clipSpecs) {
+            if (spec.clipId == clipId && spec.enabled && !spec.path.empty()) {
+                return &spec;
+            }
+        }
+        return nullptr;
+    }
+
+    static const Transition* findActiveExportTransition(
+        const std::vector<Transition>& transitions,
+        const std::vector<TimelineClipExportSpec>& clipSpecs,
+        const std::vector<const TimelineClipExportSpec*>& activeClips,
+        int64_t timelineMs) {
+        const Transition* best = nullptr;
+        for (const auto& transition : transitions) {
+            if (!transition.isEnabled || transition.durationMs <= 0) {
+                continue;
+            }
+            const int64_t elapsedMs = timelineMs - transition.startTimeMs;
+            if (elapsedMs < 0 || elapsedMs >= transition.durationMs) {
+                continue;
+            }
+            const auto* outgoing = findClipSpecById(clipSpecs, transition.outgoingClipId);
+            const auto* incoming = findClipSpecById(clipSpecs, transition.incomingClipId);
+            if (!outgoing || !incoming) {
+                continue;
+            }
+            bool hasUnrelatedActiveLayer = false;
+            for (const auto* active : activeClips) {
+                if (!active) continue;
+                if (active->clipId != transition.outgoingClipId &&
+                    active->clipId != transition.incomingClipId) {
+                    hasUnrelatedActiveLayer = true;
+                    break;
+                }
+            }
+            if (hasUnrelatedActiveLayer) {
+                continue;
+            }
+            if (!best || transition.startTimeMs > best->startTimeMs) {
+                best = &transition;
+            }
+        }
+        return best;
+    }
+
+    static void mixTransitionPixels(
+        const uint8_t* outgoing,
+        const uint8_t* incoming,
+        float incomingMix,
+        uint8_t* dst) {
+        const float mixValue = std::clamp(incomingMix, 0.0f, 1.0f);
+        const float outMix = 1.0f - mixValue;
+        for (int c = 0; c < 4; ++c) {
+            dst[c] = static_cast<uint8_t>(
+                std::clamp(
+                    (static_cast<float>(outgoing[c]) * outMix) +
+                        (static_cast<float>(incoming[c]) * mixValue),
+                    0.0f,
+                    255.0f));
+        }
+    }
+
+    static void composeTransitionCanvasesForExport(
+        const std::vector<uint8_t>& outgoingCanvas,
+        const std::vector<uint8_t>& incomingCanvas,
+        int transitionType,
+        float progress,
+        int width,
+        int height,
+        std::vector<uint8_t>& dst) {
+        if (outgoingCanvas.empty() || incomingCanvas.empty() || dst.empty() || width <= 0 || height <= 0) {
+            return;
+        }
+        const int normalizedType = VideoEngine::Advanced::TransitionEngine::normalizeTypeId(transitionType);
+        const float safeProgress = std::clamp(progress, 0.0f, 1.0f);
+        const size_t pixelCount = static_cast<size_t>(width) * static_cast<size_t>(height);
+
+        auto transparent = []() -> const uint8_t* {
+            static const uint8_t px[4] = {0, 0, 0, 0};
+            return px;
+        };
+        auto sampleAt = [&](const std::vector<uint8_t>& canvas, int x, int y) -> const uint8_t* {
+            if (x < 0 || x >= width || y < 0 || y >= height) {
+                return transparent();
+            }
+            return canvas.data() + ((static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)) * 4);
+        };
+
+        if (normalizedType == 4) {
+            const int offsetPx = static_cast<int>(std::round(safeProgress * static_cast<float>(width)));
+            std::fill(dst.begin(), dst.end(), 0);
+            for (int y = 0; y < height; ++y) {
+                for (int x = 0; x < width; ++x) {
+                    uint8_t* out = dst.data() + ((static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)) * 4);
+                    const uint8_t* outgoing = sampleAt(outgoingCanvas, x + offsetPx, y);
+                    const uint8_t* incoming = sampleAt(incomingCanvas, x - (width - offsetPx), y);
+                    std::copy(outgoing, outgoing + 4, out);
+                    alphaBlendPixel(incoming, 1.0f, out);
+                }
+            }
+            return;
+        }
+
+        for (size_t i = 0; i < pixelCount; ++i) {
+            const int x = static_cast<int>(i % static_cast<size_t>(width));
+            const int y = static_cast<int>(i / static_cast<size_t>(width));
+            const uint8_t* outgoing = outgoingCanvas.data() + (i * 4);
+            const uint8_t* incoming = incomingCanvas.data() + (i * 4);
+            float incomingMix = safeProgress;
+            if (normalizedType == 3) {
+                const float nx = static_cast<float>(x) / static_cast<float>(std::max(1, width - 1));
+                const float feather = 0.055f;
+                incomingMix = 1.0f - smoothstep01(safeProgress - feather, safeProgress + feather, nx);
+            } else if (normalizedType == 6) {
+                const float nx = (static_cast<float>(x) / static_cast<float>(std::max(1, width - 1))) - 0.5f;
+                const float ny = (static_cast<float>(y) / static_cast<float>(std::max(1, height - 1))) - 0.5f;
+                const float radius = std::sqrt((nx * nx) + (ny * ny));
+                incomingMix = 1.0f - smoothstep01(safeProgress - 0.12f, safeProgress + 0.12f, radius);
+            }
+            mixTransitionPixels(outgoing, incoming, incomingMix, dst.data() + (i * 4));
         }
     }
 
@@ -2089,7 +2601,20 @@ void configureRenderThreadPriority() {
         std::map<int, ExportClipDecoderState> decoderStates;
         SwsContext* canvasToYuv = nullptr;
         std::vector<uint8_t> composedRgba;
+        std::vector<uint8_t> outgoingTransitionRgba;
+        std::vector<uint8_t> incomingTransitionRgba;
+        std::vector<Transition> transitionSpecs;
         int lastProgress = -1;
+
+        {
+            std::lock_guard<std::mutex> lock(g_mutex);
+            transitionSpecs.reserve(g_transitions.size());
+            for (const auto& [_, transition] : g_transitions) {
+                if (transition.isEnabled && transition.durationMs > 0) {
+                    transitionSpecs.push_back(transition);
+                }
+            }
+        }
 
         auto cleanupFrameConverter = [&]() {
             if (canvasToYuv) {
@@ -2107,53 +2632,85 @@ void configureRenderThreadPriority() {
                 static_cast<size_t>(outputWidth) * static_cast<size_t>(outputHeight) * 4,
                 0);
             bool hasCompositedVisualLayer = false;
+            const Transition* activeTransition =
+                findActiveExportTransition(transitionSpecs, clipSpecs, activeClips, timelineMs);
 
-            for (const TimelineClipExportSpec* clipSpec : activeClips) {
-                if (!clipSpec) continue;
-                auto& state = decoderStates[clipSpec->clipId];
-                const int64_t sourceMs = std::max<int64_t>(
-                    0,
-                    mapTimelineClipToSourceMs(*clipSpec, timelineMs, /*ignoreFreeze=*/false));
-                VideoEngine::Backend::DecodedFrame decoded;
-                if (!decodeClipFrameForExport(
-                        *clipSpec,
-                        sourceMs,
+            if (activeTransition) {
+                const auto* outgoingSpec = findClipSpecById(clipSpecs, activeTransition->outgoingClipId);
+                const auto* incomingSpec = findClipSpecById(clipSpecs, activeTransition->incomingClipId);
+                if (outgoingSpec && incomingSpec) {
+                    outgoingTransitionRgba.assign(
+                        static_cast<size_t>(outputWidth) * static_cast<size_t>(outputHeight) * 4,
+                        0);
+                    incomingTransitionRgba.assign(
+                        static_cast<size_t>(outputWidth) * static_cast<size_t>(outputHeight) * 4,
+                        0);
+                    bool hasOutgoingLayer = false;
+                    bool hasIncomingLayer = false;
+                    const int64_t outgoingTimelineMs = std::min<int64_t>(
+                        timelineMs,
+                        outgoingSpec->startTimeMs + std::max<int64_t>(1, outgoingSpec->durationMs) - 1);
+                    const int64_t incomingTimelineMs = std::max<int64_t>(
+                        timelineMs,
+                        incomingSpec->startTimeMs);
+                    if (!renderClipSpecToExportCanvas(
+                            *outgoingSpec,
+                            outgoingTimelineMs,
+                            outputWidth,
+                            outputHeight,
+                            decoderStates,
+                            outgoingTransitionRgba,
+                            hasOutgoingLayer,
+                            errorOut) ||
+                        !renderClipSpecToExportCanvas(
+                            *incomingSpec,
+                            incomingTimelineMs,
+                            outputWidth,
+                            outputHeight,
+                            decoderStates,
+                            incomingTransitionRgba,
+                            hasIncomingLayer,
+                            errorOut)) {
+                        cleanupFrameConverter();
+                        std::remove(outputPath.c_str());
+                        return false;
+                    }
+                    const auto& profile =
+                        VideoEngine::Advanced::TransitionEngine::resolveTransition(activeTransition->typeId);
+                    const float rawProgress =
+                        static_cast<float>(timelineMs - activeTransition->startTimeMs) /
+                            static_cast<float>(std::max(1, activeTransition->durationMs));
+                    const float progress =
+                        VideoEngine::Advanced::TransitionEngine::remapProgress(profile.typeId, rawProgress);
+                    composeTransitionCanvasesForExport(
+                        outgoingTransitionRgba,
+                        incomingTransitionRgba,
+                        profile.typeId,
+                        progress,
                         outputWidth,
                         outputHeight,
-                        state,
-                        decoded,
-                        errorOut)) {
-                    cleanupFrameConverter();
-                    std::remove(outputPath.c_str());
-                    return false;
-                }
-
-                if (!prepareProcessedLayerRgbaForExport(
-                        *clipSpec,
-                        decoded,
-                        outputWidth,
-                        outputHeight,
-                        state,
-                        errorOut)) {
-                    cleanupFrameConverter();
-                    std::remove(outputPath.c_str());
-                    return false;
-                }
-
-                if (!hasCompositedVisualLayer && clipSpec->opacity >= 0.999f) {
-                    std::copy(
-                        state.processedLayerRgba.begin(),
-                        state.processedLayerRgba.end(),
-                        composedRgba.begin());
-                } else {
-                    blendFullFrameRgba(
-                        state.processedLayerRgba,
-                        outputWidth,
-                        outputHeight,
-                        clipSpec->opacity,
                         composedRgba);
+                    hasCompositedVisualLayer = hasOutgoingLayer || hasIncomingLayer;
                 }
-                hasCompositedVisualLayer = true;
+            }
+
+            if (!hasCompositedVisualLayer) {
+                for (const TimelineClipExportSpec* clipSpec : activeClips) {
+                    if (!clipSpec) continue;
+                    if (!renderClipSpecToExportCanvas(
+                            *clipSpec,
+                            timelineMs,
+                            outputWidth,
+                            outputHeight,
+                            decoderStates,
+                            composedRgba,
+                            hasCompositedVisualLayer,
+                            errorOut)) {
+                        cleanupFrameConverter();
+                        std::remove(outputPath.c_str());
+                        return false;
+                    }
+                }
             }
 
             compositeTextOverlaysOnRgba(timelineMs, outputWidth, outputHeight, composedRgba);
@@ -2786,37 +3343,80 @@ transcode_clip_done:
 #endif
     }
 
-    // Transition storage
-    std::map<int64_t, Transition> g_transitions;
-    int64_t g_nextTransitionId = 1;
-
     static void requestPreviewRefreshLocked() {
         if (!g_preview) {
             return;
         }
-        const int64_t currentTime = g_currentTimeMs.load(std::memory_order_acquire);
-        
-        // If playback is active, the render thread will pick up the new uniforms in the next frame
-        if (g_isRenderingActive.load(std::memory_order_acquire)) {
-            g_pendingScrubMs.store(static_cast<long long>(currentTime), std::memory_order_release);
+        if (g_isRenderingActive.load(std::memory_order_acquire) &&
+            g_pendingPlayMs.load(std::memory_order_acquire) < 0) {
+            // Playback is already presenting frames. Transform/color/layer changes
+            // should be picked up by the next renderFrame() without queueing a
+            // scrub, because playFrom() on every gesture frame causes visible
+            // drag/pinch stalls.
             return;
         }
-        
-        // If playback is paused, we need to force a redraw to see the effect changes
-        g_pendingScrubMs.store(-1, std::memory_order_release);
-        g_preview->scrubToTimelineTime(currentTime);
-        
-        // IMPORTANT: Manually render one frame and swap buffers to show live effects
-        if (makeOuterEglCurrentLocked("[LiveEffects]")) {
-            if (g_preview->renderFrame()) {
-                if (!eglSwapBuffers(g_eglDisplay, g_eglSurface)) {
-                    LOGE("[LiveEffects] eglSwapBuffers failed: 0x%x", eglGetError());
-                }
+        const int64_t currentTime = g_currentTimeMs.load(std::memory_order_acquire);
+        const auto now = std::chrono::steady_clock::now();
+        const long long pendingScrub = g_pendingScrubMs.load(std::memory_order_acquire);
+        const long long pendingPlay = g_pendingPlayMs.load(std::memory_order_acquire);
+        if (pendingPlay < 0 &&
+            pendingScrub == currentTime &&
+            g_lastQueuedPreviewRefreshTimelineMs == currentTime) {
+            const int64_t quietWindowMs = 14;
+            const int64_t elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - g_lastQueuedPreviewRefreshAt).count();
+            if (elapsedMs >= 0 && elapsedMs < quietWindowMs) {
+                return;
             }
         }
-        
-        const int64_t scrubTime = g_preview->getPlaybackTimelineTimeMs();
-        g_currentTimeMs.store(scrubTime, std::memory_order_release);
+
+        // Coalesce preview refresh requests onto the render thread. Synchronous
+        // scrubToTimelineTime() on the UI thread made drag/resize interactions
+        // stall at 1-4fps because every motion event paid the full decode/render cost.
+        g_pendingScrubMs.store(static_cast<long long>(currentTime), std::memory_order_release);
+        g_lastQueuedPreviewRefreshTimelineMs = static_cast<long long>(currentTime);
+        g_lastQueuedPreviewRefreshAt = now;
+    }
+
+    static void refreshPreviewAtCurrentTimeLocked(const char* logPrefix) {
+        if (!g_preview) {
+            return;
+        }
+        const int64_t currentTime = g_currentTimeMs.load(std::memory_order_acquire);
+        const auto now = std::chrono::steady_clock::now();
+        g_pendingPlayMs.store(-1, std::memory_order_release);
+        g_pendingScrubMs.store(static_cast<long long>(currentTime), std::memory_order_release);
+        g_lastQueuedPreviewRefreshTimelineMs = static_cast<long long>(currentTime);
+        g_lastQueuedPreviewRefreshAt = now;
+        LOGD("%s queued preview refresh at %lld ms", logPrefix, static_cast<long long>(currentTime));
+    }
+
+    static bool shouldRecoverPreviewRendererLocked(const char* errorMessage) {
+        if (!errorMessage || errorMessage[0] == '\0') {
+            return false;
+        }
+        return std::strstr(errorMessage, "eglMakeCurrent failed") != nullptr ||
+            std::strstr(errorMessage, "Render context acquire failed") != nullptr ||
+            std::strstr(errorMessage, "eglCreateWindowSurface failed") != nullptr;
+    }
+
+    static bool recoverPreviewRendererSurfaceLocked(const char* logPrefix) {
+        if (!g_preview || !g_nativeWindow) {
+            LOGW("%s preview renderer recovery skipped: missing preview/window", logPrefix);
+            return false;
+        }
+        LOGW("%s recovering preview renderer surface", logPrefix);
+        g_preview->detachSurface();
+        std::this_thread::sleep_for(std::chrono::milliseconds(60));
+        const bool attached = g_preview->attachSurface(g_nativeWindow);
+        if (!attached) {
+            LOGE("%s preview renderer reattach failed: %s", logPrefix, g_preview->getLastError());
+            return false;
+        }
+        if (g_surfaceWidth > 0 && g_surfaceHeight > 0) {
+            g_preview->resizeSurface(g_surfaceWidth, g_surfaceHeight);
+        }
+        return true;
     }
 
     // Simple GL program for colored quad placeholder (used until glyph textures are provided)
@@ -2948,6 +3548,61 @@ transcode_clip_done:
         releaseSharedImageForOverlay(overlayId);
     }
 
+    static bool uploadCpuBitmapTextureForOverlay(int64_t overlayId, TextOverlay& overlay) {
+        const auto bitmapIt = g_overlayCpuBitmaps.find(overlayId);
+        if (bitmapIt == g_overlayCpuBitmaps.end()) {
+            return false;
+        }
+        const OverlayCpuBitmap& bitmap = bitmapIt->second;
+        if (bitmap.rgba.empty() || bitmap.width <= 0 || bitmap.height <= 0) {
+            return false;
+        }
+        releaseOverlayTextureResources(overlayId, overlay);
+
+        while (glGetError() != GL_NO_ERROR) {
+        }
+        GLuint tex = 0;
+        glGenTextures(1, &tex);
+        if (tex == 0) {
+            LOGW("[Text] cpu-cache upload failed: glGenTextures id=%lld", (long long)overlayId);
+            return false;
+        }
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexImage2D(
+            GL_TEXTURE_2D,
+            0,
+            GL_RGBA,
+            bitmap.width,
+            bitmap.height,
+            0,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            bitmap.rgba.data());
+        const GLenum uploadError = glGetError();
+        glBindTexture(GL_TEXTURE_2D, 0);
+        if (uploadError != GL_NO_ERROR) {
+            LOGW(
+                "[Text] cpu-cache upload failed: glTexImage2D id=%lld error=0x%x w=%d h=%d",
+                (long long)overlayId,
+                uploadError,
+                bitmap.width,
+                bitmap.height);
+            glDeleteTextures(1, &tex);
+            return false;
+        }
+
+        overlay.texture = static_cast<unsigned int>(tex);
+        overlay.texWidth = bitmap.width;
+        overlay.texHeight = bitmap.height;
+        overlay.hasTexture = true;
+        return true;
+    }
+
     static GLuint compileShader(GLenum type, const char* src) {
         GLuint s = glCreateShader(type);
         glShaderSource(s, 1, &src, nullptr);
@@ -2995,7 +3650,7 @@ transcode_clip_done:
             "void main() {\n"
             "  if (uUseTexture == 1) {\n"
             "    vec4 s = texture(uTexture, vUV);\n"
-            "    outColor = s * uColor;\n"
+            "    outColor = vec4(s.rgb, s.a * uColor.a);\n"
             "    outColor.a *= uTextOpacity;\n"
             "  } else {\n"
             "    outColor = uColor;\n"
@@ -3042,7 +3697,7 @@ transcode_clip_done:
     }
 
     // Render text overlays as textured quads when bitmap present, otherwise colored quad.
-    static void renderTextOverlays(long long timelineMs, const DirtyRegionPx* dirtyRegion = nullptr) {
+    static void renderTextOverlays(long long timelineMs, const DirtyRegionPx* dirtyRegion) {
         if (!g_overlayProgram) return;
 
         auto toClip = [](float nx)->float { return nx * 2.0f - 1.0f; };
@@ -3085,6 +3740,9 @@ transcode_clip_done:
                 if (za == zb) return a < b; // deterministic tie-breaker by id
                 return za < zb;
             });
+            g_textOverlayOrder.erase(
+                std::unique(g_textOverlayOrder.begin(), g_textOverlayOrder.end()),
+                g_textOverlayOrder.end());
             g_orderDirty = false;
         }
 
@@ -3101,45 +3759,32 @@ transcode_clip_done:
             float drawY = t.y;
             float drawScale = t.scale;
             float drawOpacity = t.opacity;
+            float drawRotation = t.rotation;
 
             if (!t.keyframes.empty()) {
-                // Keyframes are expected to be sorted by timeMs.
-                auto &kfs = t.keyframes;
-                if (kfs.size() == 1) {
-                    drawX = kfs[0].posX;
-                    drawY = kfs[0].posY;
-                    drawScale = kfs[0].scale;
-                    drawOpacity = kfs[0].opacity;
-                } else {
-                    // Find surrounding keyframes
-                    if (timelineMs <= kfs.front().timeMs) {
-                        drawX = kfs.front().posX;
-                        drawY = kfs.front().posY;
-                        drawScale = kfs.front().scale;
-                        drawOpacity = kfs.front().opacity;
-                    } else if (timelineMs >= kfs.back().timeMs) {
-                        drawX = kfs.back().posX;
-                        drawY = kfs.back().posY;
-                        drawScale = kfs.back().scale;
-                        drawOpacity = kfs.back().opacity;
-                    } else {
-                        // find index i where kfs[i].time <= timelineMs < kfs[i+1].time
-                        size_t i = 0;
-                        while (i + 1 < kfs.size() && kfs[i+1].timeMs <= timelineMs) ++i;
-                        const auto &kf0 = kfs[i];
-                        const auto &kf1 = kfs[i+1];
-                        float dt = float(kf1.timeMs - kf0.timeMs);
-                        float tnorm = 0.0f;
-                        if (dt > 0.0f) tnorm = float(timelineMs - kf0.timeMs) / dt;
-                        if (tnorm < 0.0f) tnorm = 0.0f;
-                        if (tnorm > 1.0f) tnorm = 1.0f;
-                        auto lerpf = [](float a, float b, float t)->float { return a + (b - a) * t; };
-                        drawX = lerpf(kf0.posX, kf1.posX, tnorm);
-                        drawY = lerpf(kf0.posY, kf1.posY, tnorm);
-                        drawScale = lerpf(kf0.scale, kf1.scale, tnorm);
-                        drawOpacity = lerpf(kf0.opacity, kf1.opacity, tnorm);
-                    }
+                VideoEngine::Advanced::AnimatableProperty posX;
+                VideoEngine::Advanced::AnimatableProperty posY;
+                VideoEngine::Advanced::AnimatableProperty scale;
+                VideoEngine::Advanced::AnimatableProperty opacity;
+                VideoEngine::Advanced::AnimatableProperty rotation;
+                posX.setDefaultValue(t.x);
+                posY.setDefaultValue(t.y);
+                scale.setDefaultValue(t.scale);
+                rotation.setDefaultValue(t.rotation);
+                opacity.setDefaultValue(t.opacity);
+                for (const auto& keyframe : t.keyframes) {
+                    const auto interpolation = VideoEngine::Advanced::InterpolationType::Bezier;
+                    posX.addKeyframe({keyframe.timeMs, keyframe.posX, interpolation});
+                    posY.addKeyframe({keyframe.timeMs, keyframe.posY, interpolation});
+                    scale.addKeyframe({keyframe.timeMs, keyframe.scale, interpolation});
+                    rotation.addKeyframe({keyframe.timeMs, keyframe.rotation, interpolation});
+                    opacity.addKeyframe({keyframe.timeMs, keyframe.opacity, interpolation});
                 }
+                drawX = posX.getValueAt(timelineMs);
+                drawY = posY.getValueAt(timelineMs);
+                drawScale = scale.getValueAt(timelineMs);
+                drawOpacity = opacity.getValueAt(timelineMs);
+                drawRotation = rotation.getValueAt(timelineMs);
             }
 
             float cx = toClip(drawX);
@@ -3200,6 +3845,13 @@ transcode_clip_done:
             }
 
             glUniform1f(uTextOpacity, effOpacity);
+
+            if ((!t.hasTexture || t.texture == 0) && g_eglDisplay != EGL_NO_DISPLAY) {
+                if (uploadCpuBitmapTextureForOverlay(t.id, t)) {
+                    LOGI("[Text] bitmap uploaded from CPU cache id=%lld w=%d h=%d tex=%u",
+                         (long long)t.id, t.texWidth, t.texHeight, t.texture);
+                }
+            }
 
             if (t.hasTexture && t.texture != 0) {
                 glActiveTexture(GL_TEXTURE0);
@@ -3268,7 +3920,17 @@ transcode_clip_done:
     }
 
     static void renderOverlayEditFrame(const DirtyRegionPx* dirtyRegion = nullptr) {
+        if (!shouldRenderTextOverlaysInPreviewLocked()) {
+            return;
+        }
         if (!g_preview) {
+            return;
+        }
+
+        // If background playback render loop is actively running, skip synchronous
+        // EGL rendering from the calling thread to prevent EGL_BAD_ACCESS context contention.
+        // The render loop will composite the updated overlay in its next frame tick.
+        if (g_isRenderingActive.load(std::memory_order_acquire)) {
             return;
         }
 
@@ -3290,9 +3952,6 @@ transcode_clip_done:
             g_preview->scrubToTimelineTime(currentTime);
         }
 
-        if (!shouldRenderTextOverlaysInPreviewLocked()) {
-            return;
-        }
         if (!hasActiveTextOverlayAtTimeLocked(currentTime)) {
             return;
         }
@@ -3309,85 +3968,174 @@ transcode_clip_done:
     void renderThreadProc() {
         configureRenderThreadPriority();
         LOGI("Render thread started");
+        g_displaySync.start([](int64_t /*frameTimeNanos*/) {
+            g_vsyncSequence.fetch_add(1, std::memory_order_release);
+            g_vsyncCv.notify_all();
+        });
+        bool preciseDeadlinePrimed = false;
+        uint64_t lastVsyncSequence = g_vsyncSequence.load(std::memory_order_acquire);
+        auto nextPreciseDeadline = std::chrono::steady_clock::time_point{};
 
         while (!g_shouldExit.load(std::memory_order_acquire)) {
             int64_t sleepMs = 16;
             const bool isRenderingActive = g_isRenderingActive.load(std::memory_order_acquire);
+            const long long pendingScrubPeek = g_pendingScrubMs.load(std::memory_order_acquire);
+            const long long pendingPlayPeek = g_pendingPlayMs.load(std::memory_order_acquire);
 
-            if (!isRenderingActive) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            if (!isRenderingActive && pendingScrubPeek < 0 && pendingPlayPeek < 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(6));
                 continue;
             }
 
+            VideoEngine::PreviewController* preview = nullptr;
             {
                 std::lock_guard<std::mutex> lock(g_mutex);
+                preview = g_preview.get();
+            }
 
-                if (g_preview) {
-                    // Handle pending scrub request (posted from main thread)
-                    const long long pendingScrub = g_pendingScrubMs.exchange(-1, std::memory_order_acq_rel);
-                    if (pendingScrub >= 0) {
-                        const int64_t scrubTargetMs = static_cast<int64_t>(pendingScrub);
-                        const bool restarted = g_preview->playFrom(scrubTargetMs);
-                        const int64_t scrubTime = g_preview->getPlaybackTimelineTimeMs();
-                        g_currentTimeMs.store(scrubTime, std::memory_order_release);
-                        if (restarted &&
-                            shouldRenderTextOverlaysInPreviewLocked() &&
-                            hasActiveTextOverlayAtTimeLocked(scrubTime) &&
-                            makeOuterEglCurrentLocked("[Preview]")) {
-                            renderTextOverlays(scrubTime);
-                            if (!eglSwapBuffers(g_eglDisplay, g_eglSurface)) {
-                                LOGE("[Preview] eglSwapBuffers failed after scrub: 0x%x", eglGetError());
-                            }
+            if (preview) {
+                const long long pendingPlay = g_pendingPlayMs.exchange(-1, std::memory_order_acq_rel);
+                if (pendingPlay >= 0) {
+                    const int64_t playTargetMs = static_cast<int64_t>(pendingPlay);
+                    bool started = preview->playFrom(playTargetMs);
+                    if (!started && shouldRecoverPreviewRendererLocked(preview->getLastError())) {
+                        bool recovered = false;
+                        {
+                            std::lock_guard<std::mutex> lock(g_mutex);
+                            recovered = recoverPreviewRendererSurfaceLocked("[PlayRecover]");
                         }
-                        if (!restarted) {
-                            g_isRenderingActive.store(false, std::memory_order_release);
-                            g_preview->stop();
-                            LOGE("[Preview] playback scrub failed at %lld ms: %s",
-                                 static_cast<long long>(scrubTargetMs),
-                                 g_preview->getLastError());
+                        if (recovered) {
+                            started = preview->playFrom(playTargetMs);
                         }
-                        sleepMs = std::max<int64_t>(4, g_preview->preferredRenderSleepMs());
+                    }
+                    const int64_t playTime = preview->getPlaybackTimelineTimeMs();
+                    g_currentTimeMs.store(playTime, std::memory_order_release);
+                    if (started) {
+                        g_isRenderingActive.store(true, std::memory_order_release);
+                        sleepMs = std::max<int64_t>(4, preview->preferredRenderSleepMs());
                         continue;
                     }
 
-                    const bool rendered = g_preview->renderFrame();
-                    const int64_t currentTimeMs = g_preview->getPlaybackTimelineTimeMs();
-                    g_currentTimeMs.store(currentTimeMs, std::memory_order_release);
+                    g_isRenderingActive.store(false, std::memory_order_release);
+                    preview->stop();
+                    LOGE("[Preview] playback start failed at %lld ms: %s",
+                         static_cast<long long>(playTargetMs),
+                         preview->getLastError());
+                    sleepMs = 4;
+                    continue;
+                }
 
-                    if (rendered) {
-                        if (shouldRenderTextOverlaysInPreviewLocked() &&
-                            hasActiveTextOverlayAtTimeLocked(currentTimeMs) &&
-                            makeOuterEglCurrentLocked("[Preview]")) {
-                            renderTextOverlays(currentTimeMs);
-                            if (!eglSwapBuffers(g_eglDisplay, g_eglSurface)) {
-                                LOGE("[Preview] eglSwapBuffers failed: 0x%x", eglGetError());
+                const long long pendingScrub = g_pendingScrubMs.exchange(-1, std::memory_order_acq_rel);
+                if (pendingScrub >= 0) {
+                    const int64_t scrubTargetMs = static_cast<int64_t>(pendingScrub);
+                    if (isRenderingActive) {
+                        bool restarted = preview->playFrom(scrubTargetMs);
+                        if (!restarted && shouldRecoverPreviewRendererLocked(preview->getLastError())) {
+                            bool recovered = false;
+                            {
+                                std::lock_guard<std::mutex> lock(g_mutex);
+                                recovered = recoverPreviewRendererSurfaceLocked("[ScrubRecover]");
+                            }
+                            if (recovered) {
+                                restarted = preview->playFrom(scrubTargetMs);
                             }
                         }
-                    } else {
-                        g_isRenderingActive.store(false, std::memory_order_release);
-                        g_preview->stop();
-                        const char* lastError = g_preview->getLastError();
-                        if (lastError && lastError[0] != '\0') {
-                            LOGE("[Preview] playback render failed at %lld ms: %s",
-                                 static_cast<long long>(currentTimeMs),
-                                 lastError);
-                        } else {
-                            LOGI("[Preview] playback reached end at %lld ms",
-                                 static_cast<long long>(currentTimeMs));
+                        const int64_t scrubTime = preview->getPlaybackTimelineTimeMs();
+                        g_currentTimeMs.store(scrubTime, std::memory_order_release);
+                        if (!restarted) {
+                            g_isRenderingActive.store(false, std::memory_order_release);
+                            preview->stop();
+                            LOGE("[Preview] playback scrub failed at %lld ms: %s",
+                                 static_cast<long long>(scrubTargetMs),
+                                 preview->getLastError());
+                        }
+                        sleepMs = std::max<int64_t>(4, preview->preferredRenderSleepMs());
+                        continue;
+                    }
+
+                    preview->scrubToTimelineTime(scrubTargetMs);
+                    if (shouldRecoverPreviewRendererLocked(preview->getLastError())) {
+                        bool recovered = false;
+                        {
+                            std::lock_guard<std::mutex> lock(g_mutex);
+                            recovered = recoverPreviewRendererSurfaceLocked("[ScrubRecover]");
+                        }
+                        if (recovered) {
+                            preview->scrubToTimelineTime(scrubTargetMs);
                         }
                     }
-                    
-                    // Drive playback loop with engine-provided pacing instead of a fixed 60fps poll.
-                    const int64_t preferredSleep = g_preview->preferredRenderSleepMs();
-                    sleepMs = std::max<int64_t>(4, preferredSleep);
-                } else {
-                    sleepMs = 8;
+                    const int64_t scrubTime = preview->getPlaybackTimelineTimeMs();
+                    g_currentTimeMs.store(scrubTime, std::memory_order_release);
+                    sleepMs = 4;
+                    continue;
                 }
+
+                if (!isRenderingActive) {
+                    sleepMs = 4;
+                    continue;
+                }
+
+                const auto renderStartedAt = std::chrono::steady_clock::now();
+                const bool rendered = preview->renderFrame();
+                const int64_t renderCostMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - renderStartedAt).count();
+                const int64_t currentTimeMs = preview->getPlaybackTimelineTimeMs();
+                g_currentTimeMs.store(currentTimeMs, std::memory_order_release);
+
+                if (!rendered) {
+                    const char* lastError = preview->getLastError();
+                    if (shouldRecoverPreviewRendererLocked(lastError)) {
+                        const int64_t resumeTimeMs = std::max<int64_t>(0, currentTimeMs);
+                        bool recovered = false;
+                        {
+                            std::lock_guard<std::mutex> lock(g_mutex);
+                            recovered = recoverPreviewRendererSurfaceLocked("[RenderRecover]");
+                        }
+                        if (recovered && preview->playFrom(resumeTimeMs)) {
+                            g_currentTimeMs.store(
+                                preview->getPlaybackTimelineTimeMs(),
+                                std::memory_order_release);
+                            g_isRenderingActive.store(true, std::memory_order_release);
+                            sleepMs = std::max<int64_t>(4, preview->preferredRenderSleepMs());
+                            continue;
+                        }
+                        lastError = preview->getLastError();
+                    }
+                    g_isRenderingActive.store(false, std::memory_order_release);
+                    preview->stop();
+                    if (lastError && lastError[0] != '\0') {
+                        LOGE("[Preview] playback render failed at %lld ms: %s",
+                             static_cast<long long>(currentTimeMs),
+                             lastError);
+                    } else {
+                        LOGI("[Preview] playback reached end at %lld ms",
+                             static_cast<long long>(currentTimeMs));
+                    }
+                }
+
+                if (g_isRenderingActive.load(std::memory_order_acquire)) {
+                    sleepMs = adjustedPlaybackSleepMs(preview, renderCostMs);
+                } else {
+                    sleepMs = 4;
+                }
+            } else {
+                sleepMs = 8;
             }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(std::max<int64_t>(1, sleepMs)));
+            const bool usePrecisePacing =
+                g_isRenderingActive.load(std::memory_order_acquire) &&
+                g_pendingScrubMs.load(std::memory_order_acquire) < 0 &&
+                g_pendingPlayMs.load(std::memory_order_acquire) < 0;
+            preciseRenderWait(
+                sleepMs,
+                usePrecisePacing,
+                true,
+                lastVsyncSequence,
+                preciseDeadlinePrimed,
+                nextPreciseDeadline);
         }
 
+        g_displaySync.stop();
         LOGI("Render thread exiting");
     }
 
@@ -3421,7 +4169,7 @@ Java_com_video_engine_VideoPreviewView_nativeAddTransition(
             t.durationMs,
             t.startTimeMs);
     }
-    requestPreviewRefreshLocked();
+    refreshPreviewAtCurrentTimeLocked("[Transition]");
     LOGI("[TRANSITION] add id=%lld type=%d duration=%dms between %d -> %d", (long long)t.id, t.typeId, t.durationMs, t.outgoingClipId, t.incomingClipId);
     return static_cast<jlong>(t.id);
 }
@@ -3459,7 +4207,7 @@ Java_com_video_engine_VideoPreviewView_nativeUpdateTransition(
             transition.durationMs,
             transition.startTimeMs);
     }
-    requestPreviewRefreshLocked();
+    refreshPreviewAtCurrentTimeLocked("[Transition]");
     LOGI(
         "[TRANSITION] update id=%lld type=%d duration=%dms between %d -> %d start=%lld",
         (long long)transitionId,
@@ -3484,7 +4232,7 @@ Java_com_video_engine_VideoPreviewView_nativeRemoveTransition(
         if (g_preview) {
             g_preview->removeTransition(static_cast<int64_t>(transitionId));
         }
-        requestPreviewRefreshLocked();
+        refreshPreviewAtCurrentTimeLocked("[Transition]");
     } else {
         LOGW("[TRANSITION] remove missing id=%lld", (long long)transitionId);
     }
@@ -3710,6 +4458,7 @@ Java_com_video_engine_VideoPreviewView_nativeInitPreview(
 
     // Stop render thread BEFORE acquiring g_mutex to avoid deadlock
     g_shouldExit.store(true, std::memory_order_release);
+    g_vsyncCv.notify_all();
     if (g_renderThread.joinable()) {
         g_renderThread.join();
     }
@@ -3753,11 +4502,6 @@ Java_com_video_engine_VideoPreviewView_nativeInitPreview(
             }
             return;
         }
-        // Limit decode resolution to surface size immediately
-        if (g_surfaceWidth > 0 && g_surfaceHeight > 0) {
-            g_preview->setGhostPreviewEnabled(true);
-            g_preview->setGhostPreviewLongEdgePx(std::max(g_surfaceWidth, g_surfaceHeight));
-        }
         LOGI("[AndroidPreview] Created new PreviewController");
     } else {
         LOGI("[AndroidPreview] Reusing existing PreviewController");
@@ -3780,6 +4524,10 @@ Java_com_video_engine_VideoPreviewView_nativeInitPreview(
         } else {
             LOGI("[AndroidPreview] Surface attach recovered on retry");
         }
+    }
+
+    if (attached && g_surfaceWidth > 0 && g_surfaceHeight > 0) {
+        g_preview->resizeSurface(g_surfaceWidth, g_surfaceHeight);
     }
 
     // Start render thread
@@ -3813,11 +4561,11 @@ Java_com_video_engine_VideoPreviewView_nativeSetSurfaceSize(
         glViewport(0, 0, width, height);
     }
 
-    // Limit preview decode resolution to surface size — avoids decoding 4K for a 640p surface
     if (g_preview && width > 0 && height > 0) {
-        const int longEdge = std::max(width, height);
-        g_preview->setGhostPreviewEnabled(true);
-        g_preview->setGhostPreviewLongEdgePx(longEdge);
+        g_preview->resizeSurface(width, height);
+        // Keep the Java-selected performance profile. Re-applying the surface
+        // long edge here upgrades low-end devices back to 720px and makes
+        // multi-track playback decode too much work per frame.
     }
 }
 
@@ -3839,6 +4587,7 @@ Java_com_video_engine_VideoPreviewView_nativeReleasePreview(
     // Stop render thread
     g_isRenderingActive.store(false, std::memory_order_release);
     g_shouldExit.store(true, std::memory_order_release);
+    g_vsyncCv.notify_all();
     if (g_renderThread.joinable()) {
         g_renderThread.join();
     }
@@ -3902,7 +4651,9 @@ Java_com_video_engine_VideoPreviewView_nativeAddClip(
     std::string trackType(trackTypeStr);
     env->ReleaseStringUTFChars(trackTypeJ, trackTypeStr);
 
-    if (!g_preview->isReady()) {
+    const bool isAudioClip =
+        trackType == "AUDIO" || trackType == "Audio" || isAudioPath(videoPath);
+    if (!g_preview->isReady() && !isAudioClip) {
         if (!g_preview->open(videoPath)) {
             LOGE("[Timeline] Failed to open first clip '%s': %s",
                  videoPath.c_str(),
@@ -3925,7 +4676,9 @@ Java_com_video_engine_VideoPreviewView_nativeAddClip(
 
     const int64_t probedDurationMs = probeClipDurationMs(videoPath);
     const int64_t clipDurationMs =
-        probedDurationMs > 0 ? probedDurationMs : g_preview->getVideoDurationMs();
+        probedDurationMs > 0
+            ? probedDurationMs
+            : (isStillImagePath(videoPath) ? 5000 : (isAudioClip ? 1000 : g_preview->getVideoDurationMs()));
 
     // Use requested startTimeMs or append to end if -1
     int64_t actualStartMs = (startTimeMs >= 0) ? startTimeMs : timeline->getDuration();
@@ -3936,7 +4689,7 @@ Java_com_video_engine_VideoPreviewView_nativeAddClip(
         clipDurationMs);
 
     // Set advanced track properties
-    clip->setTrackType(trackType);
+    clip->setTrackType(isAudioClip ? "AUDIO" : trackType);
     clip->setTrackLane(trackLane);
     clip->setTrackZOrder(zOrder);
 
@@ -4092,30 +4845,10 @@ Java_com_video_engine_VideoPreviewView_nativeSeekPreview(
 
     const int64_t clampedTimelineMs = std::max<int64_t>(0, static_cast<int64_t>(timelineMs));
     g_currentTimeMs.store(clampedTimelineMs, std::memory_order_release);
-
-    const bool playbackActive = g_isRenderingActive.load(std::memory_order_acquire);
-    if (playbackActive) {
-        g_pendingScrubMs.store(static_cast<long long>(clampedTimelineMs), std::memory_order_release);
-        LOGD("[Preview] seekTo %lldms - queued for playback render thread", (long long)clampedTimelineMs);
-        return;
-    }
-
-    // Render paused scrubs immediately so they do not leak into the next play().
-    g_pendingScrubMs.store(-1, std::memory_order_release);
-    g_preview->scrubToTimelineTime(clampedTimelineMs);
-    const int64_t scrubTime = g_preview->getPlaybackTimelineTimeMs();
-    g_currentTimeMs.store(scrubTime, std::memory_order_release);
-
-    if (shouldRenderTextOverlaysInPreviewLocked() &&
-        hasActiveTextOverlayAtTimeLocked(scrubTime) &&
-        makeOuterEglCurrentLocked("[Scrub]")) {
-        renderTextOverlays(scrubTime);
-        if (!eglSwapBuffers(g_eglDisplay, g_eglSurface)) {
-            LOGW("[Scrub] eglSwapBuffers failed: 0x%x", eglGetError());
-        }
-    }
-
-    LOGD("[Preview] seekTo %lldms - rendered immediately", (long long)scrubTime);
+    g_pendingPlayMs.store(-1, std::memory_order_release);
+    g_pendingScrubMs.store(static_cast<long long>(clampedTimelineMs), std::memory_order_release);
+    g_vsyncCv.notify_all();
+    LOGD("[Preview] seekTo %lldms - queued for render thread", (long long)clampedTimelineMs);
 }
 
 JNIEXPORT void JNICALL
@@ -4124,6 +4857,8 @@ Java_com_video_engine_VideoPreviewView_nativeSetClipPreviewTransform(
     jobject thiz,
     jint clipId,
     jfloat zoom,
+    jfloat scaleX,
+    jfloat scaleY,
     jfloat panXPx,
     jfloat panYPx,
     jfloat rotationDeg,
@@ -4137,14 +4872,14 @@ Java_com_video_engine_VideoPreviewView_nativeSetClipPreviewTransform(
     g_preview->setClipPreviewTransform(
         static_cast<int>(clipId),
         static_cast<float>(zoom),
+        static_cast<float>(scaleX),
+        static_cast<float>(scaleY),
         static_cast<float>(panXPx),
         static_cast<float>(panYPx),
         static_cast<float>(rotationDeg),
         mirrorX == JNI_TRUE,
         immediate == JNI_TRUE);
-    if (!g_preview->isPlaying()) {
-        g_preview->redrawCachedFrame();
-    }
+    requestPreviewRefreshLocked();
 }
 
 JNIEXPORT void JNICALL
@@ -4158,9 +4893,7 @@ Java_com_video_engine_VideoPreviewView_nativeClearClipPreviewTransform(
         return;
     }
     g_preview->clearClipPreviewTransform(static_cast<int>(clipId));
-    if (!g_preview->isPlaying()) {
-        g_preview->redrawCachedFrame();
-    }
+    requestPreviewRefreshLocked();
 }
 
 JNIEXPORT void JNICALL
@@ -4173,9 +4906,7 @@ Java_com_video_engine_VideoPreviewView_nativeClearClipPreviewTransforms(
         return;
     }
     g_preview->clearClipPreviewTransforms();
-    if (!g_preview->isPlaying()) {
-        g_preview->redrawCachedFrame();
-    }
+    requestPreviewRefreshLocked();
 }
 
 JNIEXPORT jfloat JNICALL
@@ -4202,11 +4933,11 @@ Java_com_video_engine_VideoPreviewView_nativeGetClipPreviewTransform(
         return nullptr;
     }
     const auto values = g_preview->getClipPreviewTransformValues(static_cast<int>(clipId));
-    jfloatArray result = env->NewFloatArray(5);
+    jfloatArray result = env->NewFloatArray(7);
     if (!result) {
         return nullptr;
     }
-    env->SetFloatArrayRegion(result, 0, 5, values.data());
+    env->SetFloatArrayRegion(result, 0, 7, values.data());
     return result;
 }
 
@@ -4248,6 +4979,8 @@ Java_com_video_engine_VideoPreviewView_nativeComputeNormalizedPreviewTransform(
     jobject thiz,
     jint clipId,
     jfloat zoom,
+    jfloat scaleX,
+    jfloat scaleY,
     jfloat panXPx,
     jfloat panYPx,
     jfloat rotationDeg,
@@ -4260,15 +4993,17 @@ Java_com_video_engine_VideoPreviewView_nativeComputeNormalizedPreviewTransform(
     const auto values = g_preview->computeNormalizedPreviewTransform(
         static_cast<int>(clipId),
         static_cast<float>(zoom),
+        static_cast<float>(scaleX),
+        static_cast<float>(scaleY),
         static_cast<float>(panXPx),
         static_cast<float>(panYPx),
         static_cast<float>(rotationDeg),
         mirrorX == JNI_TRUE);
-    jfloatArray result = env->NewFloatArray(5);
+    jfloatArray result = env->NewFloatArray(7);
     if (!result) {
         return nullptr;
     }
-    env->SetFloatArrayRegion(result, 0, 5, values.data());
+    env->SetFloatArrayRegion(result, 0, 7, values.data());
     return result;
 }
 
@@ -4299,6 +5034,131 @@ Java_com_video_engine_VideoPreviewView_nativeComputeDragPanPreviewTransform(
         return nullptr;
     }
     env->SetFloatArrayRegion(result, 0, 2, values.data());
+    return result;
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_com_video_engine_VideoPreviewView_nativeBeginClipPreviewTransformGesture(
+    JNIEnv* env,
+    jobject thiz,
+    jint clipId,
+    jfloat zoom,
+    jfloat scaleX,
+    jfloat scaleY,
+    jfloat panXPx,
+    jfloat panYPx,
+    jfloat rotationDeg,
+    jboolean mirrorX,
+    jfloat centroidOffsetXPx,
+    jfloat centroidOffsetYPx,
+    jfloat spanPx,
+    jfloat angleDeg,
+    jint mode,
+    jfloat edgeSignX,
+    jfloat edgeSignY,
+    jboolean allowRotation) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_preview) {
+        return nullptr;
+    }
+    const auto values = g_preview->beginPreviewTransformGesture(
+        static_cast<int>(clipId),
+        static_cast<float>(zoom),
+        static_cast<float>(scaleX),
+        static_cast<float>(scaleY),
+        static_cast<float>(panXPx),
+        static_cast<float>(panYPx),
+        static_cast<float>(rotationDeg),
+        mirrorX == JNI_TRUE,
+        static_cast<float>(centroidOffsetXPx),
+        static_cast<float>(centroidOffsetYPx),
+        static_cast<float>(spanPx),
+        static_cast<float>(angleDeg),
+        static_cast<int>(mode),
+        static_cast<float>(edgeSignX),
+        static_cast<float>(edgeSignY),
+        allowRotation == JNI_TRUE);
+    requestPreviewRefreshLocked();
+    jfloatArray result = env->NewFloatArray(7);
+    if (!result) {
+        return nullptr;
+    }
+    env->SetFloatArrayRegion(result, 0, 7, values.data());
+    return result;
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_com_video_engine_VideoPreviewView_nativeUpdateClipPreviewTransformGesture(
+    JNIEnv* env,
+    jobject thiz,
+    jfloat centroidOffsetXPx,
+    jfloat centroidOffsetYPx,
+    jfloat spanPx,
+    jfloat angleDeg) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_preview) {
+        return nullptr;
+    }
+    const auto values = g_preview->updatePreviewTransformGesture(
+        static_cast<float>(centroidOffsetXPx),
+        static_cast<float>(centroidOffsetYPx),
+        static_cast<float>(spanPx),
+        static_cast<float>(angleDeg));
+    requestPreviewRefreshLocked();
+    jfloatArray result = env->NewFloatArray(7);
+    if (!result) {
+        return nullptr;
+    }
+    env->SetFloatArrayRegion(result, 0, 7, values.data());
+    return result;
+}
+
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativeEndClipPreviewTransformGesture(
+    JNIEnv* env,
+    jobject thiz) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_preview) {
+        return;
+    }
+    g_preview->endPreviewTransformGesture();
+    refreshPreviewAtCurrentTimeLocked("[Effects]");
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_com_video_engine_VideoPreviewView_nativeComputeCornerHandlePreviewTransform(
+    JNIEnv* env,
+    jobject thiz,
+    jint clipId,
+    jfloat baseZoom,
+    jfloat basePanXPx,
+    jfloat basePanYPx,
+    jfloat deltaXPx,
+    jfloat deltaYPx,
+    jfloat cornerSignX,
+    jfloat cornerSignY) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_preview) {
+        return nullptr;
+    }
+    const auto values = g_preview->computeCornerHandlePreviewTransform(
+        static_cast<int>(clipId),
+        static_cast<float>(baseZoom),
+        static_cast<float>(basePanXPx),
+        static_cast<float>(basePanYPx),
+        static_cast<float>(deltaXPx),
+        static_cast<float>(deltaYPx),
+        static_cast<float>(cornerSignX),
+        static_cast<float>(cornerSignY));
+    jfloatArray result = env->NewFloatArray(3);
+    if (!result) {
+        return nullptr;
+    }
+    env->SetFloatArrayRegion(result, 0, 3, values.data());
     return result;
 }
 
@@ -4410,18 +5270,9 @@ Java_com_video_engine_VideoPreviewView_nativeStartPlayback(
     const int64_t clampedStartMs = std::max<int64_t>(0, static_cast<int64_t>(startTimeMs));
     g_currentTimeMs.store(clampedStartMs, std::memory_order_release);
     g_pendingScrubMs.store(-1, std::memory_order_release);
-
-    if (!g_preview->playFrom(clampedStartMs)) {
-        LOGE("[Preview] playback start failed at %lld ms: %s",
-             static_cast<long long>(clampedStartMs),
-             g_preview->getLastError());
-        return;
-    }
-
-    // Signal render thread to begin continuous rendering
-    g_isRenderingActive.store(true, std::memory_order_release);
-
-    LOGI("[Preview] playback started at %lld ms", (long long)clampedStartMs);
+    g_pendingPlayMs.store(static_cast<long long>(clampedStartMs), std::memory_order_release);
+    g_vsyncCv.notify_all();
+    LOGI("[Preview] playback queued at %lld ms", (long long)clampedStartMs);
 }
 
 /**
@@ -4446,6 +5297,9 @@ Java_com_video_engine_VideoPreviewView_nativeStopPlayback(
 
     // Signal render thread to stop playback
     g_isRenderingActive.store(false, std::memory_order_release);
+    g_pendingPlayMs.store(-1, std::memory_order_release);
+    g_pendingScrubMs.store(-1, std::memory_order_release);
+    g_vsyncCv.notify_all();
 
     // Stop playback in PreviewController
     g_preview->stop();
@@ -4643,8 +5497,10 @@ Java_com_video_engine_VideoPreviewView_nativeAddTextOverlay(
     }
 
     g_textOverlays[t.id] = t;
-    // Maintain order list and mark dirty so sorting happens before next render
-    g_textOverlayOrder.push_back(t.id);
+    // Maintain order list and mark dirty so sorting happens before next render.
+    if (std::find(g_textOverlayOrder.begin(), g_textOverlayOrder.end(), t.id) == g_textOverlayOrder.end()) {
+        g_textOverlayOrder.push_back(t.id);
+    }
     g_orderDirty = true;
 
     LOGI("[Text] added id=%lld text='%s' start=%lld end=%lld", (long long)t.id, t.text.c_str(), (long long)t.startTime, (long long)t.endTime);
@@ -4667,7 +5523,18 @@ Java_com_video_engine_VideoPreviewView_nativeUpdateTextOverlay(
 
     std::lock_guard<std::mutex> lock(g_mutex);
     auto it = g_textOverlays.find((int64_t)idParam);
-    if (it == g_textOverlays.end()) return;
+    if (it == g_textOverlays.end()) {
+        TextOverlay created;
+        created.id = static_cast<int64_t>(idParam);
+        created.enabled = true;
+        if (created.id >= g_nextTextOverlayId) g_nextTextOverlayId = created.id + 1;
+        it = g_textOverlays.emplace(created.id, created).first;
+        if (std::find(g_textOverlayOrder.begin(), g_textOverlayOrder.end(), created.id) == g_textOverlayOrder.end()) {
+            g_textOverlayOrder.push_back(created.id);
+        }
+        g_orderDirty = true;
+        LOGI("[Text] update created missing overlay id=%lld for export sync", (long long)created.id);
+    }
     const DirtyRegionPx oldDirty = textOverlayBoundsPx(it->second);
     TextOverlay& t = it->second;
     t.x = x;
@@ -4677,6 +5544,28 @@ Java_com_video_engine_VideoPreviewView_nativeUpdateTextOverlay(
     t.color = static_cast<uint32_t>(color);
     t.startTime = static_cast<TimeMs>(startTimeMs);
     t.endTime = static_cast<TimeMs>(endTimeMs);
+
+    const DirtyRegionPx newDirty = textOverlayBoundsPx(t);
+    const DirtyRegionPx dirtyUnion = unionDirtyRegion(oldDirty, newDirty);
+    renderOverlayEditFrame(dirtyUnion.isValid() ? &dirtyUnion : nullptr);
+}
+
+JNIEXPORT void JNICALL
+Java_com_video_engine_VideoPreviewView_nativeUpdateTextOverlayTransform(
+    JNIEnv* env, jobject thiz,
+    jint idParam,
+    jfloat x, jfloat y,
+    jfloat scale, jfloat rotation) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    auto it = g_textOverlays.find((int64_t)idParam);
+    if (it == g_textOverlays.end()) return;
+    const DirtyRegionPx oldDirty = textOverlayBoundsPx(it->second);
+    TextOverlay& t = it->second;
+    t.x = x;
+    t.y = y;
+    t.scale = scale;
+    t.rotation = rotation;
 
     const DirtyRegionPx newDirty = textOverlayBoundsPx(t);
     const DirtyRegionPx dirtyUnion = unionDirtyRegion(oldDirty, newDirty);
@@ -4818,7 +5707,7 @@ Java_com_video_engine_VideoPreviewView_nativeSendTextOverlayToBack(
 JNIEXPORT void JNICALL
 Java_com_video_engine_VideoPreviewView_nativeAddTextKeyframe(
     JNIEnv* env, jobject thiz,
-    jint idParam, jlong timeMs, jfloat posX, jfloat posY, jfloat scale, jfloat opacity) {
+    jint idParam, jlong timeMs, jfloat posX, jfloat posY, jfloat scale, jfloat rotation, jfloat opacity) {
 
     std::lock_guard<std::mutex> lock(g_mutex);
     auto it = g_textOverlays.find((int64_t)idParam);
@@ -4830,14 +5719,14 @@ Java_com_video_engine_VideoPreviewView_nativeAddTextKeyframe(
     // search for existing
     for (auto &kf : kfs) {
         if (kf.timeMs == (int64_t)timeMs) {
-            kf.posX = posX; kf.posY = posY; kf.scale = scale; kf.opacity = opacity;
+            kf.posX = posX; kf.posY = posY; kf.scale = scale; kf.rotation = rotation; kf.opacity = opacity;
             LOGD("[Text] update keyframe id=%d time=%lld", idParam, (long long)timeMs);
             return;
         }
     }
     TextOverlay::TextKeyframe nk;
     nk.timeMs = (int64_t)timeMs;
-    nk.posX = posX; nk.posY = posY; nk.scale = scale; nk.opacity = opacity;
+    nk.posX = posX; nk.posY = posY; nk.scale = scale; nk.rotation = rotation; nk.opacity = opacity;
     kfs.push_back(nk);
     std::sort(kfs.begin(), kfs.end(), [](const TextOverlay::TextKeyframe &a, const TextOverlay::TextKeyframe &b){ return a.timeMs < b.timeMs; });
 
@@ -4870,6 +5759,27 @@ Java_com_video_engine_VideoPreviewView_nativeClearTextKeyframes(JNIEnv* env, job
     if (it == g_textOverlays.end()) return;
     it->second.keyframes.clear();
     LOGD("[Text] cleared keyframes id=%d", idParam);
+}
+
+JNIEXPORT jlongArray JNICALL
+Java_com_video_engine_VideoPreviewView_nativeGetTextKeyframeTimes(JNIEnv* env, jobject thiz, jint idParam) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    auto it = g_textOverlays.find((int64_t)idParam);
+    if (it == g_textOverlays.end()) {
+        return env->NewLongArray(0);
+    }
+    const auto& keyframes = it->second.keyframes;
+    jlongArray result = env->NewLongArray(static_cast<jsize>(keyframes.size()));
+    if (result == nullptr || keyframes.empty()) {
+        return result;
+    }
+    std::vector<jlong> times;
+    times.reserve(keyframes.size());
+    for (const auto& keyframe : keyframes) {
+        times.push_back(static_cast<jlong>(keyframe.timeMs));
+    }
+    env->SetLongArrayRegion(result, 0, static_cast<jsize>(times.size()), times.data());
+    return result;
 }
 
 /**
@@ -4945,6 +5855,16 @@ Java_com_video_engine_VideoPreviewView_nativeSetTextOverlayBitmap(
     // the live EGL context is unavailable at upload time.
     g_overlayCpuBitmaps[t.id] = OverlayCpuBitmap{rgba, width, height};
 
+    if (!shouldRenderTextOverlaysInPreviewLocked()) {
+        releaseOverlayTextureResources(t.id, t);
+        t.texWidth = width;
+        t.texHeight = height;
+        t.hasTexture = false;
+        LOGD("[Text] setBitmap stored CPU copy for overlay-view preview id=%lld w=%d h=%d",
+             (long long)t.id, width, height);
+        return;
+    }
+
     if (g_eglDisplay == EGL_NO_DISPLAY || g_eglContext == EGL_NO_CONTEXT ||
         g_eglSurface == EGL_NO_SURFACE) {
         t.texWidth = width;
@@ -4963,27 +5883,16 @@ Java_com_video_engine_VideoPreviewView_nativeSetTextOverlayBitmap(
         return;
     }
 
-    // Create or update GL texture
-    releaseOverlayTextureResources((int64_t)idParam, t);
+    if (!uploadCpuBitmapTextureForOverlay((int64_t)idParam, t)) {
+        t.texWidth = width;
+        t.texHeight = height;
+        t.hasTexture = false;
+        LOGW("[Text] setBitmap stored CPU copy only: texture upload failed id=%lld w=%d h=%d",
+             (long long)t.id, width, height);
+        return;
+    }
 
-    GLuint tex = 0;
-    glGenTextures(1, &tex);
-    glBindTexture(GL_TEXTURE_2D, tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
-    glBindTexture(GL_TEXTURE_2D, 0);
-
-    t.texture = (unsigned int)tex;
-    t.texWidth = width;
-    t.texHeight = height;
-    t.hasTexture = true;
-
-    LOGI("[Text] bitmap uploaded id=%lld w=%d h=%d tex=%u", (long long)t.id, width, height, tex);
+    LOGI("[Text] bitmap uploaded id=%lld w=%d h=%d tex=%u", (long long)t.id, width, height, t.texture);
 }
 
 /**
@@ -5276,49 +6185,15 @@ static int64_t mapAudioClipTimelineToSourceSample(
     auto mapWithoutFreeze = [&](int64_t localSample) -> int64_t {
         const int64_t clampedLocalSample =
             std::clamp<int64_t>(localSample, 0, clipDurationSamples - 1);
-        const double localProgress = clipDurationSamples > 1
-            ? static_cast<double>(clampedLocalSample) / static_cast<double>(clipDurationSamples - 1)
-            : 0.0;
-        const double t = std::clamp(localProgress, 0.0, 1.0);
-
-        double shaped = t;
-        const float clampedCurveStrength = std::clamp(clip.curveSpeedStrength, 0.1f, 4.0f);
-        if (clip.curveSpeedProfile == "ease_in") {
-            const double gamma = 1.0 + (std::max(0.0f, clampedCurveStrength - 1.0f) * 1.35);
-            shaped = std::pow(t, gamma);
-        } else if (clip.curveSpeedProfile == "ease_out") {
-            const double gamma = 1.0 + (std::max(0.0f, clampedCurveStrength - 1.0f) * 1.35);
-            shaped = 1.0 - std::pow(1.0 - t, gamma);
-        } else if (clip.curveSpeedProfile == "ease_in_out") {
-            shaped = t * t * (3.0 - 2.0 * t);
-        } else if (clip.curveSpeedProfile == "hyperlapse") {
-            const double alpha = std::clamp(1.4 - (clampedCurveStrength * 0.15), 0.55, 1.4);
-            shaped = std::pow(t, alpha);
-        }
-
-        const int64_t trimmedSpanSamples = std::max<int64_t>(1, sourceOutSample - sourceInSample);
-        const int64_t curveSourceSample = sourceInSample + static_cast<int64_t>(
-            std::llround(shaped * static_cast<double>(trimmedSpanSamples - 1)));
-        const double playbackSpeed = std::max(0.1f, clip.playbackSpeed);
-        const int64_t speedSourceSample = sourceInSample + static_cast<int64_t>(
-            std::llround(static_cast<double>(clampedLocalSample) * playbackSpeed));
-
-        int64_t mappedSourceSample = speedSourceSample;
-        if (clip.curveSpeedProfile != "linear") {
-            const double blend = std::clamp(
-                static_cast<double>(clampedCurveStrength - 0.1f) / 3.9,
-                0.15,
-                0.9);
-            mappedSourceSample = static_cast<int64_t>(
-                std::llround((1.0 - blend) * static_cast<double>(speedSourceSample) +
-                             blend * static_cast<double>(curveSourceSample)));
-        }
-        mappedSourceSample = std::clamp<int64_t>(mappedSourceSample, sourceInSample, sourceOutSample - 1);
-        if (clip.reversePlayback) {
-            mappedSourceSample = sourceOutSample - 1 - (mappedSourceSample - sourceInSample);
-            mappedSourceSample = std::clamp<int64_t>(mappedSourceSample, sourceInSample, sourceOutSample - 1);
-        }
-        return mappedSourceSample;
+        return VideoEngine::Advanced::mapTimelineToSourceWithProfile(
+            clampedLocalSample,
+            clipDurationSamples,
+            sourceInSample,
+            sourceOutSample,
+            clip.playbackSpeed,
+            clip.reversePlayback,
+            clip.curveSpeedProfile,
+            clip.curveSpeedStrength);
     };
 
     if (clip.freezeFrameEnabled && clip.freezeFrameDurationMs > 0) {
@@ -6120,11 +6995,28 @@ static std::vector<AudioExportClip> buildExportAudioClips(
     std::vector<AudioExportClip> audioClips;
     audioClips.reserve(g_audioExportClips.size() + clipSpecs.size());
     audioClips.insert(audioClips.end(), g_audioExportClips.begin(), g_audioExportClips.end());
+    auto isDuplicateRegisteredAudio = [](const TimelineClipExportSpec& spec) {
+        for (const auto& registered : g_audioExportClips) {
+            if (registered.path != spec.path) continue;
+            if (std::llabs(registered.startTimeMs - spec.startTimeMs) > 2) continue;
+            if (std::llabs(registered.durationMs - spec.durationMs) > 2) continue;
+            return true;
+        }
+        return false;
+    };
     for (const auto& spec : clipSpecs) {
         if (!spec.enabled ||
             spec.path.empty() ||
             spec.volumeGain <= 0.0001f ||
             isStillImagePath(spec.path)) {
+            continue;
+        }
+        if (spec.trackRole == Clip::TrackRole::Audio && isDuplicateRegisteredAudio(spec)) {
+            LOGI("[Export] skipping duplicate native audio clip id=%d path=%s start=%lld duration=%lld",
+                 spec.clipId,
+                 spec.path.c_str(),
+                 static_cast<long long>(spec.startTimeMs),
+                 static_cast<long long>(spec.durationMs));
             continue;
         }
         AudioExportClip clip;
@@ -6523,30 +7415,16 @@ Java_com_video_engine_VideoPreviewView_nativeSetClipEffects(
     LOGI("[Effects] clip=%d brightness=%.2f contrast=%.2f saturation=%.2f",
          clipId, clampedBrightness, clampedContrast, clampedSaturation);
 
-    auto timeline = g_preview->getTimeline();
-    if (!timeline) {
-        LOGW("[Effects] Timeline not available");
-        return;
-    }
-
-    bool updated = false;
-    for (const auto& clip : timeline->clips()) {
-        if (!clip) continue;
-        if (clip->getId() != static_cast<uint32_t>(clipId)) continue;
-        clip->setEffectBrightness(clampedBrightness);
-        clip->setEffectContrast(clampedContrast);
-        clip->setEffectSaturation(clampedSaturation);
-        clip->setEffectsEnabled(true);
-        updated = true;
-        break;
-    }
-
-    if (!updated) {
+    if (!g_preview->setClipEffects(
+            static_cast<int>(clipId),
+            clampedBrightness,
+            clampedContrast,
+            clampedSaturation)) {
         LOGW("[Effects] clip=%d not found in timeline", clipId);
         return;
     }
 
-    requestPreviewRefreshLocked();
+    refreshPreviewAtCurrentTimeLocked("[Effects]");
 }
 
 /**
@@ -6594,14 +7472,8 @@ Java_com_video_engine_VideoPreviewView_nativeMoveLayer(
     LOGI("[Layers] move clip=%d to layer=%d", clipId, newLayerIndex);
 
     const int64_t currentTime = g_currentTimeMs.load(std::memory_order_acquire);
-    if (g_isRenderingActive.load(std::memory_order_acquire)) {
-        g_pendingScrubMs.store(static_cast<long long>(currentTime), std::memory_order_release);
-    } else {
-        g_pendingScrubMs.store(-1, std::memory_order_release);
-        g_preview->scrubToTimelineTime(currentTime);
-        const int64_t scrubTime = g_preview->getPlaybackTimelineTimeMs();
-        g_currentTimeMs.store(scrubTime, std::memory_order_release);
-    }
+    g_pendingPlayMs.store(-1, std::memory_order_release);
+    g_pendingScrubMs.store(static_cast<long long>(currentTime), std::memory_order_release);
 }
 
 /**
@@ -6649,14 +7521,8 @@ Java_com_video_engine_VideoPreviewView_nativeToggleLayerVisibility(
     LOGI("[Layers] clip=%d visibility=%s", clipId, enabled ? "ON" : "OFF");
 
     const int64_t currentTime = g_currentTimeMs.load(std::memory_order_acquire);
-    if (g_isRenderingActive.load(std::memory_order_acquire)) {
-        g_pendingScrubMs.store(static_cast<long long>(currentTime), std::memory_order_release);
-    } else {
-        g_pendingScrubMs.store(-1, std::memory_order_release);
-        g_preview->scrubToTimelineTime(currentTime);
-        const int64_t scrubTime = g_preview->getPlaybackTimelineTimeMs();
-        g_currentTimeMs.store(scrubTime, std::memory_order_release);
-    }
+    g_pendingPlayMs.store(-1, std::memory_order_release);
+    g_pendingScrubMs.store(static_cast<long long>(currentTime), std::memory_order_release);
 }
 
 /**
@@ -6767,9 +7633,10 @@ Java_com_video_engine_VideoPreviewView_nativeExportVideo(
                 hasTrim ||
                 s.reversePlayback || s.freezeFrameEnabled ||
                 std::abs(s.playbackSpeed - 1.0f) > 0.01f ||
+                hasExportVisualTransform(s) ||
                 s.effectsEnabled || s.chromaEnabled) {
                 canFastRemux = false;
-                LOGI("[Export] canFastRemux=false: clip=%d mainCount=%d image=%d start=%lld trim=%d reverse=%d freeze=%d speed=%.2f effects=%d chroma=%d",
+                LOGI("[Export] canFastRemux=false: clip=%d mainCount=%d image=%d start=%lld trim=%d reverse=%d freeze=%d speed=%.2f transform=%d effects=%d chroma=%d",
                      s.clipId,
                      enabledMainVideoClips,
                      isStillImagePath(s.path),
@@ -6778,6 +7645,7 @@ Java_com_video_engine_VideoPreviewView_nativeExportVideo(
                      s.reversePlayback,
                      s.freezeFrameEnabled,
                      s.playbackSpeed,
+                     hasExportVisualTransform(s),
                      s.effectsEnabled,
                      s.chromaEnabled);
                 break;

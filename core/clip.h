@@ -8,6 +8,7 @@
 #include <chrono>
 #include <algorithm>
 #include <atomic>
+#include "../text_overlay.h"  // for TransformKeyframe
 
 namespace VideoEngine {
 
@@ -20,6 +21,18 @@ public:
     struct AudioGainKeyframe {
         int64_t timeMs = 0;           // Local clip time in milliseconds
         float gain = 1.0f;            // Envelope multiplier (1.0 = neutral)
+    };
+
+    /**
+     * Blend modes for layer compositing.
+     * Controls how this clip is mixed with the layers beneath it.
+     */
+    enum class BlendMode {
+        Normal   = 0,  // Standard alpha compositing
+        Add      = 1,  // Additive blending (brightens)
+        Screen   = 2,  // Screen blend (like photographic)
+        Multiply = 3,  // Multiply blend (darkens)
+        Overlay  = 4,  // Overlay blend (contrast boost)
     };
 
     enum class MediaType {
@@ -52,9 +65,27 @@ public:
         int64_t freezeFrameDurationMs = 1000;
         bool duckingEnabled = false;
         float duckingAmount = 0.35f;    // 0.0..1.0 reduction target
+        bool duckingRestoreVolumeValid = false;
+        float duckingRestoreVolumeGain = 1.0f;
         std::string curveSpeedProfile = "linear";
         float curveSpeedStrength = 1.0f;
         bool enabled = true;
+
+        // === Blend Mode (Masking & Blending Feature) ===
+        BlendMode blendMode = BlendMode::Normal;  // Compositing blend mode
+        std::string maskPath;                      // Optional: path to a mask image
+        bool maskInvert = false;                   // Invert the mask
+        bool maskIsLuma = false;                   // Use luma as mask weight (vs alpha)
+
+        // === Spatial Transform (Keyframe Animation Feature) ===
+        float posX = 0.5f;       // Normalized X position (0..1)
+        float posY = 0.5f;       // Normalized Y position (0..1)
+        float scaleX = 1.0f;     // Horizontal scale
+        float scaleY = 1.0f;     // Vertical scale
+        float rotation = 0.0f;   // Rotation in degrees
+
+        // Transform keyframes for timeline-driven animation (sorted by timeMs)
+        std::vector<TransformKeyframe> transformKeyframes;
     };
 
     /**
@@ -184,6 +215,32 @@ public:
     void setVolumeGain(float value) { properties_.volumeGain = value; }
     void setPlaybackSpeed(float value) { properties_.playbackSpeed = std::max(0.1f, value); }
     void setEnabled(bool enabled) { properties_.enabled = enabled; }
+
+    // ============ Blend Mode ============
+    void setBlendMode(BlendMode mode) { properties_.blendMode = mode; }
+    [[nodiscard]] BlendMode getBlendMode() const { return properties_.blendMode; }
+    void setMaskPath(const std::string& path) { properties_.maskPath = path; }
+    void setMaskInvert(bool invert) { properties_.maskInvert = invert; }
+    void setMaskIsLuma(bool luma) { properties_.maskIsLuma = luma; }
+
+    // ============ Spatial Transform ============
+    void setPosition(float x, float y) { properties_.posX = x; properties_.posY = y; }
+    void setScale(float sx, float sy) { properties_.scaleX = sx; properties_.scaleY = sy; }
+    void setRotation(float deg) { properties_.rotation = deg; }
+
+    // ============ Transform Keyframes ============
+    void addTransformKeyframe(const TransformKeyframe& kf) {
+        auto& kfs = properties_.transformKeyframes;
+        kfs.push_back(kf);
+        std::sort(kfs.begin(), kfs.end(),
+            [](const TransformKeyframe& a, const TransformKeyframe& b) {
+                return a.timeMs < b.timeMs;
+            });
+    }
+    void clearTransformKeyframes() { properties_.transformKeyframes.clear(); }
+    [[nodiscard]] const std::vector<TransformKeyframe>& getTransformKeyframes() const {
+        return properties_.transformKeyframes;
+    }
 
     // ============ GPU Effects ============
     /**

@@ -8,6 +8,7 @@ import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.FullScreenContentCallback
 import com.google.android.gms.ads.LoadAdError
 import com.google.android.gms.ads.MobileAds
+import com.google.android.gms.ads.RequestConfiguration
 import com.google.android.gms.ads.rewarded.RewardedAd
 import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback
 
@@ -79,6 +80,11 @@ class RewardedUnlockController(
         loading = true
         pendingShowAfterLoad = pendingShowAfterLoad || showOnLoad
         Log.d(TAG, "Loading rewarded ad for watermark unlock")
+        MobileAds.setRequestConfiguration(
+            RequestConfiguration.Builder()
+                .setTestDeviceIds(listOf(AdRequest.DEVICE_ID_EMULATOR))
+                .build(),
+        )
         MobileAds.initialize(activity) {}
         RewardedAd.load(
             activity,

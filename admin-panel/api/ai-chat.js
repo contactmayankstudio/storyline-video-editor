@@ -8,6 +8,7 @@ const {
 const { generateTextWithFallback } = require("./_lib/ai");
 const { getCodebaseContext } = require("./_lib/codebase");
 const { deviceBridgeRequest } = require("./_lib/device-bridge");
+const { inferGoogleCloudIntent, runGoogleCloudIntent } = require("./_lib/google-cloud");
 const { requireAdmin, sendAdminError } = require("./_lib/admin");
 
 function sanitizeMessages(messages) {
@@ -36,6 +37,7 @@ function buildPrompt(messages, build, codebaseContext) {
         "Answer in plain text, concise but useful.",
         "Prefer concrete actions over vague theory.",
         "If asked about CLI integration, explain whether it should run in browser, serverless, or a separate bridge service.",
+        "If the user wants Google Cloud APK/AAB builds or Firebase Test Lab, explain that the admin panel can queue those from simple chat and the work runs server-side.",
         "",
         "Latest build context:",
         JSON.stringify(build || {}, null, 2),
@@ -290,6 +292,10 @@ module.exports = async function handler(req, res) {
                 inferredDirectCommand,
                 actionMode: "direct-control",
             });
+        }
+        const inferredGoogleCloudIntent = inferGoogleCloudIntent(latestUserMessage);
+        if (inferredGoogleCloudIntent) {
+            return res.status(200).json(await runGoogleCloudIntent(inferredGoogleCloudIntent));
         }
         const inferredAutomationPrompt = inferAutomationPrompt(sanitizedMessages);
         if (inferredAutomationPrompt) {

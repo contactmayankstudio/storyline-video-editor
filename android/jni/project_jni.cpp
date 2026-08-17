@@ -200,7 +200,15 @@ Java_com_video_engine_VideoPreviewView_nativeLoadProject(
                 clipEntry.startTimeMs,
                 clipEntry.durationMs
             );
-            clip->setTrackRole(trackRoleFromString(clipEntry.trackType));
+            auto restoredTrackRole = trackRoleFromString(clipEntry.trackType);
+            if (restoredTrackRole == VideoEngine::Clip::TrackRole::MainVideo &&
+                clip->getMediaType() == VideoEngine::Clip::MediaType::Audio) {
+                restoredTrackRole = VideoEngine::Clip::TrackRole::Audio;
+                LOGW("[Project] Corrected audio clip role from VIDEO: id=%ld path=%s",
+                     static_cast<long>(clipEntry.id),
+                     clipEntry.mediaPath.c_str());
+            }
+            clip->setTrackRole(restoredTrackRole);
             clip->setTrackLane(clipEntry.trackLane);
             clip->setTrackZOrder(clipEntry.zOrder);
             clip->setTrimPoints(clipEntry.sourceInMs, clipEntry.sourceOutMs);

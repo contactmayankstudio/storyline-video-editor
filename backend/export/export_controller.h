@@ -5,6 +5,7 @@
 #include <functional>
 #include <cstdint>
 #include "../../export_config.h"
+#include "../../smooth_engine/HardwareEncoderPro.h"
 
 namespace VideoEngine {
 
@@ -99,6 +100,8 @@ private:
     bool m_isExporting = false;
     bool m_cancelRequested = false;
     int m_encodeFrameNumber = 0;  // per-export frame counter (not static)
+    std::unique_ptr<VideoEngine::Backend::HardwareEncoderPro> m_hardwareEncoder;
+    bool m_hardwareEncoderPrepared = false;
 
     /**
      * Read framebuffer pixels as RGBA8 (4 bytes per pixel).
@@ -142,6 +145,10 @@ private:
      * Finalize FFmpeg encoder (write trailers, close file).
      */
     bool finalizeFFmpegEncoder();
+    void prepareHardwareEncoderBackend();
+    void releaseHardwareEncoderBackend();
+    void writeAutoCaptionSidecar();
+    std::string resolveAutoCaptionSourcePath() const;
 
     // FFmpeg opaque context
     struct FFmpegContext;

@@ -142,7 +142,7 @@ class ExportDialog(
         var selectedQualityIndex = recommendedMode.qualityIndex
         var selectedCodec = recommendedMode.codec
         var watermarkUnlocked = isWatermarkUnlockedProvider()
-        var selectedAspectRatioIndex = if (activity is MainActivity) activity.getSelectedAspectRatioIndex() else 0
+        var selectedAspectRatioIndex = if (activity is VideoEditorActivity) activity.getSelectedAspectRatioIndex() else 0
         var isApplyingMode = false
 
         val modeButtons = mutableListOf<TextView>()
@@ -273,26 +273,6 @@ class ExportDialog(
         }
         root.addView(resolutionRow)
 
-        // ── Aspect Ratio ──────────────────────────────────────────────────────
-        root.addView(sectionLabel("Aspect Ratio"))
-        val ratioScroller = HorizontalScrollView(activity).apply {
-            isHorizontalScrollBarEnabled = false
-        }
-        val ratioRow = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.START
-        }
-        aspectRatios.forEachIndexed { index, ratio ->
-            val button = choiceButton(ratio.label)
-            button.setOnClickListener {
-                selectedAspectRatioIndex = index
-                refreshUi()
-            }
-            ratioButtons += button
-            ratioRow.addView(button)
-        }
-        ratioScroller.addView(ratioRow)
-        root.addView(ratioScroller)
         root.addView(sectionLabel("Frame Rate"))
         val fpsRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -406,7 +386,7 @@ class ExportDialog(
         watermarkCard.addView(watermarkInfo)
         root.addView(watermarkCard)
 
-        watermarkAction = actionButton("Watch Ad Remove Watermark", "#2A2A2A", "#FFFFFF").apply {
+        watermarkAction = actionButton("Watch Ad Remove Watermark Once", "#2A2A2A", "#FFFFFF").apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -488,7 +468,7 @@ class ExportDialog(
             val exportTitle = titleInput.text?.toString()?.trim().orEmpty().ifBlank { "Storyline" }
             val requestedProfileLabel =
                 exportModes.getOrNull(selectedModeIndex ?: -1)?.label ?: resolutionLabelFor(effectiveSettings.width, effectiveSettings.height)
-            if (activity is MainActivity) {
+            if (activity is VideoEditorActivity) {
                 activity.performExport(
                     effectiveSettings.width,
                     effectiveSettings.height,
@@ -531,6 +511,7 @@ class ExportDialog(
         refreshUi()
 
         dialog.setContentView(scroll)
+        ModernSheet.applyEditorBehavior(dialog, activity, peekRatio = 0.58f, maxRatio = 0.88f)
         dialog.show()
     }
 
@@ -582,7 +563,7 @@ class ExportDialog(
         )
         val estimatedSize = estimateOutputSize(durationMs, effectiveSettings.bitrateMbps)
         val resolutionLabel = resolutionLabelFor(effectiveSettings.width, effectiveSettings.height)
-        summaryValue.text = "${selectedModeLabel ?: "Custom"} • $resolutionLabel • ${ratio.label} • ${effectiveSettings.codec.shortLabel}"
+        summaryValue.text = "${selectedModeLabel ?: "Custom"} • $resolutionLabel • ${effectiveSettings.codec.shortLabel}"
         summaryMeta.text =
             "${effectiveSettings.fps}fps  •  ${effectiveSettings.bitrateMbps} Mbps  •  " +
                 "${if (watermarkUnlocked) "No watermark" else "Watermark ON"}  •  ${formatSize(estimatedSize)}"

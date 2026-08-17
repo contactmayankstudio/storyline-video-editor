@@ -22,9 +22,35 @@ def envStringResourceValue = { name, fallback = "" ->
     def resolved = (raw != null && !raw.trim().isEmpty()) ? raw : fallback
     return stringResourceValue(resolved)
 }
+def isCiBuild = (System.getenv('CI') ?: "").equalsIgnoreCase("true")
+def bundledDebugKeystore = file("${rootProject.projectDir}/debug.keystore.stable")
+def envDebugKeystorePath = System.getenv('ANDROID_DEBUG_KEYSTORE_PATH')?.trim()
+def resolvedDebugKeystorePath = envDebugKeystorePath ?: (
+    bundledDebugKeystore.exists()
+        ? bundledDebugKeystore.absolutePath
+        : "${System.properties['user.home']}/.android/debug.keystore"
+)
+def defaultReleaseKeystore = file("${System.properties['user.home']}/.keystores/video_engine.keystore")
+def envReleaseKeystorePath = System.getenv('KEYSTORE_PATH')?.trim()
+def useDebugFallbackForRelease = !isCiBuild && !envReleaseKeystorePath && !defaultReleaseKeystore.exists()
+def resolvedReleaseKeystorePath = envReleaseKeystorePath ?: (
+    defaultReleaseKeystore.exists()
+        ? defaultReleaseKeystore.absolutePath
+        : resolvedDebugKeystorePath
+)
+def resolvedReleaseStorePassword = useDebugFallbackForRelease
+    ? (System.getenv('ANDROID_DEBUG_KEYSTORE_PASSWORD') ?: "android")
+    : (System.getenv('KEYSTORE_PASSWORD') ?: "")
+def resolvedReleaseKeyAlias = useDebugFallbackForRelease
+    ? (System.getenv('ANDROID_DEBUG_KEY_ALIAS') ?: "androiddebugkey")
+    : (System.getenv('KEY_ALIAS') ?: "video_engine")
+def resolvedReleaseKeyPassword = useDebugFallbackForRelease
+    ? (System.getenv('ANDROID_DEBUG_KEY_PASSWORD') ?: "android")
+    : (System.getenv('KEY_PASSWORD') ?: "")
 android {
     namespace = "com.video.engine"
-    compileSdk = 34
+    compileSdk = 35
+    buildToolsVersion "35.0.0"
     ndkVersion "26.3.11579264"
     flavorDimensions += "store"
 
@@ -34,19 +60,19 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.storyline.app"
+        applicationId = "com.storyline.videoeditor"
         minSdk = 21
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 1
-        versionName = "1.0.0"
-        resValue "string", "aws_control_plane_url", envStringResourceValue("AWS_CONTROL_PLANE_URL")
-        resValue "string", "aws_control_plane_device_key", envStringResourceValue("AWS_CONTROL_PLANE_DEVICE_KEY")
-        resValue "string", "release_portal_url", envStringResourceValue("RELEASE_PORTAL_URL", "https://apk-host-swart.vercel.app")
-        resValue "string", "admin_panel_url", envStringResourceValue("ADMIN_PANEL_URL", "https://storyline-omega.vercel.app")
-        resValue "string", "admob_app_id", envStringResourceValue("ADMOB_APP_ID", "ca-app-pub-3940256099942544~3347511713")
-        resValue "string", "admob_banner_unit_id", envStringResourceValue("ADMOB_BANNER_UNIT_ID", "ca-app-pub-3940256099942544/6300978111")
-        resValue "string", "admob_rewarded_hd_unlock_unit_id", envStringResourceValue("ADMOB_REWARDED_HD_UNLOCK_UNIT_ID", "ca-app-pub-3940256099942544/5224354917")
-        resValue "string", "admob_interstitial_post_export_unit_id", envStringResourceValue("ADMOB_INTERSTITIAL_POST_EXPORT_UNIT_ID", "ca-app-pub-3940256099942544/1033173712")
+        versionName = "1.0"
+        resValue "string", "aws_control_plane_url", stringResourceValue("")
+        resValue "string", "aws_control_plane_device_key", stringResourceValue("")
+        resValue "string", "release_portal_url", stringResourceValue("")
+        resValue "string", "admin_panel_url", stringResourceValue("")
+        resValue "string", "admob_app_id", envStringResourceValue("ADMOB_APP_ID", "ca-app-pub-7719493859621460~9790317611")
+        resValue "string", "admob_banner_unit_id", envStringResourceValue("ADMOB_BANNER_UNIT_ID", "ca-app-pub-7719493859621460/7163545462")
+        resValue "string", "admob_rewarded_hd_unlock_unit_id", envStringResourceValue("ADMOB_REWARDED_HD_UNLOCK_UNIT_ID", "ca-app-pub-7719493859621460/9912785706")
+        resValue "string", "admob_interstitial_post_export_unit_id", envStringResourceValue("ADMOB_INTERSTITIAL_POST_EXPORT_UNIT_ID", "ca-app-pub-7719493859621460/2772855803")
         
         externalNativeBuild {
             cmake {
@@ -67,16 +93,16 @@ android {
 
     signingConfigs {
         debug {
-            storeFile file(System.getenv('ANDROID_DEBUG_KEYSTORE_PATH') ?: "${System.properties['user.home']}/.android/debug.keystore")
+            storeFile file(resolvedDebugKeystorePath)
             storePassword System.getenv('ANDROID_DEBUG_KEYSTORE_PASSWORD') ?: "android"
             keyAlias System.getenv('ANDROID_DEBUG_KEY_ALIAS') ?: "androiddebugkey"
             keyPassword System.getenv('ANDROID_DEBUG_KEY_PASSWORD') ?: "android"
         }
         release {
-            storeFile file(System.getenv('KEYSTORE_PATH') ?: "${System.properties['user.home']}/.keystores/video_engine.keystore")
-            storePassword System.getenv('KEYSTORE_PASSWORD') ?: ""
-            keyAlias System.getenv('KEY_ALIAS') ?: "video_engine"
-            keyPassword System.getenv('KEY_PASSWORD') ?: ""
+            storeFile file(resolvedReleaseKeystorePath)
+            storePassword resolvedReleaseStorePassword
+            keyAlias resolvedReleaseKeyAlias
+            keyPassword resolvedReleaseKeyPassword
         }
     }
 
@@ -97,9 +123,8 @@ android {
     productFlavors {
         play {
             dimension "store"
-        }
-        amazon {
-            dimension "store"
+            versionCode 15
+            versionName "1.0"
         }
     }
 
@@ -194,6 +219,7 @@ dependencies {
     implementation "androidx.constraintlayout:constraintlayout:2.1.4"
     implementation "androidx.recyclerview:recyclerview:1.3.0"
     implementation "com.google.android.material:material:1.11.0"
+    implementation "androidx.dynamicanimation:dynamicanimation:1.0.0"
 
     // Firebase
     implementation platform('com.google.firebase:firebase-bom:32.7.0')

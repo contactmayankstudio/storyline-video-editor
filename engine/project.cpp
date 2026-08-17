@@ -247,7 +247,36 @@ std::string Project::toJSON() const {
         json << "        \"similarity\": " << clip.chromaKey.similarity << ",\n";
         json << "        \"smoothness\": " << clip.chromaKey.smoothness << ",\n";
         json << "        \"spill\": " << clip.chromaKey.spill << "\n";
-        json << "      }\n";
+        json << "      },\n";
+        // Blend mode & mask
+        json << "      \"blendMode\": " << clip.blendMode << ",\n";
+        json << "      \"maskPath\": \"" << escapeJSON(clip.maskPath) << "\",\n";
+        json << "      \"maskInvert\": " << (clip.maskInvert ? "true" : "false") << ",\n";
+        json << "      \"maskIsLuma\": " << (clip.maskIsLuma ? "true" : "false") << ",\n";
+        // Spatial transform
+        json << "      \"transform\": {\n";
+        json << "        \"posX\": " << clip.posX << ",\n";
+        json << "        \"posY\": " << clip.posY << ",\n";
+        json << "        \"scaleX\": " << clip.scaleX << ",\n";
+        json << "        \"scaleY\": " << clip.scaleY << ",\n";
+        json << "        \"rotation\": " << clip.transformRotation << "\n";
+        json << "      },\n";
+        // Transform keyframes
+        json << "      \"transformKeyframes\": [\n";
+        for (size_t j = 0; j < clip.transformKeyframes.size(); ++j) {
+            const auto& kf = clip.transformKeyframes[j];
+            json << "        {\n";
+            json << "          \"timeMs\": " << kf.timeMs << ",\n";
+            json << "          \"posX\": " << kf.posX << ",\n";
+            json << "          \"posY\": " << kf.posY << ",\n";
+            json << "          \"scale\": " << kf.scale << ",\n";
+            json << "          \"rotation\": " << kf.rotation << ",\n";
+            json << "          \"opacity\": " << kf.opacity << "\n";
+            json << "        }";
+            if (j < clip.transformKeyframes.size() - 1) json << ",";
+            json << "\n";
+        }
+        json << "      ]\n";
         json << "    }";
         if (i < clips_.size() - 1) json << ",";
         json << "\n";
@@ -553,6 +582,40 @@ bool Project::fromJSON(const std::string& jsonStr) {
             clip.chromaKey.similarity = std::clamp(clip.chromaKey.similarity, 0.0f, 1.0f);
             clip.chromaKey.smoothness = std::clamp(clip.chromaKey.smoothness, 0.0f, 1.0f);
             clip.chromaKey.spill = std::clamp(clip.chromaKey.spill, 0.0f, 1.0f);
+
+            // Parse blend mode & mask (new fields — default gracefully for old projects)
+            clip.blendMode = static_cast<int32_t>(extractInt64Value(clipJson, "blendMode"));
+            clip.maskPath = extractStringValue(clipJson, "maskPath");
+            clip.maskInvert = extractBoolValue(clipJson, "maskInvert");
+            clip.maskIsLuma = extractBoolValue(clipJson, "maskIsLuma");
+
+            // Parse spatial transform
+            const std::string transformJson = extractObjectValue(clipJson, "transform");
+            if (!transformJson.empty()) {
+                clip.posX = static_cast<float>(extractDoubleValue(transformJson, "posX"));
+                clip.posY = static_cast<float>(extractDoubleValue(transformJson, "posY"));
+                clip.scaleX = static_cast<float>(extractDoubleValue(transformJson, "scaleX"));
+                clip.scaleY = static_cast<float>(extractDoubleValue(transformJson, "scaleY"));
+                clip.transformRotation = static_cast<float>(extractDoubleValue(transformJson, "rotation"));
+                // Defaults for zero values (likely unset in file)
+                if (clip.scaleX == 0.0f) clip.scaleX = 1.0f;
+                if (clip.scaleY == 0.0f) clip.scaleY = 1.0f;
+            }
+
+            // Parse transform keyframes
+            auto transformKfObjects = extractArrayObjects(clipJson, "transformKeyframes");
+            for (const auto& kfJson : transformKfObjects) {
+                TransformKeyframe kf;
+                kf.timeMs = extractInt64Value(kfJson, "timeMs");
+                kf.posX = static_cast<float>(extractDoubleValue(kfJson, "posX"));
+                kf.posY = static_cast<float>(extractDoubleValue(kfJson, "posY"));
+                kf.scale = static_cast<float>(extractDoubleValue(kfJson, "scale"));
+                kf.rotation = static_cast<float>(extractDoubleValue(kfJson, "rotation"));
+                kf.opacity = static_cast<float>(extractDoubleValue(kfJson, "opacity"));
+                if (kf.scale == 0.0f) kf.scale = 1.0f;
+                if (kf.opacity == 0.0f) kf.opacity = 1.0f;
+                clip.transformKeyframes.push_back(kf);
+            }
             
             clips_.push_back(clip);
         }

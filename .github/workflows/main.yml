@@ -31,12 +31,6 @@ jobs:
           java-version: "17"
           distribution: "temurin"
 
-      - name: Set up Node.js
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
       - name: Make Gradle wrapper executable
         working-directory: android
         run: chmod +x gradlew
@@ -59,6 +53,15 @@ jobs:
           fi
           printf '%s' '${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}' | base64 --decode > "${GITHUB_WORKSPACE}/android/debug.keystore.stable"
 
+      - name: Restore release keystore
+        if: github.event_name != 'pull_request'
+        run: |
+          if [ -z "${{ secrets.ANDROID_RELEASE_KEYSTORE_B64 }}" ]; then
+            echo "::error::Missing ANDROID_RELEASE_KEYSTORE_B64 secret. Release APK cannot be signed."
+            exit 1
+          fi
+          printf '%s' '${{ secrets.ANDROID_RELEASE_KEYSTORE_B64 }}' | base64 --decode > "${GITHUB_WORKSPACE}/android/release.keystore"
+
       - name: Build debug APK
         working-directory: android
         env:
@@ -66,28 +69,55 @@ jobs:
           ANDROID_DEBUG_KEYSTORE_PASSWORD: android
           ANDROID_DEBUG_KEY_ALIAS: androiddebugkey
           ANDROID_DEBUG_KEY_PASSWORD: android
-          AWS_CONTROL_PLANE_URL: ${{ vars.AWS_CONTROL_PLANE_URL }}
-          AWS_CONTROL_PLANE_DEVICE_KEY: ${{ secrets.AWS_CONTROL_PLANE_DEVICE_KEY }}
-          RELEASE_PORTAL_URL: ${{ vars.RELEASE_PORTAL_URL }}
-          ADMIN_PANEL_URL: ${{ vars.ADMIN_PANEL_URL }}
           ADMOB_APP_ID: ${{ vars.ADMOB_APP_ID }}
           ADMOB_BANNER_UNIT_ID: ${{ vars.ADMOB_BANNER_UNIT_ID }}
           ADMOB_REWARDED_HD_UNLOCK_UNIT_ID: ${{ vars.ADMOB_REWARDED_HD_UNLOCK_UNIT_ID }}
-        run: ./gradlew assembleDebug
+          ADMOB_INTERSTITIAL_POST_EXPORT_UNIT_ID: ${{ vars.ADMOB_INTERSTITIAL_POST_EXPORT_UNIT_ID }}
+        run: ./gradlew assemblePlayDebug
+
+      - name: Build Play release APK
+        if: github.event_name != 'pull_request'
+        working-directory: android
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/android/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+          ADMOB_APP_ID: ${{ vars.ADMOB_APP_ID }}
+          ADMOB_BANNER_UNIT_ID: ${{ vars.ADMOB_BANNER_UNIT_ID }}
+          ADMOB_REWARDED_HD_UNLOCK_UNIT_ID: ${{ vars.ADMOB_REWARDED_HD_UNLOCK_UNIT_ID }}
+          ADMOB_INTERSTITIAL_POST_EXPORT_UNIT_ID: ${{ vars.ADMOB_INTERSTITIAL_POST_EXPORT_UNIT_ID }}
+        run: ./gradlew assemblePlayRelease
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: storyline-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
+          path: android/app/build/outputs/apk/play/debug/*.apk
+
+      - name: Upload Play release APK
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: storyline-play-release-apk
+          path: android/app/build/outputs/apk/play/release/*.apk
+
+      - name: Set up Node.js
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
 
       - name: Prepare APK website bundle
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         working-directory: .
-        env:
-          ADMIN_PANEL_URL: ${{ vars.ADMIN_PANEL_URL }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk apk-host/public/app.apk
+          release_apk="$(find android/app/build/outputs/apk/play/release -name '*.apk' | sort | head -n 1)"
+          if [ -z "${release_apk}" ]; then
+            echo "::error::Play release APK was not produced."
+            exit 1
+          fi
+          cp "${release_apk}" apk-host/public/app.apk
           node <<'EOF'
           const fs = require("fs");
           const { execSync } = require("child_process");
@@ -116,7 +146,7 @@ jobs:
             builtAt: new Date().toISOString(),
             workflowUrl: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
             downloadPath: "/app.apk",
-            adminPanelUrl: process.env.ADMIN_PANEL_URL || "",
+            adminPanelUrl: "",
             autoLive: true,
           };
 
@@ -146,24 +176,4 @@ jobs:
           EOF
           if ! vercel deploy --prod --yes --token "${VERCEL_TOKEN}"; then
             echo "::warning::Vercel deploy failed, but debug APK artifact was uploaded successfully."
-          fi
-
-      - name: Deploy admin panel to Vercel
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        working-directory: admin-panel
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_ADMIN_PROJECT_ID: ${{ vars.VERCEL_ADMIN_PROJECT_ID }}
-        run: |
-          if [ -z "${VERCEL_TOKEN}" ] || [ -z "${VERCEL_ORG_ID}" ] || [ -z "${VERCEL_ADMIN_PROJECT_ID}" ]; then
-            echo "::warning::Missing one or more admin panel Vercel settings. Skipping admin panel deploy."
-            exit 0
-          fi
-          mkdir -p .vercel
-          cat > .vercel/project.json <<EOF
-          {"projectId":"${VERCEL_ADMIN_PROJECT_ID}","orgId":"${VERCEL_ORG_ID}","projectName":"storyline"}
-          EOF
-          if ! vercel deploy --prod --yes --token "${VERCEL_TOKEN}"; then
-            echo "::warning::Admin panel Vercel deploy failed."
           fi

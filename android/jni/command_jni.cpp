@@ -47,6 +47,7 @@ std::vector<PreviewAudioClipSpec> g_previewAudioClips;
 std::atomic<uint64_t> g_previewAudioClipsGeneration{1};
 std::mutex g_previewAudioSelectionCacheMutex;
 PreviewAudioSelectionCache g_previewAudioSelectionCache;
+constexpr int64_t kPreviewAudioBoundaryToleranceMs = 48;
 
 std::string jsonEscape(const std::string& input) {
     std::string escaped;
@@ -66,6 +67,20 @@ std::string jsonEscape(const std::string& input) {
 
 std::string quote(const std::string& value) {
     return "\"" + jsonEscape(value) + "\"";
+}
+
+bool isStillImagePath(const std::string& path) {
+    const size_t dot = path.find_last_of('.');
+    if (dot == std::string::npos || dot + 1 >= path.size()) {
+        return false;
+    }
+    std::string ext = path.substr(dot + 1);
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "webp" ||
+        ext == "bmp" || ext == "gif" || ext == "tif" || ext == "tiff" ||
+        ext == "heic" || ext == "heif";
 }
 
 std::vector<AudioGainKeyframe> sanitizeAudioGainKeyframes(
@@ -440,6 +455,9 @@ Java_com_video_engine_NativeBridge_nativeResolvePreviewAudioSourceAt(
     jobject /* thiz */,
     jlong timelineMs) {
     const int64_t requestTimeMs = std::max<int64_t>(0, static_cast<int64_t>(timelineMs));
+    const auto isAutomationSeedVideoPath = [](const std::string& path) {
+        return path.find("/automation_samples/quick_sample_video") != std::string::npos;
+    };
     const uint64_t audioGeneration = g_previewAudioClipsGeneration.load(std::memory_order_acquire);
     std::string cachedJson;
     if (tryGetCachedPreviewAudioSelection(requestTimeMs, audioGeneration, &cachedJson)) {
@@ -448,20 +466,32 @@ Java_com_video_engine_NativeBridge_nativeResolvePreviewAudioSourceAt(
 
     {
         std::lock_guard<std::mutex> lock(g_previewAudioClipsMutex);
-        const PreviewAudioClipSpec* bestAudio = nullptr;
-        for (const auto& clip : g_previewAudioClips) {
-            if (!clip.visible || clip.path.empty() || clip.durationMs <= 0 || clip.volume <= 0.0001f) {
-                continue;
+        const auto resolvePreviewAudioClip = [&](bool allowEndTolerance) -> const PreviewAudioClipSpec* {
+            const PreviewAudioClipSpec* bestAudio = nullptr;
+            for (const auto& clip : g_previewAudioClips) {
+                if (!clip.visible || clip.path.empty() || clip.durationMs <= 0 || clip.volume <= 0.0001f) {
+                    continue;
+                }
+                const int64_t clipEndMs = clip.startTimeMs + clip.durationMs;
+                const bool inRange =
+                    requestTimeMs >= clip.startTimeMs &&
+                    (allowEndTolerance
+                        ? requestTimeMs <= (clipEndMs + kPreviewAudioBoundaryToleranceMs)
+                        : requestTimeMs < clipEndMs);
+                if (!inRange) {
+                    continue;
+                }
+                if (!bestAudio ||
+                    clip.layerIndex > bestAudio->layerIndex ||
+                    (clip.layerIndex == bestAudio->layerIndex && clip.startTimeMs > bestAudio->startTimeMs)) {
+                    bestAudio = &clip;
+                }
             }
-            const int64_t clipEndMs = clip.startTimeMs + clip.durationMs;
-            if (requestTimeMs < clip.startTimeMs || requestTimeMs >= clipEndMs) {
-                continue;
-            }
-            if (!bestAudio ||
-                clip.layerIndex > bestAudio->layerIndex ||
-                (clip.layerIndex == bestAudio->layerIndex && clip.startTimeMs > bestAudio->startTimeMs)) {
-                bestAudio = &clip;
-            }
+            return bestAudio;
+        };
+        const PreviewAudioClipSpec* bestAudio = resolvePreviewAudioClip(false);
+        if (!bestAudio) {
+            bestAudio = resolvePreviewAudioClip(true);
         }
         if (bestAudio) {
             std::string json = buildPreviewAudioSelectionJson(
@@ -504,40 +534,65 @@ Java_com_video_engine_NativeBridge_nativeResolvePreviewAudioSourceAt(
         return env->NewStringUTF("{}");
     }
 
-    std::shared_ptr<VideoEngine::Clip> bestClip;
-    int bestPriority = std::numeric_limits<int>::min();
-    int64_t bestStartMs = std::numeric_limits<int64_t>::min();
-    int bestLane = std::numeric_limits<int>::min();
     LOGD("[AudioDebug] timeline clips=%zu requestTimeMs=%lld", timeline->clips().size(), (long long)requestTimeMs);
-    for (const auto& clip : timeline->clips()) {
-        if (!clip) continue;
-        const auto& props = clip->getProperties();
-        LOGD("[AudioDebug] clip path=%s enabled=%d volume=%.2f role=%d start=%lld dur=%lld",
-            clip->getMediaPath().c_str(), (int)props.enabled, props.volumeGain,
-            (int)clip->getTrackRole(), (long long)clip->getStartTime(), (long long)clip->getDuration());
-        if (!props.enabled || clip->getMediaPath().empty() || props.volumeGain <= 0.0001f) continue;
-        const auto role = clip->getTrackRole();
-        int priority = 0;
-        if (role == VideoEngine::Clip::TrackRole::Audio) {
-            priority = 3;
-        } else if (role == VideoEngine::Clip::TrackRole::MainVideo) {
-            priority = 2;
-        } else {
-            continue;
+    const auto resolveTimelineClip = [&](bool allowEndTolerance) {
+        std::shared_ptr<VideoEngine::Clip> bestClip;
+        int bestPriority = std::numeric_limits<int>::min();
+        int64_t bestStartMs = std::numeric_limits<int64_t>::min();
+        int bestLane = std::numeric_limits<int>::min();
+        for (const auto& clip : timeline->clips()) {
+            if (!clip) continue;
+            const auto& props = clip->getProperties();
+            LOGD("[AudioDebug] clip path=%s enabled=%d volume=%.2f role=%d start=%lld dur=%lld",
+                clip->getMediaPath().c_str(), (int)props.enabled, props.volumeGain,
+                (int)clip->getTrackRole(), (long long)clip->getStartTime(), (long long)clip->getDuration());
+            if (!props.enabled || clip->getMediaPath().empty() || props.volumeGain <= 0.0001f) continue;
+            const auto role = clip->getTrackRole();
+            if (isStillImagePath(clip->getMediaPath())) {
+                continue;
+            }
+            if ((role == VideoEngine::Clip::TrackRole::MainVideo ||
+                 role == VideoEngine::Clip::TrackRole::Overlay) &&
+                isAutomationSeedVideoPath(clip->getMediaPath())) {
+                continue;
+            }
+            int priority = 0;
+            if (props.duckingEnabled) {
+                priority = 4;
+            } else if (role == VideoEngine::Clip::TrackRole::Audio) {
+                priority = 3;
+            } else if (role == VideoEngine::Clip::TrackRole::MainVideo) {
+                priority = 2;
+            } else if (role == VideoEngine::Clip::TrackRole::Overlay) {
+                priority = 1;
+            } else {
+                continue;
+            }
+            const int64_t startMs = clip->getStartTime();
+            const int64_t durationMs = std::max<int64_t>(1, clip->getDuration());
+            const int64_t endMs = startMs + durationMs;
+            const bool inRange =
+                requestTimeMs >= startMs &&
+                (allowEndTolerance
+                    ? requestTimeMs <= (endMs + kPreviewAudioBoundaryToleranceMs)
+                    : requestTimeMs < endMs);
+            if (!inRange) continue;
+            if (!bestClip ||
+                priority > bestPriority ||
+                (priority == bestPriority && startMs > bestStartMs) ||
+                (priority == bestPriority && startMs == bestStartMs && clip->getTrackLane() > bestLane)) {
+                bestPriority = priority;
+                bestStartMs = startMs;
+                bestLane = clip->getTrackLane();
+                bestClip = clip;
+            }
         }
-        const int64_t startMs = clip->getStartTime();
-        const int64_t durationMs = std::max<int64_t>(1, clip->getDuration());
-        const int64_t endMs = startMs + durationMs;
-        if (requestTimeMs < startMs || requestTimeMs >= endMs) continue;
-        if (!bestClip ||
-            priority > bestPriority ||
-            (priority == bestPriority && startMs > bestStartMs) ||
-            (priority == bestPriority && startMs == bestStartMs && clip->getTrackLane() > bestLane)) {
-            bestPriority = priority;
-            bestStartMs = startMs;
-            bestLane = clip->getTrackLane();
-            bestClip = clip;
-        }
+        return bestClip;
+    };
+
+    std::shared_ptr<VideoEngine::Clip> bestClip = resolveTimelineClip(false);
+    if (!bestClip) {
+        bestClip = resolveTimelineClip(true);
     }
 
     if (!bestClip) {
@@ -545,7 +600,8 @@ Java_com_video_engine_NativeBridge_nativeResolvePreviewAudioSourceAt(
     }
 
     const auto& props = bestClip->getProperties();
-    if (bestClip->getTrackRole() == VideoEngine::Clip::TrackRole::MainVideo &&
+    if ((bestClip->getTrackRole() == VideoEngine::Clip::TrackRole::MainVideo ||
+         bestClip->getTrackRole() == VideoEngine::Clip::TrackRole::Overlay) &&
         (props.reversePlayback ||
          props.freezeFrameEnabled ||
          props.curveSpeedProfile != "linear")) {

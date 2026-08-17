@@ -38,6 +38,7 @@
 #include "core/clip.h"
 #include "core/timeline.h"
 #include "backend/ffmpeg/video_decoder.h"
+#include "smooth_engine/ProfessionalEffects.h"
 
 #if defined(VIDEO_ENGINE_FFMPEG_DEMUX_AVAILABLE)
 extern "C" {
@@ -58,12 +59,66 @@ std::atomic<bool> g_ghostPreviewEnabled{true};
 std::atomic<int> g_ghostPreviewLongEdgePx{640};
 std::atomic<bool> g_adaptiveFrameDropEnabled{true};
 std::atomic<int> g_targetPreviewFps{30};
-std::atomic<int> g_minPreviewFps{15};
+std::atomic<int> g_minPreviewFps{24};
 std::atomic<bool> g_dirtyRegionRedrawEnabled{true};
 std::atomic<bool> g_predictiveCachingEnabled{true};
 std::atomic<int> g_predictiveLookAroundMs{2000};
 std::atomic<int> g_predictiveSampleStepMs{120};
 std::atomic<int> g_predictiveCacheMaxFrames{40};
+
+std::string normalizeProEffectPresetName(const std::string& raw) {
+    std::string normalized;
+    normalized.reserve(raw.size());
+    for (char ch : raw) {
+        if (std::isalnum(static_cast<unsigned char>(ch))) {
+            normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+        }
+    }
+    return normalized;
+}
+
+struct ProEffectResolvedParams {
+    float brightness = 0.0f;
+    float contrast = 1.0f;
+    float saturation = 1.0f;
+    std::string canonicalName;
+    std::string lutPath;
+    float intensity = 1.0f;
+};
+
+bool resolveProfessionalEffectParams(const std::string& presetName, ProEffectResolvedParams& out) {
+    const auto normalized = normalizeProEffectPresetName(presetName);
+    for (const auto& preset : VideoEngine::Advanced::builtInFilterPresets()) {
+        if (normalizeProEffectPresetName(preset.name) == normalized) {
+            out.canonicalName = preset.name;
+            out.lutPath = preset.lutPath;
+            out.intensity = preset.intensity;
+            if (normalized == "cinematte") {
+                out.brightness = 0.06f;
+                out.contrast = 0.82f;
+                out.saturation = 0.72f;
+            } else if (normalized == "tealfade") {
+                out.brightness = -0.04f;
+                out.contrast = 1.08f;
+                out.saturation = 0.80f;
+            } else if (normalized == "softskin") {
+                out.brightness = 0.16f;
+                out.contrast = 0.88f;
+                out.saturation = 0.90f;
+            } else if (normalized == "nightstreet") {
+                out.brightness = -0.12f;
+                out.contrast = 1.26f;
+                out.saturation = 0.78f;
+            } else if (normalized == "seoulvlog") {
+                out.brightness = 0.16f;
+                out.contrast = 1.10f;
+                out.saturation = 1.22f;
+            }
+            return true;
+        }
+    }
+    return false;
+}
 
 struct ClipProxyState {
     bool building = false;
@@ -75,10 +130,21 @@ struct ClipProxyState {
     std::string message;
 };
 
+struct ClipVisualKeyframe {
+    int64_t timeMs = 0;
+    double zoom = 1.0;
+    double scaleX = 1.0;
+    double scaleY = 1.0;
+    double panXPx = 0.0;
+    double panYPx = 0.0;
+    double rotationDeg = 0.0;
+    bool mirrorX = false;
+};
+
 std::mutex g_proxyStateMutex;
 std::map<int, ClipProxyState> g_proxyStates;
 std::mutex g_keyframeMutex;
-std::map<int, std::vector<int64_t>> g_clipKeyframes;
+std::map<int, std::vector<ClipVisualKeyframe>> g_clipVisualKeyframes;
 constexpr int64_t kDefaultStillImageDurationMs = 5000;
 
 using AudioGainKeyframe = VideoEngine::Clip::AudioGainKeyframe;
@@ -207,6 +273,94 @@ std::vector<AudioGainKeyframe> shiftedAudioGainKeyframesLater(
     return sanitizeAudioGainKeyframes(shifted, clipDurationMs);
 }
 
+std::vector<ClipVisualKeyframe> sanitizeClipVisualKeyframes(const std::vector<ClipVisualKeyframe>& keyframes) {
+    std::vector<ClipVisualKeyframe> normalized = keyframes;
+    for (auto& keyframe : normalized) {
+        keyframe.timeMs = std::max<int64_t>(0, keyframe.timeMs);
+        keyframe.zoom = std::clamp(keyframe.zoom, 0.15, 8.0);
+        keyframe.scaleX = std::clamp(keyframe.scaleX, 0.15, 8.0);
+        keyframe.scaleY = std::clamp(keyframe.scaleY, 0.15, 8.0);
+        keyframe.rotationDeg = std::clamp(keyframe.rotationDeg, -180.0, 180.0);
+    }
+    std::stable_sort(
+        normalized.begin(),
+        normalized.end(),
+        [](const ClipVisualKeyframe& a, const ClipVisualKeyframe& b) {
+            return a.timeMs < b.timeMs;
+        });
+
+    std::vector<ClipVisualKeyframe> deduped;
+    deduped.reserve(normalized.size());
+    for (const auto& keyframe : normalized) {
+        if (!deduped.empty() && deduped.back().timeMs == keyframe.timeMs) {
+            deduped.back() = keyframe;
+        } else {
+            deduped.push_back(keyframe);
+        }
+    }
+    return deduped;
+}
+
+std::string timelineKeyframesToJson(const std::vector<int64_t>& keyframes) {
+    std::ostringstream json;
+    json << "[";
+    for (size_t index = 0; index < keyframes.size(); ++index) {
+        if (index > 0) {
+            json << ",";
+        }
+        json << keyframes[index];
+    }
+    json << "]";
+    return json.str();
+}
+
+std::vector<int64_t> snapshotClipKeyframes(int clipId) {
+    std::lock_guard<std::mutex> keyframeLock(g_keyframeMutex);
+    auto it = g_clipVisualKeyframes.find(clipId);
+    if (it == g_clipVisualKeyframes.end()) {
+        return {};
+    }
+    const auto normalized = sanitizeClipVisualKeyframes(it->second);
+    std::vector<int64_t> times;
+    times.reserve(normalized.size());
+    for (const auto& keyframe : normalized) {
+        times.push_back(keyframe.timeMs);
+    }
+    return times;
+}
+
+std::vector<ClipVisualKeyframe> snapshotClipVisualKeyframes(int clipId) {
+    std::lock_guard<std::mutex> keyframeLock(g_keyframeMutex);
+    auto it = g_clipVisualKeyframes.find(clipId);
+    if (it == g_clipVisualKeyframes.end()) {
+        return {};
+    }
+    return sanitizeClipVisualKeyframes(it->second);
+}
+
+std::string clipVisualKeyframesToJson(const std::vector<ClipVisualKeyframe>& keyframes) {
+    std::ostringstream json;
+    json << "[";
+    for (size_t index = 0; index < keyframes.size(); ++index) {
+        if (index > 0) {
+            json << ",";
+        }
+        const auto& keyframe = keyframes[index];
+        json << "{"
+             << "\"timeMs\":" << keyframe.timeMs << ","
+             << "\"zoom\":" << keyframe.zoom << ","
+             << "\"scaleX\":" << keyframe.scaleX << ","
+             << "\"scaleY\":" << keyframe.scaleY << ","
+             << "\"panXPx\":" << keyframe.panXPx << ","
+             << "\"panYPx\":" << keyframe.panYPx << ","
+             << "\"rotationDeg\":" << keyframe.rotationDeg << ","
+             << "\"mirrorX\":" << (keyframe.mirrorX ? "true" : "false")
+             << "}";
+    }
+    json << "]";
+    return json.str();
+}
+
 std::string audioGainKeyframesToJson(const std::vector<AudioGainKeyframe>& keyframes) {
     std::ostringstream json;
     json << "[";
@@ -248,8 +402,10 @@ std::string normalizedExtension(std::string path) {
 
 bool isStillImagePath(const std::string& path) {
     const std::string ext = normalizedExtension(path);
-    return ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "webp" ||
-        ext == "bmp" || ext == "gif" || ext == "tif" || ext == "tiff";
+    return ext == "jpg" || ext == "jpeg" || ext == "jpe" || ext == "jfif" ||
+        ext == "png" || ext == "webp" || ext == "bmp" || ext == "gif" ||
+        ext == "tif" || ext == "tiff" || ext == "heic" || ext == "heif" ||
+        ext == "avif";
 }
 
 void boostCommandThreadPriority() {
@@ -1456,6 +1612,7 @@ public:
             durationMs = (*context.preview)->getVideoDurationMs();
         }
         durationMs = std::max<int64_t>(1, durationMs);
+        const bool explicitStartRequested = m_requestedStartTimeMs >= 0;
         int64_t startTimeMs = std::max<int64_t>(0, m_requestedStartTimeMs);
         if (m_requestedStartTimeMs < 0) {
             startTimeMs = primaryTrackDuration(timeline.get());
@@ -1464,6 +1621,7 @@ public:
             }
         }
         auto clip = std::make_shared<VideoEngine::Clip>(m_path, startTimeMs, durationMs);
+        clip->setEnabled(true);
         clip->setTrackRole(m_trackRole);
         clip->setTrackLane(m_trackLane);
         clip->setTrackZOrder(m_trackZOrder);
@@ -1475,7 +1633,7 @@ public:
             (m_trackRole == VideoEngine::Clip::TrackRole::MainVideo ||
                 m_trackRole == VideoEngine::Clip::TrackRole::Overlay);
 #endif
-        if (m_trackRole == VideoEngine::Clip::TrackRole::MainVideo) {
+        if (m_trackRole == VideoEngine::Clip::TrackRole::MainVideo && !explicitStartRequested) {
             normalizePrimaryTrack(timeline.get());
             // Always render first frame after adding a video clip (fixes black preview)
             if (g_nativeWindow && (*context.preview)->isReady()) {
@@ -1664,6 +1822,8 @@ public:
             if (sourceOutMs <= sourceInMs) {
                 sourceOutMs = sourceInMs + clip->getDuration();
             }
+            const auto keyframes = snapshotClipKeyframes(clip->getId());
+            const auto visualKeyframes = snapshotClipVisualKeyframes(clip->getId());
 
             if (!first) clipsJson << ",";
             first = false;
@@ -1703,7 +1863,9 @@ public:
                       << "\"chromaColor\":" << (chroma.color == VideoEngine::Clip::ChromaKeyParams::KeyColor::Blue ? 1 : 0) << ","
                       << "\"chromaSimilarity\":" << chroma.similarity << ","
                       << "\"chromaSmoothness\":" << chroma.smoothness << ","
-                      << "\"chromaSpill\":" << chroma.spill
+                      << "\"chromaSpill\":" << chroma.spill << ","
+                      << "\"visualKeyframes\":" << clipVisualKeyframesToJson(visualKeyframes) << ","
+                      << "\"keyframesMs\":" << timelineKeyframesToJson(keyframes)
                       << "}";
         }
         clipsJson << "]";
@@ -2085,6 +2247,11 @@ public:
     CommandResult execute(CommandContext& context) override {
         std::weak_ptr<VideoEngine::Timeline> timelineRef;
         std::mutex* previewMutex = context.previewMutex;
+        // Capture a raw pointer to the unique_ptr so the background thread can call
+        // notifyProxyReady() when the proxy is done.
+        VideoEngine::PreviewController* rawPreview =
+            (context.preview && *context.preview) ? context.preview->get() : nullptr;
+
         std::string sourcePath = m_sourcePath;
         {
             std::lock_guard<std::mutex> lock(*context.previewMutex);
@@ -2132,7 +2299,7 @@ public:
         const int clipId = m_clipId;
         const int maxLongEdgePx = m_maxLongEdgePx;
         const int targetFps = m_targetFps;
-        std::thread([clipId, sourcePath, outputPath, maxLongEdgePx, targetFps, timelineRef, previewMutex]() {
+        std::thread([clipId, sourcePath, outputPath, maxLongEdgePx, targetFps, timelineRef, previewMutex, rawPreview]() {
             std::string error;
             const bool ok = buildProxyVideo(
                 sourcePath,
@@ -2155,6 +2322,10 @@ public:
                             clip->clearPreviewProxyPath();
                         }
                     }
+                }
+                // Notify PreviewController to evict old decoder and reload with proxy.
+                if (rawPreview && ok) {
+                    rawPreview->notifyProxyReady(clipId);
                 }
             }
             updateProxyState(clipId, [&](ClipProxyState& state) {
@@ -2345,12 +2516,14 @@ public:
         const int64_t splitSourceMs = sourceInMs + leftDuration;
 
         m_originalClip = originalClip;
-        m_leftClip = cloneClipRange(
-            *originalClip,
-            clipStart,
-            leftDuration,
-            sourceInMs,
-            splitSourceMs);
+        m_originalDuration = clipDuration;
+        m_originalSourceOutMs = sourceOutMs;
+
+        // Keep original clip in-place as the left piece so its ID and tracking remain intact
+        originalClip->setTimelinePosition(clipStart, leftDuration);
+        originalClip->setTrimPoints(sourceInMs, splitSourceMs);
+        clampClipAudioGainKeyframes(originalClip.get());
+
         m_rightClip = cloneClipRange(
             *originalClip,
             m_timeMs,
@@ -2358,8 +2531,6 @@ public:
             splitSourceMs,
             sourceOutMs);
 
-        timeline->removeClip(std::to_string(m_clipId));
-        timeline->addClip(m_leftClip);
         timeline->addClip(m_rightClip);
         normalizePrimaryTrack(timeline.get());
 
@@ -2367,7 +2538,7 @@ public:
             action(),
             "Clip split",
             "{\"originalClipId\":" + std::to_string(m_clipId) +
-            ",\"leftClipId\":" + std::to_string(m_leftClip->getId()) +
+            ",\"leftClipId\":" + std::to_string(m_clipId) +
             ",\"rightClipId\":" + std::to_string(m_rightClip->getId()) +
             ",\"timeMs\":" + std::to_string(m_timeMs) + "}");
     }
@@ -2378,12 +2549,14 @@ public:
             return CommandResult::fail("UNDO", "Preview not initialized");
         }
         auto timeline = (*context.preview)->getTimeline();
-        if (!timeline || !m_originalClip || !m_leftClip || !m_rightClip) {
+        if (!timeline || !m_originalClip || !m_rightClip) {
             return CommandResult::fail("UNDO", "Split undo state missing");
         }
-        timeline->removeClip(std::to_string(m_leftClip->getId()));
         timeline->removeClip(std::to_string(m_rightClip->getId()));
-        timeline->addClip(m_originalClip);
+        VideoEngine::Clip::TimeMs sIn = 0, sOut = 0;
+        m_originalClip->getTrimPoints(sIn, sOut);
+        m_originalClip->setTrimPoints(sIn, m_originalSourceOutMs);
+        m_originalClip->setTimelinePosition(m_originalClip->getStartTime(), m_originalDuration);
         normalizePrimaryTrack(timeline.get());
         return CommandResult::ok(
             "UNDO",
@@ -2395,8 +2568,9 @@ private:
     int m_clipId;
     int64_t m_timeMs;
     std::shared_ptr<VideoEngine::Clip> m_originalClip;
-    std::shared_ptr<VideoEngine::Clip> m_leftClip;
     std::shared_ptr<VideoEngine::Clip> m_rightClip;
+    int64_t m_originalDuration = 0;
+    VideoEngine::Clip::TimeMs m_originalSourceOutMs = 0;
 };
 
 class TrimClipCommand final : public EditorCommand {
@@ -2600,28 +2774,46 @@ public:
             return CommandResult::fail(action(), "Clip not found");
         }
 
+        const bool isStillImage =
+            clip->getMediaType() == VideoEngine::Clip::MediaType::Image ||
+            isStillImagePath(clip->getMediaPath());
+        int64_t sourceDurationMs = 0;
+        if (!m_previewOnly && !isStillImage) {
+            sourceDurationMs = probeDurationMsForPath(clip->getMediaPath());
+        }
+
+        int64_t safeSourceInMs = std::max<int64_t>(0, m_newSourceInMs);
+        int64_t safeSourceOutMs = std::max<int64_t>(safeSourceInMs + 1, m_newSourceOutMs);
+        int64_t safeDurationMs = std::max<int64_t>(1, m_newDurationMs);
+        if (sourceDurationMs > 0) {
+            safeSourceInMs = std::clamp<int64_t>(safeSourceInMs, 0, sourceDurationMs - 1);
+            safeSourceOutMs = std::clamp<int64_t>(safeSourceOutMs, safeSourceInMs + 1, sourceDurationMs);
+            safeDurationMs = std::min<int64_t>(safeDurationMs, safeSourceOutMs - safeSourceInMs);
+            safeDurationMs = std::max<int64_t>(1, safeDurationMs);
+        }
+
         m_originalAudioGainKeyframes = clip->getProperties().audioGainKeyframes;
-        clip->setTimelinePosition(std::max<int64_t>(0, m_newStartTimeMs), m_newDurationMs);
-        clip->setTrimPoints(std::max<int64_t>(0, m_newSourceInMs), m_newSourceOutMs);
-        const int64_t sourceInDeltaMs = m_newSourceInMs - m_originalSourceInMs;
+        clip->setTimelinePosition(std::max<int64_t>(0, m_newStartTimeMs), safeDurationMs);
+        clip->setTrimPoints(safeSourceInMs, safeSourceOutMs);
+        const int64_t sourceInDeltaMs = safeSourceInMs - m_originalSourceInMs;
         if (sourceInDeltaMs > 0) {
             clip->getMutableProperties().audioGainKeyframes = shiftedAudioGainKeyframesForRightClip(
                 m_originalAudioGainKeyframes,
                 sourceInDeltaMs,
-                m_newDurationMs);
+                safeDurationMs);
         } else if (sourceInDeltaMs < 0) {
             clip->getMutableProperties().audioGainKeyframes = shiftedAudioGainKeyframesLater(
                 m_originalAudioGainKeyframes,
                 -sourceInDeltaMs,
-                m_newDurationMs);
+                safeDurationMs);
         } else {
             clip->getMutableProperties().audioGainKeyframes = sanitizeAudioGainKeyframes(
                 m_originalAudioGainKeyframes,
-                m_newDurationMs);
+                safeDurationMs);
         }
         const bool shouldApplyMagnetic =
             !m_previewOnly &&
-            (m_applyMagnetic || clip->getTrackRole() == VideoEngine::Clip::TrackRole::MainVideo);
+            m_applyMagnetic;
         if (shouldApplyMagnetic) {
             normalizePrimaryTrack(timeline.get());
         }
@@ -2631,7 +2823,9 @@ public:
             m_previewOnly ? "Clip timing preview updated" : "Clip timing updated",
             "{\"clipId\":" + std::to_string(m_clipId) +
             ",\"startTimeMs\":" + std::to_string(m_newStartTimeMs) +
-            ",\"durationMs\":" + std::to_string(m_newDurationMs) + "}");
+            ",\"durationMs\":" + std::to_string(safeDurationMs) +
+            ",\"sourceInMs\":" + std::to_string(safeSourceInMs) +
+            ",\"sourceOutMs\":" + std::to_string(safeSourceOutMs) + "}");
     }
 
     CommandResult undo(CommandContext& context) override {
@@ -2653,8 +2847,7 @@ public:
         clip->getMutableProperties().audioGainKeyframes = sanitizeAudioGainKeyframes(
             m_originalAudioGainKeyframes,
             m_originalDurationMs);
-        const bool shouldApplyMagnetic =
-            m_applyMagnetic || clip->getTrackRole() == VideoEngine::Clip::TrackRole::MainVideo;
+        const bool shouldApplyMagnetic = m_applyMagnetic;
         if (shouldApplyMagnetic) {
             normalizePrimaryTrack(timeline.get());
         }
@@ -2930,12 +3123,22 @@ private:
 
 class AddKeyframeCommand final : public EditorCommand {
 public:
-    AddKeyframeCommand(int clipId, int64_t timeMs)
+    AddKeyframeCommand(
+        int clipId,
+        int64_t timeMs,
+        double zoom,
+        double scaleX,
+        double scaleY,
+        double panXPx,
+        double panYPx,
+        double rotationDeg,
+        bool mirrorX)
         : EditorCommand("KEYFRAME_ADD"),
           m_clipId(clipId),
-          m_timeMs(timeMs) {}
+          m_timeMs(timeMs),
+          m_keyframe{timeMs, zoom, scaleX, scaleY, panXPx, panYPx, rotationDeg, mirrorX} {}
 
-    bool canUndo() const override { return m_added; }
+    bool canUndo() const override { return m_added || m_updatedExisting; }
 
     CommandResult execute(CommandContext& context) override {
         std::lock_guard<std::mutex> lock(*context.previewMutex);
@@ -2955,45 +3158,69 @@ public:
         const int64_t clipEnd = clip->getEndTime();
         const int64_t clampedTime = std::clamp<int64_t>(m_timeMs, clipStart, std::max<int64_t>(clipStart, clipEnd - 1));
         m_timeMs = clampedTime;
+        m_keyframe.timeMs = clampedTime;
+        m_keyframe.zoom = std::clamp(m_keyframe.zoom, 0.15, 8.0);
+        m_keyframe.scaleX = std::clamp(m_keyframe.scaleX, 0.15, 8.0);
+        m_keyframe.scaleY = std::clamp(m_keyframe.scaleY, 0.15, 8.0);
+        m_keyframe.rotationDeg = std::clamp(m_keyframe.rotationDeg, -180.0, 180.0);
 
         {
             std::lock_guard<std::mutex> keyframeLock(g_keyframeMutex);
-            auto& keyframes = g_clipKeyframes[m_clipId];
-            auto existing = std::lower_bound(keyframes.begin(), keyframes.end(), m_timeMs);
-            if (existing != keyframes.end() && *existing == m_timeMs) {
+            auto& keyframes = g_clipVisualKeyframes[m_clipId];
+            auto existing =
+                std::lower_bound(
+                    keyframes.begin(),
+                    keyframes.end(),
+                    m_timeMs,
+                    [](const ClipVisualKeyframe& candidate, int64_t targetTimeMs) {
+                        return candidate.timeMs < targetTimeMs;
+                    });
+            if (existing != keyframes.end() && existing->timeMs == m_timeMs) {
+                m_previousKeyframe = *existing;
+                *existing = m_keyframe;
+                m_insertIndex = static_cast<int>(existing - keyframes.begin());
+                m_updatedExisting = true;
                 m_added = false;
             } else {
                 m_insertIndex = static_cast<int>(existing - keyframes.begin());
-                keyframes.insert(existing, m_timeMs);
+                keyframes.insert(existing, m_keyframe);
                 m_added = true;
+                m_updatedExisting = false;
             }
         }
 
         return CommandResult::ok(
             action(),
-            m_added ? "Keyframe added" : "Keyframe already exists",
+            m_added ? "Keyframe added" : "Keyframe updated",
             "{\"clipId\":" + std::to_string(m_clipId) +
                 ",\"timeMs\":" + std::to_string(m_timeMs) +
-                ",\"added\":" + std::string(m_added ? "true" : "false") + "}");
+                ",\"added\":" + std::string(m_added ? "true" : "false") +
+                ",\"updated\":" + std::string(m_updatedExisting ? "true" : "false") + "}");
     }
 
     CommandResult undo(CommandContext& /* context */) override {
-        if (!m_added) {
-            return CommandResult::fail("UNDO", "No keyframe inserted");
-        }
         std::lock_guard<std::mutex> keyframeLock(g_keyframeMutex);
-        auto it = g_clipKeyframes.find(m_clipId);
-        if (it == g_clipKeyframes.end()) {
+        auto it = g_clipVisualKeyframes.find(m_clipId);
+        if (it == g_clipVisualKeyframes.end()) {
             return CommandResult::fail("UNDO", "Keyframe state missing");
         }
         auto& keyframes = it->second;
         if (m_insertIndex < 0 || m_insertIndex >= static_cast<int>(keyframes.size())) {
             return CommandResult::fail("UNDO", "Undo keyframe index invalid");
         }
-        keyframes.erase(keyframes.begin() + m_insertIndex);
+        if (m_updatedExisting) {
+            keyframes[m_insertIndex] = m_previousKeyframe;
+        } else if (m_added) {
+            keyframes.erase(keyframes.begin() + m_insertIndex);
+            if (keyframes.empty()) {
+                g_clipVisualKeyframes.erase(it);
+            }
+        } else {
+            return CommandResult::fail("UNDO", "No keyframe change recorded");
+        }
         return CommandResult::ok(
             "UNDO",
-            "Keyframe removed",
+            m_updatedExisting ? "Keyframe restored" : "Keyframe removed",
             "{\"clipId\":" + std::to_string(m_clipId) +
                 ",\"timeMs\":" + std::to_string(m_timeMs) + "}");
     }
@@ -3001,8 +3228,158 @@ public:
 private:
     int m_clipId;
     int64_t m_timeMs;
+    ClipVisualKeyframe m_keyframe;
+    ClipVisualKeyframe m_previousKeyframe;
     bool m_added = false;
+    bool m_updatedExisting = false;
     int m_insertIndex = -1;
+};
+
+class DeleteKeyframeCommand final : public EditorCommand {
+public:
+    DeleteKeyframeCommand(int clipId, int64_t timeMs)
+        : EditorCommand("KEYFRAME_DELETE"),
+          m_clipId(clipId),
+          m_timeMs(timeMs) {}
+
+    bool canUndo() const override { return m_deleted; }
+
+    CommandResult execute(CommandContext& context) override {
+        std::lock_guard<std::mutex> lock(*context.previewMutex);
+        if (!context.preview || !(*context.preview)) {
+            return CommandResult::fail(action(), "Preview not initialized");
+        }
+        auto timeline = (*context.preview)->getTimeline();
+        if (!timeline) {
+            return CommandResult::fail(action(), "Timeline not initialized");
+        }
+        auto clip = findClipShared(timeline.get(), m_clipId);
+        if (!clip) {
+            return CommandResult::fail(action(), "Clip not found");
+        }
+
+        std::lock_guard<std::mutex> keyframeLock(g_keyframeMutex);
+        auto it = g_clipVisualKeyframes.find(m_clipId);
+        if (it == g_clipVisualKeyframes.end()) {
+            return CommandResult::ok(
+                action(),
+                "Keyframe not found",
+                "{\"clipId\":" + std::to_string(m_clipId) +
+                    ",\"timeMs\":" + std::to_string(m_timeMs) +
+                    ",\"deleted\":false}");
+        }
+        auto& keyframes = it->second;
+        auto existing =
+            std::lower_bound(
+                keyframes.begin(),
+                keyframes.end(),
+                m_timeMs,
+                [](const ClipVisualKeyframe& candidate, int64_t targetTimeMs) {
+                    return candidate.timeMs < targetTimeMs;
+                });
+        if (existing == keyframes.end() || existing->timeMs != m_timeMs) {
+            return CommandResult::ok(
+                action(),
+                "Keyframe not found",
+                "{\"clipId\":" + std::to_string(m_clipId) +
+                    ",\"timeMs\":" + std::to_string(m_timeMs) +
+                    ",\"deleted\":false}");
+        }
+        m_removedIndex = static_cast<int>(existing - keyframes.begin());
+        m_removedKeyframe = *existing;
+        keyframes.erase(existing);
+        if (keyframes.empty()) {
+            g_clipVisualKeyframes.erase(it);
+        }
+        m_deleted = true;
+        return CommandResult::ok(
+            action(),
+            "Keyframe deleted",
+            "{\"clipId\":" + std::to_string(m_clipId) +
+                ",\"timeMs\":" + std::to_string(m_timeMs) +
+                ",\"deleted\":true}");
+    }
+
+    CommandResult undo(CommandContext& /* context */) override {
+        if (!m_deleted) {
+            return CommandResult::fail("UNDO", "No keyframe deleted");
+        }
+        std::lock_guard<std::mutex> keyframeLock(g_keyframeMutex);
+        auto& keyframes = g_clipVisualKeyframes[m_clipId];
+        const int insertIndex = std::clamp(m_removedIndex, 0, static_cast<int>(keyframes.size()));
+        keyframes.insert(keyframes.begin() + insertIndex, m_removedKeyframe);
+        return CommandResult::ok(
+            "UNDO",
+            "Keyframe restored",
+            "{\"clipId\":" + std::to_string(m_clipId) +
+                ",\"timeMs\":" + std::to_string(m_timeMs) + "}");
+    }
+
+private:
+    int m_clipId;
+    int64_t m_timeMs;
+    ClipVisualKeyframe m_removedKeyframe;
+    bool m_deleted = false;
+    int m_removedIndex = -1;
+};
+
+class ClearKeyframesCommand final : public EditorCommand {
+public:
+    explicit ClearKeyframesCommand(int clipId)
+        : EditorCommand("KEYFRAME_CLEAR"),
+          m_clipId(clipId) {}
+
+    bool canUndo() const override { return !m_previousKeyframes.empty(); }
+
+    CommandResult execute(CommandContext& context) override {
+        std::lock_guard<std::mutex> lock(*context.previewMutex);
+        if (!context.preview || !(*context.preview)) {
+            return CommandResult::fail(action(), "Preview not initialized");
+        }
+        auto timeline = (*context.preview)->getTimeline();
+        if (!timeline) {
+            return CommandResult::fail(action(), "Timeline not initialized");
+        }
+        auto clip = findClipShared(timeline.get(), m_clipId);
+        if (!clip) {
+            return CommandResult::fail(action(), "Clip not found");
+        }
+
+        std::lock_guard<std::mutex> keyframeLock(g_keyframeMutex);
+        auto it = g_clipVisualKeyframes.find(m_clipId);
+        if (it == g_clipVisualKeyframes.end()) {
+            return CommandResult::ok(
+                action(),
+                "Keyframes already clear",
+                "{\"clipId\":" + std::to_string(m_clipId) +
+                    ",\"cleared\":false}");
+        }
+        m_previousKeyframes = it->second;
+        g_clipVisualKeyframes.erase(it);
+        return CommandResult::ok(
+            action(),
+            "Keyframes cleared",
+            "{\"clipId\":" + std::to_string(m_clipId) +
+                ",\"pointCount\":" + std::to_string(m_previousKeyframes.size()) +
+                ",\"cleared\":true}");
+    }
+
+    CommandResult undo(CommandContext& /* context */) override {
+        if (m_previousKeyframes.empty()) {
+            return CommandResult::fail("UNDO", "No keyframes to restore");
+        }
+        std::lock_guard<std::mutex> keyframeLock(g_keyframeMutex);
+        g_clipVisualKeyframes[m_clipId] = m_previousKeyframes;
+        return CommandResult::ok(
+            "UNDO",
+            "Keyframes restored",
+            "{\"clipId\":" + std::to_string(m_clipId) +
+                ",\"pointCount\":" + std::to_string(m_previousKeyframes.size()) + "}");
+    }
+
+private:
+    int m_clipId;
+    std::vector<ClipVisualKeyframe> m_previousKeyframes;
 };
 
 class ReverseClipCommand final : public EditorCommand {
@@ -3178,7 +3555,14 @@ public:
             const int clipId = static_cast<int>(clip->getId());
             auto& props = clip->getMutableProperties();
             m_previousClipStates.push_back(
-                ClipState{clipId, props.volumeGain, props.duckingEnabled, props.duckingAmount});
+                ClipState{
+                    clipId,
+                    props.volumeGain,
+                    props.duckingEnabled,
+                    props.duckingAmount,
+                    props.duckingRestoreVolumeValid,
+                    props.duckingRestoreVolumeGain,
+                });
 
             if (clipId == m_clipId) {
                 props.duckingEnabled = m_enabled;
@@ -3188,9 +3572,17 @@ public:
             const bool overlaps = clip->getStartTime() < primaryEnd && clip->getEndTime() > primaryStart;
             if (!overlaps) continue;
             if (m_enabled) {
-                props.volumeGain = std::clamp(props.volumeGain * targetAmount, 0.0f, 4.0f);
+                if (!props.duckingRestoreVolumeValid) {
+                    props.duckingRestoreVolumeGain = props.volumeGain;
+                    props.duckingRestoreVolumeValid = true;
+                }
+                props.volumeGain = std::clamp(props.duckingRestoreVolumeGain * targetAmount, 0.0f, 4.0f);
             } else {
-                props.volumeGain = std::clamp(1.0f, 0.0f, 4.0f);
+                const float restoreGain =
+                    props.duckingRestoreVolumeValid ? props.duckingRestoreVolumeGain : props.volumeGain;
+                props.volumeGain = std::clamp(restoreGain, 0.0f, 4.0f);
+                props.duckingRestoreVolumeValid = false;
+                props.duckingRestoreVolumeGain = props.volumeGain;
             }
         }
 
@@ -3220,6 +3612,8 @@ public:
             props.volumeGain = state.volumeGain;
             props.duckingEnabled = state.duckingEnabled;
             props.duckingAmount = state.duckingAmount;
+            props.duckingRestoreVolumeValid = state.duckingRestoreVolumeValid;
+            props.duckingRestoreVolumeGain = state.duckingRestoreVolumeGain;
         }
 
         g_pendingScrubMs.store(static_cast<long long>(context.currentTimeMs->load()), std::memory_order_release);
@@ -3233,6 +3627,8 @@ private:
         float volumeGain = 1.0f;
         bool duckingEnabled = false;
         float duckingAmount = 0.35f;
+        bool duckingRestoreVolumeValid = false;
+        float duckingRestoreVolumeGain = 1.0f;
     };
 
     int m_clipId;
@@ -3597,6 +3993,97 @@ private:
     float m_previousSaturation = 1.0f;
 };
 
+class ApplyProfessionalEffectPresetCommand final : public EditorCommand {
+public:
+    ApplyProfessionalEffectPresetCommand(int clipId, std::string presetName)
+        : EditorCommand("APPLY_PRO_EFFECT_PRESET"),
+          m_clipId(clipId),
+          m_presetName(std::move(presetName)) {}
+
+    bool canUndo() const override { return true; }
+
+    CommandResult execute(CommandContext& context) override {
+        std::lock_guard<std::mutex> lock(*context.previewMutex);
+        if (!context.preview || !(*context.preview)) {
+            return CommandResult::fail(action(), "Preview not initialized");
+        }
+        auto timeline = (*context.preview)->getTimeline();
+        if (!timeline) {
+            return CommandResult::fail(action(), "Timeline not initialized");
+        }
+        VideoEngine::Clip* clip = findClip(timeline.get(), m_clipId);
+        if (!clip) {
+            return CommandResult::fail(action(), "Clip not found");
+        }
+
+        ProEffectResolvedParams resolved;
+        if (!resolveProfessionalEffectParams(m_presetName, resolved)) {
+            return CommandResult::fail(action(), "Professional preset not found");
+        }
+
+        const auto& previous = clip->getEffects();
+        m_previousBrightness = previous.brightness;
+        m_previousContrast = previous.contrast;
+        m_previousSaturation = previous.saturation;
+
+        clip->setEffectBrightness(std::clamp(resolved.brightness, -1.0f, 1.0f));
+        clip->setEffectContrast(std::clamp(resolved.contrast, 0.0f, 2.0f));
+        clip->setEffectSaturation(std::clamp(resolved.saturation, 0.0f, 2.0f));
+        clip->setEffectsEnabled(true);
+
+        CM_LOGI("[Effects] APPLY_PRO_EFFECT_PRESET clip=%d preset=%s b=%.3f c=%.3f s=%.3f lut=%s",
+            m_clipId,
+            resolved.canonicalName.c_str(),
+            resolved.brightness,
+            resolved.contrast,
+            resolved.saturation,
+            resolved.lutPath.c_str());
+
+        g_pendingScrubMs.store(static_cast<long long>(context.currentTimeMs->load()), std::memory_order_release);
+
+        std::ostringstream json;
+        json << "{"
+             << "\"clipId\":" << m_clipId << ","
+             << "\"preset\":\"" << resolved.canonicalName << "\","
+             << "\"brightness\":" << resolved.brightness << ","
+             << "\"contrast\":" << resolved.contrast << ","
+             << "\"saturation\":" << resolved.saturation << ","
+             << "\"lutPath\":\"" << resolved.lutPath << "\","
+             << "\"intensity\":" << resolved.intensity
+             << "}";
+        return CommandResult::ok(action(), "Professional effect preset applied", json.str());
+    }
+
+    CommandResult undo(CommandContext& context) override {
+        std::lock_guard<std::mutex> lock(*context.previewMutex);
+        if (!context.preview || !(*context.preview)) {
+            return CommandResult::fail(action(), "Preview not initialized");
+        }
+        auto timeline = (*context.preview)->getTimeline();
+        if (!timeline) {
+            return CommandResult::fail(action(), "Timeline not initialized");
+        }
+        VideoEngine::Clip* clip = findClip(timeline.get(), m_clipId);
+        if (!clip) {
+            return CommandResult::fail(action(), "Clip not found");
+        }
+        clip->setEffectBrightness(m_previousBrightness);
+        clip->setEffectContrast(m_previousContrast);
+        clip->setEffectSaturation(m_previousSaturation);
+        clip->setEffectsEnabled(true);
+        g_pendingScrubMs.store(static_cast<long long>(context.currentTimeMs->load()), std::memory_order_release);
+        return CommandResult::ok("UNDO", "Professional effect preset reverted",
+            "{\"clipId\":" + std::to_string(m_clipId) + "}");
+    }
+
+private:
+    int m_clipId;
+    std::string m_presetName;
+    float m_previousBrightness = 0.0f;
+    float m_previousContrast = 1.0f;
+    float m_previousSaturation = 1.0f;
+};
+
 class TransitionCommand final : public EditorCommand {
 public:
     TransitionCommand(
@@ -3618,7 +4105,12 @@ public:
 
     bool canUndo() const override { return true; }
 
-    CommandResult execute(CommandContext&) override {
+    CommandResult execute(CommandContext& context) override {
+        std::unique_lock<std::mutex> lock;
+        if (context.previewMutex) {
+            lock = std::unique_lock<std::mutex>(*context.previewMutex);
+        }
+
         if (m_mode == "add") {
             m_createdTransition.id = g_nextTransitionId++;
             m_createdTransition.outgoingClipId = m_outgoingClipId;
@@ -3628,10 +4120,11 @@ public:
             m_createdTransition.startTimeMs = m_startTimeMs;
             m_createdTransition.isEnabled = true;
             g_transitions[m_createdTransition.id] = m_createdTransition;
+            syncPreviewTransition(context, m_createdTransition);
             return CommandResult::ok(
                 action(),
                 "Transition added",
-                "{\"transitionId\":" + std::to_string(m_createdTransition.id) + "}");
+                transitionJson(m_createdTransition));
         }
 
         if (m_mode == "update") {
@@ -3646,10 +4139,12 @@ public:
             it->second.durationMs = m_durationMs;
             it->second.startTimeMs = m_startTimeMs;
             it->second.isEnabled = true;
+            g_nextTransitionId = std::max<int64_t>(g_nextTransitionId, m_transitionId + 1);
+            syncPreviewTransition(context, it->second);
             return CommandResult::ok(
                 action(),
                 "Transition updated",
-                "{\"transitionId\":" + std::to_string(m_transitionId) + "}");
+                transitionJson(it->second));
         }
 
         if (m_mode == "remove") {
@@ -3659,6 +4154,7 @@ public:
             }
             m_previousTransition = it->second;
             g_transitions.erase(it);
+            removePreviewTransition(context, m_transitionId);
             return CommandResult::ok(
                 action(),
                 "Transition removed",
@@ -3668,9 +4164,15 @@ public:
         return CommandResult::fail(action(), "Unsupported transition mode");
     }
 
-    CommandResult undo(CommandContext&) override {
+    CommandResult undo(CommandContext& context) override {
+        std::unique_lock<std::mutex> lock;
+        if (context.previewMutex) {
+            lock = std::unique_lock<std::mutex>(*context.previewMutex);
+        }
+
         if (m_mode == "add") {
             g_transitions.erase(m_createdTransition.id);
+            removePreviewTransition(context, m_createdTransition.id);
             return CommandResult::ok("UNDO", "Transition add reverted",
                                      "{\"transitionId\":" + std::to_string(m_createdTransition.id) + "}");
         }
@@ -3679,21 +4181,67 @@ public:
                 return CommandResult::fail("UNDO", "Missing transition snapshot");
             }
             g_transitions[m_previousTransition.id] = m_previousTransition;
+            syncPreviewTransition(context, m_previousTransition);
             return CommandResult::ok("UNDO", "Transition update reverted",
-                                     "{\"transitionId\":" + std::to_string(m_previousTransition.id) + "}");
+                                     transitionJson(m_previousTransition));
         }
         if (m_mode == "remove") {
             if (m_previousTransition.id <= 0) {
                 return CommandResult::fail("UNDO", "Missing transition snapshot");
             }
             g_transitions[m_previousTransition.id] = m_previousTransition;
+            syncPreviewTransition(context, m_previousTransition);
             return CommandResult::ok("UNDO", "Transition restored",
-                                     "{\"transitionId\":" + std::to_string(m_previousTransition.id) + "}");
+                                     transitionJson(m_previousTransition));
         }
         return CommandResult::fail("UNDO", "Unsupported transition mode");
     }
 
 private:
+    static std::string transitionJson(const Transition& transition) {
+        std::ostringstream json;
+        json << "{"
+             << "\"transitionId\":" << transition.id
+             << ",\"outgoingClipId\":" << transition.outgoingClipId
+             << ",\"incomingClipId\":" << transition.incomingClipId
+             << ",\"typeId\":" << transition.typeId
+             << ",\"durationMs\":" << transition.durationMs
+             << ",\"startTimeMs\":" << transition.startTimeMs
+             << "}";
+        return json.str();
+    }
+
+    static void queuePreviewRefresh(CommandContext& context) {
+        if (context.renderingActive && context.renderingActive->load(std::memory_order_acquire)) {
+            return;
+        }
+        const long long currentTime =
+            context.currentTimeMs ? context.currentTimeMs->load(std::memory_order_acquire) : 0LL;
+        g_pendingScrubMs.store(currentTime, std::memory_order_release);
+    }
+
+    static void syncPreviewTransition(CommandContext& context, const Transition& transition) {
+        if (!context.preview || !(*context.preview)) {
+            return;
+        }
+        (*context.preview)->upsertTransition(
+            transition.id,
+            transition.outgoingClipId,
+            transition.incomingClipId,
+            transition.typeId,
+            transition.durationMs,
+            transition.startTimeMs);
+        queuePreviewRefresh(context);
+    }
+
+    static void removePreviewTransition(CommandContext& context, int64_t transitionId) {
+        if (!context.preview || !(*context.preview)) {
+            return;
+        }
+        (*context.preview)->removeTransition(transitionId);
+        queuePreviewRefresh(context);
+    }
+
     std::string m_mode;
     int64_t m_transitionId;
     int m_outgoingClipId;
@@ -4277,9 +4825,44 @@ std::unique_ptr<EditorCommand> CommandManager::buildCommand(const std::string& a
     if (action == "KEYFRAME_ADD") {
         int64_t clipId = -1;
         int64_t timeMs = 0;
+        double zoom = 1.0;
+        double scaleX = 1.0;
+        double scaleY = 1.0;
+        double panXPx = 0.0;
+        double panYPx = 0.0;
+        double rotationDeg = 0.0;
+        bool mirrorX = false;
         extractInt64Value(payloadJson, "clipId", clipId);
         extractInt64Value(payloadJson, "timeMs", timeMs);
-        return std::make_unique<AddKeyframeCommand>(static_cast<int>(clipId), timeMs);
+        extractDoubleValue(payloadJson, "zoom", zoom);
+        extractDoubleValue(payloadJson, "scaleX", scaleX);
+        extractDoubleValue(payloadJson, "scaleY", scaleY);
+        extractDoubleValue(payloadJson, "panXPx", panXPx);
+        extractDoubleValue(payloadJson, "panYPx", panYPx);
+        extractDoubleValue(payloadJson, "rotationDeg", rotationDeg);
+        extractBoolValue(payloadJson, "mirrorX", mirrorX);
+        return std::make_unique<AddKeyframeCommand>(
+            static_cast<int>(clipId),
+            timeMs,
+            zoom,
+            scaleX,
+            scaleY,
+            panXPx,
+            panYPx,
+            rotationDeg,
+            mirrorX);
+    }
+    if (action == "KEYFRAME_DELETE") {
+        int64_t clipId = -1;
+        int64_t timeMs = 0;
+        extractInt64Value(payloadJson, "clipId", clipId);
+        extractInt64Value(payloadJson, "timeMs", timeMs);
+        return std::make_unique<DeleteKeyframeCommand>(static_cast<int>(clipId), timeMs);
+    }
+    if (action == "KEYFRAME_CLEAR") {
+        int64_t clipId = -1;
+        extractInt64Value(payloadJson, "clipId", clipId);
+        return std::make_unique<ClearKeyframesCommand>(static_cast<int>(clipId));
     }
     if (action == "REVERSE_CLIP" || action == "REVERSE") {
         int64_t clipId = -1;
@@ -4388,6 +4971,13 @@ std::unique_ptr<EditorCommand> CommandManager::buildCommand(const std::string& a
         return std::make_unique<SetClipEffectsCommand>(
             static_cast<int>(clipId), brightness, contrast, saturation);
     }
+    if (action == "APPLY_PRO_EFFECT_PRESET") {
+        int64_t clipId = -1;
+        extractInt64Value(payloadJson, "clipId", clipId);
+        return std::make_unique<ApplyProfessionalEffectPresetCommand>(
+            static_cast<int>(clipId),
+            extractStringValue(payloadJson, "preset"));
+    }
     if (action == "TRANSITION") {
         const std::string mode = extractStringValue(payloadJson, "mode");
         int64_t transitionId = -1;
@@ -4450,6 +5040,10 @@ std::unique_ptr<EditorCommand> CommandManager::buildCommand(const std::string& a
                 clip->setChromaKeySimilarity(m_similarity);
                 clip->setChromaKeySmoothness(m_smoothness);
                 clip->setChromaKeySpill(m_spill);
+                if (ctx.preview && *ctx.preview) {
+                    (*ctx.preview)->invalidateVisualState();
+                }
+                g_pendingScrubMs.store(static_cast<long long>(ctx.currentTimeMs->load()), std::memory_order_release);
                 return CommandResult::ok(action(), "Chroma key updated");
             }
             CommandResult undo(CommandContext&) override { return CommandResult::fail("UNDO",""); }

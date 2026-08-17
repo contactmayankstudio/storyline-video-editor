@@ -78,6 +78,11 @@ public:
      */
     bool isValid() const { return m_textureId != 0 && m_width > 0 && m_height > 0; }
 
+    /**
+     * Get underlying OpenGL texture handle.
+     */
+    uint32_t getHandle() const { return m_textureId; }
+
 private:
     uint32_t m_textureId;    // OpenGL texture handle
     int m_width;             // Current texture width in pixels
@@ -93,4 +98,3 @@ private:
 };
 
 }  // namespace VideoEngine::GPU
-

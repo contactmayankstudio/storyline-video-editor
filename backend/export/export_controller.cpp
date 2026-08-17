@@ -5,9 +5,12 @@
 #include "../../text_overlay.h"
 #include "../ffmpeg/ffmpeg_audio_renderer.h"
 #include "../../engine/engine.h"
+#include "../../smooth_engine/AutoCaptions.h"
 #include <iostream>
 #include <cstring>
 #include <algorithm>
+#include <fstream>
+#include <unistd.h>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -19,6 +22,39 @@ extern "C" {
 }
 
 namespace VideoEngine {
+
+namespace {
+bool exportFileExists(const std::string& path) {
+    return !path.empty() && access(path.c_str(), F_OK) == 0;
+}
+
+std::string replaceExtension(const std::string& path, const std::string& newExtension) {
+    const std::size_t slashPos = path.find_last_of("/\\");
+    const std::size_t dotPos = path.find_last_of('.');
+    if (dotPos == std::string::npos || (slashPos != std::string::npos && dotPos < slashPos)) {
+        return path + newExtension;
+    }
+    return path.substr(0, dotPos) + newExtension;
+}
+
+std::string formatSrtTimestamp(int64_t timeMs) {
+    const int64_t clampedMs = std::max<int64_t>(0, timeMs);
+    const int64_t hours = clampedMs / 3600000LL;
+    const int64_t minutes = (clampedMs / 60000LL) % 60LL;
+    const int64_t seconds = (clampedMs / 1000LL) % 60LL;
+    const int64_t millis = clampedMs % 1000LL;
+    char buffer[32];
+    std::snprintf(
+        buffer,
+        sizeof(buffer),
+        "%02lld:%02lld:%02lld,%03lld",
+        static_cast<long long>(hours),
+        static_cast<long long>(minutes),
+        static_cast<long long>(seconds),
+        static_cast<long long>(millis));
+    return buffer;
+}
+}  // namespace
 
 /**
  * FFmpeg context wrapper (opaque to prevent FFmpeg includes in header).
@@ -105,6 +141,8 @@ bool ExportController::exportToVideo(ProgressCallback progress) {
             throw std::runtime_error("Failed to create headless renderer");
         }
 
+        prepareHardwareEncoderBackend();
+
         // Initialize FFmpeg encoder
         if (!initializeFFmpegEncoder()) {
             throw std::runtime_error("Failed to initialize FFmpeg encoder: " + m_lastError);
@@ -128,6 +166,15 @@ bool ExportController::exportToVideo(ProgressCallback progress) {
             auto activeClips = m_timeline->getActiveClipsAtTime(currentTimeMs);
             auto activeTexts = m_timeline->getActiveTextOverlaysAtTime(currentTimeMs);
             m_renderer->renderFrame(activeClips, activeTexts, currentTimeMs);
+
+            if (m_hardwareEncoderPrepared) {
+                auto framebufferTexture = m_renderer->getFramebufferTexture();
+                if (framebufferTexture && framebufferTexture->isValid()) {
+                    m_hardwareEncoder->encodeFrame(
+                        framebufferTexture->getHandle(),
+                        currentTimeMs * 1000LL);
+                }
+            }
 
             auto rgbaPixels = readFramebufferRGBA();
             if (rgbaPixels.empty())
@@ -175,17 +222,125 @@ bool ExportController::exportToVideo(ProgressCallback progress) {
             throw std::runtime_error("Failed to finalize FFmpeg encoder: " + m_lastError);
         }
 
+        writeAutoCaptionSidecar();
+
         std::cout << "Export complete: " << m_config.outputPath << std::endl;
 
+        releaseHardwareEncoderBackend();
         m_isExporting = false;
         return true;
 
     } catch (const std::exception& e) {
         m_lastError = e.what();
         std::cerr << "Export error: " << m_lastError << std::endl;
+        releaseHardwareEncoderBackend();
         m_isExporting = false;
         return false;
     }
+}
+
+void ExportController::prepareHardwareEncoderBackend() {
+    releaseHardwareEncoderBackend();
+
+    const bool hardwareCodecRequested =
+        m_config.videoCodec == "h264" ||
+        m_config.videoCodec == "avc" ||
+        m_config.videoCodec == "hevc" ||
+        m_config.videoCodec == "h265" ||
+        m_config.videoCodec == "av1";
+    if (!hardwareCodecRequested) {
+        return;
+    }
+
+    VideoEngine::Backend::HardwareEncoderPro::Config config;
+    config.width = static_cast<int>(m_config.width);
+    config.height = static_cast<int>(m_config.height);
+    config.bitrate = static_cast<int>(m_config.bitrate > 0 ? m_config.bitrate * 1000 : m_config.calculateBitrate() * 1000);
+    config.fps = static_cast<int>(m_config.fps);
+    config.mimeType =
+        (m_config.videoCodec == "hevc" || m_config.videoCodec == "h265")
+            ? "video/hevc"
+            : (m_config.videoCodec == "av1" ? "video/av01" : "video/avc");
+
+    m_hardwareEncoder = std::make_unique<VideoEngine::Backend::HardwareEncoderPro>();
+    m_hardwareEncoder->init(config);
+    m_hardwareEncoderPrepared = true;
+    std::cout << "[ExportController] HardwareEncoderPro prepared for " << config.mimeType << "\n";
+}
+
+void ExportController::releaseHardwareEncoderBackend() {
+    if (!m_hardwareEncoderPrepared || !m_hardwareEncoder) {
+        m_hardwareEncoder.reset();
+        m_hardwareEncoderPrepared = false;
+        return;
+    }
+    m_hardwareEncoder->finish();
+    m_hardwareEncoder.reset();
+    m_hardwareEncoderPrepared = false;
+}
+
+std::string ExportController::resolveAutoCaptionSourcePath() const {
+    if (!m_timeline) {
+        return {};
+    }
+    int bestPriority = std::numeric_limits<int>::max();
+    std::string bestPath;
+    for (const auto& clip : m_timeline->clips()) {
+        if (!clip || clip->getMediaPath().empty()) {
+            continue;
+        }
+        if (clip->getMediaType() == Clip::MediaType::Image) {
+            continue;
+        }
+        if (!exportFileExists(clip->getMediaPath())) {
+            continue;
+        }
+        int priority = 99;
+        switch (clip->getTrackRole()) {
+            case Clip::TrackRole::Audio: priority = 0; break;
+            case Clip::TrackRole::MainVideo: priority = 1; break;
+            case Clip::TrackRole::Overlay: priority = 2; break;
+            default: break;
+        }
+        if (priority < bestPriority) {
+            bestPriority = priority;
+            bestPath = clip->getMediaPath();
+        }
+    }
+    return bestPath;
+}
+
+void ExportController::writeAutoCaptionSidecar() {
+    const std::string sourcePath = resolveAutoCaptionSourcePath();
+    if (sourcePath.empty()) {
+        return;
+    }
+
+    VideoEngine::AI::AutoCaptions autoCaptions;
+    const auto captions = autoCaptions.generate(sourcePath);
+    if (captions.empty()) {
+        return;
+    }
+
+    const std::string captionPath = replaceExtension(m_config.outputPath, ".srt");
+    std::ofstream out(captionPath, std::ios::out | std::ios::trunc);
+    if (!out.is_open()) {
+        std::cerr << "[ExportController] AutoCaptions sidecar open failed: " << captionPath << "\n";
+        return;
+    }
+
+    int index = 1;
+    for (const auto& caption : captions) {
+        out << index++ << "\n"
+            << formatSrtTimestamp(caption.startMs)
+            << " --> "
+            << formatSrtTimestamp(std::max<int64_t>(caption.endMs, caption.startMs + 1))
+            << "\n"
+            << caption.text
+            << "\n\n";
+    }
+    out.close();
+    std::cout << "[ExportController] AutoCaptions sidecar ready: " << captionPath << "\n";
 }
 
 std::vector<uint8_t> ExportController::readFramebufferRGBA() {

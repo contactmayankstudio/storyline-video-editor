@@ -1,205 +1,131 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Storyline release portal for the latest Android APK, build metadata, and admin console access.">
-  <meta name="theme-color" content="#0b111f">
-  <title>Storyline | Release Portal</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <meta name="description" content="Storyline is a free Android video and photo editor with timeline editing, photo design, text, effects, audio, and export tools.">
+  <meta name="theme-color" content="#0b0d10">
+  <meta property="og:title" content="Storyline - Video & Photo Editor">
+  <meta property="og:description" content="Create videos, edit photos, add text, effects, audio, and export from one Android workspace.">
+  <meta property="og:image" content="/assets/storyline-feature.png">
+  <title>Storyline | Video & Photo Editor</title>
+  <link rel="icon" href="/assets/storyline-icon.png">
   <style>
     :root {
-      --bg: #050915;
-      --bg-soft: #0b1120;
-      --panel: rgba(10, 17, 32, 0.78);
-      --panel-strong: rgba(13, 22, 40, 0.92);
-      --line: rgba(161, 177, 212, 0.16);
-      --line-strong: rgba(161, 177, 212, 0.26);
-      --ink: #eff5ff;
-      --muted: #98a6c5;
-      --accent: #4fd1ff;
-      --accent-2: #8b5cf6;
-      --success: #3ddc97;
-      --shadow: 0 28px 90px rgba(0, 0, 0, 0.42);
+      color-scheme: light;
+      --ink: #111827;
+      --muted: #5b6472;
+      --subtle: #e5e7eb;
+      --paper: #ffffff;
+      --paper-soft: #f6f7f9;
+      --charcoal: #0b0d10;
+      --charcoal-2: #161a20;
+      --orange: #ff6a00;
+      --orange-dark: #d94f00;
+      --cyan: #1fb6d4;
+      --green: #16a34a;
+      --violet: #7c3aed;
+      --shadow: 0 18px 48px rgba(17, 24, 39, 0.16);
     }
 
     * {
       box-sizing: border-box;
     }
 
-    html,
+    html {
+      scroll-behavior: smooth;
+    }
+
     body {
       margin: 0;
-      min-height: 100%;
-      background:
-        radial-gradient(circle at top left, rgba(79, 209, 255, 0.16), transparent 26rem),
-        radial-gradient(circle at top right, rgba(139, 92, 246, 0.18), transparent 24rem),
-        linear-gradient(180deg, #040812 0%, var(--bg) 46%, #02050d 100%);
+      background: var(--paper-soft);
       color: var(--ink);
-      font-family: "Space Grotesk", system-ui, sans-serif;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
     }
 
-    body {
-      padding: 24px;
+    img {
+      display: block;
+      max-width: 100%;
     }
 
-    .shell {
-      width: min(1180px, 100%);
+    a {
+      color: inherit;
+    }
+
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      height: 72px;
+      border-bottom: 1px solid rgba(229, 231, 235, 0.82);
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(18px);
+    }
+
+    .nav {
+      width: min(1160px, calc(100% - 32px));
+      height: 100%;
       margin: 0 auto;
-    }
-
-    .topbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 22px;
+      gap: 18px;
     }
 
     .brand {
       display: inline-flex;
       align-items: center;
       gap: 12px;
-      font-weight: 700;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      font-size: 13px;
+      text-decoration: none;
+      font-weight: 800;
     }
 
-    .brand-mark {
+    .brand img {
       width: 42px;
       height: 42px;
-      border-radius: 14px;
-      position: relative;
-      overflow: hidden;
-      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
-      box-shadow: 0 18px 40px rgba(79, 209, 255, 0.24);
+      border-radius: 8px;
+      box-shadow: 0 10px 24px rgba(255, 106, 0, 0.18);
     }
 
-    .brand-mark::before,
-    .brand-mark::after {
-      content: "";
-      position: absolute;
-      background: rgba(255, 255, 255, 0.88);
-      border-radius: 999px;
+    .brand span {
+      font-size: 1.08rem;
     }
 
-    .brand-mark::before {
-      width: 18px;
-      height: 18px;
-      top: 6px;
-      right: 6px;
-    }
-
-    .brand-mark::after {
-      width: 24px;
-      height: 9px;
-      left: 8px;
-      bottom: 8px;
-    }
-
-    .status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      padding: 11px 15px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.04);
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    .status-pill::before {
-      content: "";
-      width: 10px;
-      height: 10px;
-      border-radius: 999px;
-      background: var(--success);
-      box-shadow: 0 0 0 8px rgba(61, 220, 151, 0.1);
-    }
-
-    .hero {
-      display: grid;
-      grid-template-columns: minmax(0, 1.08fr) minmax(340px, 0.92fr);
-      gap: 22px;
-      align-items: stretch;
-    }
-
-    .panel,
-    .tile {
-      border-radius: 28px;
-      border: 1px solid var(--line);
-      background:
-        linear-gradient(180deg, rgba(12, 20, 37, 0.94) 0%, rgba(7, 13, 25, 0.92) 100%);
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(18px);
-    }
-
-    .hero-panel {
-      position: relative;
-      overflow: hidden;
-      padding: 32px;
-    }
-
-    .hero-panel::after {
-      content: "";
-      position: absolute;
-      inset: auto -60px -70px auto;
-      width: 220px;
-      height: 220px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(79, 209, 255, 0.2), transparent 70%);
-      pointer-events: none;
-    }
-
-    .eyebrow {
-      margin: 0 0 14px;
-      font-size: 12px;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: #b3c7ff;
-      font-weight: 700;
-    }
-
-    h1 {
-      margin: 0;
-      max-width: 8ch;
-      font-family: "Instrument Serif", serif;
-      font-size: clamp(3rem, 7vw, 5.4rem);
-      line-height: 0.92;
-      letter-spacing: -0.06em;
-      font-weight: 400;
-    }
-
-    .lead {
-      margin: 18px 0 26px;
-      max-width: 50ch;
-      color: var(--muted);
-      line-height: 1.75;
-      font-size: 17px;
-    }
-
-    .action-row,
-    .meta-row {
+    .nav-links {
       display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
     }
 
+    .nav-links a,
     .button {
+      min-height: 42px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 54px;
-      padding: 0 22px;
-      border-radius: 18px;
-      border: 1px solid transparent;
+      border-radius: 8px;
       text-decoration: none;
-      font-weight: 700;
-      transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .nav-links a {
+      padding: 0 12px;
+      color: #374151;
+      font-size: 0.94rem;
+    }
+
+    .nav-links a:hover {
+      background: #f0f2f5;
+      color: var(--ink);
+    }
+
+    .button {
+      gap: 8px;
+      padding: 0 18px;
+      border: 1px solid transparent;
+      transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
     }
 
     .button:hover {
@@ -207,362 +133,715 @@
     }
 
     .button-primary {
-      color: #05121f;
-      background: linear-gradient(135deg, var(--accent) 0%, #91e8ff 100%);
-      box-shadow: 0 20px 44px rgba(79, 209, 255, 0.22);
+      background: var(--orange);
+      color: #ffffff;
+      box-shadow: 0 14px 28px rgba(255, 106, 0, 0.22);
+    }
+
+    .button-primary:hover {
+      background: var(--orange-dark);
     }
 
     .button-secondary {
-      color: var(--ink);
-      background: rgba(255, 255, 255, 0.05);
-      border-color: var(--line);
+      background: rgba(255, 255, 255, 0.12);
+      color: #ffffff;
+      border-color: rgba(255, 255, 255, 0.32);
     }
 
-    .meta-row {
-      margin-top: 22px;
+    .button-light {
+      background: #ffffff;
+      color: var(--charcoal);
+      border-color: #ffffff;
     }
 
-    .meta-chip {
-      padding: 10px 13px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.04);
-      color: var(--muted);
-      font-size: 13px;
+    .button-outline {
+      background: transparent;
+      color: var(--charcoal);
+      border-color: #cfd5de;
     }
 
-    .meta-chip strong {
-      color: var(--ink);
+    .hero {
+      position: relative;
+      min-height: min(600px, calc(100svh - 142px));
+      isolation: isolate;
+      overflow: hidden;
+      background: var(--charcoal);
     }
 
-    .info-panel {
-      padding: 24px;
-      display: grid;
-      gap: 14px;
+    .hero-bg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      z-index: -2;
     }
 
-    .panel-head {
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      background:
+        linear-gradient(90deg, rgba(11, 13, 16, 0.99) 0%, rgba(11, 13, 16, 0.98) 52%, rgba(11, 13, 16, 0.38) 78%),
+        linear-gradient(0deg, rgba(11, 13, 16, 0.78), rgba(11, 13, 16, 0.08) 50%);
+    }
+
+    .hero-inner {
+      width: min(1160px, calc(100% - 32px));
+      min-height: inherit;
+      margin: 0 auto;
       display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 12px;
+      flex-direction: column;
+      justify-content: center;
+      padding: 42px 0 118px;
+      color: #ffffff;
     }
 
-    .panel-title {
-      margin: 0;
-      font-size: 13px;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-
-    .panel-caption {
-      margin: 8px 0 0;
-      color: var(--muted);
-      font-size: 14px;
-      line-height: 1.6;
-    }
-
-    .metric-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-    }
-
-    .metric {
-      padding: 16px;
-      border-radius: 20px;
-      border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.04);
-    }
-
-    .metric-label {
-      display: block;
-      margin-bottom: 7px;
-      color: var(--muted);
-      font-size: 12px;
+    .eyebrow {
+      margin: 0 0 16px;
+      color: #85e5f7;
+      font-size: 0.82rem;
+      font-weight: 850;
       letter-spacing: 0.12em;
       text-transform: uppercase;
     }
 
-    .metric-value {
-      font-size: 17px;
-      line-height: 1.45;
-      word-break: break-word;
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
     }
 
-    .metric-value a {
-      color: #b4ecff;
+    h1 {
+      max-width: 10ch;
+      margin-bottom: 16px;
+      font-size: clamp(4rem, 12vw, 8.2rem);
+      line-height: 0.88;
+      letter-spacing: 0;
+    }
+
+    .hero-copy {
+      max-width: 570px;
+      margin-bottom: 28px;
+      color: rgba(255, 255, 255, 0.84);
+      font-size: clamp(1.08rem, 2.2vw, 1.36rem);
+      line-height: 1.58;
+    }
+
+    .hero-actions,
+    .compact-actions {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .hero-meta {
+      position: absolute;
+      left: 50%;
+      bottom: 0;
+      width: min(1160px, calc(100% - 32px));
+      transform: translateX(-50%);
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      background: #ffffff;
+      border: 1px solid rgba(229, 231, 235, 0.9);
+      border-bottom: 0;
+      box-shadow: var(--shadow);
+    }
+
+    .hero-stat {
+      padding: 18px 20px;
+      border-right: 1px solid var(--subtle);
+    }
+
+    .hero-stat:last-child {
+      border-right: 0;
+    }
+
+    .hero-stat strong {
+      display: block;
+      color: var(--charcoal);
+      font-size: 1rem;
+      margin-bottom: 4px;
+    }
+
+    .hero-stat span {
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+
+    .section {
+      padding: 76px 0;
+    }
+
+    .section-dark {
+      background: var(--charcoal);
+      color: #ffffff;
+    }
+
+    .section-white {
+      background: #ffffff;
+    }
+
+    .section-tint {
+      background: #eef7f9;
+    }
+
+    .wrap {
+      width: min(1160px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .section-kicker {
+      margin-bottom: 10px;
+      color: var(--orange-dark);
+      font-size: 0.78rem;
+      font-weight: 850;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .section-dark .section-kicker {
+      color: #85e5f7;
+    }
+
+    .section-head {
+      max-width: 780px;
+      margin-bottom: 30px;
+    }
+
+    .section-head h2 {
+      margin-bottom: 12px;
+      font-size: clamp(2rem, 5vw, 3.4rem);
+      line-height: 1.02;
+      letter-spacing: 0;
+    }
+
+    .section-head p {
+      color: var(--muted);
+      font-size: 1.05rem;
+      line-height: 1.65;
+    }
+
+    .section-dark .section-head p {
+      color: rgba(255, 255, 255, 0.72);
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .feature-card {
+      min-height: 210px;
+      padding: 22px;
+      border: 1px solid #d9dee7;
+      border-radius: 8px;
+      background: var(--paper);
+    }
+
+    .feature-mark {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 22px;
+      border-radius: 8px;
+      color: #ffffff;
+      font-weight: 900;
+      font-size: 1.15rem;
+    }
+
+    .mark-orange {
+      background: var(--orange);
+    }
+
+    .mark-cyan {
+      background: var(--cyan);
+    }
+
+    .mark-violet {
+      background: var(--violet);
+    }
+
+    .mark-green {
+      background: var(--green);
+    }
+
+    .feature-card h3 {
+      margin-bottom: 8px;
+      font-size: 1.14rem;
+    }
+
+    .feature-card p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .screens {
+      display: grid;
+      grid-template-columns: 0.85fr 1.15fr;
+      gap: 28px;
+      align-items: center;
+    }
+
+    .screens-copy {
+      max-width: 430px;
+    }
+
+    .screens-copy h2 {
+      margin-bottom: 14px;
+      font-size: clamp(2rem, 4.6vw, 3.2rem);
+      line-height: 1.04;
+    }
+
+    .screens-copy p {
+      color: rgba(255, 255, 255, 0.72);
+      line-height: 1.65;
+      font-size: 1.05rem;
+    }
+
+    .phone-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      align-items: end;
+    }
+
+    .phone-shot {
+      overflow: hidden;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: #050608;
+      box-shadow: 0 28px 70px rgba(0, 0, 0, 0.34);
+    }
+
+    .phone-shot:nth-child(2) {
+      transform: translateY(-26px);
+    }
+
+    .phone-shot img {
+      width: 100%;
+      aspect-ratio: 800 / 1280;
+      object-fit: cover;
+    }
+
+    .download-band {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px;
+      align-items: center;
+      padding: 34px;
+      border: 1px solid #d9dee7;
+      border-radius: 8px;
+      background: #ffffff;
+      box-shadow: 0 10px 30px rgba(17, 24, 39, 0.08);
+    }
+
+    .download-band h2 {
+      margin-bottom: 8px;
+      font-size: clamp(1.7rem, 3vw, 2.5rem);
+      line-height: 1.08;
+    }
+
+    .download-band p {
+      margin-bottom: 0;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .version-line {
+      margin-top: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: #4b5563;
+      font-size: 0.92rem;
+    }
+
+    .version-line span {
+      padding: 7px 10px;
+      border-radius: 8px;
+      background: #f0f2f5;
+    }
+
+    .proof-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .proof-item {
+      padding: 22px;
+      border-radius: 8px;
+      border: 1px solid #d9dee7;
+      background: #ffffff;
+    }
+
+    .proof-item strong {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--charcoal);
+      font-size: 1.03rem;
+    }
+
+    .proof-item p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .footer {
+      padding: 32px 0;
+      background: #ffffff;
+      border-top: 1px solid var(--subtle);
+    }
+
+    .footer-inner {
+      width: min(1160px, calc(100% - 32px));
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      color: #4b5563;
+      font-size: 0.94rem;
+    }
+
+    .footer-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+
+    .footer-links a {
+      color: #1f2937;
       text-decoration: none;
       font-weight: 700;
     }
 
-    .release-note {
-      padding: 18px;
-      border-radius: 20px;
-      border: 1px solid var(--line-strong);
-      background:
-        linear-gradient(135deg, rgba(79, 209, 255, 0.09), rgba(139, 92, 246, 0.07));
+    .footer-links a:hover {
+      text-decoration: underline;
     }
 
-    .release-note strong {
-      display: block;
-      margin-bottom: 8px;
-      font-size: 12px;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: #c2ddff;
-    }
-
-    .release-note p {
-      margin: 0;
-      color: var(--ink);
-      line-height: 1.7;
-    }
-
-    .tile-grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 18px;
-      margin-top: 22px;
-    }
-
-    .tile {
-      padding: 22px;
-    }
-
-    .tile h2 {
-      margin: 0 0 10px;
-      font-size: 18px;
-    }
-
-    .tile p {
-      margin: 0;
-      color: var(--muted);
-      line-height: 1.72;
-      font-size: 15px;
-    }
-
-    .tile strong {
-      color: var(--ink);
-    }
-
-    .tile-list {
-      margin: 12px 0 0;
-      padding-left: 18px;
-      color: var(--muted);
-      line-height: 1.72;
-    }
-
-    .tile-list li + li {
-      margin-top: 6px;
-    }
-
-    @media (max-width: 980px) {
-      body {
-        padding: 18px;
+    @media (max-width: 920px) {
+      .site-header {
+        height: auto;
       }
 
-      .hero,
-      .tile-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .topbar {
-        flex-direction: column;
+      .nav {
+        min-height: 68px;
         align-items: flex-start;
+        padding: 12px 0;
+        flex-direction: column;
+      }
+
+      .nav-links {
+        width: 100%;
+        flex-wrap: wrap;
+        overflow-x: visible;
+        padding-bottom: 0;
+      }
+
+      .hero {
+        min-height: min(630px, calc(100svh - 112px));
+      }
+
+      .hero-inner {
+        padding-top: 42px;
+        padding-bottom: 150px;
+      }
+
+      .hero-meta,
+      .feature-grid,
+      .proof-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .hero-stat:nth-child(2) {
+        border-right: 0;
+      }
+
+      .hero-stat:nth-child(1),
+      .hero-stat:nth-child(2) {
+        border-bottom: 1px solid var(--subtle);
+      }
+
+      .screens {
+        grid-template-columns: 1fr;
+      }
+
+      .screens-copy {
+        max-width: 720px;
+      }
+
+      .download-band {
+        grid-template-columns: 1fr;
       }
     }
 
-    @media (max-width: 640px) {
-      .hero-panel,
-      .info-panel,
-      .tile {
-        padding: 20px;
-        border-radius: 22px;
+    @media (max-width: 620px) {
+      .nav {
+        width: min(1160px, calc(100% - 24px));
       }
 
-      .metric-grid {
+      .brand img {
+        width: 38px;
+        height: 38px;
+      }
+
+      .nav-links a {
+        padding: 0 10px;
+        min-height: 34px;
+        font-size: 0.9rem;
+      }
+
+      .hero {
+        min-height: 580px;
+      }
+
+      .hero::after {
+        background:
+          linear-gradient(90deg, rgba(11, 13, 16, 0.98) 0%, rgba(11, 13, 16, 0.86) 66%, rgba(11, 13, 16, 0.38) 100%),
+          linear-gradient(0deg, rgba(11, 13, 16, 0.72), rgba(11, 13, 16, 0.12));
+      }
+
+      .hero-inner,
+      .wrap,
+      .footer-inner {
+        width: min(1160px, calc(100% - 24px));
+      }
+
+      .hero-inner {
+        justify-content: flex-start;
+        padding-top: 44px;
+        padding-bottom: 170px;
+      }
+
+      h1 {
+        font-size: clamp(3.25rem, 16vw, 4.7rem);
+      }
+
+      .hero-copy {
+        font-size: 1.02rem;
+      }
+
+      .hero-actions .button {
+        width: 100%;
+      }
+
+      .hero-meta {
+        width: min(1160px, calc(100% - 24px));
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .hero-stat {
+        padding: 13px 14px;
+      }
+
+      .section {
+        padding: 56px 0;
+      }
+
+      .feature-grid,
+      .proof-grid {
         grid-template-columns: 1fr;
+      }
+
+      .phone-grid {
+        display: flex;
+        gap: 12px;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        padding-bottom: 12px;
+      }
+
+      .phone-shot {
+        min-width: 72%;
+        scroll-snap-align: start;
+      }
+
+      .phone-shot:nth-child(2) {
+        transform: none;
+      }
+
+      .download-band {
+        padding: 22px;
+      }
+
+      .download-band .button {
+        width: 100%;
+      }
+
+      .footer-inner {
+        align-items: flex-start;
+        flex-direction: column;
       }
     }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <div class="topbar">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true"></span>
-        <span>Storyline Release Portal</span>
+  <header class="site-header">
+    <nav class="nav" aria-label="Primary">
+      <a class="brand" href="/">
+        <img src="/assets/storyline-icon.png" alt="">
+        <span>Storyline</span>
+      </a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#screens">Screens</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/support.html">Support</a>
       </div>
-      <div class="status-pill" id="top-status">Auto-live production build ready</div>
-    </div>
+    </nav>
+  </header>
 
-    <section class="hero">
-      <section class="panel hero-panel">
-        <p class="eyebrow">Continuous Android Delivery</p>
-        <h1>Every main build goes live here.</h1>
-        <p class="lead">
-          Storyline now publishes the latest Android package and release metadata from CI. When the app updates on <code>main</code>, this page refreshes with the new version, commit note, workflow link, and optional admin console jump.
-        </p>
-        <div class="action-row">
-          <a class="button button-primary" id="download-button" href="/app.apk" download>Download Latest APK</a>
-          <a class="button button-secondary" id="workflow-button" href="https://github.com/sarojshahu12-max/storyline/actions" target="_blank" rel="noreferrer">Open Workflow</a>
-          <a class="button button-secondary" id="admin-button" href="#" target="_blank" rel="noreferrer" hidden>Open Admin Console</a>
+  <main>
+    <section class="hero" aria-labelledby="hero-title">
+      <img class="hero-bg" src="/assets/storyline-feature.png" alt="">
+      <div class="hero-inner">
+        <p class="eyebrow">Video & Photo Editor</p>
+        <h1 id="hero-title">Storyline</h1>
+        <p class="hero-copy">Create videos, design photos, add text, layer effects, sync audio, and export from one clean Android workspace.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="/storyline.apk" download>⬇ Download APK</a>
+          <a class="button button-secondary" href="#screens">View Screens</a>
         </div>
-        <div class="meta-row">
-          <span class="meta-chip"><strong id="release-label">v0.0.0</strong></span>
-          <span class="meta-chip">Channel: <strong id="channel">production</strong></span>
-          <span class="meta-chip">Branch: <strong id="branch">main</strong></span>
-          <span class="meta-chip">Build: <strong id="build-number">Loading...</strong></span>
+      </div>
+      <div class="hero-meta" aria-label="Storyline highlights">
+        <div class="hero-stat">
+          <strong>Timeline</strong>
+          <span>Multi-track video editing</span>
         </div>
-      </section>
+        <div class="hero-stat">
+          <strong>Photo Design</strong>
+          <span>Filters, text, stickers</span>
+        </div>
+        <div class="hero-stat">
+          <strong>Audio</strong>
+          <span>Music and clip sound</span>
+        </div>
+        <div class="hero-stat">
+          <strong>Export</strong>
+          <span>Local device rendering</span>
+        </div>
+      </div>
+    </section>
 
-      <aside class="panel info-panel">
-        <div class="panel-head">
+    <section class="section section-white" id="features">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="section-kicker">Made For Fast Creation</p>
+          <h2>One app for edits, photos, layers, and export.</h2>
+          <p>Storyline keeps video projects and photo designs in the same workspace while preserving the tools each job needs.</p>
+        </div>
+        <div class="feature-grid">
+          <article class="feature-card">
+            <div class="feature-mark mark-orange">V</div>
+            <h3>Timeline Editor</h3>
+            <p>Trim, split, layer, crop, pan, zoom, add transitions, and build clips with frame-focused controls.</p>
+          </article>
+          <article class="feature-card">
+            <div class="feature-mark mark-cyan">P</div>
+            <h3>Photo Studio</h3>
+            <p>Adjust images with filters, HSL, blur, stickers, text, drawing, borders, and PNG export.</p>
+          </article>
+          <article class="feature-card">
+            <div class="feature-mark mark-violet">T</div>
+            <h3>Text & Effects</h3>
+            <p>Add titles, overlays, light leaks, glow effects, and stacked visual layers for polished edits.</p>
+          </article>
+          <article class="feature-card">
+            <div class="feature-mark mark-green">A</div>
+            <h3>Audio Ready</h3>
+            <p>Import music, keep clip sound, preview changes, and export with the audio arranged on the timeline.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-dark" id="screens">
+      <div class="wrap screens">
+        <div class="screens-copy">
+          <p class="section-kicker">Real App Screens</p>
+          <h2>Built around the editor, not a menu maze.</h2>
+          <p>Open a video project, switch into photo editing, stack text and effects, then export from the same visual language.</p>
+          <div class="compact-actions">
+            <a class="button button-primary" href="/storyline.apk" download>⬇ Download APK</a>
+            <a class="button button-secondary" href="/support.html">Support</a>
+          </div>
+        </div>
+        <div class="phone-grid" aria-label="Storyline screenshots">
+          <figure class="phone-shot">
+            <img src="/assets/screenshot-home.png" alt="Storyline home screen with video and photo project actions">
+          </figure>
+          <figure class="phone-shot">
+            <img src="/assets/screenshot-editor.png" alt="Storyline timeline editor with preview, tracks, text, effects, video, and audio">
+          </figure>
+          <figure class="phone-shot">
+            <img src="/assets/screenshot-photo.png" alt="Storyline photo editor with filters and image adjustment controls">
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-tint" aria-labelledby="download-title">
+      <div class="wrap">
+        <div class="download-band">
           <div>
-            <p class="panel-title">Live Release</p>
-            <p class="panel-caption">Direct APK metadata from the latest successful GitHub Actions build.</p>
+            <p class="section-kicker">Android APK</p>
+            <h2 id="download-title">Download Storyline video editor.</h2>
+            <p>Install the latest APK and start editing videos, photos, text, effects, and audio on your Android device.</p>
+          </div>
+          <div class="compact-actions">
+            <a class="button button-primary" href="/storyline.apk" download>⬇ Download APK</a>
+            <a class="button button-outline" href="/privacy.html">Privacy Policy</a>
           </div>
         </div>
-
-        <div class="metric-grid">
-          <div class="metric">
-            <span class="metric-label">Version</span>
-            <span class="metric-value" id="version-label">Loading...</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">APK Size</span>
-            <span class="metric-value" id="apk-size">Loading...</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">Commit</span>
-            <span class="metric-value" id="commit-sha">Loading...</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">Built At</span>
-            <span class="metric-value" id="built-at">Loading...</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">Author</span>
-            <span class="metric-value" id="commit-author">Loading...</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">Workflow</span>
-            <span class="metric-value"><a id="workflow-link" href="https://github.com/sarojshahu12-max/storyline/actions" target="_blank" rel="noreferrer">View Actions</a></span>
-          </div>
-        </div>
-
-        <div class="release-note">
-          <strong>Release Note</strong>
-          <p id="release-note">Loading latest commit summary...</p>
-        </div>
-      </aside>
+      </div>
     </section>
 
-    <section class="tile-grid">
-      <article class="tile">
-        <h2>Auto-live release rail</h2>
-        <p><strong>No manual copy step.</strong> The APK, build metadata, and workflow trace are written from CI and deployed automatically whenever <code>main</code> ships a new Android build.</p>
-      </article>
-
-      <article class="tile">
-        <h2>Mobile install path</h2>
-        <p>Use this page directly on your phone after a fresh build. The package name shown here is the exact file published by CI: <strong id="apk-name">app.apk</strong>.</p>
-        <ol class="tile-list">
-          <li>Download the APK.</li>
-          <li>Allow installs from your browser or file manager if Android asks.</li>
-          <li>Install the latest Storyline build.</li>
-        </ol>
-      </article>
-
-      <article class="tile">
-        <h2>Admin and traceability</h2>
-        <p>This portal can also link straight into the admin surface when that URL is configured. If the button is hidden, the release itself is still live; only the admin URL is not published yet.</p>
-        <ol class="tile-list">
-          <li>Workflow link traces the exact CI run.</li>
-          <li>Commit note shows what changed in the latest build.</li>
-          <li>Page auto-refreshes metadata every minute.</li>
-        </ol>
-      </article>
+    <section class="section section-white" aria-labelledby="trust-title">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="section-kicker">Clear Setup</p>
+          <h2 id="trust-title">Download, privacy, and support are ready.</h2>
+          <p>Storyline keeps the APK, privacy policy, and support page easy to reach from one official website.</p>
+        </div>
+        <div class="proof-grid">
+          <article class="proof-item">
+            <strong>Local media editing</strong>
+            <p>Imported photos and videos stay on the device. Editing and export are handled locally by the app.</p>
+          </article>
+          <article class="proof-item">
+            <strong>Direct APK download</strong>
+            <p>The latest Android APK is available from the download button on this page.</p>
+          </article>
+          <article class="proof-item">
+            <strong>Public help pages</strong>
+            <p>Privacy and support pages are linked from this website for users and store listings.</p>
+          </article>
+        </div>
+      </div>
     </section>
-  </div>
+  </main>
 
-  <script>
-    function formatBytes(bytes) {
-      if (!Number.isFinite(bytes) || bytes <= 0) return "Unknown";
-      const units = ["B", "KB", "MB", "GB"];
-      let value = bytes;
-      let unitIndex = 0;
-      while (value >= 1024 && unitIndex < units.length - 1) {
-        value /= 1024;
-        unitIndex += 1;
-      }
-      const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
-      return value.toFixed(digits) + " " + units[unitIndex];
-    }
+  <footer class="footer">
+    <div class="footer-inner">
+      <span>(c) 2026 Storyline. Video & Photo Editor.</span>
+      <div class="footer-links">
+        <a href="/storyline.apk" download>Download APK</a>
+        <a href="/privacy.html">Privacy Policy</a>
+        <a href="/support.html">Support</a>
+      </div>
+    </div>
+  </footer>
 
-    function formatBuiltAt(value) {
-      if (!value) return "Unknown";
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return "Unknown";
-      return date.toLocaleString();
-    }
-
-    async function loadBuildMeta() {
-      try {
-        const response = await fetch("/build.json", { cache: "no-store" });
-        if (!response.ok) throw new Error("metadata unavailable");
-        const data = await response.json();
-
-        document.getElementById("release-label").textContent = data.releaseLabel || "Live build";
-        document.getElementById("channel").textContent = data.channel || "production";
-        document.getElementById("branch").textContent = data.branch || "main";
-        document.getElementById("build-number").textContent = data.buildNumber || "Unknown";
-        document.getElementById("version-label").textContent = data.versionName
-          ? `${data.versionName} (${data.versionCode || "n/a"})`
-          : "Unknown";
-        document.getElementById("commit-sha").textContent = data.shortSha || data.commitSha || "Unknown";
-        document.getElementById("built-at").textContent = formatBuiltAt(data.builtAt);
-        document.getElementById("apk-size").textContent = formatBytes(Number(data.apkSizeBytes));
-        document.getElementById("commit-author").textContent = data.commitAuthor || "Unknown";
-        document.getElementById("release-note").textContent = data.commitSubject || "No release note available.";
-        document.getElementById("apk-name").textContent = data.apkName || "app.apk";
-
-        if (data.downloadPath) {
-          document.getElementById("download-button").href = data.downloadPath;
-        }
-
-        if (data.workflowUrl) {
-          document.getElementById("workflow-link").href = data.workflowUrl;
-          document.getElementById("workflow-button").href = data.workflowUrl;
-        }
-
-        const adminButton = document.getElementById("admin-button");
-        if (data.adminPanelUrl) {
-          adminButton.hidden = false;
-          adminButton.href = data.adminPanelUrl;
-        } else {
-          adminButton.hidden = true;
-        }
-
-        document.getElementById("top-status").textContent = data.autoLive
-          ? `Auto-live ${data.channel || "production"} build ${data.shortSha || data.buildNumber || ""}`.trim()
-          : "Release metadata loaded";
-      } catch (error) {
-        document.getElementById("top-status").textContent = "Release metadata unavailable";
-        document.getElementById("version-label").textContent = "Unavailable";
-        document.getElementById("build-number").textContent = "Unavailable";
-        document.getElementById("commit-sha").textContent = "Unavailable";
-        document.getElementById("built-at").textContent = "Unavailable";
-        document.getElementById("apk-size").textContent = "Unavailable";
-        document.getElementById("commit-author").textContent = "Unavailable";
-        document.getElementById("release-note").textContent = "Latest build metadata could not be loaded.";
-      }
-    }
-
-    loadBuildMeta();
-    window.setInterval(loadBuildMeta, 60000);
-  </script>
 </body>
 </html>

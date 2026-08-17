@@ -21,7 +21,7 @@ NC='\033[0m' # No Color
 KEYSTORE_DIR="$HOME/.keystores"
 KEYSTORE_FILE="$KEYSTORE_DIR/video_engine.keystore"
 KEYSTORE_ALIAS="video_engine"
-PROJECT_DIR="/home/am/video_engine_core/android"
+PROJECT_DIR="/home/am/storyline/android"
 
 # ========== PHASE 1: CHECK/CREATE KEYSTORE ==========
 
@@ -49,7 +49,10 @@ if [ ! -f "$KEYSTORE_FILE" ]; then
         -keyalg RSA \
         -keysize 2048 \
         -validity 10000 \
-        -alias "$KEYSTORE_ALIAS"
+        -alias "$KEYSTORE_ALIAS" \
+        -storepass "videoengine2026" \
+        -keypass "videoengine2026" \
+        -dname "CN=Storyline Developer, OU=Mobile, O=Storyline, C=IN"
     
     chmod 600 "$KEYSTORE_FILE"
     echo ""

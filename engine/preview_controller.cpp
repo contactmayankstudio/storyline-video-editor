@@ -197,20 +197,58 @@ VideoDecoder* PreviewController::getOrCreateDecoder(const std::shared_ptr<Clip>&
         return it->second.get();
     }
 
+    // --- PROXY EDITING FIX ---
+    // Prefer proxy path for smooth 4K editing preview;
+    // fall back to original media path if proxy is not yet built.
+    std::string pathToOpen = clip->getPreviewProxyPath();
+    if (pathToOpen.empty()) {
+        pathToOpen = clip->getMediaPath();
+        std::cout << "[PreviewController] No proxy yet for clip " << clipId
+                  << ", using original: " << pathToOpen << "\n";
+    } else {
+        std::cout << "[PreviewController] Using proxy for clip " << clipId
+                  << ": " << pathToOpen << "\n";
+    }
+
     // Create new decoder for this clip
     auto decoder = std::make_unique<VideoDecoder>();
-    if (!decoder->open(clip->getMediaPath())) {
-        std::cerr << "[PreviewController] Failed to open clip: " << clip->getMediaPath() << "\n";
-        return nullptr;
+    if (!decoder->open(pathToOpen)) {
+        // If proxy open failed, try the original as a safe fallback
+        if (pathToOpen != clip->getMediaPath()) {
+            std::cerr << "[PreviewController] Proxy open failed, falling back to original: "
+                      << clip->getMediaPath() << "\n";
+            if (!decoder->open(clip->getMediaPath())) {
+                std::cerr << "[PreviewController] Failed to open clip: "
+                          << clip->getMediaPath() << "\n";
+                return nullptr;
+            }
+        } else {
+            std::cerr << "[PreviewController] Failed to open clip: " << pathToOpen << "\n";
+            return nullptr;
+        }
     }
 
     VideoDecoder* result = decoder.get();
     decoders[clipId] = std::move(decoder);
 
-    std::cout << "[PreviewController] Created decoder for clip " << clipId
-              << ": " << clip->getMediaPath() << "\n";
-
     return result;
 }
 
-}  // namespace VideoEngine
+/**
+ * Call this when a proxy finishes building for a clip.
+ * Invalidates the cached decoder and YUV texture so next renderFrame
+ * will re-open using the newly available proxy.
+ */
+void PreviewController::invalidateDecoderForClip(uint32_t clipId) {
+    // Remove cached decoder so it is recreated on next render
+    auto it = decoders.find(clipId);
+    if (it != decoders.end()) {
+        decoders.erase(it);
+        std::cout << "[PreviewController] Invalidated decoder for clip " << clipId
+                  << " (proxy ready)\n";
+    }
+    // Also evict the YUV texture cache for this clip
+    if (renderer) {
+        renderer->evictYUVTexture(clipId);
+    }
+}

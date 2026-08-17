@@ -677,7 +677,7 @@
 
             <section class="card card-wide">
                 <h2>AI Chat Console</h2>
-                <p>Normal back-and-forth chat for Storyline, but action mode is also on. Imperative text like “export bug fix karo”, “new tool add karo”, “read android/app/build.gradle”, or “device logcat dikhao” can trigger direct control instead of only explanation. Direct commands still work: <code>/read path</code>, <code>/write path</code>, <code>/automation ...</code>, <code>/adb-snapshot</code>, <code>/adb-log 200</code>.</p>
+                <p>Normal back-and-forth chat for Storyline, but action mode is also on. Plain chat like “google cloud par debug apk build karo”, “release AAB banao”, “firebase test lab robo chalao”, “latest cloud build status batao”, “read android/app/build.gradle”, or “device logcat dikhao” can trigger real server-side control instead of only explanation. Direct commands still work if needed, but simple chat is enough.</p>
                 <div class="toolbar">
                     <select id="chat-provider">
                         <option value="auto">Auto Provider Chain</option>
@@ -688,7 +688,7 @@
                     <button type="button" class="ghost-button" id="chat-clear-button">Clear Chat</button>
                 </div>
                 <div class="chat-thread" id="chat-thread"></div>
-                <textarea id="chat-input" placeholder="Type your message here. Example: Kiro CLI ya Gemini CLI ko mobile admin panel ke saath kaise jodna chahiye?"></textarea>
+                <textarea id="chat-input" placeholder="Type your message here. Example: google cloud par debug apk build karo, ya latest cloud build status batao."></textarea>
                 <div class="button-row" style="margin-top: 14px;">
                     <button type="button" id="chat-send-button">Send Message</button>
                     <span class="helper" id="chat-status">Idle</span>

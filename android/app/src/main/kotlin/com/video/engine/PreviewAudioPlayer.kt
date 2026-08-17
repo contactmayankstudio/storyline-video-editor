@@ -47,15 +47,24 @@ class PreviewAudioPlayer(
 
     companion object {
         private const val TAG = "[PreviewAudio]"
-        private const val CLOCK_TICK_MS = 16L
-        private const val SEEK_TOLERANCE_MS = 24
+        private const val HIGH_TIER_CLOCK_TICK_MS = 16L
+        private const val MID_TIER_CLOCK_TICK_MS = 32L
+        private const val LOW_TIER_CLOCK_TICK_MS = 64L
+        private const val SEEK_TOLERANCE_MS = 32
         private const val SEEK_COMPLETE_FALLBACK_MS = 250L
-        private const val HIGH_TIER_VIDEO_CLOCK_RESYNC_THRESHOLD_MS = 72L
-        private const val MID_TIER_VIDEO_CLOCK_RESYNC_THRESHOLD_MS = 180L
-        private const val LOW_TIER_VIDEO_CLOCK_RESYNC_THRESHOLD_MS = 320L
-        private const val HIGH_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS = 180L
-        private const val MID_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS = 420L
-        private const val LOW_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS = 1_250L
+        private const val IDLE_REQUEST_COALESCE_MS = 95L
+        private const val PLAYING_REQUEST_COALESCE_MS = 55L
+        private const val IDLE_DUPLICATE_QUIET_WINDOW_MS = 320L
+        private const val PLAYING_DUPLICATE_QUIET_WINDOW_MS = 180L
+        private const val NO_SOURCE_IDLE_REQUEST_QUIET_WINDOW_MS = 1_200L
+        private const val NO_SOURCE_PLAYER_KEEPALIVE_MS = 8_000L
+        private const val PLAYBACK_SOURCE_GAP_KEEPALIVE_MS = 260L
+        private const val HIGH_TIER_VIDEO_CLOCK_RESYNC_THRESHOLD_MS = 120L
+        private const val MID_TIER_VIDEO_CLOCK_RESYNC_THRESHOLD_MS = 240L
+        private const val LOW_TIER_VIDEO_CLOCK_RESYNC_THRESHOLD_MS = 360L
+        private const val HIGH_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS = 320L
+        private const val MID_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS = 650L
+        private const val LOW_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS = 1_400L
         private const val AUDIO_EXTRACT_BUFFER_BYTES = 256 * 1024
         private val PREWARM_VIDEO_EXTENSIONS = setOf("3gp", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "ts", "webm")
     }
@@ -67,13 +76,16 @@ class PreviewAudioPlayer(
     private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val previewAudioExtractDir = File(appContext.cacheDir, "preview_audio_extracts").apply { mkdirs() }
     private val unsupportedSourcePaths = mutableSetOf<String>()
+    private val silentSourcePaths = mutableSetOf<String>()
     private val preferredAudioSourcePathByMediaPath = mutableMapOf<String, String>()
     private val requestLock = Any()
     private var mediaPlayer: MediaPlayer? = null
     private var audioFocusRequest: AudioFocusRequest? = null
     private var hasAudioFocus = false
     private var currentSelection: SourceSelection? = null
+    private var reusablePlayerSelection: SourceSelection? = null
     private var currentPlayerPath: String? = null
+    private var currentPlayerDurationMs = -1L
     private var prepared = false
     private var preparing = false
     private var playing = false
@@ -90,12 +102,22 @@ class PreviewAudioPlayer(
     private var lastVideoClockResyncElapsedMs = 0L
     private var pendingSeekTargetMs = Int.MIN_VALUE
     private var pendingStartAfterSeek = false
+    private var seekInFlight = false
+    private var deferredSeekTargetMs = Int.MIN_VALUE
+    private var deferredSeekAutoPlay = false
+    private var lastQueuedTimelineMs = Long.MIN_VALUE
+    private var lastQueuedAutoPlay = false
+    private var lastQueuedRequestElapsedMs = 0L
+    private var lastNoSourceTimelineMs = Long.MIN_VALUE
+    private var lastNoSourceLogElapsedMs = 0L
+    private var lastNoSourceRequestTimelineMs = Long.MIN_VALUE
+    private var lastNoSourceRequestElapsedMs = 0L
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
             AudioManager.AUDIOFOCUS_GAIN -> runOnAudioThread {
                 val selection = currentSelection
                 val timelineMs = currentTimelineTimeMs() ?: pendingTimelineMs
-                applyVolume(selection?.let { effectiveVolumeAt(it, timelineMs) } ?: 1.0f)
+                applyVolume(selection?.let { effectiveVolumeAt(it, timelineMs) } ?: 1.0f, force = true)
                 if (playing && prepared && runCatching { mediaPlayer?.isPlaying == true }.getOrDefault(false).not()) {
                     runCatching { mediaPlayer?.start() }
                     if (runCatching { mediaPlayer?.isPlaying == true }.getOrDefault(false)) {
@@ -104,7 +126,13 @@ class PreviewAudioPlayer(
                     }
                 }
             }
-            AudioManager.AUDIOFOCUS_LOSS,
+            AudioManager.AUDIOFOCUS_LOSS -> runOnAudioThread {
+                runCatching { mediaPlayer?.pause() }
+                setAudioMasterClockEnabled(false)
+                stopTicker()
+                playing = false
+                abandonAudioFocusIfNeeded()
+            }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> runOnAudioThread {
                 runCatching { mediaPlayer?.pause() }
                 setAudioMasterClockEnabled(false)
@@ -115,6 +143,7 @@ class PreviewAudioPlayer(
                 val timelineMs = currentTimelineTimeMs() ?: pendingTimelineMs
                 val ducked = (selection?.let { effectiveVolumeAt(it, timelineMs) } ?: 1.0f).coerceIn(0f, 1f) * 0.35f
                 runCatching { mediaPlayer?.setVolume(ducked, ducked) }
+                lastAppliedVolume = Float.NaN
             }
         }
     }
@@ -145,6 +174,12 @@ class PreviewAudioPlayer(
         playing = autoPlay
         ensureSelection(timelineMs, autoPlay = autoPlay)
     }
+    private val releaseIdleCachedPlayer = Runnable {
+        if (playing || currentSelection != null) {
+            return@Runnable
+        }
+        releasePlayer()
+    }
     private val ticker = object : Runnable {
         override fun run() {
             if (!tickerRunning) return
@@ -165,7 +200,7 @@ class PreviewAudioPlayer(
                 }
             }
             if (tickerRunning) {
-                audioHandler.postDelayed(this, CLOCK_TICK_MS)
+                audioHandler.postDelayed(this, resolveClockTickMs())
             }
         }
     }
@@ -187,6 +222,9 @@ class PreviewAudioPlayer(
             audioHandler.removeCallbacks(seekCompletionFallback)
             pendingStartAfterSeek = false
             pendingSeekTargetMs = Int.MIN_VALUE
+            seekInFlight = false
+            deferredSeekTargetMs = Int.MIN_VALUE
+            deferredSeekAutoPlay = false
             val isActuallyPlaying = runCatching { mediaPlayer?.isPlaying == true }.getOrDefault(false)
             if (isActuallyPlaying) {
                 runCatching { mediaPlayer?.pause() }
@@ -200,16 +238,22 @@ class PreviewAudioPlayer(
     }
 
     fun prewarmSource(sourcePath: String) {
+        if (suppressAutomationSeedVideoFallback(sourcePath)) return
+        if (isKnownSilentSource(sourcePath)) return
         if (!shouldPreferExtractedAudioFallback(sourcePath)) return
         runOnAudioThread {
             if (!isExistingMediaPath(sourcePath)) {
                 return@runOnAudioThread
             }
-            preferredAudioSourcePathByMediaPath[sourcePath]
+            if (isKnownSilentSource(sourcePath)) {
+                return@runOnAudioThread
+            }
+            val cacheKey = sourceCacheKey(sourcePath)
+            preferredAudioSourcePathByMediaPath[cacheKey]
                 ?.takeIf { isExistingMediaPath(it) }
                 ?.let { return@runOnAudioThread }
             val fallbackPath = resolveExtractedAudioFallbackPath(sourcePath, rememberUnsupported = false) ?: return@runOnAudioThread
-            preferredAudioSourcePathByMediaPath[sourcePath] = fallbackPath
+            preferredAudioSourcePathByMediaPath[cacheKey] = fallbackPath
             Log.d(TAG, "Prewarmed extracted preview audio source media=$sourcePath fallback=$fallbackPath")
         }
     }
@@ -223,10 +267,19 @@ class PreviewAudioPlayer(
                 return@runOnAudioThread
             }
             val audioTimelineMs = currentTimelineTimeMs()
+            val videoMasterClock = DeviceDetector.getDeviceTier() == DeviceDetector.DeviceTier.LOW
             val driftMs = if (audioTimelineMs != null) {
                 abs(audioTimelineMs - timelineMs)
             } else {
                 Long.MAX_VALUE
+            }
+            val audioAheadOfSampledVideo =
+                audioTimelineMs != null &&
+                    audioTimelineMs > timelineMs + resolveVideoClockResyncThresholdMs()
+            if (audioAheadOfSampledVideo && !videoMasterClock) {
+                // Keep audio as the smooth master clock. Seeking it backward to a
+                // stale video sample makes low-end preview playback crawl.
+                return@runOnAudioThread
             }
             val now = SystemClock.elapsedRealtime()
             if (driftMs < resolveVideoClockResyncThresholdMs() ||
@@ -270,8 +323,49 @@ class PreviewAudioPlayer(
         pendingTimelineMs = timelineMs.coerceAtLeast(0L)
         pendingAutoPlay = autoPlay
         val selection = NativeBridge.resolvePreviewAudioSourceAt(pendingTimelineMs)
+        if (selection != null && isKnownSilentSource(selection.path)) {
+            setAudioMasterClockEnabled(false)
+            stopTicker()
+            abandonAudioFocusIfNeeded()
+            audioHandler.removeCallbacks(seekCompletionFallback)
+            val isActuallyPlaying = runCatching { mediaPlayer?.isPlaying == true }.getOrDefault(false)
+            if (isActuallyPlaying) {
+                runCatching { mediaPlayer?.pause() }
+            }
+            releasePlayer()
+            currentSelection = selection
+            lastAppliedSelectionKey = selection.key
+            lastAppliedMediaSeekMs = Int.MIN_VALUE
+            lastAppliedAutoPlay = false
+            return
+        }
         if (selection == null || !isPlayableMediaPath(selection.path)) {
-            Log.w(TAG, "No playable audio source at timelineMs=$pendingTimelineMs")
+            if (selection == null && shouldKeepAudioRunningThroughResolverGap(pendingTimelineMs, autoPlay)) {
+                val playerStillRunning = runCatching { mediaPlayer?.isPlaying == true }.getOrDefault(false)
+                if (playerStillRunning) {
+                    setAudioMasterClockEnabled(true)
+                    startTicker()
+                    return
+                }
+            }
+            val now = SystemClock.elapsedRealtime()
+            if (!autoPlay &&
+                currentSelection == null &&
+                mediaPlayer == null &&
+                abs(lastNoSourceRequestTimelineMs - pendingTimelineMs) <= SEEK_TOLERANCE_MS &&
+                now - lastNoSourceRequestElapsedMs < NO_SOURCE_IDLE_REQUEST_QUIET_WINDOW_MS
+            ) {
+                return
+            }
+            lastNoSourceRequestTimelineMs = pendingTimelineMs
+            lastNoSourceRequestElapsedMs = now
+            if (abs(lastNoSourceTimelineMs - pendingTimelineMs) > SEEK_TOLERANCE_MS ||
+                now - lastNoSourceLogElapsedMs >= 1500L
+            ) {
+                Log.d(TAG, "No preview audio source at timelineMs=$pendingTimelineMs")
+                lastNoSourceTimelineMs = pendingTimelineMs
+                lastNoSourceLogElapsedMs = now
+            }
             setAudioMasterClockEnabled(false)
             stopTicker()
             abandonAudioFocusIfNeeded()
@@ -284,9 +378,17 @@ class PreviewAudioPlayer(
             lastAppliedSelectionKey = null
             lastAppliedMediaSeekMs = Int.MIN_VALUE
             lastAppliedAutoPlay = false
-            releasePlayer()
+            seekInFlight = false
+            deferredSeekTargetMs = Int.MIN_VALUE
+            deferredSeekAutoPlay = false
+            scheduleIdleCachedPlayerRelease()
             return
         }
+        audioHandler.removeCallbacks(releaseIdleCachedPlayer)
+        lastNoSourceTimelineMs = Long.MIN_VALUE
+        lastNoSourceLogElapsedMs = 0L
+        lastNoSourceRequestTimelineMs = Long.MIN_VALUE
+        lastNoSourceRequestElapsedMs = 0L
 
         val sameSource = canReuseCurrentPlayerFor(selection)
         currentSelection = selection
@@ -314,19 +416,62 @@ class PreviewAudioPlayer(
         val targetMs = timelineToMediaMs(selection, pendingTimelineMs)
             .coerceIn(0L, Int.MAX_VALUE.toLong())
             .toInt()
-        val shouldSkipSeek = targetMs <= SEEK_TOLERANCE_MS
+        val currentMediaPositionMs = runCatching { mediaPlayer?.currentPosition }
+            .getOrNull()
+            ?: Int.MIN_VALUE
+        val playerPositionMatchesTarget =
+            currentMediaPositionMs != Int.MIN_VALUE &&
+                abs(currentMediaPositionMs - targetMs) <= SEEK_TOLERANCE_MS
+        val shouldSkipSeek = targetMs <= SEEK_TOLERANCE_MS && playerPositionMatchesTarget
         val duplicateSeek =
             lastAppliedSelectionKey == selection.key &&
-                abs(lastAppliedMediaSeekMs - targetMs) <= SEEK_TOLERANCE_MS
+                abs(lastAppliedMediaSeekMs - targetMs) <= SEEK_TOLERANCE_MS &&
+                playerPositionMatchesTarget
         val isActuallyPlaying = runCatching { mediaPlayer?.isPlaying == true }.getOrDefault(false)
+        val clipEndTargetMs = timelineToMediaMs(selection, selection.timelineEndMs)
+            .coerceIn(0L, Int.MAX_VALUE.toLong())
+            .toInt()
+        val atOrPastClipEnd =
+            pendingTimelineMs >= (selection.timelineEndMs - SEEK_TOLERANCE_MS).coerceAtLeast(selection.timelineStartMs) ||
+                targetMs >= (clipEndTargetMs - SEEK_TOLERANCE_MS).coerceAtLeast(0)
         if (!autoPlay && duplicateSeek && !isActuallyPlaying && !lastAppliedAutoPlay) {
             setAudioMasterClockEnabled(false)
             stopTicker()
             return
         }
+        if (autoPlay && duplicateSeek && isActuallyPlaying && lastAppliedAutoPlay) {
+            setAudioMasterClockEnabled(true)
+            startTicker()
+            lastAppliedSelectionKey = selection.key
+            lastAppliedMediaSeekMs = targetMs
+            lastAppliedAutoPlay = true
+            return
+        }
+        if (autoPlay && duplicateSeek && !isActuallyPlaying && atOrPastClipEnd) {
+            setAudioMasterClockEnabled(false)
+            stopTicker()
+            lastAppliedSelectionKey = selection.key
+            lastAppliedMediaSeekMs = targetMs
+            lastAppliedAutoPlay = false
+            return
+        }
 
-        applyVolume(effectiveVolumeAt(selection, pendingTimelineMs))
+        applyVolume(effectiveVolumeAt(selection, pendingTimelineMs), force = autoPlay)
         applyPlaybackSpeed(selection)
+        if (seekInFlight && !shouldSkipSeek) {
+            if (abs(pendingSeekTargetMs - targetMs) > SEEK_TOLERANCE_MS) {
+                deferredSeekTargetMs = targetMs
+                deferredSeekAutoPlay = autoPlay
+                lastAppliedMediaSeekMs = targetMs
+            }
+            if (!autoPlay) {
+                setAudioMasterClockEnabled(false)
+                stopTicker()
+            }
+            lastAppliedSelectionKey = selection.key
+            lastAppliedAutoPlay = autoPlay
+            return
+        }
         val shouldStartAfterSeek = autoPlay && !isActuallyPlaying && !duplicateSeek && !shouldSkipSeek
         if (!duplicateSeek && !shouldSkipSeek) {
             seekPlayer(targetMs, autoPlayAfterSeek = shouldStartAfterSeek)
@@ -339,6 +484,7 @@ class PreviewAudioPlayer(
         if (autoPlay) {
             Log.d(TAG, "resumePlayer key=${selection.key} timelineMs=$pendingTimelineMs")
             if (!isActuallyPlaying && !shouldStartAfterSeek && requestAudioFocusIfNeeded()) {
+                applyVolume(effectiveVolumeAt(selection, pendingTimelineMs), force = true)
                 runCatching { mediaPlayer?.start() }
             }
             val nowPlaying = runCatching { mediaPlayer?.isPlaying == true }.getOrDefault(false)
@@ -368,7 +514,7 @@ class PreviewAudioPlayer(
 
     private fun canReuseCurrentPlayerFor(selection: SourceSelection): Boolean {
         val existingPlayer = mediaPlayer ?: return false
-        val current = currentSelection ?: return false
+        val current = currentSelection ?: reusablePlayerSelection ?: return false
         val currentPath = currentPlayerPath ?: return false
         val nextPath = resolvePreferredPlayerPath(selection.path)
         if (nextPath != currentPath) {
@@ -388,14 +534,38 @@ class PreviewAudioPlayer(
         return existingPlayer === mediaPlayer
     }
 
+    private fun shouldKeepAudioRunningThroughResolverGap(timelineMs: Long, autoPlay: Boolean): Boolean {
+        if (!autoPlay || !playing || !prepared) return false
+        if (mediaPlayer == null) return false
+        val selection = currentSelection ?: return false
+        val gapStartMs = selection.timelineEndMs - SEEK_TOLERANCE_MS
+        val gapEndMs = selection.timelineEndMs + PLAYBACK_SOURCE_GAP_KEEPALIVE_MS
+        return timelineMs in gapStartMs..gapEndMs
+    }
+
+    private fun resolveNextPlayableSelectionProbeMs(nextTimelineMs: Long, currentKey: String): Long? {
+        val probeOffsetsMs = longArrayOf(0L, 24L, 48L, 96L, PLAYBACK_SOURCE_GAP_KEEPALIVE_MS)
+        for (offsetMs in probeOffsetsMs) {
+            val probeMs = (nextTimelineMs + offsetMs).coerceAtLeast(0L)
+            val key = NativeBridge.resolvePreviewAudioSourceKeyAt(probeMs)
+            if (!key.isNullOrBlank() && key != currentKey) {
+                return probeMs
+            }
+        }
+        return null
+    }
+
     private fun createPlayer(selection: SourceSelection) {
+        audioHandler.removeCallbacks(releaseIdleCachedPlayer)
         releasePlayer()
         prepared = false
         preparing = true
         val playerPath = resolvePreferredPlayerPath(selection.path)
         val player = MediaPlayer()
         mediaPlayer = player
+        reusablePlayerSelection = selection
         currentPlayerPath = playerPath
+        currentPlayerDurationMs = -1L
         player.setAudioAttributes(
             AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -428,11 +598,15 @@ class PreviewAudioPlayer(
             }
             preparing = false
             prepared = true
+            currentPlayerDurationMs = duration.toLong().coerceAtLeast(1L)
+            seekInFlight = false
+            deferredSeekTargetMs = Int.MIN_VALUE
+            deferredSeekAutoPlay = false
             unsupportedSourcePaths.remove(selection.path)
             if (playerPath != selection.path) {
                 preferredAudioSourcePathByMediaPath[selection.path] = playerPath
             }
-            applyVolume(effectiveVolumeAt(selection, pendingTimelineMs))
+            applyVolume(effectiveVolumeAt(selection, pendingTimelineMs), force = pendingAutoPlay)
             applyPlaybackSpeed(selection)
             val targetMs = timelineToMediaMs(selection, pendingTimelineMs)
                 .coerceIn(0L, Int.MAX_VALUE.toLong())
@@ -446,6 +620,7 @@ class PreviewAudioPlayer(
                 if (pendingAutoPlay) {
                     Log.d(TAG, "playerPrepared start key=${selection.key} timelineMs=$pendingTimelineMs")
                     if (requestAudioFocusIfNeeded()) {
+                        applyVolume(effectiveVolumeAt(selection, pendingTimelineMs), force = true)
                         runCatching { preparedPlayer.start() }
                     }
                     val isActuallyPlaying = runCatching { preparedPlayer.isPlaying }.getOrDefault(false)
@@ -486,12 +661,31 @@ class PreviewAudioPlayer(
             if (pendingSeekTargetMs != Int.MIN_VALUE) {
                 lastAppliedMediaSeekMs = pendingSeekTargetMs
             }
+            seekInFlight = false
+            val queuedSeekTargetMs = deferredSeekTargetMs
+            val queuedSeekAutoPlay = deferredSeekAutoPlay
+            deferredSeekTargetMs = Int.MIN_VALUE
+            deferredSeekAutoPlay = false
+            if (queuedSeekTargetMs != Int.MIN_VALUE &&
+                abs(queuedSeekTargetMs - lastAppliedMediaSeekMs) > SEEK_TOLERANCE_MS
+            ) {
+                seekPlayer(
+                    queuedSeekTargetMs,
+                    autoPlayAfterSeek = queuedSeekAutoPlay && playing,
+                )
+                lastAppliedSelectionKey = currentSelection?.key
+                lastAppliedAutoPlay = queuedSeekAutoPlay
+                return@setOnSeekCompleteListener
+            }
             val resumeAfterSeek = pendingStartAfterSeek && playing
             pendingStartAfterSeek = false
             pendingSeekTargetMs = Int.MIN_VALUE
             val isActuallyPlaying = runCatching { completedPlayer.isPlaying }.getOrDefault(false)
             if (resumeAfterSeek && !isActuallyPlaying && requestAudioFocusIfNeeded()) {
                 Log.d(TAG, "seekComplete start key=${currentSelection?.key} timelineMs=$pendingTimelineMs")
+                currentSelection?.let { selection ->
+                    applyVolume(effectiveVolumeAt(selection, pendingTimelineMs), force = true)
+                }
                 runCatching { completedPlayer.start() }
             }
             val nowPlaying = runCatching { completedPlayer.isPlaying }.getOrDefault(false)
@@ -507,9 +701,23 @@ class PreviewAudioPlayer(
         }
         player.setOnCompletionListener {
             if (!playing) return@setOnCompletionListener
-            val timelineMs = (currentTimelineTimeMs() ?: selection.timelineEndMs).coerceAtLeast(selection.timelineEndMs)
-            Log.d(TAG, "playerCompletion key=${selection.key} nextTimelineMs=${timelineMs + 1L}")
-            ensureSelection(timelineMs + 1L, autoPlay = true)
+            val timelineMs = (currentTimelineTimeMs() ?: selection.timelineEndMs)
+                .coerceIn(selection.timelineStartMs, selection.timelineEndMs.coerceAtLeast(selection.timelineStartMs))
+            val reachedSelectionEnd =
+                timelineMs >= (selection.timelineEndMs - SEEK_TOLERANCE_MS).coerceAtLeast(selection.timelineStartMs)
+            val nextTimelineMs = if (reachedSelectionEnd) selection.timelineEndMs + 1L else timelineMs + 1L
+            val nextSelectionProbeMs = resolveNextPlayableSelectionProbeMs(nextTimelineMs, selection.key)
+            if (nextSelectionProbeMs == null) {
+                Log.d(TAG, "playerCompletion stop key=${selection.key} timelineMs=$timelineMs")
+                playing = false
+                setAudioMasterClockEnabled(false)
+                stopTicker()
+                abandonAudioFocusIfNeeded()
+                lastAppliedAutoPlay = false
+                return@setOnCompletionListener
+            }
+            Log.d(TAG, "playerCompletion key=${selection.key} nextTimelineMs=$nextSelectionProbeMs")
+            ensureSelection(nextSelectionProbeMs, autoPlay = true)
         }
         player.setOnErrorListener { _, what, extra ->
             Log.w(TAG, "MediaPlayer error what=$what extra=$extra path=$playerPath")
@@ -557,7 +765,9 @@ class PreviewAudioPlayer(
         val player = mediaPlayer ?: return
         val wasPrepared = prepared
         mediaPlayer = null
+        reusablePlayerSelection = null
         currentPlayerPath = null
+        currentPlayerDurationMs = -1L
         prepared = false
         preparing = false
         lastAppliedVolume = Float.NaN
@@ -567,6 +777,9 @@ class PreviewAudioPlayer(
         lastAppliedAutoPlay = false
         pendingStartAfterSeek = false
         pendingSeekTargetMs = Int.MIN_VALUE
+        seekInFlight = false
+        deferredSeekTargetMs = Int.MIN_VALUE
+        deferredSeekAutoPlay = false
         player.setOnPreparedListener(null)
         player.setOnSeekCompleteListener(null)
         player.setOnCompletionListener(null)
@@ -576,31 +789,79 @@ class PreviewAudioPlayer(
         abandonAudioFocusIfNeeded()
     }
 
+    private fun scheduleIdleCachedPlayerRelease() {
+        if (mediaPlayer == null) {
+            return
+        }
+        audioHandler.removeCallbacks(releaseIdleCachedPlayer)
+        audioHandler.postDelayed(releaseIdleCachedPlayer, NO_SOURCE_PLAYER_KEEPALIVE_MS)
+    }
+
     private fun isPlayableMediaPath(path: String): Boolean {
         if (path.isBlank()) return false
-        val preferredPath = preferredAudioSourcePathByMediaPath[path]
+        val cacheKey = sourceCacheKey(path)
+        if (cacheKey in silentSourcePaths) return false
+        val preferredPath = preferredAudioSourcePathByMediaPath[cacheKey]
         if (preferredPath != null) {
             return isExistingMediaPath(preferredPath)
         }
-        if (path in unsupportedSourcePaths) return false
+        if (cacheKey in unsupportedSourcePaths) return false
         return isExistingMediaPath(path)
+    }
+
+    private fun isKnownSilentSource(path: String): Boolean {
+        if (path.isBlank()) return false
+        return sourceCacheKey(path) in silentSourcePaths
+    }
+
+    private fun sourceCacheKey(path: String): String {
+        return MediaPathResolver.cacheKey(path)
     }
 
     private fun isExistingMediaPath(path: String): Boolean {
         if (path.isBlank()) return false
         if (path.startsWith("content://")) return true
-        return File(path).exists()
+        return File(MediaPathResolver.normalizeForFileAccess(path)).exists()
+    }
+
+    private fun isAutomationSeedVideoPath(sourcePath: String): Boolean {
+        if (!sourcePath.contains("/automation_samples/")) return false
+        val fileName = sourcePath.substringAfterLast('/').lowercase()
+        return fileName.startsWith("quick_sample_video") && fileName.endsWith(".mp4")
+    }
+
+    private fun suppressAutomationSeedVideoFallback(sourcePath: String): Boolean {
+        if (!isAutomationSeedVideoPath(sourcePath)) return false
+        val cacheKey = sourceCacheKey(sourcePath)
+        preferredAudioSourcePathByMediaPath.remove(cacheKey)
+        unsupportedSourcePaths.remove(cacheKey)
+        silentSourcePaths.remove(cacheKey)
+        runCatching {
+            val fallbackFile = File(previewAudioExtractDir, buildAudioFallbackFileName(sourcePath))
+            if (fallbackFile.exists()) {
+                fallbackFile.delete()
+            }
+        }
+        return true
     }
 
     private fun shouldPreferExtractedAudioFallback(sourcePath: String): Boolean {
         if (sourcePath.isBlank()) return false
+        if (isAutomationSeedVideoPath(sourcePath)) return false
         if (sourcePath.startsWith("content://")) return true
         val extension = sourcePath.substringAfterLast('.', "").lowercase()
         return extension in PREWARM_VIDEO_EXTENSIONS
     }
 
     private fun resolvePreferredPlayerPath(sourcePath: String): String {
-        preferredAudioSourcePathByMediaPath[sourcePath]
+        if (suppressAutomationSeedVideoFallback(sourcePath)) {
+            return sourcePath
+        }
+        val cacheKey = sourceCacheKey(sourcePath)
+        if (isKnownSilentSource(sourcePath)) {
+            return sourcePath
+        }
+        preferredAudioSourcePathByMediaPath[cacheKey]
             ?.takeIf { isExistingMediaPath(it) }
             ?.let { return it }
         if (!shouldPreferExtractedAudioFallback(sourcePath)) {
@@ -608,7 +869,7 @@ class PreviewAudioPlayer(
         }
         val fallbackPath = resolveExtractedAudioFallbackPath(sourcePath, rememberUnsupported = false)
         if (!fallbackPath.isNullOrBlank() && isExistingMediaPath(fallbackPath)) {
-            preferredAudioSourcePathByMediaPath[sourcePath] = fallbackPath
+            preferredAudioSourcePathByMediaPath[cacheKey] = fallbackPath
             return fallbackPath
         }
         return sourcePath
@@ -627,6 +888,9 @@ class PreviewAudioPlayer(
         attemptedPath: String,
         reason: String,
     ): Boolean {
+        if (isKnownSilentSource(selection.path)) {
+            return false
+        }
         if (attemptedPath != selection.path) {
             return false
         }
@@ -635,21 +899,33 @@ class PreviewAudioPlayer(
             return false
         }
         Log.d(TAG, "Using extracted fallback for key=${selection.key} reason=$reason fallback=$fallbackPath")
-        preferredAudioSourcePathByMediaPath[selection.path] = fallbackPath
-        unsupportedSourcePaths.remove(selection.path)
+        val cacheKey = sourceCacheKey(selection.path)
+        preferredAudioSourcePathByMediaPath[cacheKey] = fallbackPath
+        unsupportedSourcePaths.remove(cacheKey)
+        silentSourcePaths.remove(cacheKey)
         createPlayer(selection)
         return true
     }
 
     private fun markSelectionSourceUnsupported(selection: SourceSelection, attemptedPath: String) {
-        if (attemptedPath != selection.path) {
-            preferredAudioSourcePathByMediaPath.remove(selection.path)
+        val cacheKey = sourceCacheKey(selection.path)
+        if (isKnownSilentSource(selection.path)) {
+            unsupportedSourcePaths.remove(cacheKey)
+            preferredAudioSourcePathByMediaPath.remove(cacheKey)
+            return
         }
-        unsupportedSourcePaths.add(selection.path)
+        if (attemptedPath != selection.path) {
+            preferredAudioSourcePathByMediaPath.remove(cacheKey)
+        }
+        unsupportedSourcePaths.add(cacheKey)
     }
 
     private fun resolveExtractedAudioFallbackPath(sourcePath: String, rememberUnsupported: Boolean = true): String? {
-        preferredAudioSourcePathByMediaPath[sourcePath]
+        if (suppressAutomationSeedVideoFallback(sourcePath)) {
+            return null
+        }
+        val cacheKey = sourceCacheKey(sourcePath)
+        preferredAudioSourcePathByMediaPath[cacheKey]
             ?.takeIf { isExistingMediaPath(it) }
             ?.let { return it }
         if (!isExistingMediaPath(sourcePath)) {
@@ -682,9 +958,9 @@ class PreviewAudioPlayer(
             }
             if (audioTrackIndex < 0 || audioFormat == null) {
                 Log.w(TAG, "No audio track found for preview source $sourcePath")
-                if (rememberUnsupported) {
-                    unsupportedSourcePaths.add(sourcePath)
-                }
+                silentSourcePaths.add(cacheKey)
+                unsupportedSourcePaths.remove(cacheKey)
+                preferredAudioSourcePathByMediaPath.remove(cacheKey)
                 return null
             }
 
@@ -731,10 +1007,11 @@ class PreviewAudioPlayer(
             if (outputFile.length() <= 0L) {
                 outputFile.delete()
                 if (rememberUnsupported) {
-                    unsupportedSourcePaths.add(sourcePath)
+                    unsupportedSourcePaths.add(cacheKey)
                 }
                 null
             } else {
+                silentSourcePaths.remove(cacheKey)
                 outputFile.absolutePath
             }
         } catch (error: Exception) {
@@ -760,9 +1037,9 @@ class PreviewAudioPlayer(
         return "preview_$signature.m4a"
     }
 
-    private fun applyVolume(volume: Float) {
+    private fun applyVolume(volume: Float, force: Boolean = false) {
         val clamped = volume.coerceIn(0f, 1f)
-        if (!lastAppliedVolume.isNaN() && abs(lastAppliedVolume - clamped) < 0.02f) {
+        if (!force && !lastAppliedVolume.isNaN() && abs(lastAppliedVolume - clamped) < 0.02f) {
             return
         }
         lastAppliedVolume = clamped
@@ -835,9 +1112,10 @@ class PreviewAudioPlayer(
         audioHandler.removeCallbacks(seekCompletionFallback)
         pendingSeekTargetMs = targetMs
         pendingStartAfterSeek = autoPlayAfterSeek
+        seekInFlight = true
         runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                player.seekTo(targetMs.toLong(), MediaPlayer.SEEK_CLOSEST)
+                player.seekTo(targetMs.toLong(), MediaPlayer.SEEK_CLOSEST_SYNC)
             } else {
                 @Suppress("DEPRECATION")
                 player.seekTo(targetMs)
@@ -845,6 +1123,7 @@ class PreviewAudioPlayer(
         }.onFailure {
             pendingStartAfterSeek = false
             pendingSeekTargetMs = Int.MIN_VALUE
+            seekInFlight = false
             Log.w(TAG, "Failed to seek audio preview to $targetMs ms: ${it.message}")
         }
         if (autoPlayAfterSeek) {
@@ -861,7 +1140,15 @@ class PreviewAudioPlayer(
         } else {
             selection.sourceInMs
         }
-        return mappedMs.coerceIn(selection.sourceInMs, upperBound.coerceAtLeast(selection.sourceInMs))
+        val playerUpperBound = currentPlayerDurationMs
+            .takeIf { it > 0L }
+            ?.let { it - 1L }
+            ?: Long.MAX_VALUE
+        val safeUpperBound = minOf(
+            upperBound.coerceAtLeast(selection.sourceInMs),
+            playerUpperBound.coerceAtLeast(0L),
+        ).coerceAtLeast(selection.sourceInMs)
+        return mappedMs.coerceIn(selection.sourceInMs, safeUpperBound)
     }
 
     private fun effectivePlaybackSpeed(selection: SourceSelection): Float {
@@ -886,10 +1173,11 @@ class PreviewAudioPlayer(
     }
 
     private fun setAudioMasterClockEnabled(enabled: Boolean) {
-        if (audioMasterClockEnabled == enabled) return
-        audioMasterClockEnabled = enabled
+        val effectiveEnabled = enabled && DeviceDetector.getDeviceTier() != DeviceDetector.DeviceTier.LOW
+        if (audioMasterClockEnabled == effectiveEnabled) return
+        audioMasterClockEnabled = effectiveEnabled
         mainHandler.post {
-            previewViewProvider()?.setAudioMasterClockEnabled(enabled)
+            previewViewProvider()?.setAudioMasterClockEnabled(effectiveEnabled)
         }
     }
 
@@ -941,13 +1229,26 @@ class PreviewAudioPlayer(
 
     private fun queueSelectionRequest(timelineMs: Long, autoPlay: Boolean, reason: String) {
         val clampedTimelineMs = timelineMs.coerceAtLeast(0L)
+        val now = SystemClock.elapsedRealtime()
+        val coalesceDelayMs = if (autoPlay) PLAYING_REQUEST_COALESCE_MS else IDLE_REQUEST_COALESCE_MS
+        val duplicateQuietWindowMs = if (autoPlay) PLAYING_DUPLICATE_QUIET_WINDOW_MS else IDLE_DUPLICATE_QUIET_WINDOW_MS
+        if (
+            lastQueuedAutoPlay == autoPlay &&
+            abs(lastQueuedTimelineMs - clampedTimelineMs) <= SEEK_TOLERANCE_MS &&
+            now - lastQueuedRequestElapsedMs <= duplicateQuietWindowMs
+        ) {
+            return
+        }
+        lastQueuedTimelineMs = clampedTimelineMs
+        lastQueuedAutoPlay = autoPlay
+        lastQueuedRequestElapsedMs = now
         synchronized(requestLock) {
             requestedTimelineMs = clampedTimelineMs
             requestedAutoPlay = autoPlay
         }
         Log.d(TAG, "$reason timelineMs=$clampedTimelineMs continuePlaying=$autoPlay")
         audioHandler.removeCallbacks(applyRequestedState)
-        audioHandler.post(applyRequestedState)
+        audioHandler.postDelayed(applyRequestedState, coalesceDelayMs)
     }
 
     private fun runOnAudioThread(action: () -> Unit) {
@@ -971,6 +1272,14 @@ class PreviewAudioPlayer(
             DeviceDetector.DeviceTier.LOW -> LOW_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS
             DeviceDetector.DeviceTier.MID -> MID_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS
             DeviceDetector.DeviceTier.HIGH -> HIGH_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS
+        }
+    }
+
+    private fun resolveClockTickMs(): Long {
+        return when (DeviceDetector.getDeviceTier()) {
+            DeviceDetector.DeviceTier.LOW -> LOW_TIER_CLOCK_TICK_MS
+            DeviceDetector.DeviceTier.MID -> MID_TIER_CLOCK_TICK_MS
+            DeviceDetector.DeviceTier.HIGH -> HIGH_TIER_CLOCK_TICK_MS
         }
     }
 }

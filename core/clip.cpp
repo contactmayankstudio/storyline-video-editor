@@ -59,8 +59,10 @@ Clip::MediaType Clip::detectMediaType(const std::string& path) {
     }
 
     // Image formats
-    if (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "gif" || 
-        ext == "bmp" || ext == "webp" || ext == "tiff") {
+    if (ext == "jpg" || ext == "jpeg" || ext == "jpe" || ext == "jfif" ||
+        ext == "png" || ext == "gif" || ext == "bmp" || ext == "webp" ||
+        ext == "tif" || ext == "tiff" || ext == "heic" || ext == "heif" ||
+        ext == "avif") {
         return MediaType::Image;
     }
 

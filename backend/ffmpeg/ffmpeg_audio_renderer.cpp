@@ -1,4 +1,5 @@
 #include "ffmpeg_audio_renderer.h"
+#include "../../smooth_engine/AudioDucking.h"
 #include <cstring>
 #include <algorithm>
 #include <iostream>
@@ -422,34 +423,58 @@ AudioRenderer::AudioFrame AudioRenderer::mixAudioSegments(
         result.samples[ch].resize(numSamples, 0.0f);
     }
 
-    // Mix all segments
-    for (const auto& segment : segments) {
-        // Skip if segment doesn't overlap with range
-        if (segment.endTimeMs <= startTimeMs || segment.startTimeMs >= endTimeMs) {
-            continue;
-        }
+    std::vector<std::vector<float>> controllerMix(config_.channels, std::vector<float>(numSamples, 0.0f));
+    std::vector<std::vector<float>> backgroundMix(config_.channels, std::vector<float>(numSamples, 0.0f));
+    bool hasDuckingController = false;
+    float duckingAmount = 1.0f;
 
-        // Calculate overlap region
+    auto mixInto = [&](const DecodedAudioSegment& segment, std::vector<std::vector<float>>& target) {
+        if (segment.endTimeMs <= startTimeMs || segment.startTimeMs >= endTimeMs) {
+            return;
+        }
         TimeMs overlapStart = std::max(segment.startTimeMs, startTimeMs);
         TimeMs overlapEnd = std::min(segment.endTimeMs, endTimeMs);
         TimeMs overlapDurationMs = overlapEnd - overlapStart;
-
-        // Convert to sample indices
         int srcStartSample = ((overlapStart - segment.startTimeMs) * segment.sampleRate) / 1000;
         int outStartSample = ((overlapStart - startTimeMs) * config_.sampleRate) / 1000;
         int numOverlapSamples = (overlapDurationMs * config_.sampleRate) / 1000;
 
-        // Mix samples (additive)
         for (int ch = 0; ch < std::min(config_.channels, segment.channels); ++ch) {
             for (int i = 0; i < numOverlapSamples; ++i) {
-                int srcIdx = srcStartSample + i;
-                int outIdx = outStartSample + i;
-
-                if (srcIdx < (int)segment.samples[ch].size() &&
-                    outIdx < (int)result.samples[ch].size()) {
-                    result.samples[ch][outIdx] += segment.samples[ch][srcIdx];
+                const int srcIdx = srcStartSample + i;
+                const int outIdx = outStartSample + i;
+                if (srcIdx < static_cast<int>(segment.samples[ch].size()) &&
+                    outIdx < static_cast<int>(target[ch].size())) {
+                    target[ch][outIdx] += segment.samples[ch][srcIdx];
                 }
             }
+        }
+    };
+
+    for (const auto& segment : segments) {
+        if (segment.duckingController) {
+            hasDuckingController = true;
+            duckingAmount = std::min(duckingAmount, std::clamp(segment.duckingAmount, 0.05f, 1.0f));
+            mixInto(segment, controllerMix);
+        } else {
+            mixInto(segment, backgroundMix);
+        }
+    }
+
+    if (hasDuckingController) {
+        VideoEngine::Advanced::AudioDucking ducking;
+        ducking.setDuckingAmount(duckingAmount);
+        for (int ch = 0; ch < config_.channels; ++ch) {
+            ducking.applyDucking(
+                controllerMix[ch].data(),
+                backgroundMix[ch].data(),
+                static_cast<size_t>(numSamples));
+        }
+    }
+
+    for (int ch = 0; ch < config_.channels; ++ch) {
+        for (int i = 0; i < numSamples; ++i) {
+            result.samples[ch][i] = controllerMix[ch][i] + backgroundMix[ch][i];
         }
     }
 
@@ -574,8 +599,13 @@ AudioRenderer::generateAudioTrack(const Timeline& timeline,
             DecodedAudioSegment seg = decodeAudioClip(path, srcIn, trimDuration);
             seg.startTimeMs = clip->getStartTime();
             seg.endTimeMs   = clip->getStartTime() + clip->getDuration();
-            // Apply per-clip volume
-            const float vol = clip->getProperties().volumeGain;
+            seg.trackRole = role;
+            seg.duckingController = clip->getProperties().duckingEnabled;
+            seg.duckingAmount = std::clamp(clip->getProperties().duckingAmount, 0.05f, 1.0f);
+            const float vol =
+                clip->getProperties().duckingRestoreVolumeValid
+                    ? clip->getProperties().duckingRestoreVolumeGain
+                    : clip->getProperties().volumeGain;
             if (vol != 1.0f) {
                 for (auto& ch : seg.samples)
                     for (auto& s : ch) s *= vol;

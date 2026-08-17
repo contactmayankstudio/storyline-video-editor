@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="primary_dark">#040506</color>
-    <color name="surface_dark">#0C1014</color>
-    <color name="surface_darker">#080A0D</color>
+    <color name="primary_dark">#020304</color>
+    <color name="surface_dark">#800C1014</color>
+    <color name="surface_darker">#B3080A0D</color>
     <color name="accent_blue">#6FDBFF</color>
     <color name="accent_cyan">#FFB257</color>
     <color name="text_primary">#F7FAFC</color>
@@ -14,5 +14,5 @@
     <color name="toolbar_divider">#1D232B</color>
     <color name="clip_selected_border">#87D9FF</color>
     <color name="playhead_color">#FFB56B</color>
-    <color name="timeline_bg">#090D11</color>
+    <color name="timeline_bg">#99090D11</color>
 </resources>

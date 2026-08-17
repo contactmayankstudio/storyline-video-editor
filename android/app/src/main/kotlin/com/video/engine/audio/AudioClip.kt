@@ -21,23 +21,48 @@ data class AudioClip(
     var peakBucketMs: Int = 20,
     var peakLevels: List<Int> = emptyList(),
     var gainKeyframes: List<AudioGainKeyframe> = emptyList(),
+    var peakLevelsCsv: String = "",
 )
 
 object AudioClipStore {
     private val clips = linkedMapOf<Int, AudioClip>()
+    private var deferredNativeSyncDepth = 0
+    private var deferredNativeSyncPending = false
 
     fun all(): List<AudioClip> = clips.values.toList()
 
     fun get(id: Int): AudioClip? = clips[id]
 
-    fun add(clip: AudioClip) {
+    fun add(clip: AudioClip): Boolean {
+        if (clip.peakLevelsCsv.isBlank() && clip.peakLevels.isNotEmpty()) {
+            clip.peakLevelsCsv = clip.peakLevels.joinToString(separator = ",")
+        }
+        if (clips[clip.id] == clip) return false
         clips[clip.id] = clip
-        com.video.engine.NativeBridge.syncAudioClips()
+        notifyChanged()
+        return true
     }
 
-    fun remove(id: Int) {
-        clips.remove(id)
-        com.video.engine.NativeBridge.syncAudioClips()
+    fun remove(id: Int): Boolean {
+        if (clips.remove(id) == null) return false
+        notifyChanged()
+        return true
+    }
+
+    fun batchUpdate(block: () -> Unit) {
+        deferredNativeSyncDepth += 1
+        try {
+            block()
+        } finally {
+            deferredNativeSyncDepth -= 1
+            if (deferredNativeSyncDepth <= 0) {
+                deferredNativeSyncDepth = 0
+                if (deferredNativeSyncPending) {
+                    deferredNativeSyncPending = false
+                    com.video.engine.NativeBridge.syncAudioClips()
+                }
+            }
+        }
     }
 
     fun splitAt(
@@ -71,18 +96,30 @@ object AudioClipStore {
             id = nextId,
             startTimeMs = splitTimeMs,
             durationMs = clip.durationMs - relativeSplit,
-            layerIndex = clip.layerIndex + 1,
+            layerIndex = clip.layerIndex,
             gainKeyframes = rightKeyframes
                 .sortedBy { it.timeMs }
                 .distinctBy { it.timeMs },
         )
         clips[left.id] = left
         clips[right.id] = right
+        notifyChanged()
         return left to right
     }
 
-    fun clear() {
+    fun clear(): Boolean {
+        if (clips.isEmpty()) return false
         clips.clear()
+        notifyChanged()
+        return true
+    }
+
+    private fun notifyChanged() {
+        if (deferredNativeSyncDepth > 0) {
+            deferredNativeSyncPending = true
+            return
+        }
+        com.video.engine.NativeBridge.syncAudioClips()
     }
 
     private fun sampleGainAt(keyframes: List<AudioGainKeyframe>, timeMs: Long): Float {

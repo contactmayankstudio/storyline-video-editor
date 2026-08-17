@@ -8,6 +8,19 @@ namespace VideoEngine {
 
 using TimeMs = int64_t;
 
+/**
+ * Shared keyframe struct for timeline-driven transform animation.
+ * Used by both TextOverlay and video/image clip layers.
+ */
+struct TransformKeyframe {
+    int64_t timeMs = 0;
+    float posX = 0.5f;      // normalized 0..1
+    float posY = 0.5f;      // normalized 0..1
+    float scale = 1.0f;
+    float rotation = 0.0f;  // degrees
+    float opacity = 1.0f;   // 0.0..1.0
+};
+
 struct TextOverlay {
     int64_t id = -1;
     std::string text;
@@ -28,14 +41,10 @@ struct TextOverlay {
     int texWidth = 0;
     int texHeight = 0;
     bool hasTexture = false;
+
     // Keyframes for timeline-driven animation (sorted by timeMs)
-    struct TextKeyframe {
-        int64_t timeMs = 0;
-        float posX = 0.5f;
-        float posY = 0.5f;
-        float scale = 1.0f;
-        float opacity = 1.0f;
-    };
+    // TextKeyframe is now an alias for the shared TransformKeyframe
+    using TextKeyframe = TransformKeyframe;
 
     std::vector<TextKeyframe> keyframes; // sorted by timeMs
 };

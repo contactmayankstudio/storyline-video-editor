@@ -30,6 +30,7 @@ class TrimPanel(
 
     fun show() {
         val dialog = BottomSheetDialog(activity)
+        dialog.setCanceledOnTouchOutside(false)
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#1E1E1E"))
@@ -174,6 +175,7 @@ class TrimPanel(
 
         dialog.setOnDismissListener { try { retriever.release() } catch (_: Exception) {} }
         dialog.setContentView(root)
+        ModernSheet.applyEditorBehavior(dialog, activity, peekRatio = 0.42f, maxRatio = 0.60f)
         dialog.show()
     }
 

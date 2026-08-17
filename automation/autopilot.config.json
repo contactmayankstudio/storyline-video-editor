@@ -1,9 +1,0 @@
-{
-  "enabled": true,
-  "prompt": "Keep Storyline improving continuously. Review the latest app, build, release portal, admin, and regression state. If crash or user-signal data is available, prioritize that. Pick one safe production fix or feature increment, verify it, push it, and continue until this autopilot is disabled.",
-  "targetBranch": "main",
-  "maxAttempts": 2,
-  "cadenceMinutes": 30,
-  "updatedAt": "2026-04-25T02:14:13.186Z",
-  "updatedBy": "sarojshahu12@gmail.com"
-}

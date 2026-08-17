@@ -20,6 +20,14 @@ enum class TrackType {
         AUDIO -> "Audio"
     }
 
+    fun timelineCode(): String = when (this) {
+        TEXT -> "T1"
+        OVERLAY -> "O1"
+        LAYER -> "L1"
+        VIDEO -> "V1"
+        AUDIO -> "A1"
+    }
+
     fun nativeRoleName(): String = when (this) {
         TEXT -> "TEXT"
         OVERLAY -> "OVERLAY"
@@ -32,16 +40,18 @@ enum class TrackType {
 
     fun usesVisualMediaImport(): Boolean = this == VIDEO || isOverlayLike()
 
-    fun defaultZOrder(clipCount: Int): Int = when (this) {
-        TEXT -> 400 + clipCount
-        OVERLAY -> 200 + clipCount
-        LAYER -> 120 + clipCount
+    fun defaultZOrder(_clipCount: Int): Int = when (this) {
+        TEXT -> 400
+        OVERLAY -> 200
+        LAYER -> 120
         AUDIO -> 0
-        VIDEO -> clipCount - 1
+        VIDEO -> 0
     }
 
     companion object {
         fun displayOrder(): List<TrackType> = listOf(TEXT, OVERLAY, LAYER, VIDEO, AUDIO)
+
+        fun timelineDisplayOrder(): List<TrackType> = listOf(TEXT, OVERLAY, LAYER, VIDEO, AUDIO)
 
         fun fromNativeRole(trackTypeRaw: String?, zOrder: Int = 0): TrackType {
             fun inferVisualTrackFromZOrder(): TrackType {

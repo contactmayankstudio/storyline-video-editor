@@ -4,6 +4,7 @@ import android.util.Log
 import android.os.SystemClock
 import com.video.engine.audio.AudioClip
 import com.video.engine.audio.AudioGainKeyframe
+import com.video.engine.effects.EffectParams
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -69,6 +70,8 @@ object NativeBridge {
         "DUPLICATE_CLIP",
         "REPLACE_CLIP_SOURCE",
         "KEYFRAME_ADD",
+        "KEYFRAME_DELETE",
+        "KEYFRAME_CLEAR",
         "REVERSE_CLIP",
         "FREEZE_FRAME",
         "TRANSITION",
@@ -253,16 +256,17 @@ object NativeBridge {
      * @return true if video loaded successfully
      */
     fun loadVideo(previewView: VideoPreviewView, videoPath: String): Boolean {
+        val resolvedVideoPath = MediaPathResolver.normalizeForFileAccess(videoPath)
         previewView.ensureNativeSurfaceBinding()
-        Log.d(TAG, "Loading video: $videoPath")
+        Log.d(TAG, "Loading video: $resolvedVideoPath")
         var result = runCatching {
-            executeCommand("LOAD_VIDEO", mapOf("videoPath" to videoPath))
+            executeCommand("LOAD_VIDEO", mapOf("videoPath" to resolvedVideoPath))
         }.getOrNull()
         if (result?.success != true) {
             Log.w(TAG, "LOAD_VIDEO command failed: ${result?.message ?: "unknown"}; forcing surface rebind")
             previewView.forceNativeSurfaceRebind()
             result = runCatching {
-                executeCommand("LOAD_VIDEO", mapOf("videoPath" to videoPath))
+                executeCommand("LOAD_VIDEO", mapOf("videoPath" to resolvedVideoPath))
             }.getOrNull()
         }
         return if (result?.success == true) {
@@ -426,6 +430,9 @@ object NativeBridge {
      */
     fun setClipEffects(previewView: VideoPreviewView, clipId: Int, brightness: Float, contrast: Float, saturation: Float) {
         Log.d(TAG, "[EffectsUI] brightness=${String.format("%.2f", brightness)} contrast=${String.format("%.2f", contrast)} saturation=${String.format("%.2f", saturation)}")
+        // Always update the live preview path directly so paused preview reflects
+        // grading changes immediately even if command execution only persists model state.
+        previewView.setClipEffects(clipId, brightness, contrast, saturation)
         val result = runCatching {
             executeCommand(
                 "SET_CLIP_EFFECTS",
@@ -438,7 +445,7 @@ object NativeBridge {
             )
         }.getOrNull()
         if (result?.success != true) {
-            previewView.setClipEffects(clipId, brightness, contrast, saturation)
+            Log.w(TAG, "[EffectsUI] SET_CLIP_EFFECTS persist command failed for clip=$clipId")
         }
         Log.d("[GPU FX]", "updated in real-time")
     }
@@ -454,9 +461,10 @@ object NativeBridge {
         trackLane: Int = 0,
         zOrder: Int = 0,
     ): Int {
+        val resolvedVideoPath = MediaPathResolver.normalizeForFileAccess(videoPath)
         previewView.ensureNativeSurfaceBinding()
         val params = mutableMapOf<String, Any>(
-            "videoPath" to videoPath,
+            "videoPath" to resolvedVideoPath,
             "trackType" to trackType,
             "trackLane" to trackLane,
             "zOrder" to zOrder,
@@ -493,8 +501,11 @@ object NativeBridge {
         targetPreviewFps: Int = 30,
         minPreviewFps: Int = 15,
     ): Boolean {
-        val lockedGhostLongEdgePx = ghostLongEdgePx.coerceAtMost(720).coerceAtLeast(240)
-        val lockedTargetPreviewFps = targetPreviewFps.coerceAtMost(DeviceDetector.getRecommendedPreviewFps()).coerceAtLeast(18)
+        val lockedGhostLongEdgePx =
+            ghostLongEdgePx
+                .coerceAtMost(DeviceDetector.getRecommendedGhostLongEdgePx())
+                .coerceAtLeast(240)
+        val lockedTargetPreviewFps = targetPreviewFps.coerceAtMost(DeviceDetector.getRecommendedPreviewFps()).coerceAtLeast(12)
         val lockedMinPreviewFps = minPreviewFps.coerceAtMost(lockedTargetPreviewFps).coerceAtLeast(12)
         val result = runCatching {
             executeCommand(
@@ -518,15 +529,27 @@ object NativeBridge {
         predictiveSampleStepMs: Int = 120,
         predictiveCacheMaxFrames: Int = 40,
     ): Boolean {
+        val lockedPredictiveLookAroundMs =
+            predictiveLookAroundMs
+                .coerceAtMost(DeviceDetector.getRecommendedPredictiveLookAroundMs())
+                .coerceAtLeast(200)
+        val lockedPredictiveSampleStepMs =
+            predictiveSampleStepMs
+                .coerceAtLeast(DeviceDetector.getRecommendedPredictiveSampleStepMs())
+                .coerceAtMost(1000)
+        val lockedPredictiveCacheMaxFrames =
+            predictiveCacheMaxFrames
+                .coerceAtMost(DeviceDetector.getRecommendedPredictiveCacheMaxFrames())
+                .coerceAtLeast(4)
         val result = runCatching {
             executeCommand(
                 action = "SET_PERFORMANCE_POLICY",
                 params = mapOf(
                     "dirtyRegionEnabled" to dirtyRegionEnabled,
                     "predictiveCachingEnabled" to predictiveCachingEnabled,
-                    "predictiveLookAroundMs" to predictiveLookAroundMs,
-                    "predictiveSampleStepMs" to predictiveSampleStepMs,
-                    "predictiveCacheMaxFrames" to predictiveCacheMaxFrames,
+                    "predictiveLookAroundMs" to lockedPredictiveLookAroundMs,
+                    "predictiveSampleStepMs" to lockedPredictiveSampleStepMs,
+                    "predictiveCacheMaxFrames" to lockedPredictiveCacheMaxFrames,
                 ),
             )
         }.getOrNull()
@@ -863,6 +886,22 @@ object NativeBridge {
         return result
     }
 
+    fun applyProfessionalEffectPreset(clipId: Int, presetName: String): EffectParams? {
+        val result = executeCommand(
+            action = "APPLY_PRO_EFFECT_PRESET",
+            params = mapOf(
+                "clipId" to clipId,
+                "preset" to presetName,
+            ),
+        )
+        if (!result.success) return null
+        return EffectParams(
+            brightness = result.data.optDouble("brightness", 0.0).toFloat(),
+            contrast = result.data.optDouble("contrast", 1.0).toFloat(),
+            saturation = result.data.optDouble("saturation", 1.0).toFloat(),
+        )
+    }
+
     fun executeCommandAsync(action: String, params: Map<String, Any> = emptyMap()) {
         if (!ensureNativeLibraryLoaded()) {
             publishTelemetry(
@@ -958,12 +997,14 @@ object NativeBridge {
     fun isNativeRuntimeReady(): Boolean = ensureNativeLibraryLoaded()
 
     fun syncAudioClips() {
-        if (!ensureNativeLibraryLoaded()) return
-        val clips = com.video.engine.audio.AudioClipStore.all()
-        Log.d(TAG, "[AudioSync] syncing ${clips.size} clips to native engine")
-        setPreviewAudioClips(
-            buildPreviewAudioClipStates(clips) { if (it.muted || !it.visible) 0f else it.gain.coerceIn(0f, 2f) }
-        )
+        val clips = com.video.engine.audio.AudioClipStore.all().toList()
+        commandExecutor.execute {
+            if (!ensureNativeLibraryLoaded()) return@execute
+            Log.d(TAG, "[AudioSync] syncing ${clips.size} clips to native engine")
+            setPreviewAudioClips(
+                buildPreviewAudioClipStates(clips) { if (it.muted || !it.visible) 0f else it.gain.coerceIn(0f, 2f) }
+            )
+        }
     }
 
     private external fun nativeExecuteCommand(action: String, payloadJson: String): String

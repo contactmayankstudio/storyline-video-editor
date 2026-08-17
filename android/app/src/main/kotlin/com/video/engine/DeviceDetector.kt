@@ -22,10 +22,10 @@ import kotlin.math.max
  */
 object DeviceDetector {
     private const val TAG = "[DeviceDetector]"
-    private const val LOW_PREVIEW_WIDTH = 640
-    private const val LOW_PREVIEW_HEIGHT = 360
-    private const val MID_PREVIEW_WIDTH = 960
-    private const val MID_PREVIEW_HEIGHT = 540
+    private const val LOW_PREVIEW_WIDTH = 854
+    private const val LOW_PREVIEW_HEIGHT = 480
+    private const val MID_PREVIEW_WIDTH = 1280
+    private const val MID_PREVIEW_HEIGHT = 720
     private const val HIGH_PREVIEW_WIDTH = 1280
     private const val HIGH_PREVIEW_HEIGHT = 720
     private const val GIGABYTE_BYTES = 1024L * 1024L * 1024L
@@ -99,16 +99,16 @@ object DeviceDetector {
             DeviceTier.LOW -> QualityProfile(
                 previewWidth = LOW_PREVIEW_WIDTH,
                 previewHeight = LOW_PREVIEW_HEIGHT,
-                previewFps = 24,
+                previewFps = 30,
                 exportBitrate = 2500,
                 maxExportFps = 30,
                 glTextureSize = 1024,
-                previewLongEdgePx = 320,
-                minPreviewFps = 15,
-                predictiveLookAroundMs = 420,
-                predictiveSampleStepMs = 150,
-                predictiveCacheMaxFrames = 8,
-                proxyLongEdgePx = 360,
+                previewLongEdgePx = 480,
+                minPreviewFps = 24,
+                predictiveLookAroundMs = 320,
+                predictiveSampleStepMs = 220,
+                predictiveCacheMaxFrames = 4,
+                proxyLongEdgePx = 540,
             )
             DeviceTier.MID -> QualityProfile(
                 previewWidth = MID_PREVIEW_WIDTH,
@@ -117,8 +117,8 @@ object DeviceDetector {
                 exportBitrate = 6000,
                 maxExportFps = 30,
                 glTextureSize = 2048,
-                previewLongEdgePx = 480,
-                minPreviewFps = 18,
+                previewLongEdgePx = 720,
+                minPreviewFps = 24,
                 predictiveLookAroundMs = 900,
                 predictiveSampleStepMs = 110,
                 predictiveCacheMaxFrames = 16,
@@ -161,7 +161,7 @@ object DeviceDetector {
             6000,
             30,
             2048,
-            480,
+            720,
             18,
             900,
             110,

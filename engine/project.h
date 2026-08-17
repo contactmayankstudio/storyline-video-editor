@@ -90,7 +90,23 @@ public:
             float smoothness = 0.10f;
             float spill = 0.05f;
         } chromaKey;
-    };
+
+        // Blend mode (Masking & Blending feature)
+        int32_t blendMode = 0;       // 0=Normal, 1=Add, 2=Screen, 3=Multiply, 4=Overlay
+        std::string maskPath;         // Optional mask image path
+        bool maskInvert = false;
+        bool maskIsLuma = false;
+
+        // Spatial transform (Keyframe Animation feature)
+        float posX = 0.5f;
+        float posY = 0.5f;
+        float scaleX = 1.0f;
+        float scaleY = 1.0f;
+        float transformRotation = 0.0f;
+
+        // Transform keyframes for clip animation (sorted by timeMs)
+        std::vector<TransformKeyframe> transformKeyframes;
+    };  // end struct ClipEntry
 
     /**
      * Text overlay entry in project (without GPU texture)

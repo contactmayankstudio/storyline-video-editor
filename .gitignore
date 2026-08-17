@@ -39,6 +39,30 @@ Makefile
 
 # Logs
 *.log
+logcat*.txt
+dumpsys.txt
+packages.txt
+pid*.txt
+
+# Local device / playback verification artifacts
+device_*.png
+smooth*.png
+smooth*.txt
+one_video_audio*.png
+one_video_audio*.txt
+play_smooth_*.txt
+*_logcat.txt
+*_gfxinfo.txt
+testlab-direct-*/
+.tmp-run-*/
+Tera_Chehra*.mp4
+tera_proxy*.mp4
+exports_*.mp4
+tmp/
+artifacts/
+.gradle-home/
+.agents/
+storyvideo/
 
 # Node / Vercel
 **/node_modules/
@@ -51,3 +75,4 @@ crash-fix-server/.env
 # AWS local deploy artifacts
 aws/control-plane/deploy-output.json
 aws/control-plane/__pycache__/
+

@@ -1,0 +1,171 @@
+timeout: 7200s
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: ${_MACHINE_TYPE}
+  dynamicSubstitutions: true
+
+substitutions:
+  _MACHINE_TYPE: E2_HIGHCPU_8
+  _BUILD_TASK: assemblePlayDebug
+  _ARTIFACTS_BUCKET: ""
+  _ARTIFACTS_PREFIX: android-builds
+  _GOOGLE_SERVICES_SECRET: ""
+  _DEBUG_KEYSTORE_SECRET: ""
+  _RELEASE_KEYSTORE_SECRET: ""
+  _RELEASE_KEYSTORE_PASSWORD_SECRET: ""
+  _RELEASE_KEY_ALIAS_SECRET: ""
+  _RELEASE_KEY_PASSWORD_SECRET: ""
+
+steps:
+  - id: prepare-build-inputs
+    name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+        set -euo pipefail
+
+        fetch_secret_file() {
+          local secret_name="$1"
+          local out_path="$2"
+          if [ -z "$secret_name" ]; then
+            return 1
+          fi
+          mkdir -p "$(dirname "$out_path")"
+          gcloud secrets versions access latest --secret="$secret_name" --out-file="$out_path"
+          chmod 600 "$out_path"
+        }
+
+        fetch_secret_text() {
+          local secret_name="$1"
+          local out_path="$2"
+          if [ -z "$secret_name" ]; then
+            return 1
+          fi
+          mkdir -p "$(dirname "$out_path")"
+          gcloud secrets versions access latest --secret="$secret_name" > "$out_path"
+          chmod 600 "$out_path"
+        }
+
+        require_file() {
+          local path="$1"
+          local label="$2"
+          if [ ! -f "$path" ]; then
+            echo "Missing ${label}: ${path}"
+            exit 1
+          fi
+        }
+
+        mkdir -p /workspace/.cloudbuild-secrets /workspace/.android
+
+        if ! fetch_secret_file "${_GOOGLE_SERVICES_SECRET}" "/workspace/.cloudbuild-secrets/google-services.json"; then
+          echo "No google-services Secret Manager override provided; falling back to source tree if present."
+        fi
+
+        if [ -f "/workspace/.cloudbuild-secrets/google-services.json" ]; then
+          cp /workspace/.cloudbuild-secrets/google-services.json /workspace/android/app/google-services.json
+        fi
+        require_file "/workspace/android/app/google-services.json" "android/app/google-services.json"
+
+        if [[ "${_BUILD_TASK}" == *Debug* ]]; then
+          if ! fetch_secret_file "${_DEBUG_KEYSTORE_SECRET}" "/workspace/.cloudbuild-secrets/debug.keystore"; then
+            echo "No debug keystore secret provided; falling back to android/debug.keystore.stable if present."
+          fi
+
+          if [ -f "/workspace/.cloudbuild-secrets/debug.keystore" ]; then
+            cp /workspace/.cloudbuild-secrets/debug.keystore /workspace/.android/debug.keystore
+          elif [ -f "/workspace/android/debug.keystore.stable" ]; then
+            cp /workspace/android/debug.keystore.stable /workspace/.android/debug.keystore
+          fi
+          require_file "/workspace/.android/debug.keystore" "debug keystore"
+        fi
+
+        if [[ "${_BUILD_TASK}" == *Release* ]]; then
+          fetch_secret_file "${_RELEASE_KEYSTORE_SECRET}" "/workspace/.cloudbuild-secrets/release.keystore"
+          fetch_secret_text "${_RELEASE_KEYSTORE_PASSWORD_SECRET}" "/workspace/.cloudbuild-secrets/release.keystore.password"
+          fetch_secret_text "${_RELEASE_KEY_ALIAS_SECRET}" "/workspace/.cloudbuild-secrets/release.key.alias"
+          fetch_secret_text "${_RELEASE_KEY_PASSWORD_SECRET}" "/workspace/.cloudbuild-secrets/release.key.password"
+
+          require_file "/workspace/.cloudbuild-secrets/release.keystore" "release keystore secret"
+          require_file "/workspace/.cloudbuild-secrets/release.keystore.password" "release keystore password secret"
+          require_file "/workspace/.cloudbuild-secrets/release.key.alias" "release key alias secret"
+          require_file "/workspace/.cloudbuild-secrets/release.key.password" "release key password secret"
+        fi
+
+  - id: build-android
+    name: ghcr.io/cirruslabs/android-sdk:34
+    entrypoint: bash
+    env:
+      - ANDROID_SDK_ROOT=/opt/android-sdk
+      - ANDROID_HOME=/opt/android-sdk
+      - JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+    args:
+      - -lc
+      - |
+        set -euo pipefail
+        cd /workspace/android
+        chmod +x gradlew
+
+        mkdir -p "$HOME/.android"
+        if [ -f "/workspace/.android/debug.keystore" ]; then
+          cp /workspace/.android/debug.keystore "$HOME/.android/debug.keystore"
+          export ANDROID_DEBUG_KEYSTORE_PATH="$HOME/.android/debug.keystore"
+        fi
+
+        if [[ "${_BUILD_TASK}" == *Release* ]]; then
+          export KEYSTORE_PATH="/workspace/.cloudbuild-secrets/release.keystore"
+          export KEYSTORE_PASSWORD="$(tr -d '\r\n' < /workspace/.cloudbuild-secrets/release.keystore.password)"
+          export KEY_ALIAS="$(tr -d '\r\n' < /workspace/.cloudbuild-secrets/release.key.alias)"
+          export KEY_PASSWORD="$(tr -d '\r\n' < /workspace/.cloudbuild-secrets/release.key.password)"
+        fi
+
+        ./gradlew "${_BUILD_TASK}" --console=plain --no-daemon --stacktrace
+
+  - id: collect-artifacts
+    name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+        set -euo pipefail
+
+        OUT_DIR="/workspace/cloudbuild-artifacts"
+        rm -rf "$OUT_DIR"
+        mkdir -p "$OUT_DIR"
+
+        mapfile -t build_outputs < <(find /workspace/android/app/build/outputs -type f \( -name '*.apk' -o -name '*.aab' \) | sort)
+        if [ "${#build_outputs[@]}" -eq 0 ]; then
+          echo "No APK/AAB outputs produced by ${_BUILD_TASK}"
+          exit 1
+        fi
+
+        for output in "${build_outputs[@]}"; do
+          rel="${output#/workspace/android/app/build/outputs/}"
+          dest="${OUT_DIR}/${rel}"
+          mkdir -p "$(dirname "$dest")"
+          cp "$output" "$dest"
+        done
+
+        (
+          cd "$OUT_DIR"
+          find . -type f \( -name '*.apk' -o -name '*.aab' \) -print0 | xargs -0 sha256sum
+        ) > "${OUT_DIR}/SHA256SUMS"
+
+        find "$OUT_DIR" -type f | sort
+
+  - id: upload-artifacts
+    name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+        set -euo pipefail
+        if [ -z "${_ARTIFACTS_BUCKET}" ]; then
+          echo "No _ARTIFACTS_BUCKET configured; skipping Cloud Storage upload."
+          exit 0
+        fi
+
+        DEST="${_ARTIFACTS_BUCKET%/}/${_ARTIFACTS_PREFIX}/${BUILD_ID}"
+        gsutil -m cp -r /workspace/cloudbuild-artifacts/* "${DEST}/"
+        echo "Uploaded Cloud Build artifacts to ${DEST}/"

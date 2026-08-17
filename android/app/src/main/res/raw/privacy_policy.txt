@@ -1,10 +1,11 @@
 Privacy Policy for Storyline
 
-Last updated: 2026-02-07
+Last updated: 2026-06-15
 
 What we collect
-- Anonymous analytics: event names and simple parameters (feature usage, timestamps).
-- Crash reports: stack traces and device info to diagnose crashes (may include OS version and device model).
+- Anonymous analytics: event names and simple parameters such as feature usage and timestamps.
+- Crash reports: stack traces and device information such as OS version, app version, and device model.
+- Advertising data: Google AdMob may process advertising identifiers, approximate location, device information, ad interactions, and diagnostics to provide, limit, measure, and improve ads.
 
 What we do NOT collect
 - We do NOT collect your name, email, contacts, photos, videos, or other personal data for upload.
@@ -16,14 +17,17 @@ Local processing
 How data is used
 - Analytics help us improve the app and understand feature usage.
 - Crash logs help us fix stability issues.
-- Data is stored and processed by Firebase (Analytics & Crashlytics) under their terms.
+- Ads support the free version of the app and may be personalized or non-personalized depending on your device and Google settings.
+- Data is processed by Firebase (Analytics and Crashlytics) and Google AdMob under their terms.
 
 Sharing and selling
-- We do NOT sell your data. We do not share personal data with third parties for advertising.
+- We do NOT sell your data.
+- Google AdMob receives limited advertising and device data as described above so ads can be served, measured, and protected from fraud.
 
 GDPR and privacy rights
-- We only collect minimal anonymous analytics and crash logs. If you are in the EU and want data removed, contact the developer and we will assist.
-- Firebase may collect identifiers; review Firebase privacy docs for details.
+- We collect minimal analytics, crash logs, and ad-related data needed to operate the app and ads.
+- You can control ad personalization from Android or Google ad settings where available.
+- If you are in the EU, UK, or another region with privacy rights and want help with access or deletion requests, contact the developer through the app store listing.
 
 Contact
-Developer contact: replace-with-developer-email@example.com
+Developer contact: use the support contact shown on the app store listing.

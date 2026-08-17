@@ -180,6 +180,7 @@ bool Engine::playFromPreviewMs(int64_t timeMs) {
         boostPreviewThreadPriority();
         ALOGI_ENGINE("Native render thread started.");
         while (m_previewRenderRunning.load()) {
+            const auto frameStartedAt = std::chrono::steady_clock::now();
             if (!m_previewController) {
                 std::this_thread::sleep_for(8ms);
                 continue;
@@ -198,10 +199,18 @@ bool Engine::playFromPreviewMs(int64_t timeMs) {
                 m_audioClockCallback(ptsUs);
             }
 
-            const int64_t sleepMs = std::max<int64_t>(
+            const int64_t targetFrameMs = std::max<int64_t>(
                 1,
                 m_previewController->preferredRenderSleepMs());
-            std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
+            const auto frameFinishedAt = std::chrono::steady_clock::now();
+            const int64_t renderCostMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                frameFinishedAt - frameStartedAt).count();
+            const int64_t sleepMs = std::max<int64_t>(0, targetFrameMs - renderCostMs);
+            if (sleepMs > 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
+            } else {
+                std::this_thread::yield();
+            }
         }
         ALOGI_ENGINE("Native render thread exiting.");
     });

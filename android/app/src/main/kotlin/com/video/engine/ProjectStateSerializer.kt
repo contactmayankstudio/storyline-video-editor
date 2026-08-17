@@ -1,6 +1,7 @@
 package com.video.engine
 
 import com.video.engine.audio.AudioClipStore
+import com.video.engine.effects.EffectParams
 import com.video.engine.overlay.OverlayStore
 import com.video.engine.overlay.TextOverlay
 import com.video.engine.pro.model.TrackType
@@ -9,6 +10,7 @@ import com.video.engine.stickers.StickerClipStore
 import com.video.engine.timeline.MultiClipTimeline
 import com.video.engine.timeline.TimelineManager
 import java.io.File
+import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -21,6 +23,20 @@ data class LoadedUiState(
     val timelineZoomPxPerSecond: Float?,
     val trackVisibilityByType: Map<TrackType, Boolean>,
     val trackLockedByType: Map<TrackType, Boolean>,
+)
+
+data class NativeClipUiState(
+    val id: Int,
+    val trackType: TrackType,
+    val trackLane: Int,
+    val zOrder: Int,
+    val startTimeMs: Long,
+    val durationMs: Long,
+    val sourceInMs: Long,
+    val sourceOutMs: Long,
+    val sourcePath: String,
+    val sourceDurationMs: Long = 0L,
+    val effectParams: EffectParams = EffectParams(),
 )
 
 class ProjectStateSerializer(
@@ -39,29 +55,74 @@ class ProjectStateSerializer(
     private val trackLockedProvider: () -> Map<TrackType, Boolean>,
     private val onAddOverlayView: (TextOverlay) -> Unit,
     private val onAddStickerOverlayView: (StickerClip) -> Unit,
+    private val nativeClipStateProvider: () -> List<NativeClipUiState>,
+    private val onRestoreNativeClipState: (List<NativeClipUiState>) -> Unit,
 ) {
     fun saveUiState(projectFile: File, projectName: String) {
         val timelineManager = timelineManagerProvider()
+        val textOverlays = allTextOverlaysProvider()
+        val stickers = StickerClipStore.all()
+        val nativeClipStates = mergeNativeClipStates(
+            primary = nativeClipStateProvider(),
+            fallback = parseProjectFileNativeClipStates(projectFile),
+        )
+        val nativeClipsById = nativeClipStates.associateBy { it.id }
         val root = JSONObject()
         root.put("projectName", projectName)
-        root.put("nextAudioClipId", nextAudioClipIdProvider())
+        root.put("nextAudioClipId", maxOf(nextAudioClipIdProvider(), (AudioClipStore.all().maxOfOrNull { it.id } ?: 0) + 1))
         root.put("selectedAspectRatioIndex", selectedAspectRatioIndexProvider())
         root.put("playheadTimeMs", playheadTimeMsProvider())
         root.put("timelineZoomPxPerSecond", timelineZoomPxPerSecondProvider().toDouble())
 
         val clips = JSONArray()
         timeline.getClips().forEach { clip ->
+            val nativeClip = nativeClipsById[clip.id]
             clips.put(
                 JSONObject()
                     .put("id", clip.id)
-                    .put("layerIndex", timelineManager?.getClipLayerIndex(clip.id) ?: 0)
+                    .put("layerIndex", nativeClip?.zOrder ?: timelineManager?.getClipLayerIndex(clip.id) ?: 0)
+                    .put("trackType", nativeClip?.trackType?.name.orEmpty())
+                    .put("trackLane", nativeClip?.trackLane ?: 0)
+                    .put("zOrder", nativeClip?.zOrder ?: timelineManager?.getClipLayerIndex(clip.id) ?: 0)
+                    .put("startTimeMs", nativeClip?.startTimeMs ?: 0L)
+                    .put("durationMs", nativeClip?.durationMs ?: clip.durationMs)
+                    .put("sourceInMs", nativeClip?.sourceInMs ?: 0L)
+                    .put("sourceOutMs", nativeClip?.sourceOutMs ?: clip.durationMs)
+                    .put("sourceDurationMs", nativeClip?.sourceDurationMs ?: 0L)
+                    .put("sourcePath", nativeClip?.sourcePath.orEmpty())
+                    .put("brightness", nativeClip?.effectParams?.brightness?.toDouble() ?: 0.0)
+                    .put("contrast", nativeClip?.effectParams?.contrast?.toDouble() ?: 1.0)
+                    .put("saturation", nativeClip?.effectParams?.saturation?.toDouble() ?: 1.0)
                     .put("visible", timelineManager?.getClipVisibility(clip.id) ?: true),
             )
         }
         root.put("clips", clips)
+        root.put(
+            "nativeClips",
+            JSONArray().apply {
+                nativeClipStates.forEach { state ->
+                    put(
+                        JSONObject()
+                            .put("id", state.id)
+                            .put("trackType", state.trackType.name)
+                            .put("trackLane", state.trackLane)
+                            .put("zOrder", state.zOrder)
+                            .put("startTimeMs", state.startTimeMs)
+                            .put("durationMs", state.durationMs)
+                            .put("sourceInMs", state.sourceInMs)
+                            .put("sourceOutMs", state.sourceOutMs)
+                            .put("sourceDurationMs", state.sourceDurationMs)
+                            .put("sourcePath", state.sourcePath)
+                            .put("brightness", state.effectParams.brightness.toDouble())
+                            .put("contrast", state.effectParams.contrast.toDouble())
+                            .put("saturation", state.effectParams.saturation.toDouble()),
+                    )
+                }
+            },
+        )
 
         val texts = JSONArray()
-        allTextOverlaysProvider().forEach { overlay ->
+        textOverlays.forEach { overlay ->
             texts.put(
                 JSONObject()
                     .put("id", overlay.id)
@@ -74,19 +135,37 @@ class ProjectStateSerializer(
                     .put("rotation", overlay.rotation.toDouble())
                     .put("opacity", overlay.opacity.toDouble())
                     .put("color", overlay.color)
+                    .put("backgroundColor", overlay.backgroundColor)
+                    .put("strokeColor", overlay.strokeColor)
+                    .put("strokeWidth", overlay.strokeWidth.toDouble())
+                    .put("depthColor", overlay.depthColor)
+                    .put("depthPx", overlay.depthPx.toDouble())
+                    .put("shadowEnabled", overlay.shadowEnabled)
+                    .put("shadowColor", overlay.shadowColor)
+                    .put("shadowBlur", overlay.shadowBlur.toDouble())
+                    .put("shadowOffsetX", overlay.shadowOffsetX.toDouble())
+                    .put("shadowOffsetY", overlay.shadowOffsetY.toDouble())
+                    .put("gradientEnabled", overlay.gradientEnabled)
+                    .put("gradientStartColor", overlay.gradientStartColor)
+                    .put("gradientEndColor", overlay.gradientEndColor)
+                    .put("backgroundPadding", overlay.backgroundPadding.toDouble())
+                    .put("backgroundCornerRadius", overlay.backgroundCornerRadius.toDouble())
                     .put("fontSize", overlay.fontSize.toDouble())
                     .put("fontName", overlay.fontName)
                     .put("bold", overlay.bold)
                     .put("italic", overlay.italic)
+                    .put("underline", overlay.underline)
+                    .put("allCaps", overlay.allCaps)
                     .put("layerIndex", overlay.layerIndex)
-                    .put("visible", overlay.visible),
+                    .put("visible", overlay.visible)
+                    .put("aiTrackKeyframes", serializeAiPoseKeyframes(overlay.aiTrackKeyframes)),
             )
         }
         root.put("texts", texts)
 
-        val stickers = JSONArray()
-        StickerClipStore.all().forEach { sticker ->
-            stickers.put(
+        val stickersJson = JSONArray()
+        stickers.forEach { sticker ->
+            stickersJson.put(
                 JSONObject()
                     .put("id", sticker.id)
                     .put("type", sticker.type)
@@ -99,12 +178,13 @@ class ProjectStateSerializer(
                     .put("scale", sticker.scale.toDouble())
                     .put("rotation", sticker.rotation.toDouble())
                     .put("layerIndex", sticker.layerIndex)
-                    .put("visible", sticker.visible),
+                    .put("visible", sticker.visible)
+                    .put("aiTrackKeyframes", serializeAiPoseKeyframes(sticker.aiTrackKeyframes)),
             )
         }
-        root.put("stickers", stickers)
-        root.put("nextTextOverlayId", nextTextOverlayIdProvider())
-        root.put("nextStickerId", nextStickerIdProvider())
+        root.put("stickers", stickersJson)
+        root.put("nextTextOverlayId", maxOf(nextTextOverlayIdProvider(), (textOverlays.maxOfOrNull { it.id } ?: 0) + 1))
+        root.put("nextStickerId", maxOf(nextStickerIdProvider(), (stickers.maxOfOrNull { it.id } ?: 0) + 1))
         root.put(
             "trackStates",
             JSONArray().apply {
@@ -163,6 +243,13 @@ class ProjectStateSerializer(
         NativeBridge.clearNativeCommandTelemetry()
 
         val clipState = root.optJSONArray("clips") ?: JSONArray()
+        val restoredNativeClipState =
+            parseNativeClipStates(root.optJSONArray("nativeClips"))
+                .ifEmpty { parseNativeClipStates(clipState) }
+                .ifEmpty { parseProjectFileNativeClipStates(projectFile) }
+        if (restoredNativeClipState.isNotEmpty()) {
+            onRestoreNativeClipState(restoredNativeClipState)
+        }
         for (i in 0 until clipState.length()) {
             val item = clipState.optJSONObject(i) ?: continue
             val clipId = item.optInt("id", -1)
@@ -186,16 +273,35 @@ class ProjectStateSerializer(
                 rotation = item.optDouble("rotation", 0.0).toFloat(),
                 opacity = item.optDouble("opacity", 1.0).toFloat(),
                 color = item.optInt("color", 0xFFFFFFFF.toInt()),
+                backgroundColor = item.optInt("backgroundColor", 0x00000000),
+                strokeColor = item.optInt("strokeColor", 0xFF000000.toInt()),
+                strokeWidth = item.optDouble("strokeWidth", 0.0).toFloat(),
+                depthColor = item.optInt("depthColor", 0x99000000.toInt()),
+                depthPx = item.optDouble("depthPx", 0.0).toFloat(),
+                shadowEnabled = item.optBoolean("shadowEnabled", true),
+                shadowColor = item.optInt("shadowColor", 0x99000000.toInt()),
+                shadowBlur = item.optDouble("shadowBlur", 4.0).toFloat(),
+                shadowOffsetX = item.optDouble("shadowOffsetX", 0.0).toFloat(),
+                shadowOffsetY = item.optDouble("shadowOffsetY", 2.0).toFloat(),
+                gradientEnabled = item.optBoolean("gradientEnabled", false),
+                gradientStartColor = item.optInt("gradientStartColor", item.optInt("color", 0xFFFFFFFF.toInt())),
+                gradientEndColor = item.optInt("gradientEndColor", 0xFF35C7FF.toInt()),
+                backgroundPadding = item.optDouble("backgroundPadding", 0.0).toFloat(),
+                backgroundCornerRadius = item.optDouble("backgroundCornerRadius", 0.0).toFloat(),
                 fontSize = item.optDouble("fontSize", 36.0).toFloat(),
                 fontName = item.optString("fontName").takeIf { it.isNotBlank() && it != "null" },
                 bold = item.optBoolean("bold", false),
                 italic = item.optBoolean("italic", false),
+                underline = item.optBoolean("underline", false),
+                allCaps = item.optBoolean("allCaps", false),
                 layerIndex = item.optInt("layerIndex", editorState?.nextCompositeLayerIndex() ?: 0),
                 visible = item.optBoolean("visible", true),
+                aiTrackKeyframes = parseAiPoseKeyframes(item.optJSONArray("aiTrackKeyframes")),
             )
             OverlayStore.put(overlay)
             onAddOverlayView(overlay)
             previewView?.let { pv ->
+                NativeBridge.addTextOverlay(pv, overlay)
                 NativeBridge.updateTextOverlay(pv, overlay)
                 pv.updateTextOverlayOpacity(overlay.id, overlay.opacity, 0, 0)
                 NativeBridge.setTextOverlayBitmap(pv, overlay)
@@ -218,6 +324,7 @@ class ProjectStateSerializer(
                 rotation = item.optDouble("rotation", 0.0).toFloat(),
                 layerIndex = item.optInt("layerIndex", editorState?.nextCompositeLayerIndex() ?: 0),
                 visible = item.optBoolean("visible", true),
+                aiTrackKeyframes = parseAiPoseKeyframes(item.optJSONArray("aiTrackKeyframes")),
             )
             StickerClipStore.add(clip)
             onAddStickerOverlayView(clip)
@@ -232,10 +339,22 @@ class ProjectStateSerializer(
         }
 
         editorState?.normalizeAllLayerIndices()
+        val restoredNextTextOverlayId = root.optInt(
+            "nextTextOverlayId",
+            (allTextOverlaysProvider().maxOfOrNull { it.id } ?: 0) + 1,
+        )
+        val restoredNextStickerId = root.optInt(
+            "nextStickerId",
+            (StickerClipStore.all().maxOfOrNull { it.id } ?: 0) + 1,
+        )
+        val restoredNextAudioClipId = root.optInt(
+            "nextAudioClipId",
+            (AudioClipStore.all().maxOfOrNull { it.id } ?: 0) + 1,
+        )
         return LoadedUiState(
-            nextTextOverlayId = root.optInt("nextTextOverlayId", (allTextOverlaysProvider().maxOfOrNull { it.id } ?: 0) + 1),
-            nextStickerId = root.optInt("nextStickerId", (StickerClipStore.all().maxOfOrNull { it.id } ?: 0) + 1),
-            nextAudioClipId = root.optInt("nextAudioClipId", (AudioClipStore.all().maxOfOrNull { it.id } ?: 0) + 1),
+            nextTextOverlayId = maxOf(restoredNextTextOverlayId, (allTextOverlaysProvider().maxOfOrNull { it.id } ?: 0) + 1),
+            nextStickerId = maxOf(restoredNextStickerId, (StickerClipStore.all().maxOfOrNull { it.id } ?: 0) + 1),
+            nextAudioClipId = maxOf(restoredNextAudioClipId, (AudioClipStore.all().maxOfOrNull { it.id } ?: 0) + 1),
             selectedAspectRatioIndex = root.optInt("selectedAspectRatioIndex", -1).takeIf { it >= 0 },
             playheadTimeMs = root.optLong("playheadTimeMs", -1L).takeIf { it >= 0L },
             timelineZoomPxPerSecond = root.optDouble("timelineZoomPxPerSecond", -1.0)
@@ -248,5 +367,144 @@ class ProjectStateSerializer(
 
     private fun sidecarFileFor(projectFile: File): File {
         return File(projectFile.parentFile, "${projectFile.nameWithoutExtension}.ui.json")
+    }
+
+    private fun parseNativeClipStates(array: JSONArray?): List<NativeClipUiState> {
+        if (array == null) return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                parseNativeClipState(item)?.let(::add)
+            }
+        }
+    }
+
+    private fun parseProjectFileNativeClipStates(projectFile: File): List<NativeClipUiState> {
+        if (!projectFile.isFile || projectFile.length() <= 0L) return emptyList()
+        return runCatching {
+            parseNativeClipStates(JSONObject(projectFile.readText()).optJSONArray("clips"))
+        }.getOrElse {
+            emptyList()
+        }
+    }
+
+    private fun mergeNativeClipStates(
+        primary: List<NativeClipUiState>,
+        fallback: List<NativeClipUiState>,
+    ): List<NativeClipUiState> {
+        if (primary.isEmpty()) return fallback
+        if (fallback.isEmpty()) return primary
+        val primaryIds = primary.mapTo(linkedSetOf()) { it.id }
+        return primary + fallback.filterNot { it.id in primaryIds }
+    }
+
+    private fun parseNativeClipState(item: JSONObject): NativeClipUiState? {
+        val clipId =
+            when {
+                item.has("id") -> item.optInt("id", -1)
+                item.has("clipId") -> item.optInt("clipId", -1)
+                else -> -1
+            }
+        if (clipId <= 0) return null
+        val zOrder =
+            when {
+                item.has("zOrder") -> item.optInt("zOrder", 0)
+                item.has("layerIndex") -> item.optInt("layerIndex", 0)
+                else -> 0
+            }
+        val trackTypeRaw = item.optString("trackType", "")
+        val sourcePath =
+            item.optString("sourcePath")
+                .ifBlank { item.optString("originalSourcePath") }
+                .ifBlank { item.optString("mediaPath") }
+        val normalizedTrackTypeRaw = trackTypeRaw.trim().uppercase(Locale.US)
+        val parsedTrackType = runCatching { TrackType.valueOf(normalizedTrackTypeRaw) }.getOrNull()
+        val resolvedTrackType =
+            when {
+                parsedTrackType != null -> parsedTrackType
+                normalizedTrackTypeRaw in setOf("MAINVIDEO", "MAIN_VIDEO") -> TrackType.VIDEO
+                else -> inferSavedClipTrackType(trackTypeRaw, zOrder, sourcePath)
+            }
+        val trackType =
+            when {
+                resolvedTrackType == TrackType.VIDEO && isAudioLikeSourcePath(sourcePath) -> TrackType.AUDIO
+                else -> resolvedTrackType
+            }
+        val durationMs = item.optLong("durationMs", 1L).coerceAtLeast(1L)
+        val sourceInMs = item.optLong("sourceInMs", 0L).coerceAtLeast(0L)
+        val sourceOutMs =
+            item.optLong("sourceOutMs", sourceInMs + durationMs)
+                .coerceAtLeast(sourceInMs + 1L)
+        return NativeClipUiState(
+            id = clipId,
+            trackType = trackType,
+            trackLane = item.optInt("trackLane", 0).coerceAtLeast(0),
+            zOrder = zOrder,
+            startTimeMs = item.optLong("startTimeMs", 0L).coerceAtLeast(0L),
+            durationMs = durationMs,
+            sourceInMs = sourceInMs,
+            sourceOutMs = sourceOutMs,
+            sourcePath = sourcePath,
+            sourceDurationMs = item.optLong("sourceDurationMs", 0L).coerceAtLeast(0L),
+            effectParams = EffectParams(
+                brightness = item.optDouble("brightness", 0.0).toFloat().coerceIn(-1f, 1f),
+                contrast = item.optDouble("contrast", 1.0).toFloat().coerceIn(0f, 2f),
+                saturation = item.optDouble("saturation", 1.0).toFloat().coerceIn(0f, 2f),
+            ),
+        )
+    }
+
+    private fun inferSavedClipTrackType(trackTypeRaw: String?, zOrder: Int, sourcePath: String): TrackType {
+        val inferred = TrackType.fromNativeRole(trackTypeRaw, zOrder)
+        if (inferred == TrackType.VIDEO && isAudioLikeSourcePath(sourcePath)) {
+            return TrackType.AUDIO
+        }
+        if (inferred == TrackType.VIDEO && isImageLikeSourcePath(sourcePath)) {
+            return TrackType.LAYER
+        }
+        return inferred
+    }
+
+    private fun isAudioLikeSourcePath(path: String): Boolean {
+        val extension = path.substringAfterLast('.', "").lowercase(Locale.US)
+        return extension in setOf("aac", "amr", "flac", "m4a", "mp3", "ogg", "opus", "wav")
+    }
+
+    private fun isImageLikeSourcePath(path: String): Boolean {
+        val extension = path.substringAfterLast('.', "").lowercase(Locale.US)
+        return extension in setOf("avif", "bmp", "gif", "heic", "heif", "jpeg", "jpg", "png", "webp")
+    }
+
+    private fun serializeAiPoseKeyframes(keyframes: List<AiPoseKeyframe>): JSONArray {
+        return JSONArray().apply {
+            keyframes.forEach { keyframe ->
+                put(
+                    JSONObject()
+                        .put("timeMs", keyframe.timeMs)
+                        .put("x", keyframe.x.toDouble())
+                        .put("y", keyframe.y.toDouble())
+                        .put("scale", keyframe.scale.toDouble())
+                        .put("rotation", keyframe.rotation.toDouble())
+                        .put("opacity", keyframe.opacity.toDouble()),
+                )
+            }
+        }
+    }
+
+    private fun parseAiPoseKeyframes(array: JSONArray?): List<AiPoseKeyframe> {
+        if (array == null) return emptyList()
+        val parsed = mutableListOf<AiPoseKeyframe>()
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            parsed += AiPoseKeyframe(
+                timeMs = item.optLong("timeMs", 0L).coerceAtLeast(0L),
+                x = item.optDouble("x", 0.5).toFloat().coerceIn(0f, 1f),
+                y = item.optDouble("y", 0.5).toFloat().coerceIn(0f, 1f),
+                scale = item.optDouble("scale", 1.0).toFloat().coerceIn(0.1f, 10f),
+                rotation = item.optDouble("rotation", 0.0).toFloat(),
+                opacity = item.optDouble("opacity", 1.0).toFloat().coerceIn(0f, 1f),
+            )
+        }
+        return parsed.sortedBy { it.timeMs }
     }
 }

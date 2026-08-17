@@ -32,6 +32,7 @@ import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * Optimized 4-track synchronized timeline.
@@ -95,6 +96,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
         fun onZoomChanged(pxPerSecond: Float)
         fun onClipSelected(clipId: String?)
         fun onTrackImportRequested(trackType: TrackType)
+        fun onTrackSelected(trackType: TrackType) {}
         fun onTrackVisibilityChanged(trackType: TrackType, isVisible: Boolean)
         fun onTrackLockedChanged(trackType: TrackType, isLocked: Boolean)
     }
@@ -111,6 +113,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
     private val choreographer = Choreographer.getInstance()
 
     private var activeSnapTimeMs: Long? = null
+    private var selectedTrackType: TrackType? = null
     private val snapGuidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#FFD700")
         strokeWidth = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1.5f, context.resources.displayMetrics)
@@ -118,6 +121,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
     }
     private var lastHapticSnapTimeMs: Long? = null
     private var listener: Listener? = null
+    private var lastSubmittedTrackStates: List<TrackState> = emptyList()
     private var scrollOffsetPx = 0
     private var scrollOffsetPxFloat = 0f
     private var contentInsetPx = 0
@@ -188,11 +192,27 @@ class MultiTrackTimelineView @JvmOverloads constructor(
         this.listener = listener
     }
 
-    fun submitTracks(trackStates: List<TrackState>) {
-        TrackType.displayOrder().forEach { type ->
-            rowViews[type]?.submitTrack(trackStates.firstOrNull { it.type == type })
-            rowViews[type]?.setPlayheadTimeMs(currentTimeMs())
+    fun setSelectedTrackType(trackType: TrackType?) {
+        if (selectedTrackType == trackType) return
+        selectedTrackType = trackType
+        rowViews.forEach { (type, row) ->
+            row.setTrackSelected(type == trackType)
         }
+    }
+
+    fun submitTracks(trackStates: List<TrackState>) {
+        val sameTracks = lastSubmittedTrackStates == trackStates
+        TrackType.timelineDisplayOrder().forEach { type ->
+            if (!sameTracks) {
+                rowViews[type]?.submitTrack(trackStates.firstOrNull { it.type == type })
+            }
+            rowViews[type]?.setPlayheadTimeMs(currentTimeMs())
+            rowViews[type]?.setTrackSelected(type == selectedTrackType)
+        }
+        if (sameTracks) {
+            return
+        }
+        lastSubmittedTrackStates = trackStates
         rulerHeader.invalidate()
         syncRowsTo(scrollOffsetPxFloat)
     }
@@ -373,7 +393,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                 dp(RULER_HEIGHT_DP),
             ),
         )
-        TrackType.displayOrder().forEach { type ->
+        TrackType.timelineDisplayOrder().forEach { type ->
             val row = TrackRowView(context, type)
             row.setMetrics(metrics)
             row.setSharedPool(recycledViewPool)
@@ -409,6 +429,10 @@ class MultiTrackTimelineView @JvmOverloads constructor(
             }
             row.setOnTrackImportRequested { trackType ->
                 listener?.onTrackImportRequested(trackType)
+            }
+            row.setOnTrackSelected { trackType ->
+                setSelectedTrackType(trackType)
+                listener?.onTrackSelected(trackType)
             }
             row.setOnTrackLockedChanged { trackType, isLocked ->
                 listener?.onTrackLockedChanged(trackType, isLocked)
@@ -723,13 +747,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
             setTextColor(Color.parseColor("#C8D8E6"))
             gravity = Gravity.CENTER_VERTICAL
             textSize = 8f
-            text = when (trackType) {
-                TrackType.VIDEO -> "VID"
-                TrackType.OVERLAY -> "OVR"
-                TrackType.LAYER -> "LYR"
-                TrackType.TEXT -> "TXT"
-                TrackType.AUDIO -> "AUD"
-            }
+            text = trackType.timelineCode()
             setPadding(dp(4), 0, 0, 0)
             maxLines = 1
         }
@@ -753,11 +771,18 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                 setColor(Color.parseColor("#2E86C1"))
                 setStroke(dp(1), Color.parseColor("#8DD4FF"))
             }
-            setPadding(dp(3), dp(3), dp(3), dp(3))
+                setPadding(dp(3), dp(3), dp(3), dp(3))
+        }
+        private val headerBackground = GradientDrawable().apply {
+            cornerRadius = dp(10).toFloat()
+            setColor(Color.parseColor("#171717"))
+            setStroke(dp(1), Color.parseColor("#2C3542"))
         }
         private val headerContainer = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            background = headerBackground
+            setPadding(dp(5), dp(3), dp(5), dp(3))
         }
         private val recyclerView = RecyclerView(context)
         private val layoutManager = LinearLayoutManager(context, RecyclerView.HORIZONTAL, false)
@@ -770,12 +795,15 @@ class MultiTrackTimelineView @JvmOverloads constructor(
         private var onClipUpdateCommitted: ((ClipUpdate) -> Unit)? = null
         private var onClipSelected: ((String?) -> Unit)? = null
         private var onTrackImportRequested: ((TrackType) -> Unit)? = null
+        private var onTrackSelected: ((TrackType) -> Unit)? = null
         private var onTrackVisibilityChanged: ((TrackType, Boolean) -> Unit)? = null
         private var onTrackLockedChanged: ((TrackType, Boolean) -> Unit)? = null
         private var trackVisible = true
         private var trackLocked = false
+        private var trackSelected = false
         private var playheadTimeMs = 0L
         private var transientZoomActive = false
+        private var submittedTrackState: TrackState? = null
 
         init {
             orientation = HORIZONTAL
@@ -818,6 +846,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                         // Only deselect on intentional tap on empty area (no scroll happened)
                         if (!moved && !didScroll && tappedClip == null) {
                             onClipSelected?.invoke(null)
+                            onTrackSelected?.invoke(trackType)
                             return@setOnTouchListener true
                         }
                     }
@@ -828,7 +857,11 @@ class MultiTrackTimelineView @JvmOverloads constructor(
             headerContainer.addView(importButton, LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(3) })
             headerContainer.addView(labelView, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
             importButton.setOnClickListener {
+                onTrackSelected?.invoke(trackType)
                 onTrackImportRequested?.invoke(trackType)
+            }
+            headerContainer.setOnClickListener {
+                onTrackSelected?.invoke(trackType)
             }
             visibilityToggle.setOnClickListener {
                 trackVisible = !trackVisible
@@ -892,11 +925,25 @@ class MultiTrackTimelineView @JvmOverloads constructor(
             onTrackImportRequested = listener
         }
 
+        fun setOnTrackSelected(listener: (TrackType) -> Unit) {
+            onTrackSelected = listener
+        }
+
         fun setOnTrackLockedChanged(listener: (TrackType, Boolean) -> Unit) {
             onTrackLockedChanged = listener
         }
 
+        fun setTrackSelected(selected: Boolean) {
+            if (trackSelected == selected) return
+            trackSelected = selected
+            updateHeaderState()
+        }
+
         fun submitTrack(track: TrackState?) {
+            if (submittedTrackState == track) {
+                return
+            }
+            submittedTrackState = track
             trackVisible = track?.isVisible ?: true
             trackLocked = track?.isLocked ?: false
             updateHeaderState()
@@ -984,7 +1031,12 @@ class MultiTrackTimelineView @JvmOverloads constructor(
 
         private fun updateHeaderState() {
             alpha = if (trackVisible) 1f else 0.45f
-            labelView.setTextColor(Color.WHITE)
+            labelView.setTextColor(if (trackSelected) Color.parseColor("#BEEBFF") else Color.WHITE)
+            headerBackground.setColor(if (trackSelected) Color.parseColor("#173247") else Color.parseColor("#171717"))
+            headerBackground.setStroke(
+                dp(if (trackSelected) 2 else 1),
+                if (trackSelected) Color.parseColor("#56C7FF") else Color.parseColor("#2C3542"),
+            )
             adapter.isTrackLocked = trackLocked
         }
 
@@ -1340,7 +1392,11 @@ class MultiTrackTimelineView @JvmOverloads constructor(
             var downRawX = 0f
             var downRawY = 0f
             var lastRawX = 0f
+            var latestRawX = 0f
+            var latestRawY = 0f
             var lastPreviewKey = ""
+            var edgeAutoScrollAccumPx = 0f
+            var edgeAutoScrollRunning = false
             val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
             val longPressTimeoutMs = ViewConfiguration.getLongPressTimeout().toLong()
             // Keep trim hit-zone narrow so casual timeline scroll does not become trim.
@@ -1350,6 +1406,95 @@ class MultiTrackTimelineView @JvmOverloads constructor(
             var pendingTrimKind: ClipGestureKind? = null
             var moveLongPressArmed = false
             val snapTargetsMs = buildSnapTargets(clip, allClips, playheadTimeMs)
+            var edgeAutoScrollRunnable: Runnable? = null
+            fun stopEdgeAutoScroll() {
+                edgeAutoScrollRunning = false
+                edgeAutoScrollRunnable?.let(::removeCallbacks)
+            }
+            fun dispatchPreviewUpdate(deltaPx: Float, deltaYPx: Float) {
+                val previewUpdate = when (activeGestureKind ?: ClipGestureKind.MOVE) {
+                    ClipGestureKind.MOVE -> buildMoveUpdate(clip, deltaPx, deltaYPx, snapTargetsMs)
+                    ClipGestureKind.TRIM_START -> buildTrimStartUpdate(clip, deltaPx, snapTargetsMs)
+                    ClipGestureKind.TRIM_END -> buildTrimEndUpdate(clip, deltaPx, snapTargetsMs)
+                }
+                applyPreviewUpdate(clip, previewUpdate, previewWidthMinPx)
+                val previewKey = "${previewUpdate.startTimeMs}:${previewUpdate.durationMs}:${previewUpdate.sourceInMs}:${previewUpdate.sourceOutMs}"
+                if (previewKey != lastPreviewKey) {
+                    onClipUpdatePreview?.invoke(previewUpdate)
+                    lastPreviewKey = previewKey
+                }
+                activePreviewUpdate = previewUpdate
+                alpha = 0.92f
+            }
+            edgeAutoScrollRunnable = object : Runnable {
+                override fun run() {
+                    if (!gestureStarted || activeGestureKind == null) {
+                        edgeAutoScrollRunning = false
+                        return
+                    }
+                    val recyclerView = findParentRecyclerView() ?: run {
+                        edgeAutoScrollRunning = false
+                        return
+                    }
+                    val location = IntArray(2)
+                    recyclerView.getLocationOnScreen(location)
+                    val localX = (latestRawX - location[0]).coerceIn(0f, recyclerView.width.toFloat().coerceAtLeast(0f))
+                    val zonePx = dpPx(48).toFloat()
+                    val maxStepPx = dpPx(22).toFloat()
+                    val requestedStepPx =
+                        when {
+                            localX < zonePx -> {
+                                val proximity = ((zonePx - localX) / zonePx).coerceIn(0f, 1f)
+                                -(maxStepPx * proximity)
+                            }
+                            localX > recyclerView.width - zonePx -> {
+                                val proximity = ((localX - (recyclerView.width - zonePx)) / zonePx).coerceIn(0f, 1f)
+                                maxStepPx * proximity
+                            }
+                            else -> 0f
+                        }
+                    if (kotlin.math.abs(requestedStepPx) < 0.5f) {
+                        edgeAutoScrollRunning = false
+                        return
+                    }
+                    val beforeOffset = recyclerView.computeHorizontalScrollOffset()
+                    recyclerView.scrollBy(requestedStepPx.roundToInt(), 0)
+                    val consumedPx = (recyclerView.computeHorizontalScrollOffset() - beforeOffset).toFloat()
+                    if (kotlin.math.abs(consumedPx) < 0.5f) {
+                        edgeAutoScrollRunning = false
+                        return
+                    }
+                    edgeAutoScrollAccumPx += consumedPx
+                    dispatchPreviewUpdate(
+                        deltaPx = (latestRawX - downRawX) + edgeAutoScrollAccumPx,
+                        deltaYPx = latestRawY - downRawY,
+                    )
+                    postOnAnimation(this)
+                }
+            }
+            fun updateEdgeAutoScroll() {
+                if (!gestureStarted || activeGestureKind == null) {
+                    stopEdgeAutoScroll()
+                    return
+                }
+                val recyclerView = findParentRecyclerView() ?: run {
+                    stopEdgeAutoScroll()
+                    return
+                }
+                val location = IntArray(2)
+                recyclerView.getLocationOnScreen(location)
+                val localX = (latestRawX - location[0]).coerceIn(0f, recyclerView.width.toFloat().coerceAtLeast(0f))
+                val zonePx = dpPx(48).toFloat()
+                val nearEdge = localX < zonePx || localX > recyclerView.width - zonePx
+                if (!nearEdge) {
+                    stopEdgeAutoScroll()
+                    return
+                }
+                if (!edgeAutoScrollRunning) {
+                    edgeAutoScrollRunning = true
+                    edgeAutoScrollRunnable?.let(::postOnAnimation)
+                }
+            }
             val moveArmRunnable = Runnable {
                 if (!isTrackLocked && isSelected && pendingTrimKind == null) {
                     moveLongPressArmed = true
@@ -1363,16 +1508,20 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
                         removeCallbacks(moveArmRunnable)
+                        stopEdgeAutoScroll()
                         restorePreviewState()
                         downX = event.x
                         downY = event.y
                         downRawX = event.rawX
                         downRawY = event.rawY
                         lastRawX = event.rawX
+                        latestRawX = event.rawX
+                        latestRawY = event.rawY
                         gestureStarted = false
                         timelineScrollStarted = false
                         moveLongPressArmed = false
                         lastPreviewKey = ""
+                        edgeAutoScrollAccumPx = 0f
                         activePreviewUpdate = null
                         activeGestureKind = null
                         pendingTrimKind = when {
@@ -1394,6 +1543,8 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                         val deltaYPx = event.rawY - downRawY
                         val stepPx = event.rawX - lastRawX
                         lastRawX = event.rawX
+                        latestRawX = event.rawX
+                        latestRawY = event.rawY
 
                         if (activeGestureKind == null) {
                             val movedEnough = kotlin.math.abs(deltaPx) >= touchSlop || kotlin.math.abs(deltaYPx) >= touchSlop
@@ -1409,6 +1560,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                                 activeGestureKind = pendingTrimKind
                                 // Reset downRawX to current position to avoid jump on gesture start
                                 downRawX = event.rawX
+                                edgeAutoScrollAccumPx = 0f
                                 parent?.requestDisallowInterceptTouchEvent(true)
                                 onClipSelected?.invoke(clip.id)
                                 alpha = 0.92f
@@ -1418,10 +1570,22 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                                 // Vertical drag — release intercept so parent can scroll
                                 pendingTrimKind = null
                                 parent?.requestDisallowInterceptTouchEvent(false)
+                            } else if (isSelected &&
+                                !isTrackLocked &&
+                                pendingTrimKind == null &&
+                                kotlin.math.abs(deltaPx) >= touchSlop &&
+                                kotlin.math.abs(deltaPx) >= kotlin.math.abs(deltaYPx)
+                            ) {
+                                removeCallbacks(moveArmRunnable)
+                                activeGestureKind = ClipGestureKind.MOVE
+                                parent?.requestDisallowInterceptTouchEvent(true)
+                                onClipSelected?.invoke(clip.id)
+                                alpha = 0.92f
                             } else if (moveLongPressArmed) {
                                 activeGestureKind = ClipGestureKind.MOVE
                             } else {
                                 removeCallbacks(moveArmRunnable)
+                                stopEdgeAutoScroll()
                                 val recyclerView = findParentRecyclerView()
                                 if (recyclerView != null && kotlin.math.abs(stepPx) > 0f) {
                                     timelineScrollStarted = true
@@ -1435,19 +1599,11 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                             return@setOnTouchListener true
                         }
                         gestureStarted = true
-                        val previewUpdate = when (activeGestureKind ?: ClipGestureKind.MOVE) {
-                            ClipGestureKind.MOVE -> buildMoveUpdate(clip, deltaPx, deltaYPx, snapTargetsMs)
-                            ClipGestureKind.TRIM_START -> buildTrimStartUpdate(clip, deltaPx, snapTargetsMs)
-                            ClipGestureKind.TRIM_END -> buildTrimEndUpdate(clip, deltaPx, snapTargetsMs)
-                        }
-                        applyPreviewUpdate(clip, previewUpdate, previewWidthMinPx)
-                        val previewKey = "${previewUpdate.startTimeMs}:${previewUpdate.durationMs}:${previewUpdate.sourceInMs}:${previewUpdate.sourceOutMs}"
-                        if (previewKey != lastPreviewKey) {
-                            onClipUpdatePreview?.invoke(previewUpdate)
-                            lastPreviewKey = previewKey
-                        }
-                        activePreviewUpdate = previewUpdate
-                        alpha = 0.92f
+                        dispatchPreviewUpdate(
+                            deltaPx = deltaPx + edgeAutoScrollAccumPx,
+                            deltaYPx = deltaYPx,
+                        )
+                        updateEdgeAutoScroll()
                         true
                     }
 
@@ -1455,6 +1611,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                     MotionEvent.ACTION_CANCEL,
                     -> {
                         removeCallbacks(moveArmRunnable)
+                        stopEdgeAutoScroll()
                         val committedUpdate = activePreviewUpdate
                         val shouldCommit = event.actionMasked != MotionEvent.ACTION_CANCEL &&
                             gestureStarted &&
@@ -1536,6 +1693,9 @@ class MultiTrackTimelineView @JvmOverloads constructor(
             return (rawX - location[0]).coerceIn(0f, recyclerView.width.toFloat().coerceAtLeast(0f))
         }
 
+        private fun clipSourceDurationMs(clip: ClipSegment): Long =
+            clip.metadata["sourceDurationMs"]?.toLongOrNull()?.coerceAtLeast(1L) ?: 0L
+
         private fun buildMoveUpdate(
             clip: ClipSegment,
             deltaPx: Float,
@@ -1550,17 +1710,9 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                 applyGrid = false,
             )
 
-            // Calculate track shift
-            val rowHeight = dpPx(TRACK_ROW_HEIGHT_DP)
-            val trackShift = (deltaYPx / rowHeight).roundToInt()
-            val displayOrder = TrackType.displayOrder()
-            val currentIndex = displayOrder.indexOf(clip.trackType)
-            val targetIndex = (currentIndex + trackShift).coerceIn(0, displayOrder.lastIndex)
-            val targetTrackType = displayOrder[targetIndex]
-
             return ClipUpdate(
                 clipId = clip.id,
-                trackType = targetTrackType,
+                trackType = clip.trackType,
                 startTimeMs = snappedStartTimeMs,
                 durationMs = clip.durationMs,
                 sourceInMs = clip.sourceInMs,
@@ -1592,13 +1744,14 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                 .coerceIn(0L, maxStartTimeMs)
             val deltaStartMs = snappedStartTimeMs - clip.startTimeMs
             val newDurationMs = (clip.durationMs - deltaStartMs).coerceAtLeast(1L)
+            val newSourceInMs = clip.sourceInMs + deltaStartMs
             return ClipUpdate(
                 clipId = clip.id,
                 trackType = clip.trackType,
                 startTimeMs = snappedStartTimeMs,
                 durationMs = newDurationMs,
-                sourceInMs = clip.sourceInMs + deltaStartMs,
-                sourceOutMs = clip.sourceOutMs,
+                sourceInMs = newSourceInMs,
+                sourceOutMs = clip.sourceOutMs.coerceAtLeast(newSourceInMs + newDurationMs),
                 originalStartTimeMs = clip.startTimeMs,
                 originalDurationMs = clip.durationMs,
                 originalSourceInMs = clip.sourceInMs,
@@ -1613,14 +1766,24 @@ class MultiTrackTimelineView @JvmOverloads constructor(
             snapTargetsMs: List<Long>,
         ): ClipUpdate {
             val clipEndTimeMs = clip.endTimeMs()
-            val rawEndTimeMs = (clipEndTimeMs + pxToMs(deltaPx, sensitivity = 2.4f)).coerceAtLeast(clip.startTimeMs + 1L)
+            val sourceDurationMs = clipSourceDurationMs(clip)
+            val maxSourceDurationMs =
+                if (sourceDurationMs > clip.sourceInMs) {
+                    sourceDurationMs - clip.sourceInMs
+                } else {
+                    Long.MAX_VALUE
+                }
+            val sourceLimitedEndTimeMs =
+                if (maxSourceDurationMs == Long.MAX_VALUE) Long.MAX_VALUE else clip.startTimeMs + maxSourceDurationMs
+            val rawEndTimeMs = (clipEndTimeMs + pxToMs(deltaPx, sensitivity = 2.4f))
+                .coerceIn(clip.startTimeMs + 1L, sourceLimitedEndTimeMs)
             val snappedEndTimeMs = snapToTargets(
                 timeMs = rawEndTimeMs,
                 snapTargetsMs = snapTargetsMs,
                 thresholdDp = 3,
                 applyGrid = false,
             )
-                .coerceAtLeast(clip.startTimeMs + 1L)
+                .coerceIn(clip.startTimeMs + 1L, sourceLimitedEndTimeMs)
             val newDurationMs = (snappedEndTimeMs - clip.startTimeMs).coerceAtLeast(1L)
             return ClipUpdate(
                 clipId = clip.id,
@@ -1756,7 +1919,6 @@ class MultiTrackTimelineView @JvmOverloads constructor(
         }
 
         private fun clipLabel(clip: ClipSegment): String {
-            val lanePrefix = clip.metadata["subTrack"]?.takeIf { it.isNotBlank() }?.let { "L$it " } ?: ""
             return when (clip.trackType) {
                 TrackType.AUDIO -> {
                     val displayName = clip.metadata["displayName"]
@@ -1764,15 +1926,15 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                         ?.replace('_', ' ')
                         ?.trim()
                     when {
-                        !displayName.isNullOrBlank() -> lanePrefix + displayName
-                        clip.metadata.containsKey("mirrorsVideoClipId") -> lanePrefix + "Linked audio"
-                        else -> lanePrefix + clip.id
+                        !displayName.isNullOrBlank() -> displayName
+                        clip.metadata.containsKey("mirrorsVideoClipId") -> "Linked audio"
+                        else -> clip.id
                     }
                 }
-                TrackType.TEXT -> lanePrefix + clip.sourcePath.ifBlank { clip.id }
-                TrackType.LAYER -> lanePrefix + clip.sourcePath.substringAfterLast('/').ifBlank { clip.id }
-                TrackType.OVERLAY -> lanePrefix + clip.sourcePath.substringAfterLast('/').ifBlank { clip.id }
-                TrackType.VIDEO -> lanePrefix + clip.sourcePath.substringAfterLast('/').ifBlank { clip.id }
+                TrackType.TEXT -> clip.sourcePath.ifBlank { clip.id }
+                TrackType.LAYER -> clip.sourcePath.substringAfterLast('/').ifBlank { clip.id }
+                TrackType.OVERLAY -> clip.sourcePath.substringAfterLast('/').ifBlank { clip.id }
+                TrackType.VIDEO -> clip.sourcePath.substringAfterLast('/').ifBlank { clip.id }
             }
         }
 

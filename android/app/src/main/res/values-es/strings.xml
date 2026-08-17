@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Storyline</string>
+    <string name="start_title">Storyline</string>
+    <string name="start_subtitle">Edición de video, diseño de fotos y borradores en un solo lugar.</string>
+    <string name="start_create_label">Crear</string>
+    <string name="start_primary_action">Nuevo Proyecto de Video</string>
+    <string name="start_primary_caption">Línea de tiempo, audio, capas, efectos y exportación.</string>
+    <string name="start_photo_editor_action">Editor de Fotos</string>
+    <string name="start_photo_editor_caption">Arte de texto, diseño de imagen y eliminación de IA inteligente.</string>
+    <string name="start_quick_label">Acciones Rápidas</string>
+    
+    <string name="project_title">Storyline</string>
+    <string name="editor_subtitle">Editor de Línea de Tiempo</string>
+    <string name="export_button">Exportar</string>
+    <string name="play_button">Reproducir / Pausa</string>
+    <string name="import_label">Importar</string>
+    <string name="add_text_marker_label">Añadir Texto</string>
+    <string name="save_label">Guardar</string>
+    <string name="back_label">Atrás</string>
+</resources>

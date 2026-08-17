@@ -12,7 +12,9 @@ data class LayerItem(
     val id: String,
     val title: String,
     val subtitle: String,
+    val selected: Boolean = false,
     val visible: Boolean = true,
+    val onSelect: (() -> Unit)? = null,
     val secondaryIcon: Int? = null,
     val onSecondaryAction: (() -> Unit)? = null,
     val onToggleVisibility: (() -> Unit)? = null,
@@ -23,10 +25,17 @@ data class LayerItem(
 
 class LayersPanel(
     private val activity: Activity,
-    private val items: List<LayerItem>,
+    private val itemsProvider: () -> List<LayerItem>,
 ) {
     fun show() {
         val dialog = BottomSheetDialog(activity)
+        dialog.setCanceledOnTouchOutside(true)
+        renderContent(dialog)
+        ModernSheet.applyEditorBehavior(dialog, activity, peekRatio = 0.44f, maxRatio = 0.62f)
+        dialog.show()
+    }
+
+    private fun renderContent(dialog: BottomSheetDialog) {
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#1E1E1E"))
@@ -48,9 +57,17 @@ class LayersPanel(
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
+            setPadding(0, 0, 0, px(4))
+        })
+        root.addView(TextView(activity).apply {
+            text = "Tap a row to select it"
+            textSize = 12f
+            setTextColor(Color.parseColor("#8E8E93"))
+            gravity = Gravity.CENTER
             setPadding(0, 0, 0, px(12))
         })
 
+        val items = itemsProvider()
         if (items.isEmpty()) {
             root.addView(TextView(activity).apply {
                 text = "No layers yet."
@@ -79,7 +96,16 @@ class LayersPanel(
                 val row = LinearLayout(activity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(0, px(10), 0, px(10))
+                    setPadding(px(10), px(10), px(10), px(10))
+                    if (item.selected) {
+                        setBackgroundColor(Color.parseColor("#243D68"))
+                    }
+                    isClickable = item.onSelect != null
+                    isFocusable = item.onSelect != null
+                    setOnClickListener {
+                        item.onSelect?.invoke()
+                        dialog.dismiss()
+                    }
                 }
 
                 // Text
@@ -91,12 +117,12 @@ class LayersPanel(
                     text = item.title
                     textSize = 14f
                     setTypeface(null, Typeface.BOLD)
-                    setTextColor(Color.WHITE)
+                    setTextColor(if (item.selected) Color.parseColor("#D8EAFF") else Color.WHITE)
                 })
                 textWrap.addView(TextView(activity).apply {
                     text = item.subtitle
                     textSize = 11f
-                    setTextColor(Color.parseColor("#888888"))
+                    setTextColor(if (item.selected) Color.parseColor("#A9D7FF") else Color.parseColor("#888888"))
                 })
                 row.addView(textWrap)
 
@@ -109,7 +135,10 @@ class LayersPanel(
                             .also { it.setMargins(px(2), 0, px(2), 0) }
                         alpha = if (action != null) 1f else 0.3f
                         isEnabled = action != null
-                        setOnClickListener { action?.invoke() }
+                        setOnClickListener {
+                            action?.invoke()
+                            renderContent(dialog)
+                        }
                     }
                 }
 
@@ -123,6 +152,13 @@ class LayersPanel(
                 row.addView(iconBtn(android.R.drawable.arrow_up_float, Color.WHITE, item.onMoveUp))
                 row.addView(iconBtn(android.R.drawable.arrow_down_float, Color.WHITE, item.onMoveDown))
                 row.addView(iconBtn(android.R.drawable.ic_menu_delete, Color.parseColor("#FF5555"), item.onDelete))
+                row.addView(ImageView(activity).apply {
+                    setImageResource(android.R.drawable.ic_media_next)
+                    setColorFilter(if (item.selected) Color.parseColor("#D8EAFF") else Color.parseColor("#666666"))
+                    layoutParams = LinearLayout.LayoutParams(px(18), px(18))
+                        .also { it.setMargins(px(4), 0, 0, 0) }
+                    alpha = if (item.onSelect != null) 1f else 0f
+                })
 
                 list.addView(row)
             }
@@ -130,8 +166,22 @@ class LayersPanel(
             root.addView(scroll)
         }
 
+        root.addView(TextView(activity).apply {
+            text = "Done"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.parseColor("#2B2B2F"))
+            setPadding(0, px(12), 0, px(12))
+            setOnClickListener { dialog.dismiss() }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).also { it.setMargins(0, px(16), 0, 0) }
+        })
+
         dialog.setContentView(root)
-        dialog.show()
     }
 
     private fun px(dp: Int) = (dp * activity.resources.displayMetrics.density).roundToInt()

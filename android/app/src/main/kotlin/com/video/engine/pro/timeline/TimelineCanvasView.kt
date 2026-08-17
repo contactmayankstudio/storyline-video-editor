@@ -2,8 +2,11 @@ package com.video.engine.pro.timeline
 
 import android.content.Context
 import android.graphics.*
+import android.os.SystemClock
 import android.os.VibrationEffect
 import com.video.engine.DeviceDetector
+import com.video.engine.transition.TransitionStore
+import com.video.engine.transition.TransitionType
 import android.os.Vibrator
 import android.util.AttributeSet
 import android.view.MotionEvent
@@ -36,7 +39,9 @@ class TimelineCanvasView @JvmOverloads constructor(
         fun onPlayheadScrub(timeMs: Long)
         fun onTrackVisibilityChanged(trackType: TrackType, isVisible: Boolean) {}
         fun onTrackImportRequested(trackType: TrackType) {}
+        fun onTrackSelected(trackType: TrackType) {}
         fun onTrackLockedChanged(trackType: TrackType, isLocked: Boolean) {}
+        fun onTransitionRequested(outgoingClipId: Int, incomingClipId: Int) {}
     }
     var listener: Listener? = null
 
@@ -46,25 +51,33 @@ class TimelineCanvasView @JvmOverloads constructor(
     private var selectedClipId: String? = null
     private var pxPerSecond: Float = 120f   // zoom level
     private val pxPerMs get() = pxPerSecond / 1000f
+    private var playbackActive: Boolean = false
+    private var playbackAnchorTimelineMs: Long = 0L
+    private var playbackAnchorRealtimeMs: Long = 0L
+    private var playbackTickerRunning = false
 
     // scroll offset in px (how far left the content is scrolled)
     private var scrollX: Float = 0f
+    private var scrollY: Float = 0f
     private var totalContentWidthPx: Float = 0f
 
     // ── Layout constants ──────────────────────────────────────────────────────
     private val rulerHeightPx = dp(20)
-    private val minTrackHeightBasePx = dp(31)
-    private val maxTrackHeightBasePx = dp(42)
-    private val trackGapPx = dp(2)
-    private val headerWidthPx = dp(46)
+    private val minTrackHeightBasePx = dp(34)
+    private val minLaneHeightPx = dp(24)
+    private val maxTrackHeightBasePx = dp(50)
+    private val trackGapPx = dp(4)
+    private val trackInnerGapPx = dp(3)
+    private val headerWidthPx = 0
     private val timelineBottomInsetPx = dp(6)
     private val handleWidthPx = dp(10)
     private val snapThresholdPx = dp(12).toFloat()
     private val minClipWidthPx = dp(4).toFloat()
+    private val playheadFollowMarginPx = dp(28).toFloat()
 
     // ── Paints ────────────────────────────────────────────────────────────────
     private val bgPaint = Paint().apply { color = Color.parseColor("#06080B") }
-    private val rulerPaint = Paint().apply { color = Color.parseColor("#090D12") }
+    private val rulerPaint = Paint().apply { color = Color.parseColor("#080B10") }
     private val rulerTickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#28303A"); strokeWidth = 1f
     }
@@ -72,10 +85,6 @@ class TimelineCanvasView @JvmOverloads constructor(
         color = Color.parseColor("#74808D"); textSize = dp(8.5f); textAlign = Paint.Align.CENTER
     }
     private val headerPaint = Paint().apply { color = Color.parseColor("#070A0E") }
-    private val headerTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#E7EDF3"); textSize = dp(8f); textAlign = Paint.Align.CENTER
-        isFakeBoldText = true
-    }
     private val clipPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val clipStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeWidth = dp(2).toFloat(); color = Color.parseColor("#87D9FF")
@@ -105,18 +114,47 @@ class TimelineCanvasView @JvmOverloads constructor(
         color = Color.parseColor("#D6E0EA"); textSize = dp(8).toFloat(); textAlign = Paint.Align.CENTER
     }
     private val transitionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#FFB56B") }
-    private val plusPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#171C22"); style = Paint.Style.FILL
-    }
-    private val plusTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#9EABB8"); textSize = dp(15).toFloat(); textAlign = Paint.Align.CENTER
-    }
-    private val trackVisibilityPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#7E8A97"); textSize = dp(7.5f); textAlign = Paint.Align.CENTER
-    }
-    private val trackLockPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#8B94A5"); strokeWidth = dp(1.5f)
+    private val transitionStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
+        strokeWidth = dp(1.2f)
+        color = Color.parseColor("#FFF4D2")
+    }
+    private val transitionTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = dp(8.2f)
+        textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
+    }
+    private val trackAddChipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    private val trackActionRailPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#08FFFFFF")
+    }
+    private val trackActionRailStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(0.65f)
+        color = Color.parseColor("#1FFFFFFF")
+    }
+    private val trackActionChipShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#12000000")
+    }
+    private val trackAddChipStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(0.85f)
+        color = Color.WHITE
+    }
+    private val trackAddChipInnerStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1).toFloat()
+        color = Color.parseColor("#33FFFFFF")
+    }
+    private val trackAddChipTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = dp(6.8f)
+        textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
+        textScaleX = 0.84f
     }
     private val trackLockedOverlayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#32000000")
@@ -126,11 +164,20 @@ class TimelineCanvasView @JvmOverloads constructor(
         style = Paint.Style.STROKE
         strokeWidth = dp(1).toFloat()
     }
+    private val verticalScrollThumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#806FDBFF")
+    }
     private val headerCellPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val headerDividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#171D25")
         strokeWidth = dp(1).toFloat()
     }
+
+    private data class TransitionMarker(
+        val outgoingClipId: Int,
+        val incomingClipId: Int,
+        val rect: RectF,
+    )
 
     // ── Long press state ──────────────────────────────────────────────────────
     private var longPressClipId: String? = null
@@ -154,11 +201,75 @@ class TimelineCanvasView @JvmOverloads constructor(
     private var touchDownX = 0f
     private var touchDownY = 0f
     private var lastTouchX = 0f
+    private var lastTouchY = 0f
     private var gestureClipId: String? = null
     private var gestureClipSnapshot: ClipSegment? = null
     private var snapTimeMs: Long? = null
     private var gestureStarted = false
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+    private var gestureStartScrollX = 0f
+    private var gestureStartScrollY = 0f
+    private var gestureCurrentX = 0f
+    private var gestureCurrentY = 0f
+    private var pendingGestureApplyClipId: String? = null
+    private var pendingGestureApplyDeltaPx = 0f
+    private var pendingGestureApplyDeltaYPx = 0f
+    private var gestureApplyScheduled = false
+    private var edgeAutoScrollRunning = false
+    private val gestureApplyRunnable = Runnable {
+        gestureApplyScheduled = false
+        val clipId = pendingGestureApplyClipId ?: return@Runnable
+        pendingGestureApplyClipId = null
+        val snap = applyGesture(clipId, pendingGestureApplyDeltaPx, pendingGestureApplyDeltaYPx)
+        snapTimeMs = snap
+    }
+    private val playbackTickerRunnable = object : Runnable {
+        override fun run() {
+            if (!playbackActive) {
+                playbackTickerRunning = false
+                return
+            }
+            playbackTickerRunning = true
+            if (!timelineInteractionActive()) {
+                val now = SystemClock.uptimeMillis()
+                val predictedMs = (playbackAnchorTimelineMs + (now - playbackAnchorRealtimeMs))
+                    .coerceAtLeast(0L)
+                    .coerceAtMost(maxTimelineEndMs().coerceAtLeast(playbackAnchorTimelineMs))
+                renderPlaybackPosition(predictedMs)
+            }
+            postOnAnimationDelayed(this, playbackTickerIntervalMs())
+        }
+    }
+    private val edgeAutoScrollRunnable = object : Runnable {
+        override fun run() {
+            if (!gestureStarted || gesture !in listOf(GestureKind.TRIM_START, GestureKind.TRIM_END, GestureKind.MOVE)) {
+                edgeAutoScrollRunning = false
+                return
+            }
+            val requestedStepX = computeEdgeAutoScrollStepPx(gestureCurrentX)
+            val requestedStepY = 0f
+            if (kotlin.math.abs(requestedStepX) < 0.5f && kotlin.math.abs(requestedStepY) < 0.5f) {
+                edgeAutoScrollRunning = false
+                return
+            }
+            val beforeScrollX = scrollX
+            val beforeScrollY = scrollY
+            scrollX = (scrollX + requestedStepX).coerceIn(0f, maxScrollX())
+            scrollY = (scrollY + requestedStepY).coerceIn(0f, maxScrollY())
+            val consumedPx = scrollX - beforeScrollX
+            val consumedYPx = scrollY - beforeScrollY
+            if (kotlin.math.abs(consumedPx) < 0.5f && kotlin.math.abs(consumedYPx) < 0.5f) {
+                edgeAutoScrollRunning = false
+                return
+            }
+            gestureClipId?.let { clipId ->
+                queueGestureApply(clipId, gestureCurrentX - touchDownX, gestureCurrentY - touchDownY)
+            }
+            scheduleAssetRequests(deferForInteraction = true)
+            postInvalidateOnAnimation()
+            postOnAnimation(this)
+        }
+    }
 
     // ── Pinch zoom ────────────────────────────────────────────────────────────
     private var zoomFocusX = 0f
@@ -177,7 +288,7 @@ class TimelineCanvasView @JvmOverloads constructor(
                 pxPerSecond = newPps
                 invalidateAssetRequestWindow()
                 scrollX = ((focusMs * pxPerMs) - (zoomFocusX - headerWidthPx))
-                    .coerceAtLeast(0f)
+                    .coerceIn(0f, maxScrollX())
                 listener?.onZoomChanged(pxPerSecond)
                 scheduleAssetRequests()
                 invalidate()
@@ -195,14 +306,19 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     // ── Public setters ────────────────────────────────────────────────────────
     fun setTracks(tracks: List<TrackState>) {
+        if (this.tracks == tracks) {
+            return
+        }
         this.tracks = tracks
         tracks.forEach { track ->
             trackVisible[track.type] = track.isVisible
             trackLocked[track.type] = track.isLocked
         }
         recalcContentWidth()
+        clampScroll()
         invalidateAssetRequestWindow()
-        scheduleAssetRequests(immediate = true)
+        scheduleAssetRequests()
+        requestLayout()
         invalidate()
     }
 
@@ -212,20 +328,111 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     fun getPlayheadMs(): Long = playheadMs
 
+    fun setPlaybackActive(active: Boolean) {
+        if (playbackActive == active) return
+        playbackActive = active
+        if (active) {
+            scroller.abortAnimation()
+            assetRequestHandler.removeCallbacks(assetRequestRunnable)
+            assetRequestScheduled = false
+            playbackAnchorTimelineMs = playheadMs
+            playbackAnchorRealtimeMs = SystemClock.uptimeMillis()
+            startPlaybackTicker()
+        } else {
+            stopPlaybackTicker()
+            scheduleAssetRequests()
+        }
+    }
+
+    fun suspendAssetRequests(windowMs: Long) {
+        val until = SystemClock.elapsedRealtime() + windowMs.coerceAtLeast(250L)
+        externalAssetRequestsSuspendedUntilElapsedMs =
+            max(externalAssetRequestsSuspendedUntilElapsedMs, until)
+        assetRequestHandler.removeCallbacks(assetRequestRunnable)
+        assetRequestScheduled = false
+        scheduleAssetRequests(deferForInteraction = true)
+    }
+
     // Center-fixed playhead: playhead always at screen center, clips scroll
     private fun centerX() = width / 2f
 
     private fun scrollForPlayhead(ms: Long) =
-        (ms * pxPerMs - (centerX() - headerWidthPx)).coerceAtLeast(0f)
+        (ms * pxPerMs - (centerX() - headerWidthPx)).coerceIn(0f, maxScrollX())
 
-    fun setPlayheadMs(ms: Long) {
-        playheadMs = ms
-        scrollX = scrollForPlayhead(ms)
-        scheduleAssetRequests()
-        invalidate()
+    private fun scrollToKeepPlayheadVisible(ms: Long): Float {
+        val x = headerWidthPx + ms * pxPerMs - scrollX
+        val leftBound = headerWidthPx + playheadFollowMarginPx
+        val rightBound = width - playheadFollowMarginPx
+        val targetScroll =
+            when {
+                width <= headerWidthPx -> scrollX
+                x < leftBound -> ms * pxPerMs - (leftBound - headerWidthPx)
+                x > rightBound -> ms * pxPerMs - (rightBound - headerWidthPx)
+                else -> scrollX
+            }
+        return targetScroll.coerceIn(0f, maxScrollX())
     }
 
+    fun setPlayheadMs(ms: Long) {
+        if (playbackActive) {
+            playbackAnchorTimelineMs = ms.coerceAtLeast(0L)
+            playbackAnchorRealtimeMs = SystemClock.uptimeMillis()
+            if (!timelineInteractionActive()) {
+                renderPlaybackPosition(playbackAnchorTimelineMs)
+            }
+            startPlaybackTicker()
+            return
+        }
+        val previousScrollX = scrollX
+        val previousPlayheadMs = playheadMs
+        playheadMs = ms
+        if (timelineInteractionActive()) {
+            postInvalidateOnAnimation()
+            return
+        }
+        scrollX = scrollForPlayhead(ms)
+        if (abs(scrollX - previousScrollX) >= 0.5f) {
+            maybeSchedulePlaybackAssetRequests()
+            postInvalidateOnAnimation()
+        } else if (abs(ms - previousPlayheadMs) >= 16L) {
+            postInvalidateOnAnimation()
+        }
+    }
+
+    private fun renderPlaybackPosition(ms: Long) {
+        val clampedMs = ms.coerceAtLeast(0L)
+        val previousScrollX = scrollX
+        val previousPlayheadMs = playheadMs
+        playheadMs = clampedMs
+        scrollX = scrollForPlayhead(clampedMs)
+        if (abs(scrollX - previousScrollX) >= 0.5f || abs(clampedMs - previousPlayheadMs) >= 8L) {
+            postInvalidateOnAnimation()
+        }
+    }
+
+    private fun startPlaybackTicker() {
+        if (playbackTickerRunning) return
+        playbackTickerRunning = true
+        removeCallbacks(playbackTickerRunnable)
+        postOnAnimation(playbackTickerRunnable)
+    }
+
+    private fun stopPlaybackTicker() {
+        playbackTickerRunning = false
+        removeCallbacks(playbackTickerRunnable)
+    }
+
+    private fun playbackTickerIntervalMs(): Long =
+        when (DeviceDetector.getDeviceTier()) {
+            DeviceDetector.DeviceTier.LOW -> 33L
+            DeviceDetector.DeviceTier.MID -> 24L
+            DeviceDetector.DeviceTier.HIGH -> 16L
+        }
+
     fun setSelectedClipId(id: String?) {
+        if (selectedClipId == id) {
+            return
+        }
         selectedClipId = id
         invalidate()
     }
@@ -234,7 +441,7 @@ class TimelineCanvasView @JvmOverloads constructor(
         pxPerSecond = pps.coerceIn(24f, 6000f)
         recalcContentWidth()
         invalidateAssetRequestWindow()
-        scheduleAssetRequests(immediate = true)
+        scheduleAssetRequests()
         invalidate()
     }
 
@@ -243,9 +450,43 @@ class TimelineCanvasView @JvmOverloads constructor(
         lastAssetWindowEndBucket = Int.MIN_VALUE
         lastAssetZoomBucket = Int.MIN_VALUE
         lastAssetTrackCount = -1
+        lastPlaybackAssetRequestScrollX = Float.NaN
     }
 
-    private fun assetRequestDelayMs(): Long = if (DeviceDetector.isLowEndDevice()) 56L else 28L
+    private fun assetRequestDelayMs(): Long =
+        when (DeviceDetector.getDeviceTier()) {
+            DeviceDetector.DeviceTier.LOW -> 220L
+            DeviceDetector.DeviceTier.MID -> 120L
+            DeviceDetector.DeviceTier.HIGH -> 56L
+        }
+
+    private fun assetRequestInteractionDelayMs(): Long =
+        when (DeviceDetector.getDeviceTier()) {
+            DeviceDetector.DeviceTier.LOW -> 420L
+            DeviceDetector.DeviceTier.MID -> 220L
+            DeviceDetector.DeviceTier.HIGH -> 120L
+        }
+
+    private fun timelineInteractionActive(): Boolean =
+        gesture != GestureKind.NONE ||
+            gestureStarted ||
+            edgeAutoScrollRunning ||
+            scaleDetector.isInProgress ||
+            !scroller.isFinished
+
+    private fun externalAssetRequestsSuspended(): Boolean =
+        SystemClock.elapsedRealtime() < externalAssetRequestsSuspendedUntilElapsedMs
+
+    private fun maybeSchedulePlaybackAssetRequests() {
+        if (playbackActive) return
+        val playbackRequestStridePx = dp(72).toFloat()
+        if (lastPlaybackAssetRequestScrollX.isNaN() ||
+            abs(scrollX - lastPlaybackAssetRequestScrollX) >= playbackRequestStridePx
+        ) {
+            lastPlaybackAssetRequestScrollX = scrollX
+            scheduleAssetRequests()
+        }
+    }
 
     private fun assetPrefetchMarginPx(): Float {
         val viewportWidthPx = (width - headerWidthPx).coerceAtLeast(dp(72))
@@ -259,8 +500,23 @@ class TimelineCanvasView @JvmOverloads constructor(
     private fun clipContentEndPx(clip: ClipSegment): Float =
         headerWidthPx + (clip.startTimeMs + clip.durationMs) * pxPerMs
 
+    private fun maxTimelineEndMs(): Long {
+        var maxEndMs = 0L
+        tracks.forEach { track ->
+            track.clips.forEach { clip ->
+                maxEndMs = max(maxEndMs, clip.startTimeMs + clip.durationMs)
+            }
+        }
+        return maxEndMs
+    }
+
     private fun performAssetRequests() {
         if (width <= 0) return
+        if (playbackActive) return
+        if (timelineInteractionActive() || externalAssetRequestsSuspended()) {
+            scheduleAssetRequests(deferForInteraction = true)
+            return
+        }
         val windowStartPx = (scrollX + headerWidthPx - assetPrefetchMarginPx())
             .coerceAtLeast(headerWidthPx.toFloat())
         val windowEndPx = scrollX + width + assetPrefetchMarginPx()
@@ -289,7 +545,10 @@ class TimelineCanvasView @JvmOverloads constructor(
         }
     }
 
-    private fun scheduleAssetRequests(immediate: Boolean = false) {
+    private fun scheduleAssetRequests(
+        immediate: Boolean = false,
+        deferForInteraction: Boolean = false,
+    ) {
         if (immediate) {
             assetRequestHandler.removeCallbacks(assetRequestRunnable)
             assetRequestScheduled = false
@@ -298,54 +557,98 @@ class TimelineCanvasView @JvmOverloads constructor(
         }
         if (assetRequestScheduled) return
         assetRequestScheduled = true
-        assetRequestHandler.postDelayed(assetRequestRunnable, assetRequestDelayMs())
+        val delayMs = if (deferForInteraction) assetRequestInteractionDelayMs() else assetRequestDelayMs()
+        assetRequestHandler.postDelayed(assetRequestRunnable, delayMs)
     }
 
     // ── Layout ────────────────────────────────────────────────────────────────
     private fun maxScrollX() = (totalContentWidthPx - width).coerceAtLeast(0f)
 
+    private fun tracksContentHeightPx(): Float {
+        if (height <= 0) return 0f
+        val trackCount = layoutTrackCount
+        var total = 0f
+        for (index in 0 until trackCount) {
+            total += trackVisualHeightPx(index)
+            if (index < trackCount - 1) total += trackGapPx
+        }
+        return total + timelineBottomInsetPx
+    }
+
+    private fun maxScrollY(): Float = 0f
+
     private fun clampScroll() {
         scrollX = scrollX.coerceIn(0f, maxScrollX())
+        scrollY = 0f
     }
 
     private fun recalcContentWidth() {
-        var maxEndMs = 0L
-        tracks.forEach { t -> t.clips.forEach { c -> maxEndMs = max(maxEndMs, c.startTimeMs + c.durationMs) } }
-        totalContentWidthPx = headerWidthPx + maxEndMs * pxPerMs + width * 0.5f
+        totalContentWidthPx = headerWidthPx + maxTimelineEndMs() * pxPerMs + width * 0.5f
     }
 
     private val layoutTrackCount: Int
-        get() = tracks.size.coerceAtLeast(5)
+        get() = tracks.size.coerceAtLeast(TrackType.timelineDisplayOrder().size)
 
-    private val trackHeightPx: Int
+    private fun trackLaneCount(track: TrackState): Int {
+        if (!track.type.allowsIndependentLanes()) return 1
+        return track.clips
+            .maxOfOrNull { clipLaneIndex(it) + 1 }
+            ?.coerceAtLeast(1)
+            ?: 1
+    }
+
+    private val totalLaneSlotCount: Int
+        get() = if (tracks.isEmpty()) layoutTrackCount else tracks.sumOf(::trackLaneCount)
+
+    private val laneHeightPx: Int
         get() {
-            val count = layoutTrackCount
-            if (height <= 0 || count <= 0) return minTrackHeightBasePx
+            val trackCount = layoutTrackCount.coerceAtLeast(1)
+            if (height <= 0) return minTrackHeightBasePx
             val availableHeight =
-                (height - rulerHeightPx - timelineBottomInsetPx - (count - 1) * trackGapPx)
-                    .coerceAtLeast(count * minTrackHeightBasePx)
-            return (availableHeight / count).coerceIn(minTrackHeightBasePx, maxTrackHeightBasePx)
+                (height - rulerHeightPx - timelineBottomInsetPx - (trackCount - 1) * trackGapPx)
+                    .coerceAtLeast(trackCount * minLaneHeightPx)
+            return (availableHeight / trackCount).coerceIn(minLaneHeightPx, maxTrackHeightBasePx)
         }
 
-    private fun trackTop(trackIndex: Int) =
-        rulerHeightPx + trackIndex * (trackHeightPx + trackGapPx)
+    private fun trackVisualHeightPx(track: TrackState): Int {
+        val laneCount = trackLaneCount(track)
+        return laneCount * laneHeightPx + (laneCount - 1) * trackInnerGapPx
+    }
 
-    private fun headerVisibilityX(): Float = headerWidthPx * 0.34f
+    private fun trackVisualHeightPx(trackIndex: Int): Int {
+        val track = tracks.getOrNull(trackIndex) ?: return laneHeightPx
+        return trackVisualHeightPx(track)
+    }
 
-    private fun headerLockX(): Float = headerWidthPx * 0.72f
+    private fun trackContentTop(trackIndex: Int): Float {
+        var top = 0f
+        val clampedIndex = trackIndex.coerceAtLeast(0)
+        for (i in 0 until clampedIndex) {
+            top += trackVisualHeightPx(i) + trackGapPx
+        }
+        return top
+    }
 
-    private fun headerToggleY(trackIndex: Int): Float = trackTop(trackIndex) + trackHeightPx * 0.72f
+    private fun trackTop(trackIndex: Int): Float {
+        return rulerHeightPx + trackContentTop(trackIndex)
+    }
+
+    private fun clipLaneIndex(clip: ClipSegment): Int {
+        if (!clip.trackType.allowsIndependentLanes()) return 0
+        return clip.metadata["subTrack"]?.toIntOrNull()?.minus(1)?.coerceAtLeast(0) ?: 0
+    }
+
+    private fun clipSourceDurationMs(clip: ClipSegment): Long =
+        clip.metadata["sourceDurationMs"]?.toLongOrNull()?.coerceAtLeast(1L) ?: 0L
 
     private fun clipTop(trackIndex: Int, clip: ClipSegment): Float {
-        val base = trackTop(trackIndex).toFloat()
-        val subTrack = clip.metadata["subTrack"]?.toIntOrNull()?.minus(1) ?: 0
-        return if (subTrack > 0) base + subTrack * (trackHeightPx / 2f) else base
+        val base = trackTop(trackIndex)
+        val laneIndex = clipLaneIndex(clip)
+        return base + laneIndex * (laneHeightPx + trackInnerGapPx)
     }
 
     private fun clipBottom(trackIndex: Int, clip: ClipSegment): Float {
-        val subTrack = clip.metadata["subTrack"]?.toIntOrNull()?.minus(1) ?: 0
-        val h = if (subTrack > 0) trackHeightPx / 2f else trackHeightPx.toFloat()
-        return clipTop(trackIndex, clip) + h
+        return clipTop(trackIndex, clip) + laneHeightPx
     }
 
     private fun msToX(ms: Long) = headerWidthPx + ms * pxPerMs - scrollX
@@ -355,19 +658,24 @@ class TimelineCanvasView @JvmOverloads constructor(
     // ── Draw ──────────────────────────────────────────────────────────────────
     override fun onDraw(canvas: Canvas) {
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
-        drawRuler(canvas)
-        drawHeaders(canvas)
+        canvas.save()
+        canvas.clipRect(0f, rulerHeightPx.toFloat(), width.toFloat(), height.toFloat())
         drawTracks(canvas)
-        drawEmptyTrackButtons(canvas)
+        drawTrackImportChips(canvas)
         drawTransitionMarkers(canvas)
-        drawPlayhead(canvas)
         snapTimeMs?.let { drawSnapLine(canvas, it) }
+        canvas.restore()
+        drawRuler(canvas)
+        drawPlayhead(canvas)
         if (showPlayheadTooltip) drawPlayheadTooltip(canvas)
+    }
+
+    private fun drawVerticalScrollThumb(canvas: Canvas) {
+        return
     }
 
     private fun drawRuler(canvas: Canvas) {
         canvas.drawRect(0f, 0f, width.toFloat(), rulerHeightPx.toFloat(), rulerPaint)
-        canvas.drawLine(headerWidthPx.toFloat(), 0f, headerWidthPx.toFloat(), height.toFloat(), headerDividerPaint)
         val stepMs = rulerStepMs()
         val startMs = xToMs(headerWidthPx.toFloat()).let { it - it % stepMs }
         var ms = startMs
@@ -394,81 +702,20 @@ class TimelineCanvasView @JvmOverloads constructor(
         return if (m > 0) "%d:%02d".format(m, s % 60) else "0:%02d".format(s % 60)
     }
 
-    private fun drawHeaders(canvas: Canvas) {
-        canvas.drawRect(0f, rulerHeightPx.toFloat(), headerWidthPx.toFloat(), height.toFloat(), headerPaint)
-        tracks.forEachIndexed { i, track ->
-            val top = trackTop(i).toFloat()
-            val bottom = top + trackHeightPx
-            val label = when (track.type) {
-                TrackType.VIDEO -> "V1"
-                TrackType.OVERLAY -> "O1"
-                TrackType.LAYER -> "L1"
-                TrackType.TEXT -> "T1"
-                TrackType.AUDIO -> "A1"
-            }
-            val isVisible = trackVisible[track.type] != false
-            val isLocked = trackLocked[track.type] == true
-            laneRect.set(dp(4).toFloat(), top + dp(1), headerWidthPx.toFloat() - dp(4), bottom - dp(1))
-            headerCellPaint.color = trackLaneFill(track.type, isLocked)
-            canvas.drawRoundRect(laneRect, dp(8).toFloat(), dp(8).toFloat(), headerCellPaint)
-            trackLaneStrokePaint.color = trackLaneStroke(track.type)
-            canvas.drawRoundRect(laneRect, dp(8).toFloat(), dp(8).toFloat(), trackLaneStrokePaint)
-            headerTextPaint.alpha = if (isVisible) 255 else 110
-            canvas.drawText(label, headerWidthPx / 2f, top + dp(13), headerTextPaint)
-            trackVisibilityPaint.color = if (isVisible) Color.parseColor("#6FDBFF") else Color.parseColor("#6C7480")
-            canvas.drawText(if (isVisible) "●" else "○", headerVisibilityX(), headerToggleY(i), trackVisibilityPaint)
-            drawLockIcon(
-                canvas = canvas,
-                centerX = headerLockX(),
-                centerY = headerToggleY(i) - dp(4),
-                locked = isLocked,
-                tint = if (isLocked) Color.parseColor("#F5C06A") else Color.parseColor("#6F7785"),
-            )
-            headerTextPaint.alpha = 255
-        }
-    }
-
-    private fun drawLockIcon(
-        canvas: Canvas,
-        centerX: Float,
-        centerY: Float,
-        locked: Boolean,
-        tint: Int,
-    ) {
-        trackLockPaint.color = tint
-        val bodyW = dp(8).toFloat()
-        val bodyH = dp(6).toFloat()
-        val shackleH = dp(4).toFloat()
-        val bodyRect = RectF(
-            centerX - (bodyW / 2f),
-            centerY,
-            centerX + (bodyW / 2f),
-            centerY + bodyH,
-        )
-        canvas.drawRoundRect(bodyRect, dp(1).toFloat(), dp(1).toFloat(), trackLockPaint)
-        val shackleRect = RectF(
-            centerX - (bodyW * 0.32f),
-            centerY - shackleH,
-            centerX + (bodyW * 0.32f),
-            centerY + (bodyH * 0.2f),
-        )
-        val startAngle = if (locked) 180f else 210f
-        val sweepAngle = if (locked) 180f else 130f
-        canvas.drawArc(shackleRect, startAngle, sweepAngle, false, trackLockPaint)
-    }
-
     // ── Waveform cache ────────────────────────────────────────────────────────
     private val clipWaveforms = mutableMapOf<String, FloatArray>()
     private val clipWaveformKeys = mutableMapOf<String, String>()
     private val waveformPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#AAFFFFFF") }
     private var lastInvalidateMs = 0L
-    private val invalidateThrottleMs = 100L
+    private val invalidateThrottleMs = 16L
     private val assetRequestHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var assetRequestScheduled = false
+    private var externalAssetRequestsSuspendedUntilElapsedMs = 0L
     private var lastAssetWindowStartBucket = Int.MIN_VALUE
     private var lastAssetWindowEndBucket = Int.MIN_VALUE
     private var lastAssetZoomBucket = Int.MIN_VALUE
     private var lastAssetTrackCount = -1
+    private var lastPlaybackAssetRequestScrollX = Float.NaN
     private val assetRequestRunnable = Runnable {
         assetRequestScheduled = false
         performAssetRequests()
@@ -505,6 +752,7 @@ class TimelineCanvasView @JvmOverloads constructor(
     }
 
     private fun drawWaveform(canvas: Canvas, clip: ClipSegment, top: Float, bottom: Float) {
+        if (playbackActive && DeviceDetector.isLowEndDevice()) return
         val peaks = clipWaveforms[clip.id] ?: return
         if (peaks.isEmpty()) return
         val left = msToX(clip.startTimeMs)
@@ -530,7 +778,7 @@ class TimelineCanvasView @JvmOverloads constructor(
         val clipLeftPx = clipContentStartPx(clip)
         val clipRightPx = clipContentEndPx(clip)
         if (clipRightPx < windowStartPx || clipLeftPx > windowEndPx) return
-        val targetH = trackHeightPx - dp(4)
+        val targetH = (laneHeightPx - dp(4)).coerceAtLeast(dp(12))
         val visibleWidth = (min(clipRightPx, windowEndPx) - max(clipLeftPx, windowStartPx))
             .roundToInt()
             .coerceAtLeast(dp(72))
@@ -550,12 +798,25 @@ class TimelineCanvasView @JvmOverloads constructor(
     private fun drawTracks(canvas: Canvas) {
         tracks.forEachIndexed { i, track ->
             val top = trackTop(i).toFloat()
-            val bottom = top + trackHeightPx
+            val bottom = top + trackVisualHeightPx(track)
             laneRect.set(headerWidthPx.toFloat() + dp(4), top + dp(1), width.toFloat() - dp(4), bottom - dp(1))
             trackLanePaint.color = trackLaneFill(track.type, trackLocked[track.type] == true)
             canvas.drawRoundRect(laneRect, dp(8).toFloat(), dp(8).toFloat(), trackLanePaint)
             trackLaneStrokePaint.color = trackLaneStroke(track.type)
             canvas.drawRoundRect(laneRect, dp(8).toFloat(), dp(8).toFloat(), trackLaneStrokePaint)
+            val laneCount = trackLaneCount(track)
+            if (laneCount > 1) {
+                for (lane in 1 until laneCount) {
+                    val y = top + lane * laneHeightPx + (lane - 0.5f) * trackInnerGapPx
+                    canvas.drawLine(
+                        headerWidthPx + dp(8).toFloat(),
+                        y,
+                        width - dp(8).toFloat(),
+                        y,
+                        headerDividerPaint,
+                    )
+                }
+            }
             track.clips.forEach { clip ->
                 val ct = clipTop(i, clip)
                 val cb = clipBottom(i, clip)
@@ -571,10 +832,13 @@ class TimelineCanvasView @JvmOverloads constructor(
     private fun drawClip(canvas: Canvas, clip: ClipSegment, top: Float, bottom: Float) {
         val left = msToX(clip.startTimeMs)
         val right = msToX(clip.startTimeMs + clip.durationMs)
-        if (right < headerWidthPx || left > width) return
+        val clipDrawRight = contentRightLimitPx()
+        if (right < headerWidthPx || left > clipDrawRight) return
 
         val clampedLeft = max(left, headerWidthPx.toFloat())
-        clipRect.set(clampedLeft, top + dp(2), right, bottom - dp(2))
+        val clampedRight = min(right, clipDrawRight)
+        clipRect.set(clampedLeft, top + dp(2), clampedRight, bottom - dp(2))
+        if (clipRect.width() <= dp(2)) return
 
         val color = clipColor(clip)
         clipPaint.color = color
@@ -586,7 +850,7 @@ class TimelineCanvasView @JvmOverloads constructor(
             val clipW = right - left
             val tileW = clipW / thumbs.size
             canvas.save()
-            canvas.clipRect(clampedLeft, top + dp(2), right, bottom - dp(2))
+            canvas.clipRect(clampedLeft, top + dp(2), clampedRight, bottom - dp(2))
             thumbs.forEachIndexed { i, bmp ->
                 val tx = left + i * tileW
                 thumbSrcRect.set(0, 0, bmp.width, bmp.height)
@@ -602,13 +866,13 @@ class TimelineCanvasView @JvmOverloads constructor(
 
         // Label
         val labelX = max(clampedLeft + dp(4), left + dp(4))
-        val labelWidth = right - labelX - dp(4)
+        val labelWidth = clampedRight - labelX - dp(4)
         if (labelWidth > dp(20)) {
             val name = clip.sourcePath.substringAfterLast('/').ifBlank { clip.id }
             clipTextPaint.color = Color.WHITE
             canvas.save()
-            canvas.clipRect(labelX, top, right - dp(2), bottom)
-            canvas.drawText(name, labelX, top + trackHeightPx * 0.55f, clipTextPaint)
+            canvas.clipRect(labelX, top, clampedRight - dp(2), bottom)
+            canvas.drawText(name, labelX, top + ((bottom - top) * 0.62f), clipTextPaint)
             canvas.restore()
         }
 
@@ -635,8 +899,10 @@ class TimelineCanvasView @JvmOverloads constructor(
             handlePaint.color = Color.WHITE
             canvas.drawRoundRect(handleRect, dp(4).toFloat(), dp(4).toFloat(), handlePaint)
             // Right handle
-            handleRect.set(clipRect.right - handleWidthPx, top + dp(2), clipRect.right, bottom - dp(2))
-            canvas.drawRoundRect(handleRect, dp(4).toFloat(), dp(4).toFloat(), handlePaint)
+            if (right <= clipDrawRight + 0.5f) {
+                handleRect.set(clipRect.right - handleWidthPx, top + dp(2), clipRect.right, bottom - dp(2))
+                canvas.drawRoundRect(handleRect, dp(4).toFloat(), dp(4).toFloat(), handlePaint)
+            }
         }
     }
 
@@ -650,13 +916,13 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     private fun trackLaneFill(trackType: TrackType, locked: Boolean): Int {
         val base = when (trackType) {
-            TrackType.VIDEO -> "#0D1713"
-            TrackType.OVERLAY -> "#0D141C"
-            TrackType.LAYER -> "#0C1618"
-            TrackType.TEXT -> "#14111B"
-            TrackType.AUDIO -> "#18120D"
+            TrackType.VIDEO -> "#0A1410"
+            TrackType.OVERLAY -> "#0A1119"
+            TrackType.LAYER -> "#091315"
+            TrackType.TEXT -> "#100D17"
+            TrackType.AUDIO -> "#140F0A"
         }
-        return Color.parseColor(if (locked) "#0B0E12" else base)
+        return Color.parseColor(if (locked) "#080B10" else base)
     }
 
     private fun trackLaneStroke(trackType: TrackType): Int = when (trackType) {
@@ -667,53 +933,188 @@ class TimelineCanvasView @JvmOverloads constructor(
         TrackType.AUDIO -> Color.parseColor("#32261A")
     }
 
-    private fun drawEmptyTrackButtons(canvas: Canvas) {
+    private fun drawTrackImportChips(canvas: Canvas) {
         tracks.forEachIndexed { i, track ->
-            if (track.clips.isEmpty()) {
-                val top = trackTop(i).toFloat()
-                val mid = top + trackHeightPx / 2f
-                val btnX = headerWidthPx + dp(24).toFloat()
-                val r = dp(14).toFloat()
-                val isLocked = trackLocked[track.type] == true
-                plusPaint.color = if (isLocked) Color.parseColor("#11151A") else Color.parseColor("#1A2027")
-                plusTextPaint.color = if (isLocked) Color.parseColor("#626B74") else Color.parseColor("#D7E0E8")
-                canvas.drawCircle(btnX, mid, r, plusPaint)
-                canvas.drawText(if (isLocked) "x" else "+", btnX, mid + dp(6), plusTextPaint)
-                // hint label
-                val hint =
-                    if (isLocked) {
-                        "Unlock to add"
-                    } else {
-                        when (track.type) {
-                            TrackType.VIDEO -> "Add video"
-                            TrackType.OVERLAY -> "Add overlay"
-                            TrackType.LAYER -> "Add layer"
-                            TrackType.TEXT -> "Add title"
-                            TrackType.AUDIO -> "Add audio"
-                        }
-                    }
-                val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = Color.parseColor("#616B76")
-                    textSize = dp(9).toFloat()
-                }
-                canvas.drawText(hint, btnX + r + dp(8), mid + dp(4), hintPaint)
+            drawTrackActionRail(canvas, i, track)
+            val chip = trackImportChipRect(i, track)
+            if (chip.right < headerWidthPx || chip.left > width) return@forEachIndexed
+            val isLocked = trackLocked[track.type] == true
+            canvas.drawRoundRect(
+                RectF(chip.left + dp(0.4f), chip.top + dp(0.6f), chip.right + dp(0.8f), chip.bottom + dp(1f)),
+                trackImportChipRadiusPx(),
+                trackImportChipRadiusPx(),
+                trackActionChipShadowPaint,
+            )
+            trackAddChipPaint.color = if (isLocked) Color.parseColor("#44FFFFFF") else trackActionColor(track.type)
+            trackAddChipPaint.alpha = if (isLocked) 10 else 16
+            canvas.drawRoundRect(chip, trackImportChipRadiusPx(), trackImportChipRadiusPx(), trackAddChipPaint)
+            trackAddChipPaint.alpha = 255
+            trackAddChipStrokePaint.color = if (isLocked) Color.parseColor("#54606B") else trackActionStrokeColor(track.type)
+            trackAddChipStrokePaint.alpha = if (isLocked) 38 else 78
+            canvas.drawRoundRect(chip, trackImportChipRadiusPx(), trackImportChipRadiusPx(), trackAddChipStrokePaint)
+            trackAddChipStrokePaint.alpha = 255
+            trackAddChipTextPaint.color = if (isLocked) Color.parseColor("#8B95A1") else Color.WHITE
+            trackAddChipTextPaint.alpha = if (isLocked) 86 else 176
+            canvas.drawText("+${track.type.timelineCode()}", chip.centerX(), chip.centerY() + dp(2.4f), trackAddChipTextPaint)
+            trackAddChipTextPaint.alpha = 255
+        }
+    }
+
+    private fun drawTrackActionRail(canvas: Canvas, trackIndex: Int, track: TrackState) {
+        val chip = trackImportChipRect(trackIndex, track)
+        val top = trackTop(trackIndex).toFloat()
+        val bottom = top + trackVisualHeightPx(track)
+        val rail = RectF(
+            chip.left - dp(3),
+            top + dp(3),
+            chip.right + dp(3),
+            bottom - dp(3),
+        )
+        trackActionRailPaint.alpha = 8
+        canvas.drawRoundRect(rail, dp(9).toFloat(), dp(9).toFloat(), trackActionRailPaint)
+        trackActionRailPaint.alpha = 255
+        trackActionRailStrokePaint.color = trackActionRailStroke(track.type)
+        trackActionRailStrokePaint.alpha = 18
+        canvas.drawRoundRect(rail, dp(9).toFloat(), dp(9).toFloat(), trackActionRailStrokePaint)
+        trackActionRailStrokePaint.alpha = 255
+    }
+
+    private fun trackImportChipRect(trackIndex: Int, track: TrackState): RectF {
+        val chipWidth = dp(28).toFloat()
+        val chipHeight = min(laneHeightPx - dp(16), dp(17)).coerceAtLeast(dp(15)).toFloat()
+        val top = trackTop(trackIndex).toFloat()
+        val centerY = top + trackVisualHeightPx(track) / 2f
+        val left = fixedTrackImportChipLeft(chipWidth)
+        return RectF(left, centerY - chipHeight / 2f, left + chipWidth, centerY + chipHeight / 2f)
+    }
+
+    private fun trackImportChipRadiusPx(): Float = dp(5).toFloat()
+
+    private fun fixedTrackImportChipLeft(chipWidth: Float = dp(28).toFloat()): Float {
+        return (width - chipWidth - dp(6).toFloat())
+            .coerceAtLeast(headerWidthPx + dp(6).toFloat())
+    }
+
+    private fun contentRightLimitPx(): Float {
+        return (fixedTrackImportChipLeft() - dp(8).toFloat())
+            .coerceAtLeast(headerWidthPx + dp(32).toFloat())
+    }
+
+    private fun trackImportChipHit(x: Float, y: Float): TrackState? {
+        tracks.forEachIndexed { i, track ->
+            val hitRect = RectF(trackImportChipRect(i, track)).apply {
+                inset(-dp(8).toFloat(), -dp(8).toFloat())
+            }
+            if (hitRect.contains(x, y)) {
+                return track
             }
         }
+        return null
+    }
+
+    private fun trackActionColor(trackType: TrackType): Int = when (trackType) {
+        TrackType.VIDEO,
+        TrackType.OVERLAY,
+        TrackType.LAYER,
+        TrackType.TEXT,
+        TrackType.AUDIO -> Color.WHITE
+    }
+
+    private fun trackActionStrokeColor(trackType: TrackType): Int = when (trackType) {
+        TrackType.VIDEO,
+        TrackType.OVERLAY,
+        TrackType.LAYER,
+        TrackType.TEXT,
+        TrackType.AUDIO -> Color.parseColor("#F2F5F8")
+    }
+
+    private fun trackActionRailStroke(trackType: TrackType): Int = when (trackType) {
+        TrackType.VIDEO,
+        TrackType.OVERLAY,
+        TrackType.LAYER,
+        TrackType.TEXT,
+        TrackType.AUDIO -> Color.parseColor("#2D333C")
     }
 
     private fun drawTransitionMarkers(canvas: Canvas) {
         tracks.firstOrNull { it.type == TrackType.VIDEO }?.let { track ->
             val sorted = track.clips.sortedBy { it.startTimeMs }
             for (i in 0 until sorted.size - 1) {
-                val x = msToX(sorted[i].startTimeMs + sorted[i].durationMs)
-                if (x < headerWidthPx || x > width) continue
-                val top = trackTop(tracks.indexOf(track)).toFloat()
-                val mid = top + trackHeightPx / 2f
-                transitionPaint.alpha = 180
-                canvas.drawCircle(x, mid, dp(6).toFloat(), transitionPaint)
-                transitionPaint.alpha = 255
+                val marker = transitionMarkerFor(track, i, sorted) ?: continue
+                if (marker.rect.right < headerWidthPx || marker.rect.left > contentRightLimitPx()) continue
+                drawTransitionMarker(canvas, marker)
             }
         }
+    }
+
+    private fun transitionMarkerFor(track: TrackState, sortedIndex: Int, sorted: List<ClipSegment>): TransitionMarker? {
+        val outgoing = sorted.getOrNull(sortedIndex) ?: return null
+        val incoming = sorted.getOrNull(sortedIndex + 1) ?: return null
+        val outgoingClipId = outgoing.id.toIntOrNull() ?: return null
+        val incomingClipId = incoming.id.toIntOrNull() ?: return null
+        val gapMs = incoming.startTimeMs - outgoing.endTimeMs()
+        if (kotlin.math.abs(gapMs) > 250L) return null
+
+        val x = msToX(outgoing.endTimeMs())
+        val trackIndex = tracks.indexOf(track).takeIf { it >= 0 } ?: return null
+        val top = trackTop(trackIndex).toFloat()
+        val mid = top + trackVisualHeightPx(track) / 2f
+        val activeTransition =
+            TransitionStore.getByOutgoingClip(outgoingClipId)
+                .firstOrNull { it.incomingClipId == incomingClipId && it.type != TransitionType.NONE }
+        val chipWidth = if (activeTransition == null) dp(28).toFloat() else dp(38).toFloat()
+        val chipHeight = dp(22).toFloat()
+        return TransitionMarker(
+            outgoingClipId = outgoingClipId,
+            incomingClipId = incomingClipId,
+            rect = RectF(
+                x - chipWidth / 2f,
+                mid - chipHeight / 2f,
+                x + chipWidth / 2f,
+                mid + chipHeight / 2f,
+            ),
+        )
+    }
+
+    private fun drawTransitionMarker(canvas: Canvas, marker: TransitionMarker) {
+        val transition =
+            TransitionStore.getByOutgoingClip(marker.outgoingClipId)
+                .firstOrNull { it.incomingClipId == marker.incomingClipId && it.type != TransitionType.NONE }
+        val active = transition != null
+        val rect = marker.rect
+        val radius = dp(8).toFloat()
+        transitionPaint.color = if (active) Color.parseColor("#FFB56B") else Color.parseColor("#EE05070A")
+        transitionPaint.alpha = if (active) 255 else 248
+        canvas.drawRoundRect(rect, radius, radius, transitionPaint)
+        transitionPaint.alpha = 255
+        transitionStrokePaint.color = if (active) Color.parseColor("#FFF4D2") else Color.parseColor("#F2F5F8")
+        canvas.drawRoundRect(rect, radius, radius, transitionStrokePaint)
+
+        val label =
+            when (transition?.type) {
+                TransitionType.FADE -> "FD"
+                TransitionType.CROSS -> "MX"
+                TransitionType.WIPE -> "WP"
+                TransitionType.SLIDE -> "SL"
+                else -> "+"
+            }
+        transitionTextPaint.color = if (active) Color.parseColor("#141414") else Color.WHITE
+        canvas.drawText(label, rect.centerX(), rect.centerY() + dp(3.1f), transitionTextPaint)
+    }
+
+    private fun transitionMarkerHit(x: Float, y: Float): TransitionMarker? {
+        tracks.firstOrNull { it.type == TrackType.VIDEO }?.let { track ->
+            val sorted = track.clips.sortedBy { it.startTimeMs }
+            for (i in 0 until sorted.size - 1) {
+                val marker = transitionMarkerFor(track, i, sorted) ?: continue
+                val hitRect = RectF(marker.rect)
+                hitRect.inset(-dp(8).toFloat(), -dp(8).toFloat())
+                if (hitRect.contains(x, y)) {
+                    return marker
+                }
+            }
+        }
+        return null
     }
 
     private fun drawPlayheadTooltip(canvas: Canvas) {
@@ -735,8 +1136,9 @@ class TimelineCanvasView @JvmOverloads constructor(
     var onClipLongPress: ((clipId: String, x: Float, y: Float) -> Unit)? = null
 
     private fun showClipContextMenu(clipId: String) {
+        val callback = onClipLongPress ?: return
         vibrate()
-        onClipLongPress?.invoke(clipId, touchDownX, touchDownY)
+        callback.invoke(clipId, touchDownX, touchDownY)
     }
 
     // Split button callback
@@ -752,7 +1154,7 @@ class TimelineCanvasView @JvmOverloads constructor(
     private val splitBtnRadiusPx = dp(14).toFloat()
 
     private fun drawPlayhead(canvas: Canvas) {
-        val x = centerX()  // always center
+        val x = centerX()
         canvas.drawLine(x, rulerHeightPx.toFloat(), x, height.toFloat(), playheadPaint)
         // Triangle head on ruler
         val path = Path()
@@ -796,7 +1198,16 @@ class TimelineCanvasView @JvmOverloads constructor(
                 if (gesture == GestureKind.SCROLL) {
                     velocityTracker.computeCurrentVelocity(1000)
                     val vx = -velocityTracker.xVelocity
-                    scroller.fling(scrollX.toInt(), 0, vx.toInt(), 0, 0, maxScrollX().toInt(), 0, 0)
+                    scroller.fling(
+                        scrollX.toInt(),
+                        scrollY.toInt(),
+                        vx.toInt(),
+                        0,
+                        0,
+                        maxScrollX().toInt(),
+                        0,
+                        0,
+                    )
                     postInvalidateOnAnimation()
                 }
                 onUp(event)
@@ -808,11 +1219,14 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     override fun computeScroll() {
         if (scroller.computeScrollOffset()) {
+            val previousScrollX = scrollX
             scrollX = scroller.currX.toFloat().coerceIn(0f, maxScrollX())
-            val newMs = ((scrollX + centerX() - headerWidthPx) / pxPerMs).toLong().coerceAtLeast(0L)
-            playheadMs = newMs
-            listener?.onPlayheadScrub(newMs)
-            scheduleAssetRequests()
+            scrollY = 0f
+            if (abs(scrollX - previousScrollX) >= 0.5f) {
+                val newMs = ((scrollX + centerX() - headerWidthPx) / pxPerMs).toLong().coerceAtLeast(0L)
+                updatePlayheadWithHaptics(newMs)
+                scheduleAssetRequests()
+            }
             postInvalidateOnAnimation()
         }
     }
@@ -821,11 +1235,17 @@ class TimelineCanvasView @JvmOverloads constructor(
         touchDownX = event.x
         touchDownY = event.y
         lastTouchX = event.x
+        lastTouchY = event.y
+        gestureCurrentX = event.x
+        gestureCurrentY = event.y
         gestureStarted = false
         snapTimeMs = null
         gesture = GestureKind.NONE
         gestureClipId = null
         gestureClipSnapshot = null
+        gestureStartScrollX = scrollX
+        gestureStartScrollY = scrollY
+        stopEdgeAutoScroll()
 
         // Double tap → reset zoom
         val now = System.currentTimeMillis()
@@ -834,7 +1254,7 @@ class TimelineCanvasView @JvmOverloads constructor(
             recalcContentWidth()
             invalidateAssetRequestWindow()
             listener?.onZoomChanged(pxPerSecond)
-            scheduleAssetRequests(immediate = true)
+            scheduleAssetRequests()
             invalidate()
             lastTapTimeMs = 0L
             return
@@ -842,26 +1262,22 @@ class TimelineCanvasView @JvmOverloads constructor(
         lastTapTimeMs = now
         lastTapX = event.x
 
-        // Track header tap → toggle visibility / lock
-        if (event.x < headerWidthPx) {
-            tracks.forEachIndexed { i, track ->
-                val top = trackTop(i).toFloat()
-                if (event.y in top..(top + trackHeightPx)) {
-                    val toggleY = headerToggleY(i)
-                    val hitRadius = dp(12).toFloat()
-                    if (abs(event.x - headerVisibilityX()) <= hitRadius && abs(event.y - toggleY) <= hitRadius) {
-                        val cur = trackVisible[track.type] != false
-                        trackVisible[track.type] = !cur
-                        listener?.onTrackVisibilityChanged(track.type, !cur)
-                    } else if (abs(event.x - headerLockX()) <= hitRadius && abs(event.y - toggleY) <= hitRadius) {
-                        val cur = trackLocked[track.type] == true
-                        trackLocked[track.type] = !cur
-                        listener?.onTrackLockedChanged(track.type, !cur)
-                    }
-                    invalidate()
-                    return
-                }
+        trackImportChipHit(event.x, event.y)?.let { track ->
+            if (trackLocked[track.type] == true) {
+                listener?.onTrackSelected(track.type)
+                invalidate()
+                return
             }
+            listener?.onTrackSelected(track.type)
+            listener?.onTrackImportRequested(track.type)
+            invalidate()
+            return
+        }
+
+        transitionMarkerHit(event.x, event.y)?.let { marker ->
+            vibrate()
+            listener?.onTransitionRequested(marker.outgoingClipId, marker.incomingClipId)
+            invalidate()
             return
         }
 
@@ -869,23 +1285,6 @@ class TimelineCanvasView @JvmOverloads constructor(
         if (showPlayheadSplitButton && splitBtnRect.contains(event.x, event.y)) {
             onSplitAtPlayhead?.invoke(playheadMs)
             return
-        }
-
-        // Empty track "+" button tap
-        tracks.forEachIndexed { i, track ->
-            if (track.clips.isEmpty()) {
-                val top = trackTop(i).toFloat()
-                val mid = top + trackHeightPx / 2f
-                val btnX = headerWidthPx + dp(24).toFloat()
-                val r = dp(14).toFloat()
-                if (abs(event.x - btnX) < r && abs(event.y - mid) < r) {
-                    if (trackLocked[track.type] == true) {
-                        return
-                    }
-                    listener?.onTrackImportRequested(track.type)
-                    return
-                }
-            }
         }
 
         // Ruler tap → playhead scrub
@@ -924,9 +1323,12 @@ class TimelineCanvasView @JvmOverloads constructor(
         gestureClipId = clip.id
         gestureClipSnapshot = clip
 
-        // Schedule long press
-        longPressClipId = clip.id
-        longPressHandler.postDelayed(longPressRunnable, 500L)
+        if (onClipLongPress != null) {
+            longPressClipId = clip.id
+            longPressHandler.postDelayed(longPressRunnable, 500L)
+        } else {
+            longPressClipId = null
+        }
 
         if (clip.id != selectedClipId) {
             selectedClipId = clip.id
@@ -939,7 +1341,11 @@ class TimelineCanvasView @JvmOverloads constructor(
         val dx = event.x - touchDownX
         val dy = event.y - touchDownY
         val stepX = event.x - lastTouchX
+        val stepY = event.y - lastTouchY
         lastTouchX = event.x
+        lastTouchY = event.y
+        gestureCurrentX = event.x
+        gestureCurrentY = event.y
 
         if (!gestureStarted) {
             if (abs(dx) < touchSlop && abs(dy) < touchSlop) return
@@ -950,35 +1356,37 @@ class TimelineCanvasView @JvmOverloads constructor(
         when (gesture) {
             GestureKind.PLAYHEAD_SCRUB -> {
                 val ms = xToMs(event.x)
-                playheadMs = ms
+                updatePlayheadWithHaptics(ms)
                 scrollX = scrollForPlayhead(ms)
                 showPlayheadTooltip = true
-                listener?.onPlayheadScrub(ms)
-                scheduleAssetRequests()
-                invalidate()
+                scheduleAssetRequests(deferForInteraction = true)
+                postInvalidateOnAnimation()
             }
             GestureKind.SCROLL -> {
+                val previousScrollX = scrollX
                 scrollX = (scrollX - stepX).coerceIn(0f, maxScrollX())
-                // Update playhead time based on scroll position
-                val newMs = ((scrollX + centerX() - headerWidthPx) / pxPerMs).toLong().coerceAtLeast(0L)
-                playheadMs = newMs
-                listener?.onPlayheadScrub(newMs)
-                scheduleAssetRequests()
-                invalidate()
+                scrollY = 0f
+                if (abs(scrollX - previousScrollX) >= 0.5f) {
+                    val newMs = ((scrollX + centerX() - headerWidthPx) / pxPerMs).toLong().coerceAtLeast(0L)
+                    updatePlayheadWithHaptics(newMs)
+                    scheduleAssetRequests(deferForInteraction = true)
+                }
+                postInvalidateOnAnimation()
             }
             GestureKind.NONE -> {
                 // Decide: scroll or clip gesture
                 if (gestureClipId == null) {
                     gesture = GestureKind.SCROLL
-                    scrollX = (scrollX - stepX).coerceAtLeast(0f)
-                    scheduleAssetRequests()
-                    invalidate()
+                    scrollX = (scrollX - stepX).coerceIn(0f, maxScrollX())
+                    scrollY = 0f
+                    if (abs(stepX) >= 0.5f) scheduleAssetRequests(deferForInteraction = true)
+                    postInvalidateOnAnimation()
                 }
             }
             GestureKind.TRIM_START, GestureKind.TRIM_END, GestureKind.MOVE -> {
-                val snap = gestureClipId?.let { applyGesture(it, dx, dy) }
-                snapTimeMs = snap
-                invalidate()
+                gestureClipId?.let { queueGestureApply(it, dx, dy) }
+                updateEdgeAutoScroll()
+                postInvalidateOnAnimation()
             }
         }
     }
@@ -987,14 +1395,15 @@ class TimelineCanvasView @JvmOverloads constructor(
         longPressHandler.removeCallbacks(longPressRunnable)
         longPressClipId = null
         showPlayheadTooltip = false
+        stopEdgeAutoScroll()
+        flushPendingGestureApply()
         if (gestureStarted && gesture in listOf(GestureKind.TRIM_START, GestureKind.TRIM_END, GestureKind.MOVE)) {
             gestureClipId?.let { commitGesture(it, event.x - touchDownX, event.y - touchDownY) }
         } else if (!gestureStarted && gesture == GestureKind.NONE && gestureClipId == null) {
             if (event.x >= headerWidthPx && event.y >= rulerHeightPx) {
                 val ms = xToMs(event.x)
-                playheadMs = ms
+                updatePlayheadWithHaptics(ms)
                 scrollX = scrollForPlayhead(ms)
-                listener?.onPlayheadScrub(ms)
             }
             // Tap on empty area → deselect
             selectedClipId = null
@@ -1006,18 +1415,55 @@ class TimelineCanvasView @JvmOverloads constructor(
         gestureClipId = null
         gestureClipSnapshot = null
         gestureStarted = false
+        scheduleAssetRequests(deferForInteraction = true)
         invalidate()
     }
 
+    private fun updatePlayheadWithHaptics(newMs: Long) {
+        val oldSec = playheadMs / 1000L
+        val newSec = newMs / 1000L
+        if (oldSec != newSec) {
+            performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+        }
+        playheadMs = newMs
+        listener?.onPlayheadScrub(newMs)
+    }
+
     // ── Gesture math ──────────────────────────────────────────────────────────
+    private fun effectiveGestureDeltaPx(rawDeltaPx: Float): Float {
+        return rawDeltaPx + (scrollX - gestureStartScrollX)
+    }
+
+    private fun effectiveGestureDeltaYPx(rawDeltaPx: Float): Float {
+        return rawDeltaPx + (scrollY - gestureStartScrollY)
+    }
+
     private fun applyGesture(clipId: String, deltaPx: Float, deltaYPx: Float): Long? {
         val snap = gestureClipSnapshot ?: return null
         val update = buildUpdate(snap, deltaPx, deltaYPx) ?: return null
-        listener?.onClipUpdatePreview(update)
-        // Update visual immediately
         updateClipPreview(clipId, update)
-        invalidate()
+        listener?.onClipUpdatePreview(update)
+        postInvalidateOnAnimation()
         return snapTimeMs
+    }
+
+    private fun queueGestureApply(clipId: String, deltaPx: Float, deltaYPx: Float) {
+        pendingGestureApplyClipId = clipId
+        pendingGestureApplyDeltaPx = deltaPx
+        pendingGestureApplyDeltaYPx = deltaYPx
+        if (gestureApplyScheduled) return
+        gestureApplyScheduled = true
+        postOnAnimation(gestureApplyRunnable)
+    }
+
+    private fun flushPendingGestureApply() {
+        if (!gestureApplyScheduled && pendingGestureApplyClipId == null) return
+        removeCallbacks(gestureApplyRunnable)
+        gestureApplyScheduled = false
+        val clipId = pendingGestureApplyClipId ?: return
+        pendingGestureApplyClipId = null
+        val snap = applyGesture(clipId, pendingGestureApplyDeltaPx, pendingGestureApplyDeltaYPx)
+        snapTimeMs = snap
     }
 
     private fun commitGesture(clipId: String, deltaPx: Float, deltaYPx: Float) {
@@ -1026,8 +1472,63 @@ class TimelineCanvasView @JvmOverloads constructor(
         listener?.onClipUpdateCommitted(update)
     }
 
+    private data class MoveTarget(
+        val track: TrackState?,
+        val laneIndex: Int,
+        val zOrder: Int,
+    )
+
+    private fun TrackType.allowsIndependentLanes(): Boolean {
+        return false
+    }
+
+    private fun zOrderForLane(trackType: TrackType, laneIndex: Int): Int {
+        return when (trackType) {
+            TrackType.TEXT -> 400
+            TrackType.OVERLAY -> 200
+            TrackType.LAYER -> 120
+            TrackType.VIDEO -> 0
+            TrackType.AUDIO -> 0
+        }
+    }
+
+    private fun resolveMoveTarget(clip: ClipSegment, effectiveDeltaYPx: Float): MoveTarget {
+        val currentTrackIndex = tracks.indexOfFirst { it.type == clip.trackType }
+            .takeIf { it >= 0 }
+            ?: tracks.indexOfFirst { t -> t.clips.any { it.id == clip.id } }
+        if (currentTrackIndex < 0) {
+            return MoveTarget(track = null, laneIndex = 0, zOrder = zOrderForLane(clip.trackType, 0))
+        }
+        val currentCenterY = clipTop(currentTrackIndex, clip) + laneHeightPx / 2f
+        val targetCenterY = currentCenterY + effectiveDeltaYPx
+        val targetTrackIndex = tracks.indices.firstOrNull { index ->
+            val top = trackTop(index)
+            val bottom = top + trackVisualHeightPx(index)
+            targetCenterY in top..bottom
+        } ?: when {
+            targetCenterY < rulerHeightPx -> 0
+            else -> tracks.lastIndex
+        }
+        val targetTrack = tracks.getOrNull(targetTrackIndex)
+        val laneIndex = targetTrack?.let { track ->
+            if (!track.type.allowsIndependentLanes()) {
+                0
+            } else {
+                val lanePitch = (laneHeightPx + trackInnerGapPx).coerceAtLeast(1)
+                val localY = (targetCenterY - trackTop(targetTrackIndex)).coerceAtLeast(0f)
+                val maxLane = trackLaneCount(track).coerceAtLeast(1) - 1
+                (localY / lanePitch).toInt().coerceIn(0, maxLane)
+            }
+        } ?: 0
+        return MoveTarget(
+            track = targetTrack,
+            laneIndex = laneIndex,
+            zOrder = zOrderForLane(targetTrack?.type ?: clip.trackType, laneIndex),
+        )
+    }
+
     private fun buildUpdate(clip: ClipSegment, deltaPx: Float, deltaYPx: Float): ClipUpdate? {
-        val deltaMs = (deltaPx / pxPerMs).roundToLong()
+        val deltaMs = (effectiveGestureDeltaPx(deltaPx) / pxPerMs).roundToLong()
         return when (gesture) {
             GestureKind.TRIM_START -> {
                 val allSnaps = buildSnapTargets(clip)
@@ -1044,10 +1545,11 @@ class TimelineCanvasView @JvmOverloads constructor(
                     .coerceIn(prevClipEnd, trimStartMax)
                 val deltaStartMs = snapped - clip.startTimeMs
                 val newDur = (clip.durationMs - deltaStartMs).coerceAtLeast(33L)
+                val newSourceIn = clip.sourceInMs + deltaStartMs
                 ClipUpdate(
                     clipId = clip.id, trackType = clip.trackType,
                     startTimeMs = snapped, durationMs = newDur,
-                    sourceInMs = clip.sourceInMs + deltaStartMs, sourceOutMs = clip.sourceOutMs,
+                    sourceInMs = newSourceIn, sourceOutMs = clip.sourceOutMs.coerceAtLeast(newSourceIn + newDur),
                     originalStartTimeMs = clip.startTimeMs, originalDurationMs = clip.durationMs,
                     originalSourceInMs = clip.sourceInMs, originalSourceOutMs = clip.sourceOutMs,
                     gestureKind = ClipGestureKind.TRIM_START,
@@ -1058,10 +1560,22 @@ class TimelineCanvasView @JvmOverloads constructor(
                 val sameTrackClips = tracks
                     .firstOrNull { t -> t.clips.any { it.id == clip.id } }
                     ?.clips?.filter { it.id != clip.id } ?: emptyList()
+                val sourceDurationMs = clipSourceDurationMs(clip)
+                val maxSourceDurationMs =
+                    if (sourceDurationMs > clip.sourceInMs) {
+                        sourceDurationMs - clip.sourceInMs
+                    } else {
+                        Long.MAX_VALUE
+                    }
                 val nextClipStart = sameTrackClips
                     .filter { it.startTimeMs >= clip.startTimeMs + clip.durationMs }
                     .minOfOrNull { it.startTimeMs } ?: Long.MAX_VALUE
-                val maxEnd = if (nextClipStart == Long.MAX_VALUE) Long.MAX_VALUE else nextClipStart
+                val sourceLimitedEnd =
+                    if (maxSourceDurationMs == Long.MAX_VALUE) Long.MAX_VALUE else clip.startTimeMs + maxSourceDurationMs
+                val maxEnd = min(
+                    if (nextClipStart == Long.MAX_VALUE) Long.MAX_VALUE else nextClipStart,
+                    sourceLimitedEnd,
+                )
                 val rawEnd = (clip.startTimeMs + clip.durationMs + deltaMs)
                     .coerceIn(clip.startTimeMs + 33L, maxEnd)
                 val snapped = snapToTargets(rawEnd, allSnaps)
@@ -1070,7 +1584,8 @@ class TimelineCanvasView @JvmOverloads constructor(
                 ClipUpdate(
                     clipId = clip.id, trackType = clip.trackType,
                     startTimeMs = clip.startTimeMs, durationMs = newDur,
-                    sourceInMs = clip.sourceInMs, sourceOutMs = clip.sourceInMs + newDur,
+                    sourceInMs = clip.sourceInMs,
+                    sourceOutMs = clip.sourceInMs + newDur,
                     originalStartTimeMs = clip.startTimeMs, originalDurationMs = clip.durationMs,
                     originalSourceInMs = clip.sourceInMs, originalSourceOutMs = clip.sourceOutMs,
                     gestureKind = ClipGestureKind.TRIM_END,
@@ -1080,16 +1595,15 @@ class TimelineCanvasView @JvmOverloads constructor(
                 val allSnaps = buildSnapTargets(clip)
                 val rawStart = (clip.startTimeMs + deltaMs).coerceAtLeast(0L)
                 var snapped = snapToTargets(rawStart, allSnaps)
-
-                // Prevent overlap with other clips on same track
-                val currentTrackIndex = tracks.indexOfFirst { t -> t.clips.any { it.id == clip.id } }
-                val targetTrackIndex = if (currentTrackIndex >= 0) {
-                    val trackShift = (deltaYPx / (trackHeightPx + trackGapPx)).roundToInt()
-                    (currentTrackIndex + trackShift).coerceIn(0, tracks.lastIndex)
-                } else currentTrackIndex
-
-                val targetTrack = tracks.getOrNull(targetTrackIndex)
-                val sameTrackClips = targetTrack?.clips?.filter { it.id != clip.id } ?: emptyList()
+                val targetTrack = tracks.firstOrNull { track -> track.type == clip.trackType }
+                    ?: tracks.firstOrNull { track -> track.clips.any { it.id == clip.id } }
+                val laneIndex = clipLaneIndex(clip)
+                val sameTrackClips = targetTrack?.clips
+                    ?.filter { other ->
+                        other.id != clip.id &&
+                            (!targetTrack.type.allowsIndependentLanes() || clipLaneIndex(other) == laneIndex)
+                    }
+                    ?: emptyList()
 
                 val newEnd = snapped + clip.durationMs
                 for (other in sameTrackClips) {
@@ -1106,12 +1620,14 @@ class TimelineCanvasView @JvmOverloads constructor(
                 snapped = snapped.coerceAtLeast(0L)
 
                 ClipUpdate(
-                    clipId = clip.id, trackType = targetTrack?.type ?: clip.trackType,
+                    clipId = clip.id, trackType = clip.trackType,
                     startTimeMs = snapped, durationMs = clip.durationMs,
                     sourceInMs = clip.sourceInMs, sourceOutMs = clip.sourceOutMs,
                     originalStartTimeMs = clip.startTimeMs, originalDurationMs = clip.durationMs,
                     originalSourceInMs = clip.sourceInMs, originalSourceOutMs = clip.sourceOutMs,
                     gestureKind = ClipGestureKind.MOVE,
+                    targetLane = laneIndex,
+                    targetZOrder = clip.zOrder,
                 )
             }
             else -> null
@@ -1147,6 +1663,63 @@ class TimelineCanvasView @JvmOverloads constructor(
         }
     }
 
+    private fun updateEdgeAutoScroll() {
+        if (!gestureStarted || gesture !in listOf(GestureKind.TRIM_START, GestureKind.TRIM_END, GestureKind.MOVE)) {
+            stopEdgeAutoScroll()
+            return
+        }
+        val requestedStepX = computeEdgeAutoScrollStepPx(gestureCurrentX)
+        val requestedStepY = 0f
+        if (kotlin.math.abs(requestedStepX) < 0.5f && kotlin.math.abs(requestedStepY) < 0.5f) {
+            stopEdgeAutoScroll()
+            return
+        }
+        if (!edgeAutoScrollRunning) {
+            edgeAutoScrollRunning = true
+            postOnAnimation(edgeAutoScrollRunnable)
+        }
+    }
+
+    private fun stopEdgeAutoScroll() {
+        edgeAutoScrollRunning = false
+        removeCallbacks(edgeAutoScrollRunnable)
+    }
+
+    private fun computeEdgeAutoScrollStepPx(touchX: Float): Float {
+        val zonePx = dp(48).toFloat()
+        val maxStepPx = dp(22).toFloat()
+        val leftBoundary = headerWidthPx + zonePx
+        return when {
+            touchX < leftBoundary -> {
+                val proximity = ((leftBoundary - touchX) / zonePx).coerceIn(0f, 1f)
+                -(maxStepPx * proximity)
+            }
+            touchX > width - zonePx -> {
+                val proximity = ((touchX - (width - zonePx)) / zonePx).coerceIn(0f, 1f)
+                maxStepPx * proximity
+            }
+            else -> 0f
+        }
+    }
+
+    private fun computeVerticalEdgeAutoScrollStepPx(touchY: Float): Float {
+        if (maxScrollY() <= 0f) return 0f
+        val zonePx = dp(42).toFloat()
+        val maxStepPx = dp(18).toFloat()
+        val topBoundary = rulerHeightPx + zonePx
+        return when {
+            touchY < topBoundary -> {
+                val proximity = ((topBoundary - touchY) / zonePx).coerceIn(0f, 1f)
+                -(maxStepPx * proximity)
+            }
+            touchY > height - zonePx -> {
+                val proximity = ((touchY - (height - zonePx)) / zonePx).coerceIn(0f, 1f)
+                maxStepPx * proximity
+            }
+            else -> 0f
+        }
+    }
+
     private fun vibrate() {
         try {
             vibrator?.vibrate(VibrationEffect.createOneShot(18, VibrationEffect.DEFAULT_AMPLITUDE))
@@ -1155,26 +1728,50 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     // Update clip in tracks list for live preview
     private fun updateClipPreview(clipId: String, update: ClipUpdate) {
-        tracks = tracks.map { track ->
-            track.copy(clips = track.clips.map { clip ->
-                if (clip.id == clipId) clip.copy(
-                    startTimeMs = update.startTimeMs,
-                    durationMs = update.durationMs,
-                    sourceInMs = update.sourceInMs,
-                    sourceOutMs = update.sourceOutMs,
-                ) else clip
-            })
+        var movedClip: ClipSegment? = null
+        val withoutMovedClip = tracks.map { track ->
+            val nextClips = track.clips.mapNotNull { clip ->
+                if (clip.id == clipId) {
+                    val laneIndex = update.targetLane.takeIf { it >= 0 } ?: clipLaneIndex(clip)
+                    movedClip = clip.copy(
+                        trackType = update.trackType,
+                        startTimeMs = update.startTimeMs,
+                        durationMs = update.durationMs,
+                        sourceInMs = update.sourceInMs,
+                        sourceOutMs = update.sourceOutMs,
+                        zOrder = update.targetZOrder.takeIf { it != Int.MIN_VALUE } ?: clip.zOrder,
+                        metadata = clip.metadata + ("subTrack" to (laneIndex + 1).toString()),
+                    )
+                    null
+                } else {
+                    clip
+                }
+            }
+            track.copy(clips = nextClips)
         }
+        tracks = movedClip?.let { moved ->
+            withoutMovedClip.map { track ->
+                if (track.type == moved.trackType) {
+                    track.copy(
+                        clips = (track.clips + moved)
+                            .sortedWith(compareBy<ClipSegment> { it.startTimeMs }.thenBy { it.zOrder }.thenBy { it.id }),
+                    )
+                } else {
+                    track
+                }
+            }
+        } ?: withoutMovedClip
+        clampScroll()
         recalcContentWidth()
     }
 
     // ── Hit test ──────────────────────────────────────────────────────────────
     private fun findClipAt(x: Float, y: Float): ClipSegment? {
         tracks.forEachIndexed { i, track ->
-            val top = trackTop(i).toFloat()
-            val bottom = top + trackHeightPx
-            if (y < top || y > bottom) return@forEachIndexed
             track.clips.forEach { clip ->
+                val top = clipTop(i, clip)
+                val bottom = clipBottom(i, clip)
+                if (y < top || y > bottom) return@forEach
                 val left = msToX(clip.startTimeMs)
                 val right = msToX(clip.startTimeMs + clip.durationMs)
                 if (x >= left - dp(4) && x <= right + dp(4)) return clip
@@ -1189,20 +1786,34 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         recalcContentWidth()
+        clampScroll()
         invalidateAssetRequestWindow()
-        scheduleAssetRequests(immediate = true)
+        scheduleAssetRequests()
     }
 
     override fun onDetachedFromWindow() {
         assetRequestHandler.removeCallbacks(assetRequestRunnable)
         assetRequestScheduled = false
+        stopPlaybackTicker()
+        removeCallbacks(gestureApplyRunnable)
+        gestureApplyScheduled = false
+        pendingGestureApplyClipId = null
+        stopEdgeAutoScroll()
         super.onDetachedFromWindow()
     }
 
     // Preferred height = ruler + all tracks
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val trackCount = layoutTrackCount
-        val preferred = rulerHeightPx + trackCount * (minTrackHeightBasePx + trackGapPx) + timelineBottomInsetPx
+        val laneSlotCount = totalLaneSlotCount.coerceAtLeast(trackCount)
+        val innerGapCount =
+            if (tracks.isEmpty()) 0 else tracks.sumOf { (trackLaneCount(it) - 1).coerceAtLeast(0) }
+        val preferred =
+            rulerHeightPx +
+                laneSlotCount * minTrackHeightBasePx +
+                innerGapCount * trackInnerGapPx +
+                (trackCount - 1) * trackGapPx +
+                timelineBottomInsetPx
         val h = when (MeasureSpec.getMode(heightMeasureSpec)) {
             MeasureSpec.EXACTLY -> MeasureSpec.getSize(heightMeasureSpec)
             MeasureSpec.AT_MOST -> minOf(preferred, MeasureSpec.getSize(heightMeasureSpec))

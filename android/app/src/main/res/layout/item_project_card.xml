@@ -64,18 +64,42 @@
             android:textSize="11sp" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/projectCardStatus"
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:background="@drawable/toolbar_item_background"
-        android:paddingStart="10dp"
-        android:paddingTop="6dp"
-        android:paddingEnd="10dp"
-        android:paddingBottom="6dp"
-        android:text="@string/project_card_status"
-        android:textColor="@color/text_primary"
-        android:textSize="9sp"
-        android:textStyle="bold" />
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/projectCardStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/toolbar_item_background"
+            android:paddingStart="10dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="6dp"
+            android:text="@string/project_card_status"
+            android:textColor="@color/text_primary"
+            android:textSize="9sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/projectCardDelete"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="7dp"
+            android:background="@drawable/toolbar_item_background"
+            android:clickable="true"
+            android:focusable="true"
+            android:paddingStart="10dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="6dp"
+            android:text="@string/project_card_delete"
+            android:textColor="#FF8A80"
+            android:textSize="9sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 
 </LinearLayout>

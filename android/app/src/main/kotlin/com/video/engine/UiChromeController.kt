@@ -13,6 +13,8 @@ import com.video.engine.stickers.StickersPanel
 import com.video.engine.timeline.TimelineManager
 import com.video.engine.transition.TransitionType
 import com.video.engine.NativeBridge
+import com.video.engine.utils.addBouncyTouchEffect
+import java.util.concurrent.atomic.AtomicInteger
 
 class UiChromeController(
     private val activity: Activity,
@@ -35,11 +37,7 @@ class UiChromeController(
     private val onOpenVideoImportPicker: () -> Unit,
     private val onOpenOverlayImportPicker: () -> Unit,
     private val onOpenLayerImportPicker: () -> Unit,
-    private val onQuickImport: () -> Boolean,
-    private val onQuickOverlayImport: () -> Boolean,
-    private val onQuickLayerImport: () -> Boolean,
     private val onShowAudioPicker: () -> Unit,
-    private val onQuickAudioImport: () -> Boolean,
     private val onShowTextComposer: () -> Unit,
     private val onAddTextPreset: (String) -> Unit,
     private val onOpenSelectedTextStudio: () -> Unit = {},
@@ -49,6 +47,9 @@ class UiChromeController(
     private val onShowProblemReportDialog: (String) -> Unit = {},
     private val clipEffects: MutableMap<Int, EffectParams>,
     private val onRevealSelectedClipPreview: () -> Unit = {},
+    private val onResolveActiveVisualClipId: (() -> Int?) = { null },
+    private val onResolveVisualClipPreviewTimeMs: ((Int) -> Long?) = { null },
+    private val onResolveTransitionTargetPair: (() -> Pair<Int, Int>?) = { null },
     private val onTransitionRequested: (Int, Int) -> Unit = { _, _ -> },
     private val onApplyTransitionPreset: (TransitionType, Int) -> Boolean = { _, _ -> false },
     private val onRemoveTransitionPreset: () -> Boolean = { false },
@@ -66,6 +67,15 @@ class UiChromeController(
         private const val TAG = "[UI]"
     }
 
+    private var previewSeekScheduled = false
+    private var pendingPreviewSeekMs = 0L
+    private val chromaApplyGeneration = AtomicInteger(0)
+    private val previewSeekRunnable = Runnable {
+        previewSeekScheduled = false
+        val previewView = previewViewProvider() ?: return@Runnable
+        NativeBridge.seekToTime(previewView, pendingPreviewSeekMs.coerceAtLeast(0L))
+    }
+
     private fun pausePlaybackForPanel() {
         if (isPlayingProvider()) {
             setIsPlaying(false)
@@ -75,7 +85,11 @@ class UiChromeController(
 
     private fun buildLayerItems(): List<LayerItem> {
         val layerItems = mutableListOf<LayerItem>()
-        editorStateProvider()?.buildLayerDescriptors().orEmpty().forEach { descriptor ->
+        editorStateProvider()
+            ?.buildLayerDescriptors()
+            .orEmpty()
+            .sortedWith(compareByDescending<LayerDescriptor> { it.layerIndex }.thenBy { it.key })
+            .forEach { descriptor ->
             layerControllerProvider()?.buildLayerItem(descriptor)?.let { item ->
                 layerItems += item
             }
@@ -84,43 +98,83 @@ class UiChromeController(
     }
 
     private fun showLayerManager() {
-        LayersPanel(activity, buildLayerItems()).show()
+        pausePlaybackForPanel()
+        LayersPanel(activity) { buildLayerItems() }.show()
     }
 
     private fun showImportSourceSheet(
         title: String,
         openedAction: String,
         browseLabel: String,
-        quickLabel: String? = null,
-        quickUnavailableMessage: String,
         onBrowse: () -> Unit,
-        onQuick: (() -> Boolean)? = null,
         extraActions: List<Pair<String, () -> Unit>> = emptyList(),
     ) {
         pausePlaybackForPanel()
         val options = mutableListOf<String>()
         options += browseLabel
-        if (quickLabel != null && onQuick != null) {
-            options += quickLabel
-        }
         options += extraActions.map { it.first }
         onHealthAction(openedAction)
         ModernSheet.show(activity, title) {
-            chips("Source", options, -1) { _, option ->
-                when {
-                    option == browseLabel -> onBrowse()
-                    quickLabel != null && option == quickLabel -> {
-                        if (onQuick?.invoke() != true) {
-                            Toast.makeText(activity, quickUnavailableMessage, Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    else -> extraActions.firstOrNull { it.first == option }?.second?.invoke()
+            section("Source")
+            actionTile(
+                title = browseLabel,
+                subtitle = sourceActionSubtitle(title, browseLabel),
+                badge = sourceActionBadge(browseLabel),
+                dismissOnClick = true,
+            ) {
+                onBrowse()
+            }
+            extraActions.forEach { (label, action) ->
+                actionTile(
+                    title = label,
+                    subtitle = sourceActionSubtitle(title, label),
+                    badge = sourceActionBadge(label),
+                    dismissOnClick = true,
+                ) {
+                    action()
                 }
+            }
+            if (options.size > 1) {
+                infoRow("Actions", options.size.toString())
             }
         }
     }
 
+    private fun sourceActionSubtitle(sheetTitle: String, action: String): String =
+        when (action) {
+            "Browse Device" -> when (sheetTitle) {
+                "Media" -> "Video and photo clips"
+                "Overlay" -> "Image or video overlay"
+                "Audio" -> "Music and sound files"
+                else -> "File picker"
+            }
+            "Import Layer" -> "Add visual overlay layer"
+            "Open Saved Project" -> "Continue an existing edit"
+            "Sticker Pack" -> "Graphics library"
+            "Manage Layers" -> "Layer order and visibility"
+            "Split Audio" -> "Cut selected audio at playhead"
+            "Record Voice" -> "Voiceover capture"
+            else -> "Editor action"
+        }
+
+    private fun sourceActionBadge(action: String): String =
+        when (action) {
+            "Browse Device", "Import Layer" -> "FILE"
+            "Open Saved Project" -> "PROJECT"
+            "Sticker Pack" -> "PACK"
+            "Manage Layers" -> "LAYERS"
+            "Split Audio" -> "CUT"
+            "Record Voice" -> "REC"
+            else -> "GO"
+        }
+
     private fun resolveActiveClipId(previewView: VideoPreviewView? = previewViewProvider()): Int? {
+        onResolveActiveVisualClipId()
+            ?.takeIf { it > 0 }
+            ?.let { clipId ->
+                timelineManagerProvider()?.selectClip(clipId)
+                return clipId
+            }
         val timelineManager = timelineManagerProvider()
         val selectedClipId = timelineManager?.getSelectedClipId()
         if (selectedClipId != null && selectedClipId > 0) {
@@ -149,6 +203,21 @@ class UiChromeController(
             return false
         }
         onRevealSelectedClipPreview()
+        applyColorPreview(previewView, clipId, params)
+        return true
+    }
+
+    private fun applyEffectPresetByName(name: String): Boolean {
+        val previewView = previewViewProvider() ?: run {
+            Toast.makeText(activity, "Preview not ready", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        val clipId = resolveActiveClipId(previewView) ?: run {
+            Toast.makeText(activity, "Select a clip first", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        onRevealSelectedClipPreview()
+        val params = NativeBridge.applyProfessionalEffectPreset(clipId, name) ?: effectPresetByName(name)
         applyColorPreview(previewView, clipId, params)
         return true
     }
@@ -183,7 +252,13 @@ class UiChromeController(
         }
         onRevealSelectedClipPreview()
         val currentParams = clipEffects[selectedClipId] ?: EffectParams()
-        EffectsPanel(activity, previewView, selectedClipId, currentParams) { ep, _ ->
+        EffectsPanel(
+            activity = activity,
+            previewView = previewView,
+            clipId = selectedClipId,
+            initial = currentParams,
+            resolvePreviewTimeMs = { resolvePreviewSeekTimeMs(selectedClipId) },
+        ) { ep, _ ->
             clipEffects[selectedClipId] = ep
             persistClipEffectsAsync(selectedClipId, ep)
         }.show()
@@ -241,7 +316,7 @@ class UiChromeController(
                 applyColorPreview(previewView, clipId, updated)
             }
             chips("LUT Presets", listOf("Warm", "Cool", "Vintage", "B&W", "Cinematic"), -1, dismissOnSelect = false) { _, lut ->
-                applyEffectPreset(effectPresetByName(lut))
+                applyEffectPresetByName(lut)
             }
         }
         return true
@@ -296,19 +371,18 @@ class UiChromeController(
     private fun showEffectsToolSheet() {
         onHealthAction("effects_tool_sheet_opened")
         ModernSheet.show(activity, "Effects") {
-            chips("Studio", listOf("Studio FX", "LUT Library", "Chroma Key", "Reset FX"), -1) { _, option ->
+            chips("Studio", listOf("Studio FX", "LUT Library", "Reset FX"), -1) { _, option ->
                 when (option) {
                     "Studio FX" -> showEffectsStudio()
                     "LUT Library" -> showLutLibrary()
-                    "Chroma Key" -> openChromaForActiveClip()
                     "Reset FX" -> applyEffectPreset(EffectParams())
                 }
             }
             chips("Quick Looks", listOf("Beauty Lift", "Bridal Glow", "Cine Matte", "Teal Punch", "Golden Hour", "Noir Mono"), -1, dismissOnSelect = false) { _, option ->
-                applyEffectPreset(effectPresetByName(option))
+                applyEffectPresetByName(option)
             }
             chips("Finish", listOf("Fair Lift", "Soft Skin", "Seoul Vlog", "Market Pop", "Night Neon", "Retro Print"), -1, dismissOnSelect = false) { _, option ->
-                applyEffectPreset(effectPresetByName(option))
+                applyEffectPresetByName(option)
             }
         }
     }
@@ -317,7 +391,7 @@ class UiChromeController(
         pausePlaybackForPanel()
         onHealthAction("graphics_tool_sheet_opened")
         ModernSheet.show(activity, "Graphics") {
-            chips("Quick", listOf("Spark", "Flame", "Heart", "Film", "Boom", "Star"), -1) { _, option ->
+            chipGrid("Quick Graphics", listOf("Spark", "Flame", "Heart", "Film", "Boom", "Star"), -1, columns = 3) { _, option ->
                 val success = when (option) {
                     "Spark" -> addQuickSticker(1, option)
                     "Flame" -> addQuickSticker(2, option)
@@ -331,15 +405,44 @@ class UiChromeController(
                     Toast.makeText(activity, "Graphic add failed", Toast.LENGTH_SHORT).show()
                 }
             }
-            chips("Source", listOf("Sticker Pack", "Overlay Import", "Quick Overlay", "Manage Layers"), -1) { _, option ->
+
+            chips(
+                "Text & Titles",
+                listOf("Composer", "Caption", "Title", "Lower 3rd", "Subtitle", "Label"),
+                -1,
+                dismissOnSelect = false,
+            ) { _, option ->
+                when (option) {
+                    "Composer" -> onShowTextComposer()
+                    else -> onAddTextPreset(option)
+                }
+            }
+
+            chips(
+                "Media Source",
+                listOf("Sticker Pack", "Overlay Import", "Layer Import", "Manage Layers"),
+                -1,
+                dismissOnSelect = false,
+            ) { _, option ->
                 when (option) {
                     "Sticker Pack" -> showStickerLibrary()
                     "Overlay Import" -> onOpenOverlayImportPicker()
-                    "Quick Overlay" -> {
-                        if (!onQuickOverlayImport()) {
-                            Toast.makeText(activity, "No quick overlay media found", Toast.LENGTH_SHORT).show()
-                        }
-                    }
+                    "Layer Import" -> onOpenLayerImportPicker()
+                    "Manage Layers" -> showLayerManager()
+                }
+            }
+
+            chips(
+                "Workflow",
+                listOf("Hook Title", "Quote Card", "CTA Badge", "Sticker Pack", "Manage Layers"),
+                -1,
+                dismissOnSelect = false,
+            ) { _, option ->
+                when (option) {
+                    "Hook Title" -> onAddTextPreset("Hook")
+                    "Quote Card" -> onAddTextPreset("Quote")
+                    "CTA Badge" -> onAddTextPreset("CTA")
+                    "Sticker Pack" -> showStickerLibrary()
                     "Manage Layers" -> showLayerManager()
                 }
             }
@@ -349,36 +452,50 @@ class UiChromeController(
     private fun showTransitionToolSheet() {
         onHealthAction("transition_tool_sheet_opened")
         ModernSheet.show(activity, "Transition") {
-            chips("Quick", listOf("Cross 250", "Fade 250", "Cross 500", "Fade 500", "Wipe 450", "Slide 450"), -1) { _, option ->
+            chipGrid(
+                "Popular",
+                listOf("Soft Cross", "Quick Fade", "Smooth Wipe", "Push Slide", "Long Dissolve", "Clean Cut"),
+                -1,
+                columns = 3,
+                dismissOnSelect = false,
+            ) { _, option ->
                 val success = when (option) {
-                    "Cross 250" -> onApplyTransitionPreset(TransitionType.CROSS, 250)
-                    "Fade 250" -> onApplyTransitionPreset(TransitionType.FADE, 250)
-                    "Cross 500" -> onApplyTransitionPreset(TransitionType.CROSS, 500)
-                    "Fade 500" -> onApplyTransitionPreset(TransitionType.FADE, 500)
-                    "Wipe 450" -> onApplyTransitionPreset(TransitionType.WIPE, 450)
-                    "Slide 450" -> onApplyTransitionPreset(TransitionType.SLIDE, 450)
+                    "Soft Cross" -> onApplyTransitionPreset(TransitionType.CROSS, 450)
+                    "Quick Fade" -> onApplyTransitionPreset(TransitionType.FADE, 220)
+                    "Smooth Wipe" -> onApplyTransitionPreset(TransitionType.WIPE, 500)
+                    "Push Slide" -> onApplyTransitionPreset(TransitionType.SLIDE, 420)
+                    "Long Dissolve" -> onApplyTransitionPreset(TransitionType.CROSS, 900)
+                    "Clean Cut" -> onRemoveTransitionPreset()
                     else -> false
                 }
                 if (!success) {
                     Toast.makeText(activity, "Need clips around the cut for transition", Toast.LENGTH_SHORT).show()
                 }
             }
-            chips("More", listOf("Cross 700", "Fade 700", "Wipe 700", "Slide 700", "Studio Panel", "Remove"), -1) { _, option ->
+            chips("Fast", listOf("Cross 180", "Fade 180", "Wipe 250", "Slide 250"), -1, dismissOnSelect = false) { _, option ->
+                val success = when (option) {
+                    "Cross 180" -> onApplyTransitionPreset(TransitionType.CROSS, 180)
+                    "Fade 180" -> onApplyTransitionPreset(TransitionType.FADE, 180)
+                    "Wipe 250" -> onApplyTransitionPreset(TransitionType.WIPE, 250)
+                    "Slide 250" -> onApplyTransitionPreset(TransitionType.SLIDE, 250)
+                    else -> false
+                }
+                if (!success) {
+                    Toast.makeText(activity, "Need clips around the cut for transition", Toast.LENGTH_SHORT).show()
+                }
+            }
+            chips("Pro", listOf("Cross 700", "Fade 700", "Wipe 700", "Slide 700", "Studio Panel", "Remove"), -1, dismissOnSelect = false) { _, option ->
                 val success = when (option) {
                     "Cross 700" -> onApplyTransitionPreset(TransitionType.CROSS, 700)
                     "Fade 700" -> onApplyTransitionPreset(TransitionType.FADE, 700)
                     "Wipe 700" -> onApplyTransitionPreset(TransitionType.WIPE, 700)
                     "Slide 700" -> onApplyTransitionPreset(TransitionType.SLIDE, 700)
                     "Studio Panel" -> {
-                        val manager = timelineManagerProvider()
-                        val clips = manager?.getClips().orEmpty()
-                        if (clips.size < 2) {
+                        val transitionPair = onResolveTransitionTargetPair()
+                        if (transitionPair == null) {
                             false
                         } else {
-                            val selected = manager?.getSelectedClipId()
-                            val idx = clips.indexOfFirst { it.id == selected }.takeIf { it >= 0 } ?: 0
-                            val outgoing = clips[idx].id
-                            val incoming = clips.getOrNull(idx + 1)?.id ?: clips[maxOf(0, idx - 1)].id
+                            val (outgoing, incoming) = transitionPair
                             onTransitionRequested(outgoing, incoming)
                             true
                         }
@@ -400,14 +517,9 @@ class UiChromeController(
             chips("Capture", listOf("Record Voice", "Punch-In"), -1) { _, _ ->
                 onVoiceoverRequested()
             }
-            chips("Source", listOf("Import Audio", "Quick Sample", "Split Audio"), -1) { _, option ->
+            chips("Source", listOf("Import Audio", "Split Audio"), -1) { _, option ->
                 when (option) {
                     "Import Audio" -> onShowAudioPicker()
-                    "Quick Sample" -> {
-                        if (!onQuickAudioImport()) {
-                            Toast.makeText(activity, "No quick audio found", Toast.LENGTH_SHORT).show()
-                        }
-                    }
                     "Split Audio" -> {
                         if (!onSplitAudioAtPlayhead()) {
                             Toast.makeText(activity, "Select an audio clip first", Toast.LENGTH_SHORT).show()
@@ -422,19 +534,18 @@ class UiChromeController(
         onHealthAction("color_tool_sheet_opened")
         onRevealSelectedClipPreview()
         ModernSheet.show(activity, "Color") {
-            chips("Studio", listOf("Grade Controls", "LUT Library", "Chroma Key", "Reset Color"), -1) { _, option ->
+            chips("Studio", listOf("Grade Controls", "LUT Library", "Reset Color"), -1) { _, option ->
                 when (option) {
                     "Grade Controls" -> showColorStudio()
                     "LUT Library" -> showLutLibrary()
-                    "Chroma Key" -> openChromaForActiveClip()
                     "Reset Color" -> applyEffectPreset(EffectParams())
                 }
             }
             chips("Quick Looks", listOf("Fair Lift", "Beauty Lift", "Cine Matte", "Teal Punch", "Golden Hour", "Noir Mono"), -1, dismissOnSelect = false) { _, option ->
-                applyEffectPreset(effectPresetByName(option))
+                applyEffectPresetByName(option)
             }
             chips("Finish", listOf("Bridal Glow", "Soft Skin", "Seoul Vlog", "Night Neon", "Retro Print", "Neutral"), -1, dismissOnSelect = false) { _, option ->
-                applyEffectPreset(effectPresetByName(option))
+                applyEffectPresetByName(option)
             }
         }
     }
@@ -460,17 +571,17 @@ class UiChromeController(
         showImportSourceSheet(
             title = "Layers",
             openedAction = "layers_source_sheet_opened",
-            browseLabel = "Browse Layer",
-            quickLabel = "Quick Sample",
-            quickUnavailableMessage = "No quick layer media found",
+            browseLabel = "Import Layer",
             onBrowse = onOpenLayerImportPicker,
-            onQuick = onQuickLayerImport,
-            extraActions = listOf("Manage Layers" to { showLayerManager() }),
+            extraActions = listOf(
+                "Manage Layers" to { showLayerManager() },
+            ),
         )
     }
 
     fun setupPlayPauseButton() {
         val playPauseButton = activity.findViewById<ImageButton>(R.id.previewPlayPauseButton)
+        playPauseButton?.addBouncyTouchEffect()
         fun syncPlayPauseIcon() {
             playPauseButton?.setImageResource(
                 if (isPlayingProvider()) R.drawable.ic_pause_toolbar
@@ -497,7 +608,9 @@ class UiChromeController(
     }
 
     fun setupExportButton() {
-        activity.findViewById<View>(R.id.exportButton)?.setOnClickListener {
+        val exportButton = activity.findViewById<View>(R.id.exportButton)
+        exportButton?.addBouncyTouchEffect()
+        exportButton?.setOnClickListener {
             onUiButtonTap("export", "top_bar", "tap")
             onShowExportDialog()
         }
@@ -544,62 +657,54 @@ class UiChromeController(
             Log.d(TAG, "Undo/redo buttons not found: ${e.message}")
         }
 
-        activity.findViewById<LinearLayout>(R.id.cutButton).setOnClickListener {
+        val cutButton = activity.findViewById<LinearLayout>(R.id.cutButton)
+        cutButton.addBouncyTouchEffect()
+        cutButton.setOnClickListener {
             onUiButtonTap("media", "main_toolbar", "tap")
             Log.d(TAG, "Video import button clicked")
             showImportSourceSheet(
                 title = "Media",
                 openedAction = "media_source_sheet_opened",
                 browseLabel = "Browse Device",
-                quickLabel = "Quick Sample",
-                quickUnavailableMessage = "No quick media found",
                 onBrowse = onOpenVideoImportPicker,
-                onQuick = onQuickImport,
+                extraActions = listOf(
+                    "Open Saved Project" to onShowLoadProjectDialog,
+                ),
             )
         }
-        activity.findViewById<LinearLayout>(R.id.cutButton).setOnLongClickListener {
-            onUiButtonTap("media_quick", "main_toolbar", "long_press")
-            Log.d(TAG, "Video import button long-pressed")
-            if (!onQuickImport()) {
-                Toast.makeText(activity, "No quick media found", Toast.LENGTH_SHORT).show()
-            }
-            true
-        }
+        activity.findViewById<LinearLayout>(R.id.cutButton).setOnLongClickListener(null)
 
-        activity.findViewById<LinearLayout>(R.id.overlayImportButton).setOnClickListener {
+        val overlayImportButton = activity.findViewById<LinearLayout>(R.id.overlayImportButton)
+        overlayImportButton.addBouncyTouchEffect()
+        overlayImportButton.setOnClickListener {
             onUiButtonTap("overlay", "main_toolbar", "tap")
             Log.d(TAG, "Overlay import button clicked")
             showImportSourceSheet(
                 title = "Overlay",
                 openedAction = "overlay_source_sheet_opened",
                 browseLabel = "Browse Device",
-                quickLabel = "Quick Sample",
-                quickUnavailableMessage = "No quick overlay media found",
                 onBrowse = onOpenOverlayImportPicker,
-                onQuick = onQuickOverlayImport,
+                extraActions = listOf(
+                    "Sticker Pack" to { showStickerLibrary() },
+                    "Manage Layers" to { showLayerManager() },
+                ),
             )
         }
-        activity.findViewById<LinearLayout>(R.id.overlayImportButton).setOnLongClickListener {
-            onUiButtonTap("overlay_quick", "main_toolbar", "long_press")
-            Log.d(TAG, "Overlay import button long-pressed")
-            if (!onQuickOverlayImport()) {
-                Toast.makeText(activity, "No quick overlay media found", Toast.LENGTH_SHORT).show()
-            }
-            true
-        }
+        activity.findViewById<LinearLayout>(R.id.overlayImportButton).setOnLongClickListener(null)
 
-        activity.findViewById<LinearLayout>(R.id.layersButton).setOnClickListener {
+        val layersButton = activity.findViewById<LinearLayout>(R.id.layersButton)
+        layersButton.addBouncyTouchEffect()
+        layersButton.setOnClickListener {
             onUiButtonTap("layers", "main_toolbar", "tap")
             Log.d(TAG, "Layer import button clicked")
             showImportSourceSheet(
                 title = "Layers",
                 openedAction = "layers_source_sheet_opened",
-                browseLabel = "Browse Layer",
-                quickLabel = "Quick Sample",
-                quickUnavailableMessage = "No quick layer media found",
+                browseLabel = "Import Layer",
                 onBrowse = onOpenLayerImportPicker,
-                onQuick = onQuickLayerImport,
-                extraActions = listOf("Manage Layers" to { showLayerManager() }),
+                extraActions = listOf(
+                    "Manage Layers" to { showLayerManager() },
+                ),
             )
         }
         activity.findViewById<LinearLayout>(R.id.layersButton).setOnLongClickListener {
@@ -615,20 +720,18 @@ class UiChromeController(
                 title = "Audio",
                 openedAction = "audio_source_sheet_opened",
                 browseLabel = "Browse Device",
-                quickLabel = "Quick Sample",
-                quickUnavailableMessage = "No quick audio found",
                 onBrowse = onShowAudioPicker,
-                onQuick = onQuickAudioImport,
+                extraActions = listOf(
+                    "Split Audio" to {
+                        if (!onSplitAudioAtPlayhead()) {
+                            Toast.makeText(activity, "Select an audio clip first", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    "Record Voice" to onVoiceoverRequested,
+                ),
             )
         }
-        activity.findViewById<LinearLayout>(R.id.audioButton).setOnLongClickListener {
-            onUiButtonTap("audio_quick", "main_toolbar", "long_press")
-            Log.d(TAG, "Audio button long-pressed")
-            if (!onQuickAudioImport()) {
-                Toast.makeText(activity, "No quick audio found", Toast.LENGTH_SHORT).show()
-            }
-            true
-        }
+        activity.findViewById<LinearLayout>(R.id.audioButton).setOnLongClickListener(null)
 
         activity.findViewById<LinearLayout>(R.id.textButton).setOnClickListener {
             onUiButtonTap("text", "main_toolbar", "tap")
@@ -666,15 +769,11 @@ class UiChromeController(
         }
         activity.findViewById<LinearLayout>(R.id.transitionButton).setOnLongClickListener {
             onUiButtonTap("transition_studio", "main_toolbar", "long_press")
-            val manager = timelineManagerProvider()
-            val clips = manager?.getClips().orEmpty()
-            if (clips.size < 2) {
+            val transitionPair = onResolveTransitionTargetPair()
+            if (transitionPair == null) {
                 Toast.makeText(activity, "Need at least 2 clips for transition", Toast.LENGTH_SHORT).show()
             } else {
-                val selected = manager?.getSelectedClipId()
-                val idx = clips.indexOfFirst { it.id == selected }.takeIf { it >= 0 } ?: 0
-                val outgoing = clips[idx].id
-                val incoming = clips.getOrNull(idx + 1)?.id ?: clips[maxOf(0, idx - 1)].id
+                val (outgoing, incoming) = transitionPair
                 onTransitionRequested(outgoing, incoming)
             }
             true
@@ -706,8 +805,24 @@ class UiChromeController(
         onRevealSelectedClipPreview()
         clipEffects[clipId] = params
         NativeBridge.setClipEffects(previewView, clipId, params.brightness, params.contrast, params.saturation)
-        runCatching { NativeBridge.seekToTime(previewView, currentTimeMsProvider().coerceAtLeast(0L)) }
+        schedulePreviewSeek(previewView, clipId)
         persistClipEffectsAsync(clipId, params)
+    }
+
+    private fun resolvePreviewSeekTimeMs(clipId: Int? = null): Long {
+        val currentTimeMs = currentTimeMsProvider().coerceAtLeast(0L)
+        val resolvedTimeMs = clipId?.let { onResolveVisualClipPreviewTimeMs(it) }
+        return resolvedTimeMs?.coerceAtLeast(0L) ?: currentTimeMs
+    }
+
+    private fun schedulePreviewSeek(previewView: VideoPreviewView, clipId: Int? = null) {
+        pendingPreviewSeekMs = resolvePreviewSeekTimeMs(clipId)
+        if (previewSeekScheduled) {
+            return
+        }
+        previewSeekScheduled = true
+        previewView.removeCallbacks(previewSeekRunnable)
+        previewView.postOnAnimation(previewSeekRunnable)
     }
 
     private fun persistClipEffectsAsync(clipId: Int, params: EffectParams) {
@@ -762,6 +877,7 @@ class UiChromeController(
 
     fun showChromaKeyPanel(clipId: Int) {
         val previewView = previewViewProvider() ?: return
+        pausePlaybackForPanel()
         val initial = loadChromaPanelState(clipId)
         var enabled = initial.enabled
         var similarity = initial.similarity
@@ -771,8 +887,8 @@ class UiChromeController(
 
         fun apply() {
             val playheadMs = currentTimeMsProvider().coerceAtLeast(0L)
-            NativeBridge.executeCommandAsync(
-                "SET_CHROMA_KEY",
+            val generation = chromaApplyGeneration.incrementAndGet()
+            val params =
                 mapOf(
                     "clipId" to clipId,
                     "enabled" to enabled,
@@ -780,13 +896,23 @@ class UiChromeController(
                     "similarity" to similarity,
                     "smoothness" to smoothness,
                     "spill" to spill,
-                ),
-            )
+                )
+            Log.i(TAG, "Chroma apply queued clip=$clipId enabled=$enabled blue=$isBlue")
+            NativeBridge.executeCommandAsync("SET_CHROMA_KEY", params)
             activity.runOnUiThread {
-                runCatching { NativeBridge.seekToTime(previewView, playheadMs) }
+                fun refreshPreviewIfLatest() {
+                    if (generation != chromaApplyGeneration.get()) {
+                        return
+                    }
+                    runCatching { NativeBridge.seekToTime(previewView, playheadMs) }
+                }
+                refreshPreviewIfLatest()
+                previewView.postDelayed({ refreshPreviewIfLatest() }, 80L)
+                previewView.postDelayed({ refreshPreviewIfLatest() }, 180L)
             }
         }
 
+        apply()
         ModernSheet.show(activity, "Chroma Key") {
             toggle("Enable Green Screen", enabled) { enabled = it; apply() }
             divider()

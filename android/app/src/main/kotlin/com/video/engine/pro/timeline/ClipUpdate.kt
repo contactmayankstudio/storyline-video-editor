@@ -16,4 +16,6 @@ data class ClipUpdate(
     val originalSourceInMs: Long,
     val originalSourceOutMs: Long,
     val gestureKind: ClipGestureKind,
+    val targetLane: Int = -1,
+    val targetZOrder: Int = Int.MIN_VALUE,
 )

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <bool name="storyline_runtime_ads_enabled">true</bool>
+    <bool name="storyline_runtime_startup_ads_enabled">true</bool>
+</resources>

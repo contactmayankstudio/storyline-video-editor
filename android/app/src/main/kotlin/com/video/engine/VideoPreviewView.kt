@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.hardware.HardwareBuffer
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.AttributeSet
 import android.view.SurfaceView
 import android.view.SurfaceHolder
@@ -17,6 +19,7 @@ import kotlin.math.max
 import kotlin.math.min
 import java.util.concurrent.Executors
 import java.util.concurrent.ExecutorService
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 
 /**
@@ -60,6 +63,24 @@ class VideoPreviewView @JvmOverloads constructor(
     // TAG and native library loader moved to single companion at end of file.
     private lateinit var scaleGestureDetector: ScaleGestureDetector
 
+    private var pendingMoveX = -1f
+    private var pendingMoveY = -1f
+    private var pendingScale = -1f
+    private var pendingRotation = -1000f
+    private var isMoveUpdatePending = false
+    private val moveUpdateRunnable = Runnable {
+        isMoveUpdatePending = false
+        if (activeTextOverlayId > 0 && pendingMoveX >= 0f) {
+            try {
+                val s = if (pendingScale >= 0f) pendingScale else overlayScales[activeTextOverlayId] ?: 1.0f
+                val r = if (pendingRotation > -1000f) pendingRotation else overlayRotations[activeTextOverlayId] ?: 0.0f
+                nativeUpdateTextOverlayTransform(activeTextOverlayId, pendingMoveX, pendingMoveY, s, r)
+            } catch (e: UnsatisfiedLinkError) {
+                Log.w(TAG, "nativeUpdateTextOverlayTransform JNI not implemented")
+            }
+        }
+    }
+
     /**
      * Initialize SurfaceView holder callback.
      * This must be called to enable surface lifecycle notifications.
@@ -73,6 +94,23 @@ class VideoPreviewView @JvmOverloads constructor(
 
     // Executor for background rendering tasks to avoid ANR
     private var renderExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    @Volatile
+    private var pendingSeekTimeMs: Long = Long.MIN_VALUE
+    private val seekDrainScheduled = AtomicBoolean(false)
+    @Volatile
+    private var pendingClipPreviewTransform: PendingClipPreviewTransform? = null
+    private val clipPreviewTransformDrainScheduled = AtomicBoolean(false)
+
+    private data class PendingClipPreviewTransform(
+        val clipId: Int,
+        val zoom: Float,
+        val scaleX: Float,
+        val scaleY: Float,
+        val panXPx: Float,
+        val panYPx: Float,
+        val rotationDeg: Float,
+        val mirrorX: Boolean,
+    )
 
     // Export callback for progress/completion events
     interface ExportCallback {
@@ -85,6 +123,7 @@ class VideoPreviewView @JvmOverloads constructor(
     private val overlayScales = mutableMapOf<Int, Float>()
     // Cache overlay rotations to allow smooth rotation without jumps
     private val overlayRotations = mutableMapOf<Int, Float>()
+    private val overlayPositions = mutableMapOf<Int, Pair<Float, Float>>()
     private var activeTextOverlayId: Int = -1
     private var pinchBaseScale: Float = 1.0f
     // Rotation tracking state
@@ -101,6 +140,89 @@ class VideoPreviewView @JvmOverloads constructor(
     private var nativeSurfaceInitialized: Boolean = false
     private var requestedBufferWidth: Int = 0
     private var requestedBufferHeight: Int = 0
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var surfaceReadyCallbackPending = false
+    private val surfaceBindInProgress = AtomicBoolean(false)
+
+    private fun notifySurfaceReadySoon() {
+        if (surfaceReadyCallbackPending) return
+        surfaceReadyCallbackPending = true
+        mainHandler.postDelayed({
+            surfaceReadyCallbackPending = false
+            if (nativeSurfaceInitialized) {
+                onSurfaceReady?.invoke()
+            }
+        }, 200)
+    }
+
+    private fun bindNativeSurfaceIfPossible(reason: String): Boolean {
+        if (!nativeLibraryLoaded) return false
+        if (!surfaceBindInProgress.compareAndSet(false, true)) return false
+        try {
+            val surface = holder.surface ?: return false
+            if (!surface.isValid) {
+                nativeSurfaceInitialized = false
+                Log.d(TAG, "Native surface bind skipped ($reason): holder surface is not valid")
+                return false
+            }
+            return try {
+                var didBindSurface = false
+                if (!nativeSurfaceInitialized) {
+                    Log.d(TAG, "Binding native preview surface ($reason)")
+                    nativeInitPreview(surface)
+                    nativeSurfaceInitialized = true
+                    didBindSurface = true
+                }
+                val targetWidth = when {
+                    width > 0 -> width
+                    surfaceW > 0 -> surfaceW
+                    requestedBufferWidth > 0 -> requestedBufferWidth
+                    else -> 0
+                }
+                val targetHeight = when {
+                    height > 0 -> height
+                    surfaceH > 0 -> surfaceH
+                    requestedBufferHeight > 0 -> requestedBufferHeight
+                    else -> 0
+                }
+                var sizeChanged = false
+                if (targetWidth > 0 && targetHeight > 0) {
+                    sizeChanged =
+                        targetWidth != requestedBufferWidth ||
+                            targetHeight != requestedBufferHeight
+                    if (didBindSurface || sizeChanged) {
+                        requestedBufferWidth = targetWidth
+                        requestedBufferHeight = targetHeight
+                        nativeSetSurfaceSize(targetWidth, targetHeight)
+                    }
+                }
+                if (didBindSurface || sizeChanged) {
+                    notifySurfaceReadySoon()
+                }
+                true
+            } catch (e: UnsatisfiedLinkError) {
+                nativeSurfaceInitialized = false
+                Log.w(TAG, "Native surface bind JNI not implemented ($reason)")
+                false
+            }
+        } finally {
+            surfaceBindInProgress.set(false)
+        }
+    }
+
+    private fun scheduleNativeSurfaceBind(reason: String, attemptsRemaining: Int = 15) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { scheduleNativeSurfaceBind(reason, attemptsRemaining) }
+            return
+        }
+        if (bindNativeSurfaceIfPossible(reason)) return
+        if (attemptsRemaining <= 0) return
+        // First retry quickly, then back off to reduce CPU spin
+        val delayMs = if (attemptsRemaining == 14) 50L else 200L
+        mainHandler.postDelayed({
+            scheduleNativeSurfaceBind(reason, attemptsRemaining - 1)
+        }, delayMs)
+    }
 
     /**
      * Set which text overlay id should respond to pinch gestures.
@@ -125,28 +247,8 @@ class VideoPreviewView @JvmOverloads constructor(
 
     override fun surfaceCreated(holder: SurfaceHolder) {
         Log.d(TAG, "surfaceCreated - nativeLibraryLoaded=$nativeLibraryLoaded")
-        if (!nativeLibraryLoaded) {
-            nativeSurfaceInitialized = false
-            return
-        }
-        if (nativeSurfaceInitialized) {
-            Log.d(TAG, "surfaceCreated ignored - native surface already initialized")
-            return
-        }
-        val surface = holder.surface
-        if (!surface.isValid) {
-            nativeSurfaceInitialized = false
-            return
-        }
-        try {
-            nativeInitPreview(surface)
-            nativeSurfaceInitialized = true
-            // Notify after short delay so surfaceChanged also completes
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                onSurfaceReady?.invoke()
-            }, 200)
-        } catch (e: UnsatisfiedLinkError) {
-            nativeSurfaceInitialized = false
+        if (!bindNativeSurfaceIfPossible("surfaceCreated")) {
+            scheduleNativeSurfaceBind("surfaceCreated_retry")
         }
     }
 
@@ -164,25 +266,22 @@ class VideoPreviewView @JvmOverloads constructor(
      * @param height The height of the surface
      */
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-        if (width == surfaceW && height == surfaceH) return
+        if (width == surfaceW && height == surfaceH && nativeSurfaceInitialized) return
         Log.d(TAG, "surfaceChanged: $width x $height")
         surfaceW = width
         surfaceH = height
-        val (bufferWidth, bufferHeight) = resolvePreviewBufferSize(width, height)
-        if (requestedBufferWidth != bufferWidth || requestedBufferHeight != bufferHeight) {
-            requestedBufferWidth = bufferWidth
-            requestedBufferHeight = bufferHeight
-            runCatching { holder.setFixedSize(bufferWidth, bufferHeight) }
-                .onFailure { error ->
-                    Log.w(TAG, "holder.setFixedSize failed: ${error.message}")
-                }
-        }
+        requestedBufferWidth = width
+        requestedBufferHeight = height
         if (!nativeLibraryLoaded) {
             Log.w(TAG, "Skipping nativeSetSurfaceSize because native library is not loaded")
             return
         }
+        if (!bindNativeSurfaceIfPossible("surfaceChanged")) {
+            scheduleNativeSurfaceBind("surfaceChanged_retry")
+            return
+        }
         try {
-            nativeSetSurfaceSize(bufferWidth, bufferHeight)
+            nativeSetSurfaceSize(width, height)
         } catch (e: UnsatisfiedLinkError) {
             Log.w(TAG, "nativeSetSurfaceSize JNI not implemented")
         }
@@ -243,7 +342,9 @@ class VideoPreviewView @JvmOverloads constructor(
     fun onResume() {
         Log.d(TAG, "onResume")
         // Ensure surface is bound — surfaceCreated may have been missed
-        ensureNativeSurfaceBinding()
+        if (!ensureNativeSurfaceBinding()) {
+            scheduleNativeSurfaceBind("onResume_retry")
+        }
         try {
             nativeResumeRendering()
         } catch (e: UnsatisfiedLinkError) {
@@ -262,8 +363,28 @@ class VideoPreviewView @JvmOverloads constructor(
      * @param timelineMs Timeline position in milliseconds
      */
     fun seekToTime(timelineMs: Long) {
+        pendingSeekTimeMs = timelineMs
+        scheduleSeekDrain()
+    }
+
+    private fun scheduleSeekDrain() {
+        if (!seekDrainScheduled.compareAndSet(false, true)) return
         renderExecutor.execute {
-            nativeSeekPreview(timelineMs)
+            try {
+                while (true) {
+                    val nextSeekMs = pendingSeekTimeMs
+                    pendingSeekTimeMs = Long.MIN_VALUE
+                    if (nextSeekMs == Long.MIN_VALUE) {
+                        break
+                    }
+                    nativeSeekPreview(nextSeekMs)
+                }
+            } finally {
+                seekDrainScheduled.set(false)
+                if (pendingSeekTimeMs != Long.MIN_VALUE) {
+                    scheduleSeekDrain()
+                }
+            }
         }
     }
 
@@ -272,28 +393,7 @@ class VideoPreviewView @JvmOverloads constructor(
      * happen before/after lifecycle transitions.
      */
     fun ensureNativeSurfaceBinding(): Boolean {
-        if (!nativeLibraryLoaded) return false
-        val surface = holder.surface ?: return false
-        if (!surface.isValid) {
-            nativeSurfaceInitialized = false
-            return false
-        }
-        return try {
-            if (!nativeSurfaceInitialized) {
-                nativeInitPreview(surface)
-                nativeSurfaceInitialized = true
-                // Set size only on first init
-                if (width > 0 && height > 0) {
-                    val (bufferWidth, bufferHeight) = resolvePreviewBufferSize(width, height)
-                    nativeSetSurfaceSize(bufferWidth, bufferHeight)
-                }
-            }
-            true
-        } catch (e: UnsatisfiedLinkError) {
-            nativeSurfaceInitialized = false
-            Log.w(TAG, "ensureNativeSurfaceBinding JNI not implemented")
-            false
-        }
+        return bindNativeSurfaceIfPossible("ensureNativeSurfaceBinding")
     }
 
     /**
@@ -302,7 +402,26 @@ class VideoPreviewView @JvmOverloads constructor(
      */
     fun forceNativeSurfaceRebind(): Boolean {
         nativeSurfaceInitialized = false
-        return ensureNativeSurfaceBinding()
+        val rebound = bindNativeSurfaceIfPossible("forceNativeSurfaceRebind")
+        if (!rebound) {
+            scheduleNativeSurfaceBind("forceNativeSurfaceRebind_retry")
+        }
+        return rebound
+    }
+
+    fun syncNativeSurfaceSizeToView(): Boolean {
+        if (!nativeLibraryLoaded) return false
+        if (width <= 0 || height <= 0) return false
+        if (requestedBufferWidth == width && requestedBufferHeight == height) return true
+        return try {
+            requestedBufferWidth = width
+            requestedBufferHeight = height
+            nativeSetSurfaceSize(width, height)
+            true
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "syncNativeSurfaceSizeToView JNI not implemented")
+            false
+        }
     }
 
     /**
@@ -321,6 +440,7 @@ class VideoPreviewView @JvmOverloads constructor(
             val nid = nativeId.toInt()
             overlayScales[nid] = scale
             overlayRotations[nid] = rotation
+            overlayPositions[nid] = Pair(x, y)
         }
         return nativeId
     }
@@ -332,6 +452,14 @@ class VideoPreviewView @JvmOverloads constructor(
         nativeUpdateTextOverlay(id, x, y, scale, rotation, color, fontSize, startTimeMs, endTimeMs)
         overlayScales[id] = scale
         overlayRotations[id] = rotation
+        overlayPositions[id] = Pair(x, y)
+    }
+
+    fun updateTextOverlayTransform(id: Int, x: Float, y: Float, scale: Float, rotation: Float) {
+        nativeUpdateTextOverlayTransform(id, x, y, scale, rotation)
+        overlayScales[id] = scale
+        overlayRotations[id] = rotation
+        overlayPositions[id] = Pair(x, y)
     }
 
     override fun onTouchEvent(event: MotionEvent?): Boolean {
@@ -359,21 +487,28 @@ class VideoPreviewView @JvmOverloads constructor(
                     newRotation = ((newRotation + 180f) % 360f + 360f) % 360f - 180f
 
                     overlayRotations[activeTextOverlayId] = newRotation
-                    try {
-                        nativeUpdateTextRotation(activeTextOverlayId, newRotation)
-                    } catch (e: UnsatisfiedLinkError) {
-                        Log.w(TAG, "nativeUpdateTextRotation JNI not implemented")
+                    
+                    pendingRotation = newRotation
+                    // We need x, y to push the transform
+                    pendingMoveX = overlayPositions[activeTextOverlayId]?.first ?: 0.5f
+                    pendingMoveY = overlayPositions[activeTextOverlayId]?.second ?: 0.5f
+
+                    if (!isMoveUpdatePending) {
+                        isMoveUpdatePending = true
+                        android.view.Choreographer.getInstance().postFrameCallback { moveUpdateRunnable.run() }
                     }
                 } else if (event.pointerCount == 1 && activeTextOverlayId > 0 && !isRotating) {
                     // Single-finger drag -> move active overlay (normalized coords)
                     val nx = (event.x / surfaceW).coerceIn(0.0f, 1.0f)
                     val ny = (event.y / surfaceH).coerceIn(0.0f, 1.0f)
-                    try {
-                        val s = overlayScales[activeTextOverlayId] ?: 1.0f
-                        val r = overlayRotations[activeTextOverlayId] ?: 0.0f
-                        nativeUpdateTextOverlay(activeTextOverlayId, nx, ny, s, r, 0xFFFFFFFF.toInt(), 36f, 0, Int.MAX_VALUE)
-                    } catch (e: UnsatisfiedLinkError) {
-                        Log.w(TAG, "nativeUpdateTextOverlay JNI not implemented during drag")
+                    
+                    overlayPositions[activeTextOverlayId] = Pair(nx, ny)
+                    pendingMoveX = nx
+                    pendingMoveY = ny
+                    
+                    if (!isMoveUpdatePending) {
+                        isMoveUpdatePending = true
+                        android.view.Choreographer.getInstance().postFrameCallback { moveUpdateRunnable.run() }
                     }
                 }
             }
@@ -536,14 +671,15 @@ class VideoPreviewView @JvmOverloads constructor(
     fun setAudioMasterClockEnabled(enabled: Boolean) {
         if (lastAudioMasterClockEnabled == enabled) return
         lastAudioMasterClockEnabled = enabled
-        val bridged = runCatching {
-            NativeBridge.setAudioMasterClockEnabled(enabled)
-        }.getOrDefault(false)
-        if (bridged) return
         try {
             nativeSetAudioMasterClockEnabled(enabled)
         } catch (e: UnsatisfiedLinkError) {
-            Log.w(TAG, "nativeSetAudioMasterClockEnabled JNI not implemented")
+            val bridged = runCatching {
+                NativeBridge.setAudioMasterClockEnabled(enabled)
+            }.getOrDefault(false)
+            if (!bridged) {
+                Log.w(TAG, "nativeSetAudioMasterClockEnabled JNI not implemented")
+            }
         }
     }
 
@@ -552,16 +688,15 @@ class VideoPreviewView @JvmOverloads constructor(
      * Call from audio playback loop for tight sync.
      */
     fun updateAudioClockUs(ptsUs: Long) {
-        val bridged = runCatching {
-            NativeBridge.updateAudioClockUs(ptsUs)
-        }.getOrDefault(false)
-        if (bridged) {
-            return
-        }
         try {
             nativeUpdateAudioClockUs(ptsUs)
         } catch (e: UnsatisfiedLinkError) {
-            Log.w(TAG, "nativeUpdateAudioClockUs JNI not implemented")
+            val bridged = runCatching {
+                NativeBridge.updateAudioClockUs(ptsUs)
+            }.getOrDefault(false)
+            if (!bridged) {
+                Log.w(TAG, "nativeUpdateAudioClockUs JNI not implemented")
+            }
         }
     }
 
@@ -637,7 +772,7 @@ class VideoPreviewView @JvmOverloads constructor(
      * 
      * Thread: Can be called from any thread (but recommended before rendering starts)
      * 
-     * @param videoPath Absolute path to video file (e.g., "/storage/emulated/0/video.mp4")
+     * @param videoPath Absolute media path or content URI.
      * @return true if video loaded successfully, false otherwise
      */
     fun loadVideo(videoPath: String): Boolean {
@@ -648,19 +783,42 @@ class VideoPreviewView @JvmOverloads constructor(
     fun setClipPreviewTransform(
         clipId: Int,
         zoom: Float,
+        scaleX: Float = 1.0f,
+        scaleY: Float = 1.0f,
         panXPx: Float,
         panYPx: Float,
         rotationDeg: Float,
         mirrorX: Boolean,
         immediate: Boolean = false,
     ) {
+        val clampedZoom = zoom.coerceIn(0.15f, 8.0f)
+        val clampedScaleX = scaleX.coerceIn(0.15f, 8.0f)
+        val clampedScaleY = scaleY.coerceIn(0.15f, 8.0f)
+        val clampedRotation = rotationDeg.coerceIn(-180.0f, 180.0f)
+        if (!immediate) {
+            pendingClipPreviewTransform =
+                PendingClipPreviewTransform(
+                    clipId = clipId,
+                    zoom = clampedZoom,
+                    scaleX = clampedScaleX,
+                    scaleY = clampedScaleY,
+                    panXPx = panXPx,
+                    panYPx = panYPx,
+                    rotationDeg = clampedRotation,
+                    mirrorX = mirrorX,
+                )
+            scheduleClipPreviewTransformDrain()
+            return
+        }
         try {
             nativeSetClipPreviewTransform(
                 clipId,
-                zoom.coerceIn(0.35f, 4.0f),
+                clampedZoom,
+                clampedScaleX,
+                clampedScaleY,
                 panXPx,
                 panYPx,
-                rotationDeg.coerceIn(-180.0f, 180.0f),
+                clampedRotation,
                 mirrorX,
                 immediate,
             )
@@ -669,7 +827,67 @@ class VideoPreviewView @JvmOverloads constructor(
         }
     }
 
-    fun clearClipPreviewTransform(clipId: Int) {
+    private fun scheduleClipPreviewTransformDrain() {
+        if (!clipPreviewTransformDrainScheduled.compareAndSet(false, true)) return
+        renderExecutor.execute {
+            try {
+                while (true) {
+                    val next = pendingClipPreviewTransform ?: break
+                    pendingClipPreviewTransform = null
+                    nativeSetClipPreviewTransform(
+                        next.clipId,
+                        next.zoom,
+                        next.scaleX,
+                        next.scaleY,
+                        next.panXPx,
+                        next.panYPx,
+                        next.rotationDeg,
+                        next.mirrorX,
+                        false,
+                    )
+                }
+            } catch (e: UnsatisfiedLinkError) {
+                Log.w(TAG, "nativeSetClipPreviewTransform JNI not implemented")
+            } finally {
+                clipPreviewTransformDrainScheduled.set(false)
+                if (pendingClipPreviewTransform != null) {
+                    scheduleClipPreviewTransformDrain()
+                }
+            }
+        }
+    }
+
+    fun flushPendingClipPreviewTransformForExport() {
+        val next = pendingClipPreviewTransform ?: return
+        pendingClipPreviewTransform = null
+        try {
+            nativeSetClipPreviewTransform(
+                next.clipId,
+                next.zoom,
+                next.scaleX,
+                next.scaleY,
+                next.panXPx,
+                next.panYPx,
+                next.rotationDeg,
+                next.mirrorX,
+                true,
+            )
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "nativeSetClipPreviewTransform JNI not implemented")
+        }
+    }
+
+    fun clearClipPreviewTransform(clipId: Int, immediate: Boolean = true) {
+        if (!immediate) {
+            renderExecutor.execute {
+                try {
+                    nativeClearClipPreviewTransform(clipId)
+                } catch (e: UnsatisfiedLinkError) {
+                    Log.w(TAG, "nativeClearClipPreviewTransform JNI not implemented")
+                }
+            }
+            return
+        }
         try {
             nativeClearClipPreviewTransform(clipId)
         } catch (e: UnsatisfiedLinkError) {
@@ -728,6 +946,8 @@ class VideoPreviewView @JvmOverloads constructor(
     fun computeNormalizedPreviewTransform(
         clipId: Int,
         zoom: Float,
+        scaleX: Float = 1.0f,
+        scaleY: Float = 1.0f,
         panXPx: Float,
         panYPx: Float,
         rotationDeg: Float,
@@ -737,6 +957,8 @@ class VideoPreviewView @JvmOverloads constructor(
             nativeComputeNormalizedPreviewTransform(
                 clipId,
                 zoom,
+                scaleX,
+                scaleY,
                 panXPx,
                 panYPx,
                 rotationDeg,
@@ -791,6 +1013,100 @@ class VideoPreviewView @JvmOverloads constructor(
         }
     }
 
+    fun computeCornerHandlePreviewTransform(
+        clipId: Int,
+        baseZoom: Float,
+        basePanXPx: Float,
+        basePanYPx: Float,
+        deltaXPx: Float,
+        deltaYPx: Float,
+        cornerSignX: Float,
+        cornerSignY: Float,
+    ): FloatArray? {
+        return try {
+            nativeComputeCornerHandlePreviewTransform(
+                clipId,
+                baseZoom,
+                basePanXPx,
+                basePanYPx,
+                deltaXPx,
+                deltaYPx,
+                cornerSignX,
+                cornerSignY,
+            )
+        } catch (e: UnsatisfiedLinkError) {
+            null
+        }
+    }
+
+    fun beginClipPreviewTransformGesture(
+        clipId: Int,
+        zoom: Float,
+        scaleX: Float = 1.0f,
+        scaleY: Float = 1.0f,
+        panXPx: Float,
+        panYPx: Float,
+        rotationDeg: Float,
+        mirrorX: Boolean,
+        centroidOffsetXPx: Float,
+        centroidOffsetYPx: Float,
+        spanPx: Float,
+        angleDeg: Float,
+        mode: Int,
+        edgeSignX: Float,
+        edgeSignY: Float,
+        allowRotation: Boolean,
+    ): FloatArray? {
+        return try {
+            nativeBeginClipPreviewTransformGesture(
+                clipId,
+                zoom,
+                scaleX,
+                scaleY,
+                panXPx,
+                panYPx,
+                rotationDeg,
+                mirrorX,
+                centroidOffsetXPx,
+                centroidOffsetYPx,
+                spanPx,
+                angleDeg,
+                mode,
+                edgeSignX,
+                edgeSignY,
+                allowRotation,
+            )
+        } catch (e: UnsatisfiedLinkError) {
+            null
+        }
+    }
+
+    fun updateClipPreviewTransformGesture(
+        centroidOffsetXPx: Float,
+        centroidOffsetYPx: Float,
+        spanPx: Float,
+        angleDeg: Float,
+    ): FloatArray? {
+        return try {
+            nativeUpdateClipPreviewTransformGesture(
+                centroidOffsetXPx,
+                centroidOffsetYPx,
+                spanPx,
+                angleDeg,
+            )
+        } catch (e: UnsatisfiedLinkError) {
+            null
+        }
+    }
+
+    fun endClipPreviewTransformGesture() {
+        try {
+            nativeEndClipPreviewTransformGesture()
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "nativeEndClipPreviewTransformGesture JNI not implemented")
+        }
+    }
+
     // ============ JNI NATIVE METHODS ============
     // These are implemented in native_preview.cpp
 
@@ -830,6 +1146,8 @@ class VideoPreviewView @JvmOverloads constructor(
     private external fun nativeSetClipPreviewTransform(
         clipId: Int,
         zoom: Float,
+        scaleX: Float,
+        scaleY: Float,
         panXPx: Float,
         panYPx: Float,
         rotationDeg: Float,
@@ -852,6 +1170,8 @@ class VideoPreviewView @JvmOverloads constructor(
     private external fun nativeComputeNormalizedPreviewTransform(
         clipId: Int,
         zoom: Float,
+        scaleX: Float,
+        scaleY: Float,
         panXPx: Float,
         panYPx: Float,
         rotationDeg: Float,
@@ -873,6 +1193,41 @@ class VideoPreviewView @JvmOverloads constructor(
         deltaXPx: Float,
         deltaYPx: Float,
     ): FloatArray?
+    private external fun nativeComputeCornerHandlePreviewTransform(
+        clipId: Int,
+        baseZoom: Float,
+        basePanXPx: Float,
+        basePanYPx: Float,
+        deltaXPx: Float,
+        deltaYPx: Float,
+        cornerSignX: Float,
+        cornerSignY: Float,
+    ): FloatArray?
+    private external fun nativeBeginClipPreviewTransformGesture(
+        clipId: Int,
+        zoom: Float,
+        scaleX: Float,
+        scaleY: Float,
+        panXPx: Float,
+        panYPx: Float,
+        rotationDeg: Float,
+        mirrorX: Boolean,
+        centroidOffsetXPx: Float,
+        centroidOffsetYPx: Float,
+        spanPx: Float,
+        angleDeg: Float,
+        mode: Int,
+        edgeSignX: Float,
+        edgeSignY: Float,
+        allowRotation: Boolean,
+    ): FloatArray?
+    private external fun nativeUpdateClipPreviewTransformGesture(
+        centroidOffsetXPx: Float,
+        centroidOffsetYPx: Float,
+        spanPx: Float,
+        angleDeg: Float,
+    ): FloatArray?
+    private external fun nativeEndClipPreviewTransformGesture()
 
     /**
      * Native: Add text overlay (create texture from text bitmap on native side).
@@ -883,6 +1238,7 @@ class VideoPreviewView @JvmOverloads constructor(
      * Native: Update text overlay properties.
      */
     private external fun nativeUpdateTextOverlay(id: Int, x: Float, y: Float, scale: Float, rotation: Float, color: Int, fontSize: Float, startTimeMs: Int, endTimeMs: Int)
+    private external fun nativeUpdateTextOverlayTransform(id: Int, x: Float, y: Float, scale: Float, rotation: Float)
 
     /**
      * Native: Remove a text overlay by id.
@@ -951,13 +1307,14 @@ class VideoPreviewView @JvmOverloads constructor(
     }
 
     // Keyframe JNI bindings
-    private external fun nativeAddTextKeyframe(id: Int, timeMs: Long, posX: Float, posY: Float, scale: Float, opacity: Float)
+    private external fun nativeAddTextKeyframe(id: Int, timeMs: Long, posX: Float, posY: Float, scale: Float, rotation: Float, opacity: Float)
     private external fun nativeDeleteTextKeyframe(id: Int, timeMs: Long)
     private external fun nativeClearTextKeyframes(id: Int)
+    private external fun nativeGetTextKeyframeTimes(id: Int): LongArray
 
-    fun addTextKeyframe(id: Int, timeMs: Long, posX: Float, posY: Float, scale: Float, opacity: Float) {
+    fun addTextKeyframe(id: Int, timeMs: Long, posX: Float, posY: Float, scale: Float, rotation: Float, opacity: Float) {
         try {
-            nativeAddTextKeyframe(id, timeMs, posX, posY, scale, opacity)
+            nativeAddTextKeyframe(id, timeMs, posX, posY, scale, rotation, opacity)
         } catch (e: UnsatisfiedLinkError) {
             Log.w(TAG, "nativeAddTextKeyframe JNI not implemented")
         }
@@ -976,6 +1333,15 @@ class VideoPreviewView @JvmOverloads constructor(
             nativeClearTextKeyframes(id)
         } catch (e: UnsatisfiedLinkError) {
             Log.w(TAG, "nativeClearTextKeyframes JNI not implemented")
+        }
+    }
+
+    fun getTextKeyframeTimes(id: Int): LongArray {
+        return try {
+            nativeGetTextKeyframeTimes(id)
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "nativeGetTextKeyframeTimes JNI not implemented")
+            LongArray(0)
         }
     }
 
@@ -1003,7 +1369,7 @@ class VideoPreviewView @JvmOverloads constructor(
      * 
      * This is a blocking call - run from background thread.
      * 
-     * @param outputPath Output file path (e.g., "/sdcard/export.mp4")
+     * @param outputPath Output file path supplied by ExportController.
      * @param width Output resolution width
      * @param height Output resolution height
      * @param fps Frames per second
@@ -1076,7 +1442,7 @@ class VideoPreviewView @JvmOverloads constructor(
      * Save current timeline as project file (JSON).
      * Serializes clips, text overlays, transitions, effects.
      * 
-     * @param outputPath Output file path (e.g., "/sdcard/projects/myproject.vne")
+     * @param outputPath Output project file path.
      * @param projectName Human-readable project name
      * @return true if save successful
      */
@@ -1088,7 +1454,7 @@ class VideoPreviewView @JvmOverloads constructor(
      * Load project file and apply to timeline.
      * Reconstructs clips, text overlays, transitions, effects.
      * 
-     * @param filePath Input file path (e.g., "/sdcard/projects/myproject.vne")
+     * @param filePath Input project file path.
      * @return true if load successful
      */
     fun loadProject(filePath: String): Boolean {
@@ -1400,10 +1766,10 @@ class VideoPreviewView @JvmOverloads constructor(
 
     companion object {
         private const val TAG = "VideoPreviewView"
-        private const val MAX_PREVIEW_WIDTH_LANDSCAPE = 640
-        private const val MAX_PREVIEW_HEIGHT_LANDSCAPE = 360
-        private const val MAX_PREVIEW_WIDTH_PORTRAIT = 360
-        private const val MAX_PREVIEW_HEIGHT_PORTRAIT = 640
+        private const val MAX_PREVIEW_WIDTH_LANDSCAPE = 1280
+        private const val MAX_PREVIEW_HEIGHT_LANDSCAPE = 720
+        private const val MAX_PREVIEW_WIDTH_PORTRAIT = 720
+        private const val MAX_PREVIEW_HEIGHT_PORTRAIT = 1280
         private var nativeLibraryLoaded = false
 
         // Load the native library when the class is first used

@@ -7,7 +7,42 @@ set(ENGINE_SOURCES
     core/timeline.cpp
     engine/engine.cpp
     engine/project.cpp
+    smooth_engine/AdvancedAnimation.cpp
+    smooth_engine/SmoothRenderLoop.cpp
+    smooth_engine/FramePrefetcher.cpp
+    smooth_engine/FrameBudgetController.cpp
+    smooth_engine/SpeedRamping.cpp
+    smooth_engine/TransitionEngine.cpp
+    smooth_engine/TexturePool.cpp
+    smooth_engine/AdaptiveResolution.cpp
+    smooth_engine/AISegmentation.cpp
+    smooth_engine/OpticalFlow.cpp
+    smooth_engine/ColorSciencePro.cpp
+    smooth_engine/SmartCache.cpp
+    smooth_engine/ProxyManager.cpp
+    smooth_engine/RenderGraphPro.cpp
+    smooth_engine/AudioEnginePro.cpp
+    smooth_engine/AAudioEngine.cpp
+    smooth_engine/DisplaySync.cpp
+    smooth_engine/TripleBuffer.cpp
+    smooth_engine/MotionTracker.cpp
+    smooth_engine/VoiceEnhancer.cpp
+    smooth_engine/HardwareEncoderPro.cpp
+    smooth_engine/HapticEngine.cpp
+    smooth_engine/SuperResolution.cpp
+    smooth_engine/VulkanRenderer.cpp
+    smooth_engine/ProfessionalEffects.cpp
+    smooth_engine/AudioDucking.cpp
+    smooth_engine/AutoCaptions.cpp
+    smooth_engine/ThermalManager.cpp
+    smooth_engine_pro_plus/CinematicLUTEngine.cpp
+    smooth_engine_pro_plus/NeuralDenoiseProvider.cpp
+    smooth_engine_pro_plus/SceneIntelligence.cpp
+    smooth_engine_pro_plus/GPUParticleSystem.cpp
+    smooth_engine_pro_plus/FrameInterpolator.cpp
+    preview/transform_engine.cpp
     preview/preview_controller.cpp
+    backend/gpu/texture.cpp
     preview/gpu/gl_texture.cpp
     backend/ffmpeg/video_decoder.cpp
     backend/ffmpeg/frame_converter.cpp

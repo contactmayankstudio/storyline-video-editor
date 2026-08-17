@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.LruCache
 import com.video.engine.pro.model.ClipSegment
 import java.io.File
@@ -33,18 +34,51 @@ object TimelineThumbnailCache {
     }
     private const val TARGET_TILE_WIDTH_PX = 84
 
-    private fun maxCacheBytes() = if (DeviceDetector.isLowEndDevice()) 12 * 1024 * 1024 else MAX_CACHE_BYTES
-    private fun maxFrames() = if (DeviceDetector.isLowEndDevice()) 4 else MAX_STRIP_FRAMES
-    private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp", "bmp", "gif", "tif", "tiff")
+    private fun maxCacheBytes() =
+        when (DeviceDetector.getDeviceTier()) {
+            DeviceDetector.DeviceTier.LOW -> 8 * 1024 * 1024
+            DeviceDetector.DeviceTier.MID -> 12 * 1024 * 1024
+            DeviceDetector.DeviceTier.HIGH -> MAX_CACHE_BYTES
+        }
+
+    private fun maxFrames() =
+        when (DeviceDetector.getDeviceTier()) {
+            DeviceDetector.DeviceTier.LOW -> 1
+            DeviceDetector.DeviceTier.MID -> 3
+            DeviceDetector.DeviceTier.HIGH -> MAX_STRIP_FRAMES
+        }
+
+    private fun maxTargetHeightPx() =
+        when (DeviceDetector.getDeviceTier()) {
+            DeviceDetector.DeviceTier.LOW -> 72
+            DeviceDetector.DeviceTier.MID -> 96
+            DeviceDetector.DeviceTier.HIGH -> MAX_TARGET_HEIGHT_PX
+        }
+
+    private fun callbackDelayMs() =
+        when (DeviceDetector.getDeviceTier()) {
+            DeviceDetector.DeviceTier.LOW -> 180L
+            DeviceDetector.DeviceTier.MID -> 96L
+            DeviceDetector.DeviceTier.HIGH -> 0L
+        }
+    private val IMAGE_EXTENSIONS =
+        setOf("jpg", "jpeg", "jpe", "jfif", "png", "webp", "bmp", "gif", "tif", "tiff", "heic", "heif", "avif")
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val executor = Executors.newFixedThreadPool(1)
     private val lock = Any()
     private val inFlight = mutableMapOf<String, MutableList<(String, List<Bitmap>) -> Unit>>()
+    private val lastVideoStripBuildElapsedMsBySource = mutableMapOf<String, Long>()
+    @Volatile private var suspendedUntilElapsedMs: Long = 0L
     private val cache = object : LruCache<String, List<Bitmap>>(MAX_CACHE_BYTES) {
         override fun sizeOf(key: String, value: List<Bitmap>): Int {
             return value.sumOf { bitmap -> bitmap.allocationByteCount }
         }
+    }
+
+    fun suspendRequests(windowMs: Long) {
+        val until = SystemClock.elapsedRealtime() + windowMs.coerceAtLeast(250L)
+        suspendedUntilElapsedMs = max(suspendedUntilElapsedMs, until)
     }
 
     fun buildRequestKey(
@@ -53,7 +87,7 @@ object TimelineThumbnailCache {
         targetHeightPx: Int,
     ): String {
         val safeViewportWidthPx = viewportWidthPx.coerceIn(1, MAX_VIEWPORT_WIDTH_PX)
-        val safeTargetHeightPx = targetHeightPx.coerceIn(24, MAX_TARGET_HEIGHT_PX)
+        val safeTargetHeightPx = targetHeightPx.coerceIn(24, maxTargetHeightPx())
         val widthBucket = ceil(safeViewportWidthPx / 64.0).toInt() * 64
         val heightBucket = ceil(safeTargetHeightPx / 16.0).toInt() * 16
         val durationBucket = ((clip.sourceOutMs - clip.sourceInMs).coerceAtLeast(1L) / 250L) * 250L
@@ -79,7 +113,7 @@ object TimelineThumbnailCache {
         val requestKey = buildRequestKey(clip, viewportWidthPx, targetHeightPx)
         synchronized(lock) {
             cache.get(requestKey)?.let { cached ->
-                mainHandler.post { callback(requestKey, cached) }
+                postCallback { callback(requestKey, cached) }
                 return
             }
             val pendingCallbacks = inFlight[requestKey]
@@ -90,7 +124,23 @@ object TimelineThumbnailCache {
             inFlight[requestKey] = mutableListOf(callback)
         }
 
+        if (SystemClock.elapsedRealtime() < suspendedUntilElapsedMs) {
+            synchronized(lock) {
+                inFlight.remove(requestKey)
+            }
+            return
+        }
+
         executor.execute {
+            val sourcePath = clip.sourcePath.takeIf { it.isNotBlank() }
+            if (SystemClock.elapsedRealtime() < suspendedUntilElapsedMs ||
+                (!sourcePath.isNullOrBlank() && !isStillImagePath(sourcePath) && shouldThrottleVideoStripBuild(sourcePath))
+            ) {
+                synchronized(lock) {
+                    inFlight.remove(requestKey)
+                }
+                return@execute
+            }
             val strip = buildStripBitmaps(clip, viewportWidthPx, targetHeightPx)
             val callbacks = synchronized(lock) {
                 cache.put(requestKey, strip)
@@ -99,9 +149,36 @@ object TimelineThumbnailCache {
             if (callbacks.isEmpty()) {
                 return@execute
             }
-            mainHandler.post {
+            postCallback {
                 callbacks.forEach { it(requestKey, strip) }
             }
+        }
+    }
+
+    private fun shouldThrottleVideoStripBuild(sourcePath: String): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        val minIntervalMs = when (DeviceDetector.getDeviceTier()) {
+            DeviceDetector.DeviceTier.LOW -> 2_400L
+            DeviceDetector.DeviceTier.MID -> 1_500L
+            DeviceDetector.DeviceTier.HIGH -> 700L
+        }
+        return synchronized(lock) {
+            val previous = lastVideoStripBuildElapsedMsBySource[sourcePath] ?: 0L
+            if (previous > 0L && now - previous < minIntervalMs) {
+                true
+            } else {
+                lastVideoStripBuildElapsedMsBySource[sourcePath] = now
+                false
+            }
+        }
+    }
+
+    private fun postCallback(action: () -> Unit) {
+        val delayMs = callbackDelayMs()
+        if (delayMs <= 0L) {
+            mainHandler.post(action)
+        } else {
+            mainHandler.postDelayed(action, delayMs)
         }
     }
 
@@ -130,7 +207,7 @@ object TimelineThumbnailCache {
             }
             val clipSpanMs = (clip.sourceOutMs - clip.sourceInMs).coerceAtLeast(1L)
             val safeViewportWidthPx = viewportWidthPx.coerceIn(1, MAX_VIEWPORT_WIDTH_PX)
-            val safeTargetHeightPx = targetHeightPx.coerceIn(24, MAX_TARGET_HEIGHT_PX)
+            val safeTargetHeightPx = targetHeightPx.coerceIn(24, maxTargetHeightPx())
             val requestedFrames = max(
                 1,
                 min(
@@ -139,7 +216,7 @@ object TimelineThumbnailCache {
                 ),
             )
             val durationDrivenFrames = max(1, min(maxFrames(), ceil(clipSpanMs / 3000.0).toInt()))
-            val frameCount = max(requestedFrames, durationDrivenFrames).coerceIn(1, MAX_STRIP_FRAMES)
+            val frameCount = max(requestedFrames, durationDrivenFrames).coerceIn(1, maxFrames())
             val frameTimes = buildFrameTimes(
                 startMs = clip.sourceInMs.coerceAtLeast(0L),
                 endMs = clip.sourceOutMs.coerceAtLeast(clip.sourceInMs + 1L),
@@ -189,7 +266,7 @@ object TimelineThumbnailCache {
         targetHeightPx: Int,
     ): List<Bitmap> {
         val safeViewportWidthPx = viewportWidthPx.coerceIn(1, MAX_VIEWPORT_WIDTH_PX)
-        val safeTargetHeightPx = targetHeightPx.coerceIn(24, MAX_TARGET_HEIGHT_PX)
+        val safeTargetHeightPx = targetHeightPx.coerceIn(24, maxTargetHeightPx())
         val targetWidthPx = safeViewportWidthPx
             .coerceAtLeast(TARGET_TILE_WIDTH_PX)
             .coerceAtMost(MAX_TILE_WIDTH_PX)

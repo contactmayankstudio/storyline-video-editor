@@ -30,6 +30,8 @@ add_library(video_engine SHARED
     "${CMAKE_SOURCE_DIR}/jni/native_preview.cpp"
     "${CMAKE_SOURCE_DIR}/jni/project_jni.cpp"
     "${CMAKE_SOURCE_DIR}/jni/command_jni.cpp"
+    "${CMAKE_SOURCE_DIR}/jni/photo_jni.cpp"
+    "${CMAKE_SOURCE_DIR}/../engine/photo_ai_effects.cpp"
     "${CMAKE_SOURCE_DIR}/../core/timeline.cpp"
     "${CMAKE_SOURCE_DIR}/../core/clip.cpp"
     "${CMAKE_SOURCE_DIR}/../engine/project.cpp"
@@ -44,6 +46,39 @@ add_library(video_engine SHARED
     "${CMAKE_SOURCE_DIR}/../backend/gpu/texture.cpp"
     "${CMAKE_SOURCE_DIR}/../backend/gpu/text_renderer.cpp"
     "${CMAKE_SOURCE_DIR}/../backend/gpu/gl_context.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/AdvancedAnimation.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/SmoothRenderLoop.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/FramePrefetcher.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/FrameBudgetController.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/SpeedRamping.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/TransitionEngine.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/TexturePool.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/AdaptiveResolution.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/AISegmentation.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/OpticalFlow.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/ColorSciencePro.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/SmartCache.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/ProxyManager.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/RenderGraphPro.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/AudioEnginePro.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/AAudioEngine.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/DisplaySync.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/TripleBuffer.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/MotionTracker.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/VoiceEnhancer.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/HardwareEncoderPro.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/HapticEngine.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/SuperResolution.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/VulkanRenderer.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/ProfessionalEffects.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/AudioDucking.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/AutoCaptions.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine/ThermalManager.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine_pro_plus/CinematicLUTEngine.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine_pro_plus/NeuralDenoiseProvider.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine_pro_plus/SceneIntelligence.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine_pro_plus/GPUParticleSystem.cpp"
+    "${CMAKE_SOURCE_DIR}/../smooth_engine_pro_plus/FrameInterpolator.cpp"
     )
 
 # Include directories
@@ -64,6 +99,7 @@ target_link_libraries(video_engine
     avformat
     avutil
     swscale
+    aaudio
     log              # For __android_log_print
     EGL              # For EGL functions
     GLESv3           # For OpenGL ES 3.0 functions

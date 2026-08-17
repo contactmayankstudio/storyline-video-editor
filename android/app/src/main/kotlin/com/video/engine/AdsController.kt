@@ -13,6 +13,7 @@ import com.google.android.gms.ads.AdView
 import com.google.android.gms.ads.FullScreenContentCallback
 import com.google.android.gms.ads.LoadAdError
 import com.google.android.gms.ads.MobileAds
+import com.google.android.gms.ads.RequestConfiguration
 import com.google.android.gms.ads.interstitial.InterstitialAd
 import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback
 
@@ -34,21 +35,35 @@ class AdsController(
         if (initialized) return
         initialized = true
         Log.d(TAG, "Initializing banner/interstitial ads")
+        MobileAds.setRequestConfiguration(
+            RequestConfiguration.Builder()
+                .setTestDeviceIds(listOf(AdRequest.DEVICE_ID_EMULATOR))
+                .build(),
+        )
         MobileAds.initialize(activity) {}
         preloadInterstitial()
     }
 
+    fun preloadPostExportInterstitial() {
+        initialize()
+        preloadInterstitial()
+    }
+
+    fun isPostExportInterstitialReady(): Boolean =
+        enabled && interstitialAd != null
+
     // Call once after export completes
-    fun showPostExportInterstitial(onDismissed: () -> Unit = {}) {
+    fun showPostExportInterstitial(onDismissed: () -> Unit = {}): Boolean {
         if (!enabled) {
             onDismissed()
-            return
+            return true
         }
+        initialize()
         val ad = interstitialAd
         if (ad == null) {
-            onDismissed()
+            Log.d(TAG, "Post-export interstitial not ready; preloading")
             preloadInterstitial()
-            return
+            return false
         }
         interstitialAd = null
         ad.fullScreenContentCallback = object : FullScreenContentCallback() {
@@ -61,7 +76,9 @@ class AdsController(
                 preloadInterstitial()
             }
         }
+        Log.d(TAG, "Showing post-export interstitial")
         ad.show(activity)
+        return true
     }
 
     private fun preloadInterstitial() {
@@ -106,6 +123,7 @@ class AdsController(
                 return@post
             }
             releaseBanner(target)
+            Log.d(TAG, "Loading top banner for host=${target.id}, widthDp=$widthDp")
             val adView = AdView(activity).apply {
                 adUnitId = activity.getString(R.string.admob_banner_unit_id)
                 setAdSize(desiredSize)
@@ -116,7 +134,7 @@ class AdsController(
 
                     override fun onAdFailedToLoad(adError: LoadAdError) {
                         Log.w(TAG, "Banner load failed for host=${target.id}: ${adError.message}")
-                        target.visibility = View.GONE
+                        hideBannerHost(target)
                     }
                 }
             }
@@ -142,6 +160,10 @@ class AdsController(
             runCatching { adView.destroy() }
         }
         target.removeAllViews()
+        hideBannerHost(target)
+    }
+
+    private fun hideBannerHost(target: FrameLayout) {
         target.visibility = View.GONE
     }
 

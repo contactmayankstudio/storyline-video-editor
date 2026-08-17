@@ -7,6 +7,7 @@ import android.media.MediaFormat
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import com.video.engine.pro.model.ClipSegment
 import java.io.File
 import java.nio.ByteBuffer
@@ -21,14 +22,25 @@ object AudioWaveformCache {
     private val cache = object : android.util.LruCache<String, FloatArray>(128) {}
     private val inFlight = mutableSetOf<String>()
     private var appContext: Context? = null
+    @Volatile private var suspendedUntilElapsedMs: Long = 0L
 
     fun init(context: Context) { appContext = context.applicationContext }
+
+    fun suspendRequests(windowMs: Long) {
+        val until = SystemClock.elapsedRealtime() + windowMs.coerceAtLeast(250L)
+        suspendedUntilElapsedMs = max(suspendedUntilElapsedMs, until)
+    }
 
     fun request(clip: ClipSegment, barCount: Int, callback: (String, FloatArray) -> Unit) {
         val key = "${clip.sourcePath}#${clip.sourceInMs}#${clip.sourceOutMs}#$barCount"
         synchronized(lock) { cache[key]?.let { mainHandler.post { callback(key, it) }; return } }
+        if (SystemClock.elapsedRealtime() < suspendedUntilElapsedMs) return
         synchronized(lock) { if (!inFlight.add(key)) return }
         executor.execute {
+            if (SystemClock.elapsedRealtime() < suspendedUntilElapsedMs) {
+                synchronized(lock) { inFlight.remove(key) }
+                return@execute
+            }
             val peaks = extractPeaks(clip, barCount)
             synchronized(lock) { cache.put(key, peaks); inFlight.remove(key) }
             mainHandler.post { callback(key, peaks) }

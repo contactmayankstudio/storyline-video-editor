@@ -12,6 +12,7 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.content.Intent
 import android.media.MediaScannerConnection
 import android.net.Uri
@@ -39,6 +40,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class ExportController(
     private val activity: Activity,
@@ -242,6 +244,8 @@ class ExportController(
             val temporaryStickerOverlayIds = mutableListOf<Int>()
             var watermarkOverlayId: Int? = null
             try {
+                previewView.flushPendingClipPreviewTransformForExport()
+
                 // 1. Force-sync all text overlays into native state before export.
                 OverlayStore.all().forEach { overlay ->
                     previewView.updateTextOverlay(
@@ -599,31 +603,60 @@ class ExportController(
             )
         }
 
+        fun aspectSafeExportSettings(maxLongEdge: Int, maxShortEdge: Int, fps: Int, bitrateMbps: Int): ExportSettings {
+            val requestedSquare = requestedWidth == requestedHeight
+            val maxWidth = when {
+                requestedSquare -> maxShortEdge
+                requestedPortrait -> maxShortEdge
+                else -> maxLongEdge
+            }.toFloat()
+            val maxHeight = when {
+                requestedSquare -> maxShortEdge
+                requestedPortrait -> maxLongEdge
+                else -> maxShortEdge
+            }.toFloat()
+            val scale = minOf(
+                maxWidth / requestedWidth.toFloat(),
+                maxHeight / requestedHeight.toFloat(),
+                1f,
+            )
+            return sizedExportSettings(
+                width = (requestedWidth * scale).roundToInt().coerceAtLeast(1),
+                height = (requestedHeight * scale).roundToInt().coerceAtLeast(1),
+                fps = fps,
+                bitrateMbps = bitrateMbps,
+            )
+        }
+
         val requestsBeyondSd =
             maxOf(requestedWidth, requestedHeight) > 854 ||
                 minOf(requestedWidth, requestedHeight) > 480 ||
                 lockedRequestedFps > 24 ||
                 lockedRequestedBitrateMbps > 2
-        val requestsBeyondHd =
-            requestedWidth > 1280 || requestedHeight > 720 || lockedRequestedFps > 30 || lockedRequestedBitrateMbps > 4
+        val deviceTier = DeviceDetector.getDeviceTier()
         val shouldForceVerySafeMode =
-            DeviceDetector.isLowEndDevice() &&
-                complexity.isVeryComplex &&
-                requestsBeyondSd
+            complexity.isVeryComplex && (requestsBeyondSd || deviceTier != DeviceDetector.DeviceTier.HIGH)
         val shouldForceSafeMode =
-            complexity.isComplex && requestsBeyondHd
+            complexity.isComplex && requestsBeyondSd
 
         if (shouldForceVerySafeMode) {
-            val downgraded = sizedExportSettings(
-                width = 854,
-                height = 480,
-                fps = 24,
-                bitrateMbps = requestedBitrateMbps.coerceAtMost(2).coerceAtLeast(2),
+            val severeLayerStack =
+                complexity.overlayLayerCount > 1 ||
+                    complexity.visualClipCount >= 4 ||
+                    complexity.chromaClipCount > 0
+            val targetLongEdge = if (severeLayerStack) 960 else 854
+            val targetShortEdge = if (severeLayerStack) 540 else 480
+            val downgraded = aspectSafeExportSettings(
+                maxLongEdge = targetLongEdge,
+                maxShortEdge = targetShortEdge,
+                fps = minOf(lockedRequestedFps, 24),
+                bitrateMbps = minOf(lockedRequestedBitrateMbps, 2).coerceAtLeast(1),
             )
             Log.w(
                 TAG,
                 "Downgrading very complex export from ${requestedWidth}x${requestedHeight}@${requestedFps}/${requestedBitrateMbps}Mbps " +
-                    "to ${downgraded.width}x${downgraded.height}@${downgraded.fps}/${downgraded.bitrateMbps}Mbps",
+                    "to ${downgraded.width}x${downgraded.height}@${downgraded.fps}/${downgraded.bitrateMbps}Mbps " +
+                    "(tier=$deviceTier clips=${complexity.visualClipCount} overlays=${complexity.overlayLayerCount} chroma=${complexity.chromaClipCount})",
             )
             return downgraded
         }
@@ -637,11 +670,11 @@ class ExportController(
             )
         }
 
-        val downgraded = sizedExportSettings(
-            width = 1280,
-            height = 720,
-            fps = minOf(lockedRequestedFps, 30),
-            bitrateMbps = minOf(lockedRequestedBitrateMbps, 4).coerceAtLeast(3),
+        val downgraded = aspectSafeExportSettings(
+            maxLongEdge = 960,
+            maxShortEdge = 540,
+            fps = minOf(lockedRequestedFps, 24),
+            bitrateMbps = minOf(lockedRequestedBitrateMbps, 2).coerceAtLeast(2),
         )
         Log.w(
             TAG,
@@ -780,8 +813,8 @@ class ExportController(
     ): Int? {
         // Keep export watermark subtle and ratio-safe across portrait, square, and landscape renders.
         val shortEdge = minOf(exportWidth, exportHeight)
-        val targetHeightPx = (shortEdge * 0.095f).toInt().coerceIn(64, 176)
-        val insetPx = (shortEdge * 0.03f).toInt().coerceIn(18, 42)
+        val targetHeightPx = (shortEdge * 0.045f).toInt().coerceIn(30, 96)
+        val insetPx = (shortEdge * 0.025f).toInt().coerceIn(12, 30)
         val bitmap = createWatermarkBitmap(targetHeightPx) ?: return null
         val width = bitmap.width
         val height = bitmap.height
@@ -802,17 +835,16 @@ class ExportController(
         ).toInt()
         if (nativeId <= 0) return null
         previewView.setTextOverlayBitmap(nativeId, pixels, width, height)
-        previewView.updateTextOverlayOpacity(nativeId, 0.76f, 0, 0)
+        previewView.updateTextOverlayOpacity(nativeId, 0.52f, 0, 0)
         previewView.setTextZOrder(nativeId, 9_000)
         return nativeId
     }
 
     private fun createWatermarkBitmap(sizePx: Int = 160): Bitmap? {
-        val height = sizePx.coerceAtLeast(64)
-        val horizontalPadding = (height * 0.20f).toInt().coerceAtLeast(16)
-        val verticalPadding = (height * 0.14f).toInt().coerceAtLeast(10)
-        val iconSize = (height * 0.72f).toInt().coerceAtLeast(40)
-        val gap = (height * 0.14f).toInt().coerceAtLeast(10)
+        val height = sizePx.coerceAtLeast(30)
+        val horizontalPadding = (height * 0.20f).toInt().coerceAtLeast(8)
+        val iconSize = (height * 0.72f).toInt().coerceAtLeast(22)
+        val gap = (height * 0.14f).toInt().coerceAtLeast(5)
         val label = "Storyline"
         val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
@@ -962,6 +994,7 @@ class ExportController(
         })
 
         dialog.setContentView(root)
+        ModernSheet.applyEditorBehavior(dialog, activity, peekRatio = 0.30f, maxRatio = 0.46f)
         progressDialog = dialog
         exportProgressBar = progressBar
         exportPercentText = percentText
@@ -1130,6 +1163,7 @@ class ExportController(
         root.addView(actionBtn("← Back to Editor") { dialog.dismiss(); activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
             .also { it.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(44)).also { m -> m.topMargin = dp(8) } })
         dialog.setContentView(root)
+        ModernSheet.applyEditorBehavior(dialog, activity, peekRatio = 0.34f, maxRatio = 0.52f)
         progressDialog = dialog
         dialog.show()
     }
@@ -1141,30 +1175,59 @@ class ExportController(
         root.addView(darkLabel(message).also { it.setPadding(0, 0, 0, dp(16)) })
         root.addView(actionBtn("OK") { dialog.dismiss() })
         dialog.setContentView(root)
+        ModernSheet.applyEditorBehavior(dialog, activity, peekRatio = 0.28f, maxRatio = 0.44f)
         dialog.show()
     }
 
     // ── Dark sheet helpers ────────────────────────────────────────────────────
     private fun buildDarkSheet() = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
-        setBackgroundColor(android.graphics.Color.parseColor("#1E1E1E"))
-        setPadding(dp(20), dp(16), dp(20), dp(32))
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadii = floatArrayOf(
+                dp(26).toFloat(), dp(26).toFloat(),
+                dp(26).toFloat(), dp(26).toFloat(),
+                0f, 0f,
+                0f, 0f,
+            )
+            setColor(Color.parseColor("#0B0F13"))
+            setStroke(dp(1), Color.parseColor("#1B222A"))
+        }
+        setPadding(dp(20), dp(14), dp(20), dp(32))
+        addView(sheetHandle())
+    }
+    private fun sheetHandle() = TextView(activity).apply {
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(999).toFloat()
+            setColor(Color.parseColor("#4A5561"))
+        }
+        layoutParams = LinearLayout.LayoutParams(dp(40), dp(4)).also {
+            it.gravity = Gravity.CENTER_HORIZONTAL
+            it.bottomMargin = dp(14)
+        }
     }
     private fun darkTitle(text: String) = TextView(activity).apply {
         this.text = text; textSize = 16f
-        setTypeface(null, android.graphics.Typeface.BOLD)
-        setTextColor(android.graphics.Color.WHITE)
-        gravity = android.view.Gravity.CENTER
+        setTypeface(null, Typeface.BOLD)
+        setTextColor(Color.WHITE)
+        gravity = Gravity.CENTER
         setPadding(0, 0, 0, dp(16))
     }
     private fun darkLabel(text: String) = TextView(activity).apply {
         this.text = text; textSize = 13f
-        setTextColor(android.graphics.Color.parseColor("#AAAAAA"))
+        setTextColor(Color.parseColor("#B4BEC8"))
     }
     private fun actionBtn(label: String, onClick: () -> Unit) = TextView(activity).apply {
-        text = label; textSize = 14f; gravity = android.view.Gravity.CENTER
-        setTextColor(android.graphics.Color.WHITE)
-        setBackgroundColor(android.graphics.Color.parseColor("#2A2A2A"))
+        text = label; textSize = 14f; gravity = Gravity.CENTER
+        setTypeface(null, Typeface.BOLD)
+        setTextColor(Color.WHITE)
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(14).toFloat()
+            setColor(Color.parseColor("#131920"))
+            setStroke(dp(1), Color.parseColor("#2D3944"))
+        }
         layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(44))
         setOnClickListener { onClick() }
     }

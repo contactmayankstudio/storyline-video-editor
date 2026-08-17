@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Storyline</string>
+    <string name="start_title">Storyline</string>
+    <string name="start_subtitle">वीडियो एडिटिंग, फोटो डिज़ाइन, और सेव किए गए ड्राफ्ट्स एक ही जगह।</string>
+    <string name="start_create_label">नया बनाएं</string>
+    <string name="start_primary_action">नया वीडियो प्रोजेक्ट</string>
+    <string name="start_primary_caption">टाइमलाइन, ऑडियो, लेयर्स, इफ़ेक्ट्स और एक्सपोर्ट।</string>
+    <string name="start_photo_editor_action">फोटो एडिट</string>
+    <string name="start_photo_editor_caption">टेक्स्ट आर्ट, इमेज डिज़ाइन, और स्मार्ट AI रिमूवल।</string>
+    <string name="start_quick_label">क्विक एक्शन</string>
+    
+    <string name="project_title">Storyline</string>
+    <string name="editor_subtitle">टाइमलाइन एडिटर</string>
+    <string name="export_button">एक्सपोर्ट</string>
+    <string name="play_button">प्ले / पॉज़</string>
+    <string name="import_label">इंपोर्ट करें</string>
+    <string name="add_text_marker_label">टेक्स्ट डालें</string>
+    <string name="save_label">सेव करें</string>
+    <string name="back_label">पीछे जाएं</string>
+</resources>

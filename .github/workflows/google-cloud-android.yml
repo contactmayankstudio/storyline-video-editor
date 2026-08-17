@@ -3,6 +3,16 @@ name: Google Cloud Android CI
 on:
   workflow_dispatch:
     inputs:
+      action_mode:
+        description: "Google Cloud action to run"
+        required: true
+        default: "debug-apk"
+        type: choice
+        options:
+          - debug-apk
+          - release-apk
+          - release-bundle
+          - robo-test
       device_model:
         description: "Firebase Test Lab device model"
         required: true
@@ -40,13 +50,20 @@ permissions:
   contents: read
 
 jobs:
-  cloud-build-robo:
+  google-cloud-android:
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     env:
       GCP_AUTOMATION_PROJECT_ID: ${{ vars.GCP_AUTOMATION_PROJECT_ID || vars.FIREBASE_TEST_LAB_PROJECT_ID || vars.FIREBASE_PROJECT_ID }}
       GCP_AUTOMATION_RESULTS_BUCKET: ${{ vars.GCP_AUTOMATION_RESULTS_BUCKET || vars.FIREBASE_TEST_LAB_RESULTS_BUCKET || vars.FIREBASE_RESULTS_BUCKET }}
+      GCP_AUTOMATION_ARTIFACTS_BUCKET: ${{ vars.GCP_AUTOMATION_ARTIFACTS_BUCKET || vars.GCP_AUTOMATION_RESULTS_BUCKET || vars.FIREBASE_TEST_LAB_RESULTS_BUCKET || vars.FIREBASE_RESULTS_BUCKET }}
       GCP_AUTOMATION_MACHINE_TYPE: ${{ vars.GCP_AUTOMATION_MACHINE_TYPE || 'E2_HIGHCPU_8' }}
       GCP_AUTOMATION_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_AUTOMATION_SERVICE_ACCOUNT_JSON || secrets.FIREBASE_TEST_LAB_SERVICE_ACCOUNT_JSON || secrets.FIREBASE_OPS_SERVICE_ACCOUNT_JSON }}
+      GCP_AUTOMATION_GOOGLE_SERVICES_SECRET: ${{ vars.GCP_AUTOMATION_GOOGLE_SERVICES_SECRET }}
+      GCP_AUTOMATION_DEBUG_KEYSTORE_SECRET: ${{ vars.GCP_AUTOMATION_DEBUG_KEYSTORE_SECRET }}
+      GCP_AUTOMATION_RELEASE_KEYSTORE_SECRET: ${{ vars.GCP_AUTOMATION_RELEASE_KEYSTORE_SECRET }}
+      GCP_AUTOMATION_RELEASE_KEYSTORE_PASSWORD_SECRET: ${{ vars.GCP_AUTOMATION_RELEASE_KEYSTORE_PASSWORD_SECRET }}
+      GCP_AUTOMATION_RELEASE_KEY_ALIAS_SECRET: ${{ vars.GCP_AUTOMATION_RELEASE_KEY_ALIAS_SECRET }}
+      GCP_AUTOMATION_RELEASE_KEY_PASSWORD_SECRET: ${{ vars.GCP_AUTOMATION_RELEASE_KEY_PASSWORD_SECRET }}
 
     steps:
       - name: Checkout repository
@@ -57,6 +74,8 @@ jobs:
 
       - name: Check Google Cloud Build configuration
         id: preflight
+        env:
+          INPUT_ACTION_MODE: ${{ inputs.action_mode }}
         run: |
           set -euo pipefail
           missing=0
@@ -68,6 +87,37 @@ jobs:
             echo "::warning::Missing GCP_AUTOMATION_SERVICE_ACCOUNT_JSON, FIREBASE_TEST_LAB_SERVICE_ACCOUNT_JSON, or FIREBASE_OPS_SERVICE_ACCOUNT_JSON."
             missing=1
           fi
+
+          case "${INPUT_ACTION_MODE}" in
+            debug-apk|robo-test)
+              if [ -z "${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}" ]; then
+                echo "::warning::Missing repository secret ANDROID_GOOGLE_SERVICES_JSON."
+                missing=1
+              fi
+              if [ -z "${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}" ]; then
+                echo "::warning::Missing repository secret ANDROID_DEBUG_KEYSTORE_B64."
+                missing=1
+              fi
+              ;;
+            release-apk|release-bundle)
+              for var_name in \
+                GCP_AUTOMATION_GOOGLE_SERVICES_SECRET \
+                GCP_AUTOMATION_RELEASE_KEYSTORE_SECRET \
+                GCP_AUTOMATION_RELEASE_KEYSTORE_PASSWORD_SECRET \
+                GCP_AUTOMATION_RELEASE_KEY_ALIAS_SECRET \
+                GCP_AUTOMATION_RELEASE_KEY_PASSWORD_SECRET; do
+                if [ -z "${!var_name}" ]; then
+                  echo "::warning::Missing repository variable ${var_name} for release Cloud Build."
+                  missing=1
+                fi
+              done
+              ;;
+            *)
+              echo "::warning::Unknown action_mode ${INPUT_ACTION_MODE}."
+              missing=1
+              ;;
+          esac
+
           if [ "${missing}" -eq 0 ]; then
             echo "ready=true" >> "${GITHUB_OUTPUT}"
           else
@@ -88,9 +138,19 @@ jobs:
 
       - name: Ensure Cloud Build APIs
         if: steps.preflight.outputs.ready == 'true'
+        env:
+          INPUT_ACTION_MODE: ${{ inputs.action_mode }}
         run: |
           set -euo pipefail
-          for service in cloudbuild.googleapis.com firebase.googleapis.com testing.googleapis.com toolresults.googleapis.com; do
+          services=(cloudbuild.googleapis.com)
+          if [ "${INPUT_ACTION_MODE}" = "robo-test" ]; then
+            services+=(firebase.googleapis.com testing.googleapis.com toolresults.googleapis.com)
+          fi
+          if [ "${INPUT_ACTION_MODE}" = "release-apk" ] || [ "${INPUT_ACTION_MODE}" = "release-bundle" ]; then
+            services+=(secretmanager.googleapis.com)
+          fi
+
+          for service in "${services[@]}"; do
             if gcloud services list \
               --enabled \
               --project "${GCP_AUTOMATION_PROJECT_ID}" \
@@ -102,25 +162,30 @@ jobs:
             gcloud services enable "${service}" --project "${GCP_AUTOMATION_PROJECT_ID}"
           done
 
-      - name: Restore build secrets into Cloud Build source
-        if: steps.preflight.outputs.ready == 'true'
+      - name: Restore debug build inputs into Cloud Build source
+        if: steps.preflight.outputs.ready == 'true' && (inputs.action_mode == 'debug-apk' || inputs.action_mode == 'robo-test')
         run: |
           set -euo pipefail
-          if [ -z "${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}" ]; then
-            echo "Missing repository secret ANDROID_GOOGLE_SERVICES_JSON"
-            exit 1
-          fi
-          if [ -z "${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}" ]; then
-            echo "Missing repository secret ANDROID_DEBUG_KEYSTORE_B64"
-            exit 1
-          fi
           printf '%s' '${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
           printf '%s' '${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}' | base64 --decode > android/debug.keystore.stable
 
-      - name: Submit Cloud Build Robo run
+      - name: Create Cloud Build ignore override for debug inputs
+        if: steps.preflight.outputs.ready == 'true' && (inputs.action_mode == 'debug-apk' || inputs.action_mode == 'robo-test')
+        run: |
+          cat > .github/.gcloudignore.cloudbuild-debug <<'EOF'
+          .gcloudignore
+          .git
+          .gitignore
+          #!include:.gitignore
+          !android/app/google-services.json
+          !android/debug.keystore.stable
+          EOF
+
+      - name: Submit Google Cloud Android action
         if: steps.preflight.outputs.ready == 'true'
         id: submit
         env:
+          INPUT_ACTION_MODE: ${{ inputs.action_mode }}
           INPUT_DEVICE_MODEL: ${{ inputs.device_model }}
           INPUT_ANDROID_VERSION: ${{ inputs.android_version }}
           INPUT_LOCALE: ${{ inputs.locale }}
@@ -128,14 +193,50 @@ jobs:
           INPUT_TIMEOUT: ${{ inputs.timeout }}
         run: |
           set -euo pipefail
-          RESULTS_BUCKET="${GCP_AUTOMATION_RESULTS_BUCKET}"
-          SUBS="_FIREBASE_PROJECT_ID=${GCP_AUTOMATION_PROJECT_ID},_DEVICE_MODEL=${INPUT_DEVICE_MODEL},_ANDROID_VERSION=${INPUT_ANDROID_VERSION},_LOCALE=${INPUT_LOCALE},_ORIENTATION=${INPUT_ORIENTATION},_TIMEOUT=${INPUT_TIMEOUT},_MACHINE_TYPE=${GCP_AUTOMATION_MACHINE_TYPE},_RESULTS_BUCKET=${RESULTS_BUCKET}"
-
-          BUILD_ID="$(gcloud builds submit \
-            --config cloudbuild/android-robo.yaml \
-            --substitutions "${SUBS}" \
-            --project "${GCP_AUTOMATION_PROJECT_ID}" \
-            --format='value(id)')"
+          case "${INPUT_ACTION_MODE}" in
+            robo-test)
+              RESULTS_BUCKET="${GCP_AUTOMATION_RESULTS_BUCKET}"
+              SUBS="_FIREBASE_PROJECT_ID=${GCP_AUTOMATION_PROJECT_ID},_DEVICE_MODEL=${INPUT_DEVICE_MODEL},_ANDROID_VERSION=${INPUT_ANDROID_VERSION},_LOCALE=${INPUT_LOCALE},_ORIENTATION=${INPUT_ORIENTATION},_TIMEOUT=${INPUT_TIMEOUT},_MACHINE_TYPE=${GCP_AUTOMATION_MACHINE_TYPE},_RESULTS_BUCKET=${RESULTS_BUCKET}"
+              BUILD_ID="$(gcloud builds submit \
+                --config cloudbuild/android-robo.yaml \
+                --ignore-file .github/.gcloudignore.cloudbuild-debug \
+                --substitutions "${SUBS}" \
+                --project "${GCP_AUTOMATION_PROJECT_ID}" \
+                --format='value(id)')"
+              ;;
+            debug-apk)
+              ARTIFACTS_BUCKET="${GCP_AUTOMATION_ARTIFACTS_BUCKET}"
+              SUBS="_BUILD_TASK=assemblePlayDebug,_MACHINE_TYPE=${GCP_AUTOMATION_MACHINE_TYPE},_ARTIFACTS_BUCKET=${ARTIFACTS_BUCKET},_ARTIFACTS_PREFIX=android-debug-builds"
+              BUILD_ID="$(gcloud builds submit \
+                --config cloudbuild/android-build.yaml \
+                --ignore-file .github/.gcloudignore.cloudbuild-debug \
+                --substitutions "${SUBS}" \
+                --project "${GCP_AUTOMATION_PROJECT_ID}" \
+                --format='value(id)')"
+              ;;
+            release-apk)
+              ARTIFACTS_BUCKET="${GCP_AUTOMATION_ARTIFACTS_BUCKET}"
+              SUBS="_BUILD_TASK=assemblePlayRelease,_MACHINE_TYPE=${GCP_AUTOMATION_MACHINE_TYPE},_ARTIFACTS_BUCKET=${ARTIFACTS_BUCKET},_ARTIFACTS_PREFIX=android-release-builds,_GOOGLE_SERVICES_SECRET=${GCP_AUTOMATION_GOOGLE_SERVICES_SECRET},_RELEASE_KEYSTORE_SECRET=${GCP_AUTOMATION_RELEASE_KEYSTORE_SECRET},_RELEASE_KEYSTORE_PASSWORD_SECRET=${GCP_AUTOMATION_RELEASE_KEYSTORE_PASSWORD_SECRET},_RELEASE_KEY_ALIAS_SECRET=${GCP_AUTOMATION_RELEASE_KEY_ALIAS_SECRET},_RELEASE_KEY_PASSWORD_SECRET=${GCP_AUTOMATION_RELEASE_KEY_PASSWORD_SECRET}"
+              BUILD_ID="$(gcloud builds submit \
+                --config cloudbuild/android-build.yaml \
+                --substitutions "${SUBS}" \
+                --project "${GCP_AUTOMATION_PROJECT_ID}" \
+                --format='value(id)')"
+              ;;
+            release-bundle)
+              ARTIFACTS_BUCKET="${GCP_AUTOMATION_ARTIFACTS_BUCKET}"
+              SUBS="_BUILD_TASK=bundlePlayRelease,_MACHINE_TYPE=${GCP_AUTOMATION_MACHINE_TYPE},_ARTIFACTS_BUCKET=${ARTIFACTS_BUCKET},_ARTIFACTS_PREFIX=android-release-bundles,_GOOGLE_SERVICES_SECRET=${GCP_AUTOMATION_GOOGLE_SERVICES_SECRET},_RELEASE_KEYSTORE_SECRET=${GCP_AUTOMATION_RELEASE_KEYSTORE_SECRET},_RELEASE_KEYSTORE_PASSWORD_SECRET=${GCP_AUTOMATION_RELEASE_KEYSTORE_PASSWORD_SECRET},_RELEASE_KEY_ALIAS_SECRET=${GCP_AUTOMATION_RELEASE_KEY_ALIAS_SECRET},_RELEASE_KEY_PASSWORD_SECRET=${GCP_AUTOMATION_RELEASE_KEY_PASSWORD_SECRET}"
+              BUILD_ID="$(gcloud builds submit \
+                --config cloudbuild/android-build.yaml \
+                --substitutions "${SUBS}" \
+                --project "${GCP_AUTOMATION_PROJECT_ID}" \
+                --format='value(id)')"
+              ;;
+            *)
+              echo "Unknown action mode: ${INPUT_ACTION_MODE}"
+              exit 1
+              ;;
+          esac
 
           echo "build_id=${BUILD_ID}" >> "${GITHUB_OUTPUT}"
 
@@ -143,18 +244,21 @@ jobs:
             echo "## Google Cloud Android CI"
             echo ""
             echo "- Project: \`${GCP_AUTOMATION_PROJECT_ID}\`"
+            echo "- Action: \`${INPUT_ACTION_MODE}\`"
             echo "- Cloud Build ID: \`${BUILD_ID}\`"
-            echo "- Device model: \`${INPUT_DEVICE_MODEL}\`"
-            echo "- Android version: \`${INPUT_ANDROID_VERSION}\`"
-            echo "- Locale: \`${INPUT_LOCALE}\`"
-            echo "- Orientation: \`${INPUT_ORIENTATION}\`"
-            echo "- Timeout: \`${INPUT_TIMEOUT}\`"
+            if [ "${INPUT_ACTION_MODE}" = "robo-test" ]; then
+              echo "- Device model: \`${INPUT_DEVICE_MODEL}\`"
+              echo "- Android version: \`${INPUT_ANDROID_VERSION}\`"
+              echo "- Locale: \`${INPUT_LOCALE}\`"
+              echo "- Orientation: \`${INPUT_ORIENTATION}\`"
+              echo "- Timeout: \`${INPUT_TIMEOUT}\`"
+            fi
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Clean restored build secrets
         if: always()
         run: |
-          rm -f android/app/google-services.json android/debug.keystore.stable
+          rm -f android/app/google-services.json android/debug.keystore.stable .github/.gcloudignore.cloudbuild-debug
 
       - name: Skip summary when Google Cloud Build is not configured
         if: steps.preflight.outputs.ready != 'true'

@@ -82,6 +82,8 @@ public:
         const GLTexture* texture = nullptr;
         float opacity = 1.0f;
         float zoom = 1.0f;
+        float scaleX = 1.0f;
+        float scaleY = 1.0f;
         float panXPx = 0.0f;
         float panYPx = 0.0f;
         float rotationDeg = 0.0f;
@@ -168,6 +170,7 @@ private:
         int transformEnabled = -1;
         int textureSize = -1;
         int zoom = -1;
+        int scale = -1;
         int panPx = -1;
         int rotationDeg = -1;
         int mirrorX = -1;
@@ -219,6 +222,7 @@ private:
     int m_uViewportSizeLoc = -1;
     int m_uTextureSizeLoc = -1;
     int m_uZoomLoc = -1;
+    int m_uScaleLoc = -1;
     int m_uPanPxLoc = -1;
     int m_uRotationDegLoc = -1;
     int m_uMirrorXLoc = -1;

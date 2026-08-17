@@ -2,6 +2,7 @@ package com.video.engine.stickers
 
 import android.app.Activity
 import com.video.engine.ModernSheet
+import com.video.engine.AiPoseKeyframe
 import android.content.Context
 import android.graphics.Color
 import android.view.Gravity
@@ -33,6 +34,7 @@ data class StickerClip(
     var mirrorX: Boolean = false,
     var layerIndex: Int = 0,
     var visible: Boolean = true,
+    var aiTrackKeyframes: List<AiPoseKeyframe> = emptyList(),
 )
 
 object StickerClipStore {

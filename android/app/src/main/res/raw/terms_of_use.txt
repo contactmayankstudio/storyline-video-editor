@@ -1,6 +1,6 @@
 Terms of Use for Storyline
 
-Last updated: 2026-02-07
+Last updated: 2026-06-15
 
 1. Acceptance
 By using Storyline you agree to these Terms of Use.
@@ -17,7 +17,10 @@ Storyline is provided "as is". We are not liable for any direct or indirect dama
 5. Fair use and claims
 We respect valid copyright claims. If you receive a takedown request related to content created with this app, you are responsible for responding.
 
-6. Changes to terms
+6. Ads and rewards
+Storyline is a free, ad-supported app. Rewarded ads may unlock one-time features such as exporting once without a Storyline watermark. Do not use the app or ads in a way that manipulates ad impressions, clicks, or rewards.
+
+7. Changes to terms
 We may update these Terms. Continued use implies acceptance of changes.
 
-Contact: replace-with-developer-email@example.com
+Contact: use the support contact shown on the app store listing.

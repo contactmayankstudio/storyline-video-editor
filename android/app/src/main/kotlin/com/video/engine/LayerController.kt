@@ -10,6 +10,7 @@ import com.video.engine.timeline.TimelineManager
 class LayerController(
     private val editorStateProvider: () -> EditorState?,
     private val timelineManagerProvider: () -> TimelineManager?,
+    private val selectedLayerKeyProvider: () -> String?,
     private val onToggleClipVisibility: (Int, Boolean) -> Unit,
     private val onRemoveClip: (Int) -> Unit,
     private val onRemoveText: (Int) -> Unit,
@@ -21,6 +22,7 @@ class LayerController(
     private val onRecordTimelineUndo: () -> Unit,
     private val onApplyTimelineShell: () -> Unit,
     private val onTimelineContentChanged: () -> Unit,
+    private val onSelectLayer: (String) -> Unit,
 ) {
     fun buildLayerItem(descriptor: LayerDescriptor): LayerItem {
         val audioClip = if (descriptor.kind == LayerKind.AUDIO) AudioClipStore.get(descriptor.id) else null
@@ -28,7 +30,9 @@ class LayerController(
             id = descriptor.key,
             title = descriptor.title,
             subtitle = descriptor.subtitle,
+            selected = descriptor.key == selectedLayerKeyProvider(),
             visible = descriptor.visible,
+            onSelect = { onSelectLayer(descriptor.key) },
             secondaryIcon = when {
                 audioClip == null -> null
                 audioClip.muted -> android.R.drawable.ic_lock_silent_mode

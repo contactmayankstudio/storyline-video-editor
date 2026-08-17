@@ -12,7 +12,8 @@ import java.util.*
 
 class ProjectListAdapter(
     private val projects: List<File>,
-    private val onProjectClick: (File) -> Unit
+    private val onProjectClick: (File) -> Unit,
+    private val onProjectDelete: ((File) -> Unit)? = null,
 ) : RecyclerView.Adapter<ProjectListAdapter.ViewHolder>() {
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -20,6 +21,7 @@ class ProjectListAdapter(
         val name: TextView = view.findViewById(R.id.projectCardName)
         val date: TextView = view.findViewById(R.id.projectCardDate)
         val status: TextView = view.findViewById(R.id.projectCardStatus)
+        val delete: TextView = view.findViewById(R.id.projectCardDelete)
         val icon: ImageView = view.findViewById(R.id.projectCardIcon)
     }
 
@@ -36,7 +38,7 @@ class ProjectListAdapter(
             if (isAutosave) R.string.project_card_tag_autosave else R.string.project_card_tag,
         )
         holder.name.text = if (isAutosave) {
-            holder.itemView.context.getString(R.string.project_card_name_autosave)
+            holder.itemView.context.getString(R.string.project_card_name_autosave, position + 1)
         } else {
             displayName(project)
         }
@@ -48,6 +50,15 @@ class ProjectListAdapter(
         holder.icon.setImageResource(R.drawable.ic_video_clip)
 
         holder.itemView.setOnClickListener { onProjectClick(project) }
+        if (onProjectDelete == null) {
+            holder.delete.visibility = View.GONE
+            holder.delete.setOnClickListener(null)
+        } else {
+            holder.delete.visibility = View.VISIBLE
+            holder.delete.setOnClickListener {
+                onProjectDelete.invoke(project)
+            }
+        }
     }
 
     override fun getItemCount() = projects.size
@@ -58,6 +69,8 @@ class ProjectListAdapter(
     }
 
     private fun File.isAutoSaveEntry(): Boolean {
-        return name.equals("autosave.vne", ignoreCase = true) || parentFile?.name == "autosave"
+        return name.equals("autosave.vne", ignoreCase = true) ||
+            parentFile?.name == "autosave" ||
+            parentFile?.name == "backups"
     }
 }
