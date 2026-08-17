@@ -9,8 +9,8 @@ class MultiClipTimeline {
 
     private val clips = mutableListOf<TimelineClip>()
 
-    fun addClip(clipId: Int, durationMs: Long, title: String = "Clip") {
-        clips.add(TimelineClip(id = clipId, durationMs = durationMs, title = title))
+    fun addClip(clipId: Int, durationMs: Long, title: String = "Clip", startTimeMs: Long = 0L) {
+        clips.add(TimelineClip(id = clipId, durationMs = durationMs, title = title, startTimeMs = startTimeMs))
         Log.d(TAG, "clip added id=$clipId")
     }
 

@@ -187,6 +187,8 @@ class ImportController(
         val preparedTrackType = pickerImportTrackTypes.remove(requestCode)
         val preparedStartTimeMs = pickerImportStartTimesMs.remove(requestCode)
         val requestedTrackType = preparedTrackType ?: fallbackTrackType ?: return false
+        val capturedPlayheadMs = playheadTimeMsProvider().coerceAtLeast(0L)
+        val finalRequestedStartTimeMs = preparedStartTimeMs ?: fallbackStartTimeMs ?: capturedPlayheadMs
         Log.d(
             TAG,
             "handlePickerResult requestCode=$requestCode resultCode=$resultCode preparedTrack=$preparedTrackType fallbackTrack=$fallbackTrackType preparedStart=$preparedStartTimeMs fallbackStart=$fallbackStartTimeMs hasUri=${data?.data != null}",
@@ -416,8 +418,18 @@ class ImportController(
                     if (!shouldDeferUiHydration) {
                         val timeline = timelineProvider()
                         timeline.clear()
+                        val layoutResult = runCatching { NativeBridge.executeCommand("GET_TIMELINE_LAYOUT") }.getOrNull()
+                        val clipsJson = layoutResult?.data?.optJSONArray("clips")
+                        val nativeStartTimes = mutableMapOf<Int, Long>()
+                        if (clipsJson != null) {
+                            for (i in 0 until clipsJson.length()) {
+                                val node = clipsJson.optJSONObject(i) ?: continue
+                                nativeStartTimes[node.optInt("clipId")] = node.optLong("startTimeMs", 0L)
+                            }
+                        }
                         for (id in nativeClipIds) {
-                            timeline.addClip(clipId = id, durationMs = nativeClipDurations[id] ?: 0L)
+                            val startMs = nativeStartTimes[id] ?: if (id == clipId) requestedStartTimeMs.coerceAtLeast(0L) else 0L
+                            timeline.addClip(clipId = id, durationMs = nativeClipDurations[id] ?: 0L, startTimeMs = startMs)
                         }
                         val timelineManager = timelineManagerProvider()
                         timelineManager?.syncClips(timeline.getClips())

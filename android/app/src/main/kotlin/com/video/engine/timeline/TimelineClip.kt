@@ -14,10 +14,11 @@ data class TimelineClip(
     val id: Int,
     val durationMs: Long,
     val color: Int = Color.parseColor("#6200EE"),
-    val title: String = "Clip"
+    val title: String = "Clip",
+    val startTimeMs: Long = 0L
 ) {
     val endTimeMs: Long
-        get() = durationMs
+        get() = startTimeMs + durationMs
 
     /**
      * Get human-readable duration string.
