@@ -11,6 +11,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.video.engine.pro.timeline.MultiTrackTimelineView
 import com.video.engine.timeline.TimelineManager
+import java.util.Locale
 import kotlin.math.abs
 
 class PlaybackController(

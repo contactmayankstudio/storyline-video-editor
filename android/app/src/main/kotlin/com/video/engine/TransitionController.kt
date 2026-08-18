@@ -2,9 +2,11 @@ package com.video.engine
 
 import android.app.Activity
 import android.util.Log
+import android.widget.Toast
 import com.video.engine.timeline.TimelineManager
 import com.video.engine.transition.Transition
 import com.video.engine.transition.TransitionPanel
+import com.video.engine.transition.TransitionStore
 import com.video.engine.transition.TransitionType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -179,15 +181,14 @@ class TransitionController(
     }
 
     private fun applyTransitionToAllCuts(sourceTransition: Transition) {
-        val timelineManager = timelineManagerProvider() ?: return
         val previewView = previewViewProvider()
-        val allTransitions = timelineManager.getAllTransitions()
+        val allTransitions = TransitionStore.all()
         allTransitions.forEach { trans ->
             trans.type = sourceTransition.type
             trans.durationMs = sourceTransition.durationMs
             upsertTransitionInternal(trans, previewView)
         }
-        com.video.engine.UiToast.makeText(activity, "Transition applied to all cuts", android.widget.Toast.LENGTH_SHORT).show()
+        Toast.makeText(activity, "Transition applied to all cuts", Toast.LENGTH_SHORT).show()
     }
 
     fun applyQuickTransition(
