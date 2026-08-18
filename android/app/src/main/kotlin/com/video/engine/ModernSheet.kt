@@ -512,6 +512,8 @@ object ModernSheet {
             scroller.addView(row)
             root.addView(scroller)
         }
+
+        fun chips(
             label: String,
             options: List<String>,
             selected: Int = -1,

@@ -536,9 +536,10 @@ class UiChromeController(
         ModernSheet.show(activity, "Color") {
             chips("Studio", listOf("Grade Controls", "LUT Library", "Reset Color"), -1) { _, option ->
                 when (option) {
-                    "Grade Controls" -> showColorStudio()
-                    "LUT Library" -> showLutLibrary()
-                    "Reset Color" -> applyEffectPreset(EffectParams())
+                    "Grade Controls" -> { showColorStudio() }
+                    "LUT Library" -> { showLutLibrary() }
+                    "Reset Color" -> { applyEffectPreset(EffectParams()) }
+                    else -> {}
                 }
             }
             chips("Quick Looks", listOf("Fair Lift", "Beauty Lift", "Cine Matte", "Teal Punch", "Golden Hour", "Noir Mono"), -1, dismissOnSelect = false) { _, option ->
