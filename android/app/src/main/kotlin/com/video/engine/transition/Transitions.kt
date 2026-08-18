@@ -64,6 +64,7 @@ class TransitionPanel(
     private val activity: Activity,
     private val previewView: VideoPreviewView,
     private val transition: Transition,
+    private val onApplyToAll: ((Transition) -> Unit)? = null,
     private val onApply: (Transition) -> Unit,
 ) {
     private fun typeIndex(type: TransitionType): Int = when (type) {
@@ -83,57 +84,80 @@ class TransitionPanel(
     }
 
     fun show() {
-        ModernSheet.show(activity, "Transition") {
-            var updateTypeSelection: (Int) -> Unit = {}
-            var updatePopularSelection: (Int) -> Unit = {}
-            fun applyAndSync(type: TransitionType, durationMs: Int) {
-                applyPreset(type, durationMs)
-                updateTypeSelection(typeIndex(type))
+        val initialType = transition.type
+        val initialDuration = transition.durationMs
+
+        ModernSheet.showModal(
+            context = activity,
+            title = "Video Transition",
+            showClose = true,
+            showApply = true,
+            onApply = {
+                onApply(transition)
+            },
+            onCancel = {
+                transition.type = initialType
+                transition.durationMs = initialDuration
+                onApply(transition)
+            },
+        ) {
+            tabs(listOf("Featured", "3D", "Shape", "Motion", "Glitch", "Shake"), selected = 0) { tabIdx ->
+                val chosenType = when (tabIdx) {
+                    1 -> TransitionType.SLIDE
+                    2 -> TransitionType.WIPE
+                    3 -> TransitionType.CROSS
+                    4 -> TransitionType.FADE
+                    5 -> TransitionType.SLIDE
+                    else -> TransitionType.CROSS
+                }
+                applyPreset(chosenType, transition.durationMs)
             }
+
+            section("Transition Presets")
             val popularPresets = listOf(
+                Triple("None", TransitionType.NONE, 0),
                 Triple("Soft Cross", TransitionType.CROSS, 450),
                 Triple("Quick Fade", TransitionType.FADE, 220),
                 Triple("Smooth Wipe", TransitionType.WIPE, 500),
                 Triple("Push Slide", TransitionType.SLIDE, 420),
-                Triple("Long Dissolve", TransitionType.CROSS, 900),
-                Triple("Clean Cut", TransitionType.NONE, transition.durationMs.coerceIn(100, 2000)),
+                Triple("Dissolve", TransitionType.CROSS, 900),
             )
             val selectedPopular = popularPresets.indexOfFirst { (_, type, _) -> type == transition.type }
-            updatePopularSelection = selectableTileGrid(
-                "Popular",
-                popularPresets.map { it.first },
+            selectableTileGrid(
+                label = "Styles",
+                options = popularPresets.map { it.first },
                 selected = selectedPopular,
                 columns = 3,
                 dismissOnSelect = false,
             ) { index, _ ->
                 val (_, type, durationMs) = popularPresets[index]
-                applyAndSync(type, durationMs)
-                updatePopularSelection(index)
+                applyPreset(type, if (durationMs > 0) durationMs else transition.durationMs)
             }
-            updateTypeSelection = selectableChips(
-                "Type",
-                listOf("None", "Fade", "Cross", "Wipe", "Slide"),
-                typeIndex(transition.type),
-                dismissOnSelect = false,
-            ) { i, _ ->
-                applyPreset(typeForIndex(i), transition.durationMs.coerceIn(100, 2000))
-                updatePopularSelection(-1)
-            }
-            chips(
-                "Timing",
-                listOf("Fast 180", "Short 250", "Smooth 450", "Slow 700", "Cinematic 1000", "Max 1500"),
-                selected = -1,
-                dismissOnSelect = false,
-            ) { _, option ->
-                val durationMs = option.substringAfterLast(' ').toIntOrNull() ?: transition.durationMs
-                val type = transition.type.takeIf { it != TransitionType.NONE } ?: TransitionType.CROSS
-                applyPreset(type, durationMs)
-                updateTypeSelection(typeIndex(type))
-                updatePopularSelection(-1)
-            }
-            slider("Duration", 100f, 2000f, transition.durationMs.toFloat(), { "${it.toInt()}ms" }) {
-                transition.durationMs = it.toInt()
+
+            divider()
+            section("Duration")
+            sliderWithBubble(
+                label = "Transition Duration",
+                min = 0.2f,
+                max = 2.0f,
+                value = (transition.durationMs / 1000f).coerceIn(0.2f, 2.0f),
+                unit = "s",
+                format = { "%.1f".format(it) },
+            ) { sec ->
+                transition.durationMs = (sec * 1000).toInt()
                 onApply(transition)
+            }
+
+            if (onApplyToAll != null) {
+                divider()
+                chips(
+                    label = "Batch Actions",
+                    options = listOf("Apply to All Cuts"),
+                    selected = -1,
+                    dismissOnSelect = true,
+                ) { _, _ ->
+                    onApplyToAll.invoke(transition)
+                }
             }
         }
     }

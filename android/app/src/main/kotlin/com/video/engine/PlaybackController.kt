@@ -460,15 +460,17 @@ class PlaybackController(
     }
 
     private fun formatTimelineTime(timeMs: Long): String {
-        val totalSeconds = timeMs / 1000
-        val seconds = totalSeconds % 60
-        val totalMinutes = totalSeconds / 60
-        val minutes = totalMinutes % 60
-        val hours = totalMinutes / 60
+        val safeMs = timeMs.coerceAtLeast(0L)
+        val tenths = (safeMs % 1000L) / 100L
+        val totalSeconds = safeMs / 1000L
+        val seconds = totalSeconds % 60L
+        val totalMinutes = totalSeconds / 60L
+        val minutes = totalMinutes % 60L
+        val hours = totalMinutes / 60L
         return if (hours > 0) {
-            String.format("%02d:%02d:%02d", hours, minutes, seconds)
+            String.format(Locale.US, "%02d:%02d:%02d.%d", hours, minutes, seconds, tenths)
         } else {
-            String.format("%02d:%02d", minutes, seconds)
+            String.format(Locale.US, "%02d:%02d.%d", minutes, seconds, tenths)
         }
     }
 

@@ -211,12 +211,43 @@ class StickersPanel(
     private val onImageSelected: (String) -> Unit,
 ) {
     fun show() {
-        val stickers = StickerPacks.getAllPacks()["default"].orEmpty()
-        val labels = stickers.map { it.emojiOrSymbol } + listOf("📷")
-        ModernSheet.show(activity, "Stickers") {
-            chips("Select", labels, -1) { i, _ ->
-                if (i < stickers.size) onStickerSelected(stickers[i])
-                else onImageSelected("placeholder://image")
+        val emojis = listOf(
+            "✨", "🔥", "❤️", "🎬", "💥", "⭐",
+            "🚀", "👏", "🎉", "💯", "😍", "🤩",
+            "😎", "🎯", "⚡", "🌟", "💡", "🎶",
+            "👍", "🙌", "👑", "🏆", "💎", "🌈",
+        )
+        val stickers = emojis.mapIndexed { idx, emo -> Sticker(idx + 1, emo) }
+
+        ModernSheet.showModal(
+            context = activity,
+            title = "Add Sticker",
+            showClose = true,
+            showApply = false,
+        ) {
+            tabs(listOf("Popular", "Reactions", "Vibe", "Symbols"), selected = 0) { _ -> }
+
+            section("Stickers & Emojis")
+            chipGrid(
+                label = "All Stickers",
+                options = emojis,
+                selected = -1,
+                columns = 6,
+                dismissOnSelect = true,
+            ) { i, _ ->
+                if (i < stickers.size) {
+                    onStickerSelected(stickers[i])
+                }
+            }
+
+            divider()
+            section("Custom Image Overlay")
+            actionTile(
+                title = "Import Custom Image / Sticker",
+                subtitle = "Choose PNG / JPG from gallery with transparency",
+                dismissOnClick = true,
+            ) {
+                onImageSelected("gallery://picker")
             }
         }
     }

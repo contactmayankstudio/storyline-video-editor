@@ -161,7 +161,14 @@ class TransitionController(
         val transition = buildTransition(outgoingClipId, incomingClipId)
 
         previewViewProvider()?.let { previewView ->
-            TransitionPanel(activity, previewView, transition) { updatedTransition ->
+            TransitionPanel(
+                activity = activity,
+                previewView = previewView,
+                transition = transition,
+                onApplyToAll = { batchTransition ->
+                    applyTransitionToAllCuts(batchTransition)
+                },
+            ) { updatedTransition ->
                 if (updatedTransition.type == TransitionType.NONE) {
                     removeTransitionInternal(updatedTransition, previewView)
                 } else {
@@ -169,6 +176,18 @@ class TransitionController(
                 }
             }.show()
         }
+    }
+
+    private fun applyTransitionToAllCuts(sourceTransition: Transition) {
+        val timelineManager = timelineManagerProvider() ?: return
+        val previewView = previewViewProvider()
+        val allTransitions = timelineManager.getAllTransitions()
+        allTransitions.forEach { trans ->
+            trans.type = sourceTransition.type
+            trans.durationMs = sourceTransition.durationMs
+            upsertTransitionInternal(trans, previewView)
+        }
+        com.video.engine.UiToast.makeText(activity, "Transition applied to all cuts", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     fun applyQuickTransition(

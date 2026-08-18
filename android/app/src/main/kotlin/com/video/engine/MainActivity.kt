@@ -3348,22 +3348,53 @@ class VideoEditorActivity : Activity() {
 
     private fun showAspectRatioPickerDialog() {
         noteAppHealthAction("aspect_ratio_picker_opened")
-        val labels = aspectRatioOptions.map { "${it.toolbarLabel}\n${it.example}" }
-        ModernSheet.show(this, "Canvas Ratio") {
-            chips("Fast presets", aspectRatioOptions.map { it.toolbarLabel }, selected = selectedAspectRatioIndex) { i, _ ->
-                selectedAspectRatioIndex = i.coerceIn(0, aspectRatioOptions.lastIndex)
+        val initialIndex = selectedAspectRatioIndex
+        val initialManual = aspectRatioManuallySelected
+        val socialAspects = listOf(
+            Triple("TikTok", "9:16", 9f / 16f),
+            Triple("YouTube", "16:9", 16f / 9f),
+            Triple("IG Post", "1:1", 1f),
+            Triple("IG Reels", "9:16", 9f / 16f),
+            Triple("Shorts", "9:16", 9f / 16f),
+            Triple("IG Port.", "4:5", 4f / 5f),
+            Triple("Snapchat", "9:16", 9f / 16f),
+            Triple("FB Story", "9:16", 9f / 16f),
+            Triple("Cinema", "21:9", 21f / 9f),
+            Triple("Classic", "4:3", 4f / 3f),
+        )
+        ModernSheet.showModal(
+            context = this,
+            title = "Canvas Ratio",
+            showClose = true,
+            showApply = true,
+            onApply = {
+                safeToast("Canvas ratio applied", Toast.LENGTH_SHORT)
+            },
+            onCancel = {
+                selectedAspectRatioIndex = initialIndex
+                aspectRatioManuallySelected = initialManual
+                applyPreviewAspectRatio()
+                syncPreviewProOverlayUi()
+            },
+        ) {
+            section("Social & Platform Presets")
+            aspectCards(socialAspects, selectedIndex = 0) { idx ->
+                val chosenAspect = socialAspects[idx].third
+                val matchedIndex = aspectRatioOptions.indices.minByOrNull { i ->
+                    kotlin.math.abs((aspectRatioOptions[i].width.toFloat() / aspectRatioOptions[i].height.toFloat()) - chosenAspect)
+                } ?: 0
+                selectedAspectRatioIndex = matchedIndex
                 aspectRatioManuallySelected = true
                 applyPreviewAspectRatio()
                 syncPreviewProOverlayUi()
-                safeToast("Canvas ${aspectRatioOptions[selectedAspectRatioIndex].example}", Toast.LENGTH_SHORT)
             }
             divider()
-            chipGrid("Real examples", labels, selectedAspectRatioIndex, columns = 2) { i, _ ->
+            section("All Aspect Ratios")
+            chips("Presets", aspectRatioOptions.map { it.toolbarLabel }, selected = selectedAspectRatioIndex) { i, _ ->
                 selectedAspectRatioIndex = i.coerceIn(0, aspectRatioOptions.lastIndex)
                 aspectRatioManuallySelected = true
                 applyPreviewAspectRatio()
                 syncPreviewProOverlayUi()
-                safeToast("Canvas ${aspectRatioOptions[selectedAspectRatioIndex].example}", Toast.LENGTH_SHORT)
             }
         }
     }
@@ -6221,17 +6252,65 @@ class VideoEditorActivity : Activity() {
     ) {
         val clipLabel = clip.displayName.ifBlank { "Audio $audioId" }
         val maxFadeMs = clip.durationMs.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        ModernSheet.show(this, "$clipLabel Audio FX") {
-            slider(
-                "Gain",
-                0f,
-                2f,
-                (audioClipGainOverrides[audioId] ?: clip.gain).coerceIn(0f, 2f),
-                { "%.0f%%".format(it * 100f) },
-            ) { value ->
-                applyAudioClipGainChange(audioId, clip, value)
+        ModernSheet.showModal(
+            context = this,
+            title = "$clipLabel Audio FX",
+            showClose = true,
+            showApply = true,
+            onApply = {
+                safeToast("Audio effects applied", Toast.LENGTH_SHORT)
+            },
+        ) {
+            section("Voice FX")
+            chips(
+                "Voice Character",
+                listOf("Original", "Female", "Male", "Child", "Robot", "Echo"),
+                selected = 0,
+                dismissOnSelect = false,
+            ) { _, character ->
+                when (character) {
+                    "Female" -> {
+                        applyAudioClipGainChange(audioId, clip, 1.15f)
+                        applyAudioClipSpeedChange(audioId, 1.12f)
+                    }
+                    "Male" -> {
+                        applyAudioClipGainChange(audioId, clip, 1.25f)
+                        applyAudioClipSpeedChange(audioId, 0.90f)
+                    }
+                    "Child" -> {
+                        applyAudioClipGainChange(audioId, clip, 1.20f)
+                        applyAudioClipSpeedChange(audioId, 1.25f)
+                    }
+                    "Robot" -> {
+                        applyAudioClipGainChange(audioId, clip, 1.30f)
+                        applyAudioAutomationPreset(audioId, clip, "Pulse")
+                    }
+                    "Echo" -> {
+                        val shortFade = (maxFadeMs / 6).coerceAtLeast(0)
+                        applyAudioClipFades(audioId, clip, shortFade, shortFade)
+                        applyAudioAutomationPreset(audioId, clip, "Rise")
+                    }
+                    else -> {
+                        applyAudioClipGainChange(audioId, clip, 1.0f)
+                        applyAudioClipSpeedChange(audioId, 1.0f)
+                        applyAudioClipFades(audioId, clip, 0, 0)
+                    }
+                }
+                safeToast("Voice FX: $character", Toast.LENGTH_SHORT)
             }
-            chips("Tone", listOf("Mute", "Soft", "Clean", "Boost", "Max")) { _, option ->
+            divider()
+            section("Volume & Fades")
+            sliderWithBubble(
+                label = "Volume Gain",
+                min = 0f,
+                max = 200f,
+                value = ((audioClipGainOverrides[audioId] ?: clip.gain) * 100f).coerceIn(0f, 200f),
+                unit = "%",
+                format = { "%.0f".format(it) },
+            ) { value ->
+                applyAudioClipGainChange(audioId, clip, value / 100f)
+            }
+            chips("Tone Presets", listOf("Mute", "Soft", "Clean", "Boost", "Max")) { _, option ->
                 val gain =
                     when (option) {
                         "Mute" -> 0f
@@ -6256,20 +6335,6 @@ class VideoEditorActivity : Activity() {
                     }
                 applyAudioClipFades(audioId, clip, fades.first, fades.second)
                 safeToast("$clipLabel ${option.lowercase(Locale.US)} fade", Toast.LENGTH_SHORT)
-            }
-            chips("Automation", listOf("Flat", "Rise", "Fall", "Pulse", "Mute Ends")) { _, option ->
-                applyAudioAutomationPreset(audioId, clip, option)
-                safeToast("$clipLabel $option", Toast.LENGTH_SHORT)
-            }
-            chips("Playback", listOf("Forward", "Reverse", "0.75x", "1x", "1.5x", "2x")) { _, option ->
-                when (option) {
-                    "Forward" -> applyNativeClipReverseChange(audioId, false)
-                    "Reverse" -> applyNativeClipReverseChange(audioId, true)
-                    else -> {
-                        val speed = option.removeSuffix("x").toFloatOrNull() ?: 1f
-                        applyAudioClipSpeedChange(audioId, speed)
-                    }
-                }
             }
         }
     }
@@ -7033,8 +7098,39 @@ class VideoEditorActivity : Activity() {
         val durationSliderMaxSec = maxOf(60f, initialDurationSec)
         var customBold = true
         var customColor = 0xFFFFFFFF.toInt()
-        ModernSheet.show(this, "Add Text") {
-            textInput("Text", "Write a title, caption, or label") { }
+        var selectedPresetLabel = "Caption"
+
+        val colors = listOf(
+            0xFFFFFFFF.toInt(), // White
+            0xFFFFEB3B.toInt(), // Yellow
+            0xFF00E5FF.toInt(), // Cyan
+            0xFF76FF03.toInt(), // Green
+            0xFFFF5252.toInt(), // Red
+            0xFFFF4081.toInt(), // Pink
+            0xFFAB47BC.toInt(), // Purple
+            0xFF111111.toInt(), // Black
+        )
+
+        ModernSheet.showModal(
+            context = this,
+            title = "Add Text Overlay",
+            showClose = true,
+            showApply = true,
+            onApply = {
+                val preset = textOverlayPresetByLabel(selectedPresetLabel) ?: textOverlayPresets.first()
+                val overlay = buildTextOverlayFromPreset(
+                    preset = preset,
+                    rawText = "",
+                    durationOverrideMs = customDurationMs,
+                ).apply {
+                    bold = customBold
+                    color = customColor
+                }
+                addTextOverlay(overlay, message = "${preset.label} added")
+            },
+        ) {
+            textInput("Content", "Write a title, caption, or label") { }
+
             fun styledOverlay(label: String): TextOverlay? {
                 val preset = textOverlayPresetByLabel(label) ?: return null
                 return buildTextOverlayFromPreset(
@@ -7046,48 +7142,39 @@ class VideoEditorActivity : Activity() {
                     color = customColor
                 }
             }
-            chips(
-                "Quick Add",
-                listOf("Title", "Caption", "Subtitle"),
-                selected = -1,
-                dismissOnSelect = true,
+
+            section("Text Style Presets")
+            chipGrid(
+                label = "Styles",
+                options = listOf("Title", "Caption", "Subtitle", "Lower 3rd", "Hook", "CTA"),
+                selected = 1,
+                columns = 3,
+                dismissOnSelect = false,
             ) { _, option ->
-                val preset = textOverlayPresetByLabel(option) ?: return@chips
-                addTextOverlay(
-                    styledOverlay(option) ?: return@chips,
-                    message = "${preset.label} added",
-                )
+                selectedPresetLabel = option
             }
-            slider("Duration", 0.6f, durationSliderMaxSec, initialDurationSec, { "%.1fs".format(it) }) { value ->
-                customDurationMs = (value * 1000f).roundToInt()
+
+            divider()
+            section("Text Color")
+            colorPalette(colors, customColor) { chosenColor ->
+                customColor = chosenColor
             }
-            toggle("Bold", customBold) { enabled ->
+
+            divider()
+            section("Formatting")
+            toggle("Bold Font", customBold) { enabled ->
                 customBold = enabled
             }
-            chips("Color", listOf("White", "Yellow", "Cyan", "Green", "Red", "Black"), 0) { i, _ ->
-                customColor = listOf(
-                    0xFFFFFFFF.toInt(),
-                    0xFFFFEB3B.toInt(),
-                    0xFF00E5FF.toInt(),
-                    0xFF76FF03.toInt(),
-                    0xFFFF5252.toInt(),
-                    0xFF111111.toInt(),
-                )[i]
-            }
-            divider()
-            chips("Primary", listOf("Caption", "Title", "Lower 3rd", "Subtitle"), -1) { _, option ->
-                val preset = textOverlayPresetByLabel(option) ?: return@chips
-                addTextOverlay(
-                    styledOverlay(option) ?: return@chips,
-                    message = "${preset.label} added",
-                )
-            }
-            chips("More", listOf("Hook", "CTA", "Quote", "Label", "Badge", "Basic"), -1) { _, option ->
-                val preset = textOverlayPresetByLabel(option) ?: return@chips
-                addTextOverlay(
-                    styledOverlay(option) ?: return@chips,
-                    message = "${preset.label} added",
-                )
+
+            sliderWithBubble(
+                label = "Duration",
+                min = 0.6f,
+                max = durationSliderMaxSec,
+                value = initialDurationSec,
+                unit = "s",
+                format = { "%.1f".format(it) },
+            ) { value ->
+                customDurationMs = (value * 1000f).roundToInt()
             }
         }
     }
@@ -9604,19 +9691,26 @@ class VideoEditorActivity : Activity() {
                 val fadeInMs = fadeInValues[clipId] ?: inherited?.fadeInMs ?: 0
                 val fadeOutMs = fadeOutValues[clipId] ?: inherited?.fadeOutMs ?: 0
                 val gainKeyframes = audioGainKeyframes[clipId] ?: inherited?.gainKeyframes.orEmpty()
-                val rawDurationMs = durationsMs[clipId] ?: inherited?.durationMs ?: 1L
-                val durationMs = clampAudioClipDurationToSource(
-                    sourcePath = sourcePath,
-                    requestedDurationMs = rawDurationMs,
-                    fallbackMs = inherited?.durationMs ?: rawDurationMs,
-                )
+                val startTimeMs = if (existing != null) existing.startTimeMs else (startTimesMs[clipId] ?: inherited?.startTimeMs ?: 0L)
+                val durationMs = if (existing != null) existing.durationMs else {
+                    val rawDurationMs = durationsMs[clipId] ?: inherited?.durationMs ?: 1L
+                    clampAudioClipDurationToSource(
+                        sourcePath = sourcePath,
+                        requestedDurationMs = rawDurationMs,
+                        fallbackMs = inherited?.durationMs ?: rawDurationMs,
+                    )
+                }
+                val sourceInMs = existing?.sourceInMs ?: 0L
+                val sourceOutMs = existing?.sourceOutMs ?: durationMs
                 changed = AudioClipStore.add(
                     com.video.engine.audio.AudioClip(
                         id = clipId,
                         sourcePath = sourcePath,
                         displayName = displayName,
-                        startTimeMs = startTimesMs[clipId] ?: inherited?.startTimeMs ?: 0L,
+                        startTimeMs = startTimeMs,
                         durationMs = durationMs,
+                        sourceInMs = sourceInMs,
+                        sourceOutMs = sourceOutMs,
                         gain = gain,
                         fadeInMs = fadeInMs.coerceAtLeast(0),
                         fadeOutMs = fadeOutMs.coerceAtLeast(0),
@@ -9632,9 +9726,10 @@ class VideoEditorActivity : Activity() {
                     ),
                 ) || changed
                 audioClipGainOverrides[clipId] = gain
+                nativeClipStartMs[clipId] = startTimeMs
                 nativeClipDurationMs[clipId] = durationMs
-                nativeClipSourceInMs[clipId] = 0L
-                nativeClipSourceOutMs[clipId] = durationMs
+                nativeClipSourceInMs[clipId] = sourceInMs
+                nativeClipSourceOutMs[clipId] = sourceOutMs
             }
         }
 
@@ -10645,21 +10740,14 @@ class VideoEditorActivity : Activity() {
     }
 
     private fun cacheAudioClipLayout(clip: AudioClip) {
-        val durationMs = clampAudioClipDurationToSource(
-            sourcePath = clip.sourcePath,
-            requestedDurationMs = clip.durationMs,
-            fallbackMs = clip.durationMs,
-        )
-        if (clip.durationMs != durationMs) {
-            clip.durationMs = durationMs
-        }
+        val durationMs = clip.durationMs.coerceAtLeast(1L)
         nativeClipTrackType[clip.id] = TrackType.AUDIO
         nativeClipLane[clip.id] = clip.layerIndex.coerceAtLeast(0)
         nativeClipZOrder[clip.id] = clip.layerIndex.coerceAtLeast(0)
         nativeClipStartMs[clip.id] = clip.startTimeMs.coerceAtLeast(0L)
         nativeClipDurationMs[clip.id] = durationMs
-        nativeClipSourceInMs[clip.id] = 0L
-        nativeClipSourceOutMs[clip.id] = durationMs
+        nativeClipSourceInMs[clip.id] = clip.sourceInMs
+        nativeClipSourceOutMs[clip.id] = if (clip.sourceOutMs > 0L) clip.sourceOutMs else (clip.sourceInMs + durationMs)
         nativeClipSourcePath[clip.id] = clip.sourcePath
         nativeClipAudioGainKeyframes[clip.id] = normalizeAudioGainKeyframes(clip.gainKeyframes, durationMs)
     }
@@ -11567,15 +11655,6 @@ class VideoEditorActivity : Activity() {
         audioDuckingRestoreGainOverrides.remove(audioId)
         duckingEnabledForKey.remove("audio-$audioId")
         duckingEnabledForKey.remove(audioId.toString())
-        // Remove from native engine
-        execCmd(
-            action = "DELETE_CLIP",
-            params = mapOf("clipId" to audioId),
-        ) { result ->
-            if (result.success != true) {
-                previewView?.removeClip(audioId)
-            }
-        }
         // Clean native tracking maps so refreshMainTimelineTracks doesn't resurrect the clip
         nativeClipTrackType.remove(audioId)
         nativeClipStartMs.remove(audioId)
@@ -11587,10 +11666,21 @@ class VideoEditorActivity : Activity() {
         nativeClipZOrder.remove(audioId)
         nativeClipAudioGainKeyframes.remove(audioId)
         initializedAudioImportClipIds.remove(audioId)
-        // Force preview audio re-sync so the deleted clip stops playing
+        // Remove from native engine
+        execCmd(
+            action = "DELETE_CLIP",
+            params = mapOf("clipId" to audioId),
+        ) { result ->
+            if (result.success != true) {
+                previewView?.removeClip(audioId)
+            }
+        }
+        // Force preview audio re-sync so the deleted clip stops playing immediately
         lastPreviewAudioSyncSignature = ""
+        NativeBridge.syncAudioClips()
         selectedTimelineClipKey = null
         lastLayoutFetchMs = 0L
+        refreshMainTimelineTracks()
         syncTimelineShellFromNative()
         val revealTimeMs = resolvePostDeleteRevealTime(anchorTimeMs)
         playbackController?.scrubTo(revealTimeMs, syncTimelineUi = false)
@@ -13795,8 +13885,17 @@ class VideoEditorActivity : Activity() {
 
     private fun formatAutomationTime(timeMs: Long): String {
         val safeMs = timeMs.coerceAtLeast(0L)
+        val tenths = (safeMs % 1000L) / 100L
         val totalSeconds = safeMs / 1000L
-        return String.format(Locale.US, "%02d:%02d", totalSeconds / 60L, totalSeconds % 60L)
+        val seconds = totalSeconds % 60L
+        val totalMinutes = totalSeconds / 60L
+        val minutes = totalMinutes % 60L
+        val hours = totalMinutes / 60L
+        return if (hours > 0) {
+            String.format(Locale.US, "%02d:%02d:%02d.%d", hours, minutes, seconds, tenths)
+        } else {
+            String.format(Locale.US, "%02d:%02d.%d", minutes, seconds, tenths)
+        }
     }
 
     private fun formatTimelineClock(timeMs: Long, durationMs: Long = currentProjectDurationMs()): String {
@@ -14386,10 +14485,53 @@ class VideoEditorActivity : Activity() {
                     safeToast("$clipLabel image has no audio", Toast.LENGTH_SHORT)
                     return
                 }
-                val cur = videoClipGainOverrides[clipId] ?: 1f
-                ModernSheet.show(this, "$clipLabel Volume") {
-                    slider("Volume", 0f, 2f, cur, { "%.0f%%".format(it * 100) }) { v ->
-                        execCmd("SET_CLIP_VOLUME", mapOf("clipId" to clipId, "volume" to v.toDouble())) {
+                val initialGain = videoClipGainOverrides[clipId] ?: 1f
+
+                ModernSheet.showModal(
+                    context = this,
+                    title = "$clipLabel Volume",
+                    showClose = true,
+                    showApply = true,
+                    onApply = {
+                        safeToast("Volume applied", Toast.LENGTH_SHORT)
+                    },
+                    onCancel = {
+                        videoClipGainOverrides[clipId] = initialGain
+                        execCmd("SET_CLIP_VOLUME", mapOf("clipId" to clipId, "volume" to initialGain.toDouble())) {
+                            refreshMainTimelineTracks()
+                            syncPreviewAudioAt(currentTimeMs, continuePlaying = isPlaying)
+                        }
+                    },
+                ) {
+                    section("Volume Level")
+                    sliderWithBubble(
+                        label = "Volume",
+                        min = 0f,
+                        max = 200f,
+                        value = initialGain * 100f,
+                        unit = "%",
+                        format = { "%.0f".format(it) },
+                    ) { v ->
+                        val gain = v / 100f
+                        videoClipGainOverrides[clipId] = gain
+                        execCmd("SET_CLIP_VOLUME", mapOf("clipId" to clipId, "volume" to gain.toDouble())) {
+                            refreshMainTimelineTracks()
+                            syncPreviewAudioAt(currentTimeMs, continuePlaying = isPlaying)
+                        }
+                    }
+                    divider()
+                    section("Quick Levels")
+                    chips("Presets", listOf("Mute 0%", "Soft 50%", "Standard 100%", "Boost 150%", "Max 200%")) { _, opt ->
+                        val gain = when (opt) {
+                            "Mute 0%" -> 0f
+                            "Soft 50%" -> 0.5f
+                            "Standard 100%" -> 1.0f
+                            "Boost 150%" -> 1.5f
+                            "Max 200%" -> 2.0f
+                            else -> 1.0f
+                        }
+                        videoClipGainOverrides[clipId] = gain
+                        execCmd("SET_CLIP_VOLUME", mapOf("clipId" to clipId, "volume" to gain.toDouble())) {
                             refreshMainTimelineTracks()
                             syncPreviewAudioAt(currentTimeMs, continuePlaying = isPlaying)
                         }
@@ -14399,15 +14541,66 @@ class VideoEditorActivity : Activity() {
             ClipKind.AUDIO -> {
                 val audioId = selectedAudioClipId() ?: return
                 val audioClip = AudioClipStore.get(audioId) ?: return
-                val cur = audioClipGainOverrides[audioId] ?: 1f
-                ModernSheet.show(this, "Audio Gain") {
-                    slider("Gain", 0f, 2f, cur, { "%.0f%%".format(it * 100) }) { v ->
-                        audioClipGainOverrides[audioId] = v
-                        audioClip.gain = v
-                        audioClip.muted = v <= 0.001f
+                val initialGain = audioClipGainOverrides[audioId] ?: audioClip.gain
+
+                ModernSheet.showModal(
+                    context = this,
+                    title = "Audio Volume & Gain",
+                    showClose = true,
+                    showApply = true,
+                    onApply = {
+                        safeToast("Audio gain applied", Toast.LENGTH_SHORT)
+                    },
+                    onCancel = {
+                        audioClipGainOverrides[audioId] = initialGain
+                        audioClip.gain = initialGain
+                        audioClip.muted = initialGain <= 0.001f
                         execCmd(
                             "SET_CLIP_VOLUME",
-                            mapOf("clipId" to audioId, "volume" to v.toDouble()),
+                            mapOf("clipId" to audioId, "volume" to initialGain.toDouble()),
+                        ) {
+                            refreshMainTimelineTracks()
+                            syncPreviewAudioAt(currentTimeMs, continuePlaying = isPlaying)
+                        }
+                    },
+                ) {
+                    section("Audio Gain")
+                    sliderWithBubble(
+                        label = "Gain Level",
+                        min = 0f,
+                        max = 200f,
+                        value = initialGain * 100f,
+                        unit = "%",
+                        format = { "%.0f".format(it) },
+                    ) { v ->
+                        val gain = v / 100f
+                        audioClipGainOverrides[audioId] = gain
+                        audioClip.gain = gain
+                        audioClip.muted = gain <= 0.001f
+                        execCmd(
+                            "SET_CLIP_VOLUME",
+                            mapOf("clipId" to audioId, "volume" to gain.toDouble()),
+                        ) {
+                            refreshMainTimelineTracks()
+                            syncPreviewAudioAt(currentTimeMs, continuePlaying = isPlaying)
+                        }
+                    }
+                    divider()
+                    chips("Quick Gain", listOf("Mute 0%", "50%", "100%", "150%", "200%")) { _, opt ->
+                        val gain = when (opt) {
+                            "Mute 0%" -> 0f
+                            "50%" -> 0.5f
+                            "100%" -> 1.0f
+                            "150%" -> 1.5f
+                            "200%" -> 2.0f
+                            else -> 1.0f
+                        }
+                        audioClipGainOverrides[audioId] = gain
+                        audioClip.gain = gain
+                        audioClip.muted = gain <= 0.001f
+                        execCmd(
+                            "SET_CLIP_VOLUME",
+                            mapOf("clipId" to audioId, "volume" to gain.toDouble()),
                         ) {
                             refreshMainTimelineTracks()
                             syncPreviewAudioAt(currentTimeMs, continuePlaying = isPlaying)
@@ -14418,21 +14611,69 @@ class VideoEditorActivity : Activity() {
             ClipKind.TEXT -> {
                 val overlayId = selectedTextOverlayId() ?: return
                 val overlay = OverlayStore.get(overlayId) ?: return
-                ModernSheet.show(this, "Text Opacity") {
-                    slider("Opacity", 0f, 1f, overlay.opacity, { "%.0f%%".format(it * 100) }) { v ->
-                        overlay.opacity = v
-                        previewView?.updateTextOverlayOpacity(overlay.id, v, 0, 0)
-                        applyTextOverlayState(overlay); applyTextOverlayPose(overlay)
+                val initialOpacity = overlay.opacity
+
+                ModernSheet.showModal(
+                    context = this,
+                    title = "Text Opacity",
+                    showClose = true,
+                    showApply = true,
+                    onApply = {
+                        safeToast("Text opacity applied", Toast.LENGTH_SHORT)
+                    },
+                    onCancel = {
+                        overlay.opacity = initialOpacity
+                        previewView?.updateTextOverlayOpacity(overlay.id, initialOpacity, 0, 0)
+                        applyTextOverlayState(overlay)
+                        applyTextOverlayPose(overlay)
+                    },
+                ) {
+                    sliderWithBubble(
+                        label = "Opacity",
+                        min = 0f,
+                        max = 100f,
+                        value = initialOpacity * 100f,
+                        unit = "%",
+                        format = { "%.0f".format(it) },
+                    ) { v ->
+                        overlay.opacity = v / 100f
+                        previewView?.updateTextOverlayOpacity(overlay.id, overlay.opacity, 0, 0)
+                        applyTextOverlayState(overlay)
+                        applyTextOverlayPose(overlay)
                     }
                 }
             }
             ClipKind.STICKER -> {
                 val stickerId = selectedStickerClipId() ?: return
                 val clip = StickerClipStore.all().find { it.id == stickerId } ?: return
-                ModernSheet.show(this, "Overlay Opacity") {
-                    slider("Opacity", 0f, 1f, clip.opacity, { "%.0f%%".format(it * 100) }) { v ->
-                        clip.opacity = v
-                        applyStickerLayerState(clip); applyStickerOverlayPose(clip)
+                val initialOpacity = clip.opacity
+
+                ModernSheet.showModal(
+                    context = this,
+                    title = "Overlay Opacity",
+                    showClose = true,
+                    showApply = true,
+                    onApply = {
+                        safeToast("Overlay opacity applied", Toast.LENGTH_SHORT)
+                    },
+                    onCancel = {
+                        clip.opacity = initialOpacity
+                        applyStickerLayerState(clip)
+                        applyStickerOverlayPose(clip)
+                        refreshMainTimelineTracks()
+                    },
+                ) {
+                    sliderWithBubble(
+                        label = "Opacity",
+                        min = 0f,
+                        max = 100f,
+                        value = initialOpacity * 100f,
+                        unit = "%",
+                        format = { "%.0f".format(it) },
+                    ) { v ->
+                        clip.opacity = v / 100f
+                        applyStickerLayerState(clip)
+                        applyStickerOverlayPose(clip)
                         refreshMainTimelineTracks()
                     }
                 }
@@ -14545,31 +14786,52 @@ class VideoEditorActivity : Activity() {
                     return
                 }
                 pausePlaybackForSpeedSheet()
-                val currentSpeed = nativeClipPlaybackSpeed[clipId] ?: 1f
+                val initialSpeed = nativeClipPlaybackSpeed[clipId] ?: 1f
+                val initialCurve = nativeClipCurveSpeedProfile[clipId] ?: "linear"
                 val curveProfiles = listOf("linear", "ease_in", "ease_out", "speed_ramp", "hyperlapse")
                 val curveLabels = listOf("Linear", "Ease In", "Ease Out", "Ramp", "Hyper")
                 val curveSpeeds = listOf(1.0f, 0.80f, 1.15f, 1.45f, 2.0f)
-                val currentCurve = nativeClipCurveSpeedProfile[clipId] ?: "linear"
-                ModernSheet.show(this, "$clipLabel Speed") {
-                    chips("Slow Motion", listOf("0.10x", "0.25x", "0.50x", "0.75x")) { _, opt ->
+                var keepPitch = true
+
+                ModernSheet.showModal(
+                    context = this,
+                    title = "$clipLabel Speed",
+                    showClose = true,
+                    showApply = true,
+                    onApply = {
+                        safeToast("Speed applied", Toast.LENGTH_SHORT)
+                    },
+                    onCancel = {
+                        applyNativeClipSpeedChange(clipId, initialSpeed, curveProfile = initialCurve)
+                    },
+                ) {
+                    tabs(listOf("Standard", "Curve"), selected = 0) { _ -> }
+                    toggle("Keep Audio Pitch", keepPitch) { keepPitch = it }
+                    divider()
+                    section("Speed Presets")
+                    chips("Speed", listOf("0.25x", "0.5x", "0.75x", "1.0x", "1.5x", "2.0x", "3.0x", "5.0x")) { _, opt ->
                         val speed = opt.removeSuffix("x").toFloatOrNull() ?: 1f
                         applyNativeClipSpeedChange(clipId, speed, curveProfile = "linear")
                     }
-                    chips("Fast Motion", listOf("1x", "1.25x", "1.5x", "2x", "3x", "4x", "6x")) { _, opt ->
-                        val speed = opt.removeSuffix("x").toFloatOrNull() ?: 1f
-                        applyNativeClipSpeedChange(clipId, speed, curveProfile = "linear")
-                    }
-                    slider("Preview Speed", 0.10f, 6f, currentSpeed, { "%.2fx".format(it) }) { speed ->
+                    sliderWithBubble(
+                        label = "Speed Multiplier",
+                        min = 0.10f,
+                        max = 6.0f,
+                        value = initialSpeed,
+                        unit = "x",
+                        format = { "%.2f".format(it) },
+                    ) { speed ->
                         applyNativeClipSpeedChange(clipId, speed, curveProfile = "linear")
                     }
                     divider()
+                    section("Motion Curves")
                     chips(
-                        "Motion Curves",
+                        "Curve Profiles",
                         curveLabels,
-                        selected = curveProfiles.indexOf(currentCurve).coerceAtLeast(0),
+                        selected = curveProfiles.indexOf(initialCurve).coerceAtLeast(0),
                     ) { i, _ ->
                         applyNativeClipSpeedChange(clipId, curveSpeeds[i], curveProfile = curveProfiles[i])
-                        safeToast("${curveLabels[i]} applied", Toast.LENGTH_SHORT)
+                        safeToast("${curveLabels[i]} curve applied", Toast.LENGTH_SHORT)
                     }
                 }
             }
@@ -15002,22 +15264,52 @@ class VideoEditorActivity : Activity() {
             ClipKind.VIDEO, ClipKind.OVERLAY -> {
                 val selected = selectedVideoClipId() ?: return
                 val clipLabel = selectedNativeClipLabel()
-                val cur = currentClipPreviewTransform(selected)
-                ModernSheet.show(this, "$clipLabel Rotate & Mirror") {
-                    slider("Rotation", -180f, 180f, cur.rotationDeg, { "${it.toInt()}°" }) { v ->
-                        updateSelectedVideoPreviewTransform { it.copy(rotationDeg = v) }
-                    }
-                    toggle("Mirror Horizontal", cur.mirrorX) { v ->
-                        updateSelectedVideoPreviewTransform { it.copy(mirrorX = v) }
-                    }
-                    chips("Quick", listOf("+90°", "-90°", "Reset")) { _, opt ->
+                val initial = currentClipPreviewTransform(selected)
+                var currentTransform = initial
+
+                ModernSheet.showModal(
+                    context = this,
+                    title = "$clipLabel Rotate & Flip",
+                    showClose = true,
+                    showApply = true,
+                    onApply = {
+                        safeToast("Transform applied", Toast.LENGTH_SHORT)
+                    },
+                    onCancel = {
+                        updateSelectedVideoPreviewTransform { initial }
+                    },
+                ) {
+                    section("Quick Orientation")
+                    chips("Rotate", listOf("Rotate 90°", "Rotate 180°", "Rotate 270°", "Reset 0°")) { _, opt ->
                         updateSelectedVideoPreviewTransform { c ->
                             when (opt) {
-                                "+90°" -> c.copy(rotationDeg = c.rotationDeg + 90f)
-                                "-90°" -> c.copy(rotationDeg = c.rotationDeg - 90f)
-                                "Reset" -> ClipPreviewTransform()
+                                "Rotate 90°" -> c.copy(rotationDeg = (c.rotationDeg + 90f) % 360f)
+                                "Rotate 180°" -> c.copy(rotationDeg = (c.rotationDeg + 180f) % 360f)
+                                "Rotate 270°" -> c.copy(rotationDeg = (c.rotationDeg + 270f) % 360f)
+                                "Reset 0°" -> c.copy(rotationDeg = 0f)
                                 else -> c
-                            }
+                            }.also { currentTransform = it }
+                        }
+                    }
+                    divider()
+                    section("Flip / Mirror")
+                    toggle("Flip Horizontal", initial.mirrorX) { v ->
+                        updateSelectedVideoPreviewTransform { c ->
+                            c.copy(mirrorX = v).also { currentTransform = it }
+                        }
+                    }
+                    divider()
+                    section("Custom Angle")
+                    sliderWithBubble(
+                        label = "Rotation Angle",
+                        min = -180f,
+                        max = 180f,
+                        value = initial.rotationDeg,
+                        unit = "°",
+                        format = { "%.0f".format(it) },
+                    ) { v ->
+                        updateSelectedVideoPreviewTransform { c ->
+                            c.copy(rotationDeg = v).also { currentTransform = it }
                         }
                     }
                 }
@@ -15025,16 +15317,42 @@ class VideoEditorActivity : Activity() {
             ClipKind.TEXT -> {
                 val overlayId = selectedTextOverlayId() ?: return
                 val overlay = OverlayStore.get(overlayId) ?: return
-                ModernSheet.show(this, "Rotate Text") {
-                    slider("Rotation", -180f, 180f, overlay.rotation, { "${it.toInt()}°" }) { v ->
-                        overlay.rotation = v; applyTextOverlayPose(overlay)
-                    }
-                    chips("Quick", listOf("+15°", "-15°", "Reset")) { _, opt ->
+                val initialRotation = overlay.rotation
+
+                ModernSheet.showModal(
+                    context = this,
+                    title = "Rotate Text",
+                    showClose = true,
+                    showApply = true,
+                    onApply = {
+                        safeToast("Text rotation applied", Toast.LENGTH_SHORT)
+                    },
+                    onCancel = {
+                        overlay.rotation = initialRotation
+                        applyTextOverlayPose(overlay)
+                    },
+                ) {
+                    section("Angle Presets")
+                    chips("Quick Angles", listOf("+90°", "-90°", "+15°", "-15°", "0° Reset")) { _, opt ->
                         when (opt) {
+                            "+90°" -> overlay.rotation = (overlay.rotation + 90f) % 360f
+                            "-90°" -> overlay.rotation = (overlay.rotation - 90f) % 360f
                             "+15°" -> overlay.rotation += 15f
                             "-15°" -> overlay.rotation -= 15f
-                            "Reset" -> overlay.rotation = 0f
+                            "0° Reset" -> overlay.rotation = 0f
                         }
+                        applyTextOverlayPose(overlay)
+                    }
+                    divider()
+                    sliderWithBubble(
+                        label = "Text Angle",
+                        min = -180f,
+                        max = 180f,
+                        value = initialRotation,
+                        unit = "°",
+                        format = { "%.0f".format(it) },
+                    ) { v ->
+                        overlay.rotation = v
                         applyTextOverlayPose(overlay)
                     }
                 }
@@ -15042,12 +15360,40 @@ class VideoEditorActivity : Activity() {
             ClipKind.STICKER -> {
                 val stickerId = selectedStickerClipId() ?: return
                 val clip = StickerClipStore.all().find { it.id == stickerId } ?: return
-                ModernSheet.show(this, "Rotate Overlay") {
-                    slider("Rotation", -180f, 180f, clip.rotation, { "${it.toInt()}°" }) { v ->
-                        clip.rotation = v; applyStickerOverlayPose(clip)
+                val initialRotation = clip.rotation
+                val initialMirror = clip.mirrorX
+
+                ModernSheet.showModal(
+                    context = this,
+                    title = "Rotate Overlay",
+                    showClose = true,
+                    showApply = true,
+                    onApply = {
+                        safeToast("Overlay rotation applied", Toast.LENGTH_SHORT)
+                    },
+                    onCancel = {
+                        clip.rotation = initialRotation
+                        clip.mirrorX = initialMirror
+                        applyStickerLayerState(clip)
+                        applyStickerOverlayPose(clip)
+                    },
+                ) {
+                    toggle("Flip Horizontal", clip.mirrorX) { v ->
+                        clip.mirrorX = v
+                        applyStickerLayerState(clip)
+                        applyStickerOverlayPose(clip)
                     }
-                    toggle("Mirror", clip.mirrorX) { v ->
-                        clip.mirrorX = v; applyStickerLayerState(clip); applyStickerOverlayPose(clip)
+                    divider()
+                    sliderWithBubble(
+                        label = "Rotation Angle",
+                        min = -180f,
+                        max = 180f,
+                        value = initialRotation,
+                        unit = "°",
+                        format = { "%.0f".format(it) },
+                    ) { v ->
+                        clip.rotation = v
+                        applyStickerOverlayPose(clip)
                     }
                 }
             }
@@ -15238,17 +15584,42 @@ class VideoEditorActivity : Activity() {
                     return
                 }
                 val playheadMs = currentPlayheadMs()
-                ModernSheet.show(this, "$clipLabel Freeze Frame") {
-                    chips("Duration", listOf("0.5s", "1s", "2s", "3s", "5s")) { _, opt ->
-                        val durationMs = (opt.removeSuffix("s").toFloatOrNull() ?: 1f).toLong() * 1000L
+                var freezeDurationSec = 2.0f
+
+                ModernSheet.showModal(
+                    context = this,
+                    title = "$clipLabel Freeze Frame",
+                    showClose = true,
+                    showApply = true,
+                    onApply = {
+                        val durationMs = (freezeDurationSec * 1000f).toLong()
                         execCmd(
                             "FREEZE_FRAME", mapOf(
                                 "clipId" to clipId, "timeMs" to playheadMs, "durationMs" to durationMs,
                             )
                         ) {
                             videoClipFreezeOverrides[clipId] = playheadMs to durationMs
-                            lastLayoutFetchMs = 0L; refreshMainTimelineTracks(); refreshPreviewAtPlayhead()
+                            lastLayoutFetchMs = 0L
+                            refreshMainTimelineTracks()
+                            refreshPreviewAtPlayhead()
+                            safeToast("Freeze frame inserted (${freezeDurationSec}s)", Toast.LENGTH_SHORT)
                         }
+                    },
+                ) {
+                    section("Freeze Duration")
+                    sliderWithBubble(
+                        label = "Hold Duration",
+                        min = 0.5f,
+                        max = 10.0f,
+                        value = freezeDurationSec,
+                        unit = "s",
+                        format = { "%.1f".format(it) },
+                    ) { sec ->
+                        freezeDurationSec = sec
+                    }
+                    divider()
+                    chips("Quick Presets", listOf("0.5s", "1.0s", "2.0s", "3.0s", "5.0s")) { _, opt ->
+                        freezeDurationSec = opt.removeSuffix("s").toFloatOrNull() ?: 2.0f
                     }
                 }
             }
@@ -15488,25 +15859,54 @@ class VideoEditorActivity : Activity() {
                 ModernSheet.show(this@VideoEditorActivity, "Overlay Fade") {
                     chips("Opacity", listOf("100%", "85%", "70%", "55%"), -1) { i, _ ->
                         clip.opacity = listOf(1f, 0.85f, 0.70f, 0.55f)[i]
-                        applyStickerLayerState(clip); applyStickerOverlayPose(clip)
+                        applyStickerLayerState(clip)
+                        applyStickerOverlayPose(clip)
                     }
                 }
             }
             ClipKind.AUDIO -> {
                 val audioId = selectedAudioClipId() ?: return
                 val clip = AudioClipStore.get(audioId) ?: return
+                val initialFadeIn = clip.fadeInMs
+                val initialFadeOut = clip.fadeOutMs
                 val maxFadeMsInt = clip.durationMs.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                val maxFadeMs = maxFadeMsInt.toFloat()
+                val maxFadeSec = (maxFadeMsInt / 1000f).coerceAtLeast(1f)
                 noteAppHealthAction("clip_color_action_handled")
-                ModernSheet.show(this@VideoEditorActivity, "Audio Fade") {
-                    slider(
-                        "Fade In",
-                        0f,
-                        maxFadeMs,
-                        clip.fadeInMs.toFloat().coerceIn(0f, maxFadeMs),
-                        { formatFadeLabel(it) },
-                    ) { value ->
-                        val fadeInMs = value.toInt().coerceIn(0, maxFadeMsInt)
+
+                ModernSheet.showModal(
+                    context = this@VideoEditorActivity,
+                    title = "Audio Fade In & Out",
+                    showClose = true,
+                    showApply = true,
+                    onApply = {
+                        safeToast("Audio fades applied", Toast.LENGTH_SHORT)
+                    },
+                    onCancel = {
+                        clip.fadeInMs = initialFadeIn
+                        clip.fadeOutMs = initialFadeOut
+                        execCmd(
+                            action = "SET_CLIP_AUDIO_FADES",
+                            params = mapOf(
+                                "clipId" to audioId,
+                                "fadeInMs" to initialFadeIn,
+                                "fadeOutMs" to initialFadeOut,
+                            ),
+                        ) {
+                            refreshMainTimelineTracks()
+                            syncPreviewAudioAt(currentTimeMs, continuePlaying = isPlaying)
+                        }
+                    },
+                ) {
+                    section("Fade Duration")
+                    sliderWithBubble(
+                        label = "Fade In",
+                        min = 0f,
+                        max = maxFadeSec,
+                        value = (initialFadeIn / 1000f).coerceIn(0f, maxFadeSec),
+                        unit = "s",
+                        format = { "%.1f".format(it) },
+                    ) { sec ->
+                        val fadeInMs = (sec * 1000f).toInt().coerceIn(0, maxFadeMsInt)
                         clip.fadeInMs = fadeInMs
                         execCmd(
                             action = "SET_CLIP_AUDIO_FADES",
@@ -15514,20 +15914,21 @@ class VideoEditorActivity : Activity() {
                                 "clipId" to audioId,
                                 "fadeInMs" to clip.fadeInMs,
                                 "fadeOutMs" to clip.fadeOutMs,
-                            )
+                            ),
                         ) {
                             refreshMainTimelineTracks()
                             syncPreviewAudioAt(currentTimeMs, continuePlaying = isPlaying)
                         }
                     }
-                    slider(
-                        "Fade Out",
-                        0f,
-                        maxFadeMs,
-                        clip.fadeOutMs.toFloat().coerceIn(0f, maxFadeMs),
-                        { formatFadeLabel(it) },
-                    ) { value ->
-                        val fadeOutMs = value.toInt().coerceIn(0, maxFadeMsInt)
+                    sliderWithBubble(
+                        label = "Fade Out",
+                        min = 0f,
+                        max = maxFadeSec,
+                        value = (initialFadeOut / 1000f).coerceIn(0f, maxFadeSec),
+                        unit = "s",
+                        format = { "%.1f".format(it) },
+                    ) { sec ->
+                        val fadeOutMs = (sec * 1000f).toInt().coerceIn(0, maxFadeMsInt)
                         clip.fadeOutMs = fadeOutMs
                         execCmd(
                             action = "SET_CLIP_AUDIO_FADES",
@@ -15535,7 +15936,7 @@ class VideoEditorActivity : Activity() {
                                 "clipId" to audioId,
                                 "fadeInMs" to clip.fadeInMs,
                                 "fadeOutMs" to clip.fadeOutMs,
-                            )
+                            ),
                         ) {
                             refreshMainTimelineTracks()
                             syncPreviewAudioAt(currentTimeMs, continuePlaying = isPlaying)

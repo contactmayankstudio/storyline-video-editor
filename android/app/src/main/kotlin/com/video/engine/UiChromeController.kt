@@ -913,16 +913,75 @@ class UiChromeController(
         }
 
         apply()
-        ModernSheet.show(activity, "Chroma Key") {
-            toggle("Enable Green Screen", enabled) { enabled = it; apply() }
+        ModernSheet.showModal(
+            context = activity,
+            title = "Chroma Key",
+            showClose = true,
+            showApply = true,
+            onApply = {
+                apply()
+                com.video.engine.UiToast.makeText(activity, "Chroma key applied", android.widget.Toast.LENGTH_SHORT).show()
+            },
+            onCancel = {
+                enabled = initial.enabled
+                similarity = initial.similarity
+                smoothness = initial.smoothness
+                spill = initial.spill
+                isBlue = initial.isBlue
+                apply()
+            },
+        ) {
+            toggle("Enable Chroma Key", enabled) { enabled = it; apply() }
             divider()
-            chips("Key Color", listOf("Green", "Blue"), if (isBlue) 1 else 0) { _, option ->
-                isBlue = option.equals("Blue", ignoreCase = true)
+            section("Key Color")
+            val colors = listOf(
+                android.graphics.Color.parseColor("#00FF00"), // Green
+                android.graphics.Color.parseColor("#0088FF"), // Blue
+                android.graphics.Color.parseColor("#00FFFF"), // Cyan
+                android.graphics.Color.parseColor("#FF00FF"), // Magenta
+                android.graphics.Color.parseColor("#000000"), // Black
+                android.graphics.Color.parseColor("#FFFFFF"), // White
+            )
+            val selectedColor = if (isBlue) colors[1] else colors[0]
+            colorPalette(colors, selectedColor) { chosenColor ->
+                isBlue = (chosenColor == colors[1] || chosenColor == colors[2])
                 apply()
             }
-            slider("Similarity", 0f, 1f, similarity, { "%.0f%%".format(it * 100) }) { similarity = it; apply() }
-            slider("Smoothness", 0f, 1f, smoothness, { "%.0f%%".format(it * 100) }) { smoothness = it; apply() }
-            slider("Spill", 0f, 1f, spill, { "%.0f%%".format(it * 100) }) { spill = it; apply() }
+            divider()
+            section("Parameters")
+            sliderWithBubble(
+                label = "Intensity",
+                min = 0f,
+                max = 100f,
+                value = similarity * 100f,
+                unit = "%",
+                format = { "%.0f".format(it) },
+            ) { v ->
+                similarity = v / 100f
+                apply()
+            }
+            sliderWithBubble(
+                label = "Offset",
+                min = 0f,
+                max = 100f,
+                value = smoothness * 100f,
+                unit = "%",
+                format = { "%.0f".format(it) },
+            ) { v ->
+                smoothness = v / 100f
+                apply()
+            }
+            sliderWithBubble(
+                label = "Spill Suppress",
+                min = 0f,
+                max = 100f,
+                value = spill * 100f,
+                unit = "%",
+                format = { "%.0f".format(it) },
+            ) { v ->
+                spill = v / 100f
+                apply()
+            }
         }
     }
 

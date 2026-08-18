@@ -22,17 +22,37 @@ object ModernSheet {
     private const val DEFAULT_MAX_RATIO = 0.56f
 
     fun show(context: Context, title: String, build: Builder.() -> Unit) {
+        showModal(
+            context = context,
+            title = title,
+            showClose = true,
+            showApply = false,
+            onApply = null,
+            onCancel = null,
+            build = build,
+        )
+    }
+
+    fun showModal(
+        context: Context,
+        title: String,
+        showClose: Boolean = true,
+        showApply: Boolean = false,
+        onApply: (() -> Unit)? = null,
+        onCancel: (() -> Unit)? = null,
+        build: Builder.() -> Unit,
+    ) {
         val dialog = BottomSheetDialog(context)
         dialog.setCanceledOnTouchOutside(false)
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = sheetRootBackground(context)
-            setPadding(px(context, 20), px(context, 16), px(context, 20), 0)
+            setPadding(px(context, 16), px(context, 12), px(context, 16), 0)
         }
 
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, 0, px(context, 30))
+            setPadding(0, 0, 0, px(context, 24))
         }
         val scroller = ScrollView(context).apply {
             isFillViewport = true
@@ -47,43 +67,62 @@ object ModernSheet {
             )
         }
 
-        root.addView(FrameLayout(context).apply {
+        // Top bar with Cancel, Title, Apply
+        val header = FrameLayout(context).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-            )
-            addView(TextView(context).apply {
+            ).also { it.bottomMargin = px(context, 8) }
+
+            if (showClose) {
+                val closeBtn = ImageView(context).apply {
+                    setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+                    setColorFilter(Color.WHITE)
+                    setPadding(px(context, 6), px(context, 6), px(context, 6), px(context, 6))
+                    background = surfaceCard(context)
+                    layoutParams = FrameLayout.LayoutParams(px(context, 32), px(context, 32), Gravity.START or Gravity.CENTER_VERTICAL)
+                    setOnClickListener {
+                        onCancel?.invoke()
+                        dialog.dismiss()
+                    }
+                }
+                addView(closeBtn)
+            }
+
+            val titleView = TextView(context).apply {
                 text = title
-                textSize = 18f
+                textSize = 16f
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(Color.WHITE)
                 gravity = Gravity.CENTER
-                setPadding(px(context, 44), 0, px(context, 44), px(context, 16))
                 layoutParams = FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
                     FrameLayout.LayoutParams.WRAP_CONTENT,
                     Gravity.CENTER,
                 )
-            })
-            addView(TextView(context).apply {
-                text = "Close"
-                textSize = 12f
-                setTextColor(Color.parseColor("#8E99A5"))
-                gravity = Gravity.END or Gravity.CENTER_VERTICAL
-                setPadding(px(context, 8), px(context, 2), px(context, 8), px(context, 12))
-                layoutParams = FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.WRAP_CONTENT,
-                    FrameLayout.LayoutParams.WRAP_CONTENT,
-                    Gravity.END or Gravity.CENTER_VERTICAL,
-                )
-                setOnClickListener { dialog.dismiss() }
-            })
-        })
+            }
+            addView(titleView)
+
+            if (showApply) {
+                val applyBtn = ImageView(context).apply {
+                    setImageResource(android.R.drawable.checkbox_on_background)
+                    setColorFilter(Color.parseColor("#4ADE80"))
+                    setPadding(px(context, 6), px(context, 6), px(context, 6), px(context, 6))
+                    background = surfaceCard(context)
+                    layoutParams = FrameLayout.LayoutParams(px(context, 32), px(context, 32), Gravity.END or Gravity.CENTER_VERTICAL)
+                    setOnClickListener {
+                        onApply?.invoke()
+                        dialog.dismiss()
+                    }
+                }
+                addView(applyBtn)
+            }
+        }
 
         // Drag handle
         val handle = LinearLayout(context).apply {
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, px(context, 12))
+            setPadding(0, 0, 0, px(context, 8))
         }
         handle.addView(TextView(context).apply {
             background = GradientDrawable().apply {
@@ -91,11 +130,12 @@ object ModernSheet {
                 cornerRadius = px(context, 999).toFloat()
                 setColor(Color.parseColor("#4A5561"))
             }
-            layoutParams = LinearLayout.LayoutParams(px(context, 40), px(context, 4)).also {
+            layoutParams = LinearLayout.LayoutParams(px(context, 36), px(context, 4)).also {
                 it.gravity = Gravity.CENTER
             }
         })
-        root.addView(handle, 0)
+        root.addView(handle)
+        root.addView(header)
         root.addView(
             scroller,
             LinearLayout.LayoutParams(
@@ -182,54 +222,296 @@ object ModernSheet {
         }
 
         fun getTextInput(): String = textInputView?.text?.toString() ?: ""
-        fun slider(
+        fun tabs(
+            titles: List<String>,
+            selected: Int = 0,
+            onTabSelected: (Int) -> Unit,
+        ): (Int) -> Unit {
+            val tabContainer = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = px(context, 20).toFloat()
+                    setColor(Color.parseColor("#12171E"))
+                    setStroke(px(context, 1), Color.parseColor("#222C36"))
+                }
+                setPadding(px(context, 4), px(context, 4), px(context, 4), px(context, 4))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    px(context, 40),
+                ).also { it.bottomMargin = px(context, 12) }
+            }
+            val tabViews = mutableListOf<TextView>()
+            fun render(sel: Int) {
+                tabViews.forEachIndexed { idx, tab ->
+                    if (idx == sel) {
+                        tab.background = GradientDrawable().apply {
+                            shape = GradientDrawable.RECTANGLE
+                            cornerRadius = px(context, 16).toFloat()
+                            setColor(Color.parseColor("#1E293B"))
+                            setStroke(px(context, 1), Color.parseColor("#6FDBFF"))
+                        }
+                        tab.setTextColor(Color.WHITE)
+                        tab.setTypeface(null, Typeface.BOLD)
+                    } else {
+                        tab.background = null
+                        tab.setTextColor(Color.parseColor("#8E99A5"))
+                        tab.setTypeface(null, Typeface.NORMAL)
+                    }
+                }
+            }
+            titles.forEachIndexed { idx, title ->
+                val tab = TextView(context).apply {
+                    text = title
+                    textSize = 13f
+                    gravity = Gravity.CENTER
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+                    setOnClickListener {
+                        render(idx)
+                        onTabSelected(idx)
+                    }
+                }
+                tabViews.add(tab)
+                tabContainer.addView(tab)
+            }
+            render(selected)
+            root.addView(tabContainer)
+            return { sel -> render(sel) }
+        }
+
+        fun sliderWithBubble(
             label: String,
-            min: Float, max: Float, value: Float,
-            format: (Float) -> String = { "%.2f".format(it) },
+            min: Float,
+            max: Float,
+            value: Float,
+            unit: String = "",
+            format: (Float) -> String = { "%.0f".format(it) },
             onChange: (Float) -> Unit,
         ) {
-            val row = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
+            val container = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
                 background = surfaceCard(context)
-                setPadding(px(context, 12), px(context, 10), px(context, 12), px(context, 10))
+                setPadding(px(context, 14), px(context, 12), px(context, 14), px(context, 12))
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT,
-                ).also { it.topMargin = px(context, 6) }
+                ).also { it.topMargin = px(context, 8) }
+            }
+            val headerRow = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).also { it.bottomMargin = px(context, 6) }
             }
             val labelView = TextView(context).apply {
-                text = label; textSize = 12f; setTextColor(Color.parseColor("#8E99A5"))
-                layoutParams = LinearLayout.LayoutParams(px(context, 90), LinearLayout.LayoutParams.WRAP_CONTENT)
+                text = label
+                textSize = 13f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.WHITE)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
-            val valueView = TextView(context).apply {
-                text = format(value); textSize = 12f; setTextColor(Color.WHITE)
-                gravity = Gravity.END
-                layoutParams = LinearLayout.LayoutParams(px(context, 60), LinearLayout.LayoutParams.WRAP_CONTENT)
+            val bubbleView = TextView(context).apply {
+                text = "${format(value)}$unit"
+                textSize = 12f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#6FDBFF"))
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = px(context, 10).toFloat()
+                    setColor(Color.parseColor("#152330"))
+                    setStroke(px(context, 1), Color.parseColor("#274059"))
+                }
+                setPadding(px(context, 10), px(context, 4), px(context, 10), px(context, 4))
             }
+            headerRow.addView(labelView)
+            headerRow.addView(bubbleView)
+            container.addView(headerRow)
+
             val seek = SeekBar(context).apply {
-                this.max = 100
-                progress = ((value - min) / (max - min) * 100).roundToInt().coerceIn(0, 100)
+                this.max = 1000
+                progress = (((value - min) / (max - min)) * 1000).roundToInt().coerceIn(0, 1000)
                 progressTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#6FDBFF"))
                 thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                )
                 setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                     override fun onProgressChanged(sb: SeekBar, p: Int, u: Boolean) {
-                        val v = min + (max - min) * p / 100f
-                        valueView.text = format(v)
+                        val v = min + (max - min) * (p / 1000f)
+                        bubbleView.text = "${format(v)}$unit"
                         onChange(v)
                     }
                     override fun onStartTrackingTouch(sb: SeekBar) {}
                     override fun onStopTrackingTouch(sb: SeekBar) {}
                 })
             }
-            row.addView(labelView)
-            row.addView(seek)
-            row.addView(valueView)
-            root.addView(row)
+            container.addView(seek)
+            root.addView(container)
         }
 
-        fun chips(
+        fun slider(
+            label: String,
+            min: Float, max: Float, value: Float,
+            format: (Float) -> String = { "%.2f".format(it) },
+            onChange: (Float) -> Unit,
+        ) {
+            sliderWithBubble(
+                label = label,
+                min = min,
+                max = max,
+                value = value,
+                format = format,
+                onChange = onChange,
+            )
+        }
+
+        fun colorPalette(
+            colors: List<Int>,
+            selectedColor: Int,
+            onSelectColor: (Int) -> Unit,
+        ) {
+            val scroller = HorizontalScrollView(context).apply {
+                isHorizontalScrollBarEnabled = false
+                clipToPadding = false
+                setPadding(0, px(context, 8), 0, px(context, 8))
+            }
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val swatches = mutableListOf<View>()
+            fun render(selColor: Int) {
+                swatches.forEachIndexed { idx, view ->
+                    val c = colors[idx]
+                    view.background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(c)
+                        if (c == selColor) {
+                            setStroke(px(context, 3), Color.WHITE)
+                        } else {
+                            setStroke(px(context, 1), Color.parseColor("#4B5563"))
+                        }
+                    }
+                }
+            }
+            colors.forEach { c ->
+                val swatch = View(context).apply {
+                    layoutParams = LinearLayout.LayoutParams(px(context, 36), px(context, 36)).also {
+                        it.setMargins(px(context, 6), 0, px(context, 6), 0)
+                    }
+                    setOnClickListener {
+                        render(c)
+                        onSelectColor(c)
+                    }
+                }
+                swatches.add(swatch)
+                row.addView(swatch)
+            }
+            render(selectedColor)
+            scroller.addView(row)
+            root.addView(scroller)
+        }
+
+        fun aspectCards(
+            options: List<Triple<String, String, Float>>, // (name, ratioLabel, aspect)
+            selectedIndex: Int = 0,
+            onSelect: (Int) -> Unit,
+        ) {
+            val scroller = HorizontalScrollView(context).apply {
+                isHorizontalScrollBarEnabled = false
+                clipToPadding = false
+                setPadding(0, px(context, 8), 0, px(context, 8))
+            }
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val cardViews = mutableListOf<LinearLayout>()
+            fun render(sel: Int) {
+                cardViews.forEachIndexed { idx, card ->
+                    val isSel = (idx == sel)
+                    card.background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = px(context, 14).toFloat()
+                        if (isSel) {
+                            setColor(Color.parseColor("#152330"))
+                            setStroke(px(context, 2), Color.parseColor("#6FDBFF"))
+                        } else {
+                            setColor(Color.parseColor("#131920"))
+                            setStroke(px(context, 1), Color.parseColor("#252F38"))
+                        }
+                    }
+                    val label = card.getChildAt(1) as? TextView
+                    label?.setTextColor(if (isSel) Color.WHITE else Color.parseColor("#8E99A5"))
+                    label?.setTypeface(null, if (isSel) Typeface.BOLD else Typeface.NORMAL)
+                }
+            }
+            options.forEachIndexed { idx, item ->
+                val card = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    setPadding(px(context, 12), px(context, 10), px(context, 12), px(context, 10))
+                    layoutParams = LinearLayout.LayoutParams(
+                        px(context, 76),
+                        px(context, 86),
+                    ).also { it.setMargins(px(context, 4), 0, px(context, 4), 0) }
+
+                    val boxW = when {
+                        item.third > 1.2f -> px(context, 34)
+                        item.third < 0.8f -> px(context, 20)
+                        else -> px(context, 26)
+                    }
+                    val boxH = when {
+                        item.third > 1.2f -> px(context, 20)
+                        item.third < 0.8f -> px(context, 34)
+                        else -> px(context, 26)
+                    }
+                    val aspectBox = View(context).apply {
+                        background = GradientDrawable().apply {
+                            shape = GradientDrawable.RECTANGLE
+                            cornerRadius = px(context, 4).toFloat()
+                            setColor(Color.parseColor("#273340"))
+                            setStroke(px(context, 1), Color.parseColor("#4A5D70"))
+                        }
+                        layoutParams = LinearLayout.LayoutParams(boxW, boxH).also {
+                            it.bottomMargin = px(context, 6)
+                        }
+                    }
+                    val labelView = TextView(context).apply {
+                        text = item.first
+                        textSize = 11f
+                        gravity = Gravity.CENTER
+                        setTextColor(Color.parseColor("#8E99A5"))
+                        maxLines = 1
+                    }
+                    val ratioSub = TextView(context).apply {
+                        text = item.second
+                        textSize = 9f
+                        gravity = Gravity.CENTER
+                        setTextColor(Color.parseColor("#5A6773"))
+                        maxLines = 1
+                    }
+                    addView(aspectBox)
+                    addView(labelView)
+                    addView(ratioSub)
+
+                    setOnClickListener {
+                        render(idx)
+                        onSelect(idx)
+                    }
+                }
+                cardViews.add(card)
+                row.addView(card)
+            }
+            render(selectedIndex)
+            scroller.addView(row)
+            root.addView(scroller)
+        }
             label: String,
             options: List<String>,
             selected: Int = -1,

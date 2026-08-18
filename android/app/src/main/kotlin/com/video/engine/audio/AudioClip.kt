@@ -11,6 +11,8 @@ data class AudioClip(
     val displayName: String,
     var startTimeMs: Long,
     var durationMs: Long,
+    var sourceInMs: Long = 0L,
+    var sourceOutMs: Long = 0L,
     var gain: Float = 1.0f,
     var fadeInMs: Int = 0,
     var fadeOutMs: Int = 0,
@@ -36,6 +38,9 @@ object AudioClipStore {
     fun add(clip: AudioClip): Boolean {
         if (clip.peakLevelsCsv.isBlank() && clip.peakLevels.isNotEmpty()) {
             clip.peakLevelsCsv = clip.peakLevels.joinToString(separator = ",")
+        }
+        if (clip.sourceOutMs <= 0L) {
+            clip.sourceOutMs = clip.sourceInMs + clip.durationMs
         }
         if (clips[clip.id] == clip) return false
         clips[clip.id] = clip
@@ -76,8 +81,12 @@ object AudioClipStore {
             return null
         }
 
+        val leftSourceIn = clip.sourceInMs
+        val leftSourceOut = clip.sourceInMs + relativeSplit
         val left = clip.copy(
             durationMs = relativeSplit,
+            sourceInMs = leftSourceIn,
+            sourceOutMs = leftSourceOut,
             gainKeyframes = clip.gainKeyframes
                 .filter { it.timeMs < relativeSplit }
                 .sortedBy { it.timeMs },
@@ -92,10 +101,14 @@ object AudioClipStore {
                 )
             }
         }
+        val rightSourceIn = clip.sourceInMs + relativeSplit
+        val rightSourceOut = if (clip.sourceOutMs > 0L) clip.sourceOutMs else (clip.sourceInMs + clip.durationMs)
         val right = clip.copy(
             id = nextId,
             startTimeMs = splitTimeMs,
             durationMs = clip.durationMs - relativeSplit,
+            sourceInMs = rightSourceIn,
+            sourceOutMs = rightSourceOut,
             layerIndex = clip.layerIndex,
             gainKeyframes = rightKeyframes
                 .sortedBy { it.timeMs }

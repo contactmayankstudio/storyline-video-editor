@@ -17,48 +17,77 @@ class EffectsPanel(
     private var saturation = initial.saturation
 
     fun show() {
-        ModernSheet.show(activity, "Effects") {
+        ModernSheet.showModal(
+            context = activity,
+            title = "Video Effects",
+            showClose = true,
+            showApply = true,
+            onApply = {
+                push(reset = true)
+            },
+            onCancel = {
+                applyParams(initial, reset = true)
+            },
+        ) {
+            tabs(listOf("Hot", "Motion", "Glitch", "Love", "Nature"), selected = 0) { tabIdx ->
+                val effectPreset = when (tabIdx) {
+                    0 -> "Beauty Lift"
+                    1 -> "Seoul Vlog"
+                    2 -> "Night Neon"
+                    3 -> "Golden Hour"
+                    4 -> "Teal Punch"
+                    else -> "Beauty Lift"
+                }
+                applyPreset(effectPreset)
+            }
+
+            section("Trending Effects")
             chipGrid(
-                "Quick Looks",
-                listOf("Beauty Lift", "Golden Hour", "Cine Matte", "Teal Punch", "Noir Mono", "Neutral"),
+                "Popular",
+                listOf("Beauty Lift", "Golden Hour", "Cine Matte", "Teal Punch", "Night Neon", "Noir Mono"),
                 selected = -1,
                 columns = 3,
                 dismissOnSelect = false,
             ) { _, option ->
                 applyPreset(option)
             }
-            ProFilterPresets.sections.forEach { section ->
-                chipGrid(
-                    section.title,
-                    section.presets.map { it.name },
-                    selected = -1,
-                    columns = 3,
-                    dismissOnSelect = false,
-                ) { index, _ ->
-                    val preset = section.presets[index]
-                    applyPreset(preset.name, preset.params)
-                }
-            }
+
             divider()
-            slider("Brightness", -1f, 1f, brightness, { "%.2f".format(it) }) {
-                brightness = it; push(false)
+            section("Fine Tune")
+            sliderWithBubble(
+                label = "Brightness",
+                min = -100f,
+                max = 100f,
+                value = brightness * 100f,
+                unit = "%",
+                format = { "%.0f".format(it) },
+            ) { v ->
+                brightness = v / 100f
+                push(false)
             }
-            slider("Contrast", 0f, 2f, contrast, { "%.2f".format(it) }) {
-                contrast = it; push(false)
+            sliderWithBubble(
+                label = "Contrast",
+                min = -100f,
+                max = 100f,
+                value = (contrast - 1.0f) * 100f,
+                unit = "%",
+                format = { "%.0f".format(it) },
+            ) { v ->
+                contrast = (1.0f + v / 100f).coerceIn(0f, 2f)
+                push(false)
             }
-            slider("Saturation", 0f, 2f, saturation, { "%.2f".format(it) }) {
-                saturation = it; push(false)
+            sliderWithBubble(
+                label = "Saturation",
+                min = -100f,
+                max = 100f,
+                value = (saturation - 1.0f) * 100f,
+                unit = "%",
+                format = { "%.0f".format(it) },
+            ) { v ->
+                saturation = (1.0f + v / 100f).coerceIn(0f, 2f)
+                push(false)
             }
-            chips("Quick Tune", listOf("Bright +", "Bright -", "Punch +", "Soft", "Sat +", "Sat -"), -1, dismissOnSelect = false) { _, option ->
-                when (option) {
-                    "Bright +" -> applyParams(EffectParams((brightness + 0.08f).coerceIn(-1f, 1f), contrast, saturation), reset = false)
-                    "Bright -" -> applyParams(EffectParams((brightness - 0.08f).coerceIn(-1f, 1f), contrast, saturation), reset = false)
-                    "Punch +" -> applyParams(EffectParams(brightness, (contrast + 0.12f).coerceIn(0f, 2f), (saturation + 0.10f).coerceIn(0f, 2f)), reset = false)
-                    "Soft" -> applyParams(EffectParams((brightness + 0.06f).coerceIn(-1f, 1f), (contrast - 0.12f).coerceIn(0f, 2f), (saturation - 0.06f).coerceIn(0f, 2f)), reset = false)
-                    "Sat +" -> applyParams(EffectParams(brightness, contrast, (saturation + 0.12f).coerceIn(0f, 2f)), reset = false)
-                    "Sat -" -> applyParams(EffectParams(brightness, contrast, (saturation - 0.12f).coerceIn(0f, 2f)), reset = false)
-                }
-            }
+
             divider()
             chips("Reset", listOf("Reset All"), -1, dismissOnSelect = false) { _, _ ->
                 applyParams(EffectParams(), reset = true)
