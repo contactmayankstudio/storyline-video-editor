@@ -1339,7 +1339,7 @@ bool PreviewController::renderTimelineFrameLocked(
         1,
         static_cast<int64_t>(std::llround(m_frameIntervalMs)));
     const int64_t videoReuseToleranceMs = m_isPlaying.load()
-        ? std::max<int64_t>(2, activeApproximateFrameMs - 1)
+        ? std::max<int64_t>(2, activeApproximateFrameMs / 2)
         : std::max<int64_t>(2, activeApproximateFrameMs / 3);
     const bool canReuseVideoFrame =
         activeClip &&

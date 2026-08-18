@@ -12802,13 +12802,8 @@ class VideoEditorActivity : Activity() {
                 previewTransformPinching -> {
                     val startSpan = startGeometry.spanPx.coerceAtLeast(1f)
                     val clampedAccumulator = (geometry.spanPx / startSpan).coerceIn(0.15f, 8.0f)
-                    val tunedAccumulator =
-                        if (clampedAccumulator >= 1f) {
-                            1f + ((clampedAccumulator - 1f) * 1.24f)
-                        } else {
-                            1f - ((1f - clampedAccumulator) * 2.10f)
-                        }
-                    val targetZoom = base.zoom * tunedAccumulator.coerceIn(0.15f, 8.0f)
+                    // Linear 1:1 pinch-to-zoom — no artificial multiplier
+                    val targetZoom = base.zoom * clampedAccumulator
                     val zoomRatio = targetZoom / maxOf(base.zoom, 0.001f)
                     val angleDelta =
                         if (previewGestureAllowRotation) {
@@ -12865,10 +12860,10 @@ class VideoEditorActivity : Activity() {
         val baselineGeometry = previewPendingGestureGeometry ?: previewLastAppliedGestureGeometry
         if (
             baselineGeometry != null &&
-            abs(geometry.centroidOffsetXPx - baselineGeometry.centroidOffsetXPx) < 1.35f &&
-            abs(geometry.centroidOffsetYPx - baselineGeometry.centroidOffsetYPx) < 1.35f &&
-            abs(geometry.spanPx - baselineGeometry.spanPx) < 1.8f &&
-            abs(normalizePreviewRotationDeg(geometry.angleDeg - baselineGeometry.angleDeg)) < 1.0f
+            abs(geometry.centroidOffsetXPx - baselineGeometry.centroidOffsetXPx) < 0.5f &&
+            abs(geometry.centroidOffsetYPx - baselineGeometry.centroidOffsetYPx) < 0.5f &&
+            abs(geometry.spanPx - baselineGeometry.spanPx) < 0.5f &&
+            abs(normalizePreviewRotationDeg(geometry.angleDeg - baselineGeometry.angleDeg)) < 0.5f
         ) {
             return
         }

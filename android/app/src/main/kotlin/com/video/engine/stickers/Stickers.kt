@@ -148,6 +148,11 @@ class StickerOverlayView(context: Context) : FrameLayout(context) {
                 lastY = event.y
                 if (event.pointerCount <= 2) {
                     isRotating = false
+                    // Re-anchor for the remaining finger so drag doesn't teleport
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    startTranslationX = translationX
+                    startTranslationY = translationY
                     if (!isDragging) {
                         setLayerType(View.LAYER_TYPE_NONE, null)
                     }

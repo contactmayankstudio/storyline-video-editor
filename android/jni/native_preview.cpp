@@ -4508,7 +4508,7 @@ Java_com_video_engine_VideoPreviewView_nativeInitPreview(
         // Detach old surface — render thread already stopped above, so EGL is free
         g_preview->detachSurface();
         // Wait for Android EGL driver to fully release the window surface
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
     }
 
     // Initialize GL resources on preview controller by attaching surface.

@@ -249,12 +249,11 @@ class TextOverlayView @JvmOverloads constructor(
                 }
             }
             MotionEvent.ACTION_POINTER_UP -> {
-                lastX = event.x
-                lastY = event.y
                 lastRawX = event.rawX
                 lastRawY = event.rawY
                 if (event.pointerCount <= 2) {
                     rotating = false
+                    isDragging = true
                     notifyTransformChanged()
                 }
             }
@@ -309,10 +308,13 @@ class TextOverlayView @JvmOverloads constructor(
 
         val scaledWidth = (width * abs(scaleX)).coerceAtLeast(1f)
         val scaledHeight = (height * abs(scaleY)).coerceAtLeast(1f)
+        // When overlay is scaled larger than its parent, clamping causes violent
+        // snapping — skip bounds enforcement and let the user position freely.
+        if (scaledWidth >= parentW || scaledHeight >= parentH) return
         val minCenterX = scaledWidth * 0.5f
         val minCenterY = scaledHeight * 0.5f
-        val maxCenterX = (parentW.toFloat() - scaledWidth * 0.5f).coerceAtLeast(minCenterX)
-        val maxCenterY = (parentH.toFloat() - scaledHeight * 0.5f).coerceAtLeast(minCenterY)
+        val maxCenterX = parentW.toFloat() - scaledWidth * 0.5f
+        val maxCenterY = parentH.toFloat() - scaledHeight * 0.5f
         val clampedCenterX = (x + width * 0.5f).coerceIn(minCenterX, maxCenterX)
         val clampedCenterY = (y + height * 0.5f).coerceIn(minCenterY, maxCenterY)
         val clampedLeft = clampedCenterX - width * 0.5f
