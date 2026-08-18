@@ -1196,19 +1196,22 @@ class TimelineCanvasView @JvmOverloads constructor(
             MotionEvent.ACTION_MOVE -> onMove(event)
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 if (gesture == GestureKind.SCROLL) {
-                    velocityTracker.computeCurrentVelocity(1000)
-                    val vx = -velocityTracker.xVelocity
-                    scroller.fling(
-                        scrollX.toInt(),
-                        scrollY.toInt(),
-                        vx.toInt(),
-                        0,
-                        0,
-                        maxScrollX().toInt(),
-                        0,
-                        0,
-                    )
-                    postInvalidateOnAnimation()
+                    velocityTracker.computeCurrentVelocity(1000, 400f)
+                    val rawVx = -velocityTracker.xVelocity
+                    val vx = rawVx.coerceIn(-400f, 400f)
+                    if (abs(vx) > 60f) {
+                        scroller.fling(
+                            scrollX.toInt(),
+                            scrollY.toInt(),
+                            vx.toInt(),
+                            0,
+                            0,
+                            maxScrollX().toInt(),
+                            0,
+                            0,
+                        )
+                        postInvalidateOnAnimation()
+                    }
                 }
                 onUp(event)
                 velocityTracker.clear()

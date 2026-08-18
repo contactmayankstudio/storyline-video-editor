@@ -74,6 +74,10 @@ class StickerOverlayView(context: Context) : FrameLayout(context) {
     }
     private var lastX = 0f
     private var lastY = 0f
+    private var downRawX = 0f
+    private var downRawY = 0f
+    private var startTranslationX = 0f
+    private var startTranslationY = 0f
     private var isDragging = false
     private var isRotating = false
     private var initialAngle = 0.0
@@ -124,6 +128,10 @@ class StickerOverlayView(context: Context) : FrameLayout(context) {
             MotionEvent.ACTION_DOWN -> {
                 lastX = event.x
                 lastY = event.y
+                downRawX = event.rawX
+                downRawY = event.rawY
+                startTranslationX = translationX
+                startTranslationY = translationY
                 isDragging = true
                 setLayerType(View.LAYER_TYPE_HARDWARE, null)
                 showControls(true)
@@ -154,12 +162,8 @@ class StickerOverlayView(context: Context) : FrameLayout(context) {
                     initialAngle = currentAngle
                     notifyTransformChanged()
                 } else if (isDragging) {
-                    val dx = event.x - lastX
-                    val dy = event.y - lastY
-                    translationX += dx
-                    translationY += dy
-                    lastX = event.x
-                    lastY = event.y
+                    translationX = startTranslationX + (event.rawX - downRawX)
+                    translationY = startTranslationY + (event.rawY - downRawY)
                     notifyTransformChanged()
                 }
             }

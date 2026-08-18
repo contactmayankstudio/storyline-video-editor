@@ -266,7 +266,7 @@ class ImportController(
                 enqueueImport(
                     resolvedVideoPath,
                     requestedTrackType,
-                    preparedStartTimeMs ?: fallbackStartTimeMs ?: playheadTimeMsProvider().coerceAtLeast(0L),
+                    finalRequestedStartTimeMs,
                 )
             }, importRetryDelayMs)
         }.start()
@@ -427,8 +427,9 @@ class ImportController(
                                 nativeStartTimes[node.optInt("clipId")] = node.optLong("startTimeMs", 0L)
                             }
                         }
+                        val existingClipMap = timelineManagerProvider()?.getClips()?.associate { it.id to it.startTimeMs }.orEmpty()
                         for (id in nativeClipIds) {
-                            val startMs = nativeStartTimes[id] ?: if (id == clipId) requestedStartTimeMs.coerceAtLeast(0L) else 0L
+                            val startMs = nativeStartTimes[id] ?: if (id == clipId) requestedStartTimeMs.coerceAtLeast(0L) else (existingClipMap[id] ?: 0L)
                             timeline.addClip(clipId = id, durationMs = nativeClipDurations[id] ?: 0L, startTimeMs = startMs)
                         }
                         val timelineManager = timelineManagerProvider()
@@ -527,7 +528,7 @@ class ImportController(
                     "newDurationMs" to safeDurationMs,
                     "newSourceInMs" to 0L,
                     "newSourceOutMs" to safeDurationMs,
-                    "originalStartTimeMs" to 0L,
+                    "originalStartTimeMs" to safeStartMs,
                     "originalDurationMs" to safeDurationMs,
                     "originalSourceInMs" to 0L,
                     "originalSourceOutMs" to safeDurationMs,

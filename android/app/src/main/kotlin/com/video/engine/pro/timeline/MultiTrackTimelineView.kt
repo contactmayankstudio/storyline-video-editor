@@ -406,9 +406,11 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                 scrollOffsetPxFloat = offset.toFloat()
                 syncRowsTo(offset.toFloat(), source = type)
                 val timeMs = computePlayheadTimeMs(offset.toFloat())
-                lastAppliedTimeMs = timeMs
-                rowViews.values.forEach { it.setPlayheadTimeMs(timeMs) }
-                listener?.onSeek(timeMs)
+                if (timeMs != lastAppliedTimeMs) {
+                    lastAppliedTimeMs = timeMs
+                    rowViews.values.forEach { it.setPlayheadTimeMs(timeMs) }
+                    listener?.onSeek(timeMs)
+                }
                 playheadOverlay.invalidate()
             }
             row.setOnScrollRelease { localRecyclerX ->
@@ -454,17 +456,24 @@ class MultiTrackTimelineView @JvmOverloads constructor(
     }
 
     private fun syncRowsTo(offsetPx: Float, source: TrackType? = null) {
+        if (isSyncingScroll) return
         isSyncingScroll = true
-        scrollOffsetPxFloat = offsetPx.coerceAtLeast(0f)
-        scrollOffsetPx = scrollOffsetPxFloat.toInt()
-        rowViews.forEach { (type, row) ->
-            if (type != source) {
-                row.scrollToOffset(scrollOffsetPx)
+        try {
+            scrollOffsetPxFloat = offsetPx.coerceAtLeast(0f)
+            scrollOffsetPx = scrollOffsetPxFloat.toInt()
+            rowViews.forEach { (type, row) ->
+                if (type != source) {
+                    row.scrollToOffset(scrollOffsetPx)
+                }
             }
+            val syncedTimeMs = computePlayheadTimeMs(scrollOffsetPxFloat)
+            if (syncedTimeMs != lastAppliedTimeMs) {
+                lastAppliedTimeMs = syncedTimeMs
+                rowViews.values.forEach { it.setPlayheadTimeMs(syncedTimeMs) }
+            }
+        } finally {
+            isSyncingScroll = false
         }
-        val syncedTimeMs = computePlayheadTimeMs(scrollOffsetPxFloat)
-        rowViews.values.forEach { it.setPlayheadTimeMs(syncedTimeMs) }
-        isSyncingScroll = false
         rulerHeader.invalidate()
         playheadOverlay.invalidate()
     }
@@ -817,6 +826,13 @@ class MultiTrackTimelineView @JvmOverloads constructor(
             recyclerView.overScrollMode = View.OVER_SCROLL_NEVER
             recyclerView.isNestedScrollingEnabled = false
             recyclerView.setItemViewCacheSize(8)
+            recyclerView.onFlingListener = object : RecyclerView.OnFlingListener() {
+                override fun onFling(velocityX: Int, velocityY: Int): Boolean {
+                    // Consume fling so the timeline stops immediately at the released finger position
+                    // for 1:1 precision scrubbing without inertial drift.
+                    return true
+                }
+            }
             recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
                 override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                     if (dx != 0) {

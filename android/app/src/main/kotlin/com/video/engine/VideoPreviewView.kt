@@ -135,6 +135,10 @@ class VideoPreviewView @JvmOverloads constructor(
     private var surfaceH: Int = 1
     private var lastTouchX: Float = 0f
     private var lastTouchY: Float = 0f
+    private var downTouchX: Float = 0f
+    private var downTouchY: Float = 0f
+    private var baseOverlayX: Float = 0.5f
+    private var baseOverlayY: Float = 0.5f
     private var textOverlayUploadCounter: Long = 0L
     @Volatile
     private var nativeSurfaceInitialized: Boolean = false
@@ -465,8 +469,19 @@ class VideoPreviewView @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent?): Boolean {
         if (event == null) return false
 
-        // Rotation handling: only when two fingers are present
+        // Rotation and drag handling
         when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                lastTouchX = event.x
+                lastTouchY = event.y
+                if (activeTextOverlayId > 0) {
+                    val currentPos = overlayPositions[activeTextOverlayId] ?: Pair(0.5f, 0.5f)
+                    baseOverlayX = currentPos.first
+                    baseOverlayY = currentPos.second
+                    downTouchX = event.x
+                    downTouchY = event.y
+                }
+            }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 if (event.pointerCount == 2) {
                     // Begin rotation gesture
@@ -498,9 +513,13 @@ class VideoPreviewView @JvmOverloads constructor(
                         android.view.Choreographer.getInstance().postFrameCallback { moveUpdateRunnable.run() }
                     }
                 } else if (event.pointerCount == 1 && activeTextOverlayId > 0 && !isRotating) {
-                    // Single-finger drag -> move active overlay (normalized coords)
-                    val nx = (event.x / surfaceW).coerceIn(0.0f, 1.0f)
-                    val ny = (event.y / surfaceH).coerceIn(0.0f, 1.0f)
+                    // Single-finger drag -> calculate delta from original anchor point for 1:1 smooth follow
+                    val safeW = surfaceW.coerceAtLeast(1).toFloat()
+                    val safeH = surfaceH.coerceAtLeast(1).toFloat()
+                    val dx = (event.x - downTouchX) / safeW
+                    val dy = (event.y - downTouchY) / safeH
+                    val nx = (baseOverlayX + dx).coerceIn(0.0f, 1.0f)
+                    val ny = (baseOverlayY + dy).coerceIn(0.0f, 1.0f)
                     
                     overlayPositions[activeTextOverlayId] = Pair(nx, ny)
                     pendingMoveX = nx
@@ -539,7 +558,6 @@ class VideoPreviewView @JvmOverloads constructor(
 
     private inner class PinchScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
-            // Use cached base scale to avoid jumps.
             pinchBaseScale = overlayScales[activeTextOverlayId] ?: 1.0f
             return true
         }
@@ -548,10 +566,9 @@ class VideoPreviewView @JvmOverloads constructor(
             // Only proceed if an overlay is active and two fingers are used
             if (activeTextOverlayId <= 0) return false
 
+            val currentScale = overlayScales[activeTextOverlayId] ?: pinchBaseScale
             val scaleFactor = detector.scaleFactor
-            var newScale = pinchBaseScale * scaleFactor
-            // Clamp to allowed range
-            newScale = newScale.coerceIn(0.5f, 3.0f)
+            var newScale = (currentScale * scaleFactor).coerceIn(0.2f, 6.0f)
 
             // Update local cache and notify native layer
             overlayScales[activeTextOverlayId] = newScale
