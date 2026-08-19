@@ -56,7 +56,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
     companion object {
         private const val RULER_HEIGHT_DP = 16
         private const val TRACK_ROW_HEIGHT_DP = 32
-        private const val TRACK_HEADER_WIDTH_DP = 54
+        private const val TRACK_HEADER_WIDTH_DP = 0
         private const val MIN_CLIP_WIDTH_DP = 52
         private const val PAYLOAD_SELECTION = "selection"
         private const val DEFAULT_TIMELINE_PX_PER_SECOND = 120f
@@ -107,6 +107,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
     private val rulerHeader = RulerHeaderView(context)
     private val playheadOverlay = PlayheadOverlayView(context)
     private val recycledViewPool = RecyclerView.RecycledViewPool()
+    private val coverView = CoverCardView(context)
     private val rowViews = linkedMapOf<TrackType, TrackRowView>()
     private val scaleDetector = ScaleGestureDetector(context, ZoomGestureListener())
     private val gestureDetector = GestureDetector(context, TimelineGestureListener())
@@ -174,6 +175,13 @@ class MultiTrackTimelineView @JvmOverloads constructor(
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
         )
         addView(
+            coverView,
+            LayoutParams(dp(70), dp(100)).apply {
+                gravity = Gravity.START or Gravity.TOP
+                topMargin = dp(RULER_HEIGHT_DP + 16)
+            }
+        )
+        addView(
             playheadOverlay,
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
         )
@@ -204,7 +212,12 @@ class MultiTrackTimelineView @JvmOverloads constructor(
         val sameTracks = lastSubmittedTrackStates == trackStates
         TrackType.timelineDisplayOrder().forEach { type ->
             if (!sameTracks) {
-                rowViews[type]?.submitTrack(trackStates.firstOrNull { it.type == type })
+                val trackState = trackStates.firstOrNull { it.type == type }
+                rowViews[type]?.submitTrack(trackState)
+                if (type == TrackType.LAYER) {
+                    val hasClips = trackState?.clips?.isNotEmpty() == true
+                    rowViews[type]?.visibility = if (hasClips) View.VISIBLE else View.GONE
+                }
             }
             rowViews[type]?.setPlayheadTimeMs(currentTimeMs())
             rowViews[type]?.setTrackSelected(type == selectedTrackType)
@@ -466,6 +479,8 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                     row.scrollToOffset(scrollOffsetPx)
                 }
             }
+            coverView.translationX = (width / 2f) - dp(86) - scrollOffsetPxFloat
+
             val syncedTimeMs = computePlayheadTimeMs(scrollOffsetPxFloat)
             if (syncedTimeMs != lastAppliedTimeMs) {
                 lastAppliedTimeMs = syncedTimeMs
@@ -561,6 +576,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
         if (nextInsetPx == contentInsetPx) return
         contentInsetPx = nextInsetPx
         rowViews.values.forEach { it.setContentInset(contentInsetPx) }
+        coverView.translationX = (width / 2f) - dp(86) - scrollOffsetPxFloat
         syncRowsTo(scrollOffsetPxFloat)
     }
 
@@ -750,48 +766,25 @@ class MultiTrackTimelineView @JvmOverloads constructor(
     private class TrackRowView(
         context: Context,
         private val trackType: TrackType,
-    ) : LinearLayout(context) {
+    ) : FrameLayout(context) {
 
         private val labelView = TextView(context).apply {
-            setTextColor(Color.parseColor("#C8D8E6"))
-            gravity = Gravity.CENTER_VERTICAL
-            textSize = 8f
+            setTextColor(Color.parseColor("#BEEBFF"))
+            gravity = Gravity.CENTER
+            textSize = 10f
             text = trackType.timelineCode()
-            setPadding(dp(4), 0, 0, 0)
-            maxLines = 1
-        }
-        private val visibilityToggle = ImageView(context).apply {
-            setImageResource(android.R.drawable.presence_online)
-            setColorFilter(Color.parseColor("#9EF0C2"))
-            visibility = View.GONE
-        }
-        private val lockToggle = ImageView(context).apply {
-            setImageResource(android.R.drawable.ic_lock_lock)
-            setColorFilter(Color.parseColor("#8B94A5"))
-            visibility = View.GONE
+            background = GradientDrawable().apply {
+                cornerRadius = dp(4).toFloat()
+                setColor(Color.parseColor("#80171717"))
+            }
+            setPadding(dp(4), dp(2), dp(4), dp(2))
         }
         private val importButton = ImageView(context).apply {
             setImageResource(android.R.drawable.ic_input_add)
             setColorFilter(Color.WHITE)
             contentDescription = "Import ${trackType.name.lowercase()}"
             alpha = 0.98f
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#2E86C1"))
-                setStroke(dp(1), Color.parseColor("#8DD4FF"))
-            }
-                setPadding(dp(3), dp(3), dp(3), dp(3))
-        }
-        private val headerBackground = GradientDrawable().apply {
-            cornerRadius = dp(10).toFloat()
-            setColor(Color.parseColor("#171717"))
-            setStroke(dp(1), Color.parseColor("#2C3542"))
-        }
-        private val headerContainer = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = headerBackground
-            setPadding(dp(5), dp(3), dp(5), dp(3))
+            setPadding(dp(4), dp(4), dp(4), dp(4))
         }
         private val recyclerView = RecyclerView(context)
         private val layoutManager = LinearLayoutManager(context, RecyclerView.HORIZONTAL, false)
@@ -815,9 +808,9 @@ class MultiTrackTimelineView @JvmOverloads constructor(
         private var submittedTrackState: TrackState? = null
 
         init {
-            orientation = HORIZONTAL
             setBackgroundColor(Color.parseColor("#171717"))
-            minimumHeight = dp(TRACK_ROW_HEIGHT_DP)
+            val rowHeight = if (trackType == TrackType.VIDEO) dp(TRACK_ROW_HEIGHT_DP + 16) else dp(TRACK_ROW_HEIGHT_DP)
+            minimumHeight = rowHeight
 
             recyclerView.layoutManager = layoutManager
             recyclerView.adapter = adapter
@@ -828,8 +821,6 @@ class MultiTrackTimelineView @JvmOverloads constructor(
             recyclerView.setItemViewCacheSize(8)
             recyclerView.onFlingListener = object : RecyclerView.OnFlingListener() {
                 override fun onFling(velocityX: Int, velocityY: Int): Boolean {
-                    // Consume fling so the timeline stops immediately at the released finger position
-                    // for 1:1 precision scrubbing without inertial drift.
                     return true
                 }
             }
@@ -859,7 +850,6 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                         val movedY = abs(event.y - downY)
                         val moved = movedX > rowTouchSlop || movedY > rowTouchSlop
                         val tappedClip = recyclerView.findChildViewUnder(event.x, event.y)
-                        // Only deselect on intentional tap on empty area (no scroll happened)
                         if (!moved && !didScroll && tappedClip == null) {
                             onClipSelected?.invoke(null)
                             onTrackSelected?.invoke(trackType)
@@ -870,23 +860,25 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                 false
             }
 
-            headerContainer.addView(importButton, LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(3) })
-            headerContainer.addView(labelView, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+            addView(recyclerView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+
+            val labelParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                marginStart = dp(4)
+            }
+            addView(labelView, labelParams)
+
+            val importParams = LayoutParams(dp(24), dp(24)).apply {
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                marginEnd = dp(4)
+            }
+            addView(importButton, importParams)
+
             importButton.setOnClickListener {
                 onTrackSelected?.invoke(trackType)
                 onTrackImportRequested?.invoke(trackType)
             }
-            headerContainer.setOnClickListener {
-                onTrackSelected?.invoke(trackType)
-            }
-            visibilityToggle.setOnClickListener {
-                trackVisible = !trackVisible
-                updateHeaderState()
-                onTrackVisibilityChanged?.invoke(trackType, trackVisible)
-            }
-
-            addView(headerContainer, LayoutParams(dp(TRACK_HEADER_WIDTH_DP), LayoutParams.MATCH_PARENT))
-            addView(recyclerView, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            
             updateHeaderState()
         }
 
@@ -1048,11 +1040,6 @@ class MultiTrackTimelineView @JvmOverloads constructor(
         private fun updateHeaderState() {
             alpha = if (trackVisible) 1f else 0.45f
             labelView.setTextColor(if (trackSelected) Color.parseColor("#BEEBFF") else Color.WHITE)
-            headerBackground.setColor(if (trackSelected) Color.parseColor("#173247") else Color.parseColor("#171717"))
-            headerBackground.setStroke(
-                dp(if (trackSelected) 2 else 1),
-                if (trackSelected) Color.parseColor("#56C7FF") else Color.parseColor("#2C3542"),
-            )
             adapter.isTrackLocked = trackLocked
         }
 
