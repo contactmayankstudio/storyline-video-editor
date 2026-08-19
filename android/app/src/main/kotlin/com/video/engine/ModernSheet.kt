@@ -18,6 +18,25 @@ import kotlin.math.roundToInt
  */
 object ModernSheet {
 
+    data class VisualCard(
+        val id: String = "",
+        val label: String,
+        val swatchGradient: Pair<Int, Int>? = null,
+        val swatchColor: Int? = null,
+        val emoji: String? = null,
+        val iconResId: Int? = null,
+        val subtitle: String? = null,
+    )
+
+    data class CompactAction(
+        val title: String,
+        val iconResId: Int? = null,
+        val isPrimary: Boolean = false,
+        val isDestructive: Boolean = false,
+        val dismissOnClick: Boolean = false,
+        val onClick: () -> Unit,
+    )
+
     private const val DEFAULT_PEEK_RATIO = 0.40f
     private const val DEFAULT_MAX_RATIO = 0.56f
 
@@ -290,16 +309,6 @@ object ModernSheet {
             onTabSelected: (Int) -> Unit,
         ): (Int) -> Unit = categories(titles, selected) { idx, _ -> onTabSelected(idx) }
 
-        data class VisualCard(
-            val id: String = "",
-            val label: String,
-            val swatchGradient: Pair<Int, Int>? = null,
-            val swatchColor: Int? = null,
-            val emoji: String? = null,
-            val iconResId: Int? = null,
-            val subtitle: String? = null,
-        )
-
         fun visualCardsGrid(
             cards: List<VisualCard>,
             selected: Int = -1,
@@ -454,15 +463,6 @@ object ModernSheet {
             root.addView(container)
             return { sel -> render(sel) }
         }
-
-        data class CompactAction(
-            val title: String,
-            val iconResId: Int? = null,
-            val isPrimary: Boolean = false,
-            val isDestructive: Boolean = false,
-            val dismissOnClick: Boolean = false,
-            val onClick: () -> Unit,
-        )
 
         fun compactActionRow(
             actions: List<CompactAction>,
