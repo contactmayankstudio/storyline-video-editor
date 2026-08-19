@@ -247,14 +247,9 @@ class ExportDialog(
             setPadding(0, dp(8), 0, dp(4))
         }
         root.addView(modeGuidance)
-        if (!codecCapabilities.hevcEncoder) {
-            root.addView(
-                subtitleView("Smaller File mode appears only when this device exposes an HEVC encoder.").apply {
-                    gravity = Gravity.START
-                    setPadding(0, dp(6), 0, dp(2))
-                },
-            )
-        }
+        // ── Simplified export: hide Mode selector ──
+        modeScroller.visibility = View.GONE
+        modeGuidance.visibility = View.GONE
 
         root.addView(sectionLabel("Resolution"))
         val resolutionRow = LinearLayout(activity).apply {
@@ -273,7 +268,7 @@ class ExportDialog(
         }
         root.addView(resolutionRow)
 
-        root.addView(sectionLabel("Frame Rate"))
+        root.addView(sectionLabel("Frame Rate").apply { visibility = View.GONE })
         val fpsRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
@@ -289,8 +284,9 @@ class ExportDialog(
             fpsRow.addView(button)
         }
         root.addView(fpsRow)
+        fpsRow.visibility = View.GONE
 
-        root.addView(sectionLabel("Title"))
+        root.addView(sectionLabel("Title").apply { visibility = View.GONE })
         val titleInput = EditText(activity).apply {
             setText("Storyline")
             setSelection(text.length)
@@ -302,111 +298,16 @@ class ExportDialog(
             background = inputBackground()
             setPadding(dp(14), dp(12), dp(14), dp(12))
         }
-        root.addView(titleInput)
+        titleInput.visibility = View.GONE
 
-        root.addView(sectionLabel("Quality"))
-        val qualityTitleRow = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, dp(8))
-        }
-        qualityCurrent = TextView(activity).apply {
-            textSize = 16f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        bitrateCurrent = TextView(activity).apply {
-            textSize = 14f
-            setTextColor(accentWarm())
-        }
-        qualityTitleRow.addView(qualityCurrent)
-        qualityTitleRow.addView(bitrateCurrent)
-        root.addView(qualityTitleRow)
+        // Hide quality section
+        qualityTitleRow.visibility = View.GONE
+        qualitySeek.visibility = View.GONE
+        qualityHintRow.visibility = View.GONE
 
-        qualitySeek = SeekBar(activity).apply {
-            max = qualityLabels.lastIndex
-            progress = selectedQualityIndex
-            progressTintList = android.content.res.ColorStateList.valueOf(accentBlue())
-            thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
-        }
-        root.addView(qualitySeek)
-
-        val qualityHintRow = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(0, dp(4), 0, 0)
-        }
-        qualityLabels.forEach { label ->
-            val chip = TextView(activity).apply {
-                text = label
-                textSize = 12f
-                gravity = Gravity.CENTER
-                setTextColor(Color.parseColor("#7C7C7C"))
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            qualityLabelsRow += chip
-            qualityHintRow.addView(chip)
-        }
-        root.addView(qualityHintRow)
-
-        root.addView(sectionLabel("Watermark"))
-        val watermarkCard = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = surfaceCard()
-            setPadding(dp(16), dp(14), dp(16), dp(14))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).also { it.topMargin = dp(10) }
-        }
-        val watermarkIcon = ImageView(activity).apply {
-            setImageResource(R.drawable.ic_storyline_logo)
-            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).also { it.marginEnd = dp(12) }
-        }
-        val watermarkInfo = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        val watermarkTitle = TextView(activity).apply {
-            text = "Storyline logo watermark"
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-        }
-        watermarkStatus = TextView(activity).apply {
-            textSize = 12f
-            setTextColor(Color.parseColor("#C8C8C8"))
-            setPadding(0, dp(4), 0, 0)
-        }
-        watermarkInfo.addView(watermarkTitle)
-        watermarkInfo.addView(watermarkStatus)
-        watermarkCard.addView(watermarkIcon)
-        watermarkCard.addView(watermarkInfo)
-        root.addView(watermarkCard)
-
-        watermarkAction = actionButton("Watch Ad Remove Watermark Once", "#2A2A2A", "#FFFFFF").apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).also { it.topMargin = dp(10) }
-        }
-        watermarkAction.setOnClickListener {
-            if (watermarkUnlocked) {
-                return@setOnClickListener
-            }
-            watermarkAction.isEnabled = false
-            watermarkAction.alpha = 0.75f
-            watermarkAction.text = "Loading Ad..."
-            onRequestWatermarkUnlock { unlocked ->
-                activity.runOnUiThread {
-                    watermarkUnlocked = watermarkUnlocked || unlocked
-                    refreshUi()
-                }
-            }
-        }
-        root.addView(watermarkAction)
+        // Hide watermark section
+        watermarkCard.visibility = View.GONE
+        watermarkAction.visibility = View.GONE
 
         val summaryCard = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL

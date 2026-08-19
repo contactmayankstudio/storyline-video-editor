@@ -452,14 +452,21 @@ class MultiTrackTimelineView @JvmOverloads constructor(
             row.setOnTrackLockedChanged { trackType, isLocked ->
                 listener?.onTrackLockedChanged(trackType, isLocked)
             }
+            val weight = when (type) {
+                TrackType.VIDEO -> 2.5f
+                else -> 1f
+            }
             rowContainer.addView(
                 row,
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     0,
-                    1f,
+                    weight,
                 ),
             )
+            if (type == TrackType.LAYER) {
+                row.visibility = View.GONE
+            }
             rowViews[type] = row
         }
         doOnLayout {

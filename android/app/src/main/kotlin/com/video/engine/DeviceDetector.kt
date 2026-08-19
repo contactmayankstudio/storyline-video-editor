@@ -22,8 +22,8 @@ import kotlin.math.max
  */
 object DeviceDetector {
     private const val TAG = "[DeviceDetector]"
-    private const val LOW_PREVIEW_WIDTH = 854
-    private const val LOW_PREVIEW_HEIGHT = 480
+    private const val LOW_PREVIEW_WIDTH = 1280
+    private const val LOW_PREVIEW_HEIGHT = 720
     private const val MID_PREVIEW_WIDTH = 1280
     private const val MID_PREVIEW_HEIGHT = 720
     private const val HIGH_PREVIEW_WIDTH = 1280
@@ -103,7 +103,7 @@ object DeviceDetector {
                 exportBitrate = 2500,
                 maxExportFps = 30,
                 glTextureSize = 1024,
-                previewLongEdgePx = 480,
+                previewLongEdgePx = 720,
                 minPreviewFps = 24,
                 predictiveLookAroundMs = 320,
                 predictiveSampleStepMs = 220,
