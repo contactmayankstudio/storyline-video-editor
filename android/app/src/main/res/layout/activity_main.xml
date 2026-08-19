@@ -881,32 +881,16 @@
             </LinearLayout>
         </LinearLayout>
 
-    </FrameLayout>
-
-    <!-- ── BOTTOM: Timeline + Toolbar ── -->
-    <LinearLayout
-        android:id="@+id/bottomContainer"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layoutDirection="ltr"
-        android:visibility="gone"
-        android:orientation="vertical"
-        android:background="@drawable/editor_root_background"
-        app:layout_constraintTop_toBottomOf="@id/previewContainer"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
-
         <!-- ── Playback Controls & Time Clock (Single line directly above timeline) ── -->
         <androidx.constraintlayout.widget.ConstraintLayout
             android:id="@+id/playbackUndoRedoRow"
             android:layout_width="match_parent"
             android:layout_height="42dp"
             android:layoutDirection="ltr"
+            android:layout_gravity="bottom"
             android:layout_marginStart="8dp"
             android:layout_marginEnd="8dp"
-            android:layout_marginTop="2dp"
-            android:layout_marginBottom="1dp">
+            android:layout_marginBottom="0dp">
 
             <androidx.constraintlayout.widget.ConstraintLayout
                 android:id="@+id/playbackControlRail"
@@ -984,6 +968,22 @@
                 app:layout_constraintEnd_toEndOf="parent" />
         </androidx.constraintlayout.widget.ConstraintLayout>
 
+    </FrameLayout>
+
+    <!-- ── BOTTOM: Timeline + Toolbar ── -->
+    <LinearLayout
+        android:id="@+id/bottomContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layoutDirection="ltr"
+        android:visibility="gone"
+        android:orientation="vertical"
+        android:background="@drawable/editor_root_background"
+        app:layout_constraintTop_toBottomOf="@id/previewContainer"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
         <LinearLayout
             android:id="@+id/timelineSectionHeader"
             android:layout_width="match_parent"
@@ -1039,7 +1039,7 @@
             android:layout_width="match_parent"
             android:layout_height="220dp"
             android:layout_marginStart="3dp"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="0dp"
             android:layout_marginEnd="3dp"
             android:background="@drawable/timeline_panel_background">
 
