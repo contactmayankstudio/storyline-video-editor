@@ -38,15 +38,24 @@ class LayersPanel(
     private fun renderContent(dialog: BottomSheetDialog) {
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#1E1E1E"))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadii = floatArrayOf(px(24).toFloat(), px(24).toFloat(), px(24).toFloat(), px(24).toFloat(), 0f, 0f, 0f, 0f)
+                setColor(Color.parseColor("#11151B"))
+                setStroke(px(1), Color.parseColor("#1B222C"))
+            }
             setPadding(px(20), px(16), px(20), px(32))
         }
 
         // Drag handle
         val handle = LinearLayout(activity).apply { gravity = Gravity.CENTER; setPadding(0, 0, 0, px(12)) }
         handle.addView(TextView(activity).apply {
-            setBackgroundColor(Color.parseColor("#555555"))
-            layoutParams = LinearLayout.LayoutParams(px(40), px(4)).also { it.gravity = Gravity.CENTER }
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = px(999).toFloat()
+                setColor(Color.parseColor("#3A4452"))
+            }
+            layoutParams = LinearLayout.LayoutParams(px(36), px(4)).also { it.gravity = Gravity.CENTER }
         })
         root.addView(handle)
 
@@ -62,7 +71,7 @@ class LayersPanel(
         root.addView(TextView(activity).apply {
             text = "Tap a row to select it"
             textSize = 12f
-            setTextColor(Color.parseColor("#8E8E93"))
+            setTextColor(Color.parseColor("#8A99AD"))
             gravity = Gravity.CENTER
             setPadding(0, 0, 0, px(12))
         })
@@ -72,7 +81,7 @@ class LayersPanel(
             root.addView(TextView(activity).apply {
                 text = "No layers yet."
                 textSize = 14f
-                setTextColor(Color.parseColor("#888888"))
+                setTextColor(Color.parseColor("#8A99AD"))
                 gravity = Gravity.CENTER
                 setPadding(0, px(24), 0, px(24))
             })
@@ -86,20 +95,25 @@ class LayersPanel(
             val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
 
             items.forEach { item ->
-                // Divider
-                list.addView(TextView(activity).apply {
-                    setBackgroundColor(Color.parseColor("#2A2A2A"))
-                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(1))
-                        .also { it.setMargins(0, px(4), 0, px(4)) }
-                })
-
                 val row = LinearLayout(activity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(px(10), px(10), px(10), px(10))
-                    if (item.selected) {
-                        setBackgroundColor(Color.parseColor("#243D68"))
+                    setPadding(px(12), px(10), px(12), px(10))
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                        cornerRadius = px(12).toFloat()
+                        if (item.selected) {
+                            setColor(Color.parseColor("#162235"))
+                            setStroke(px(1), Color.parseColor("#388BFD"))
+                        } else {
+                            setColor(Color.parseColor("#171C23"))
+                            setStroke(px(1), Color.parseColor("#222A36"))
+                        }
                     }
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ).also { it.bottomMargin = px(8) }
                     isClickable = item.onSelect != null
                     isFocusable = item.onSelect != null
                     setOnClickListener {

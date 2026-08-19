@@ -101,7 +101,7 @@ class TransitionPanel(
                 onApply(transition)
             },
         ) {
-            tabs(listOf("Featured", "3D", "Shape", "Motion", "Glitch", "Shake"), selected = 0) { tabIdx ->
+            categories(listOf("Featured", "3D", "Shape", "Motion", "Glitch", "Shake"), selected = 0) { tabIdx, _ ->
                 val chosenType = when (tabIdx) {
                     1 -> TransitionType.SLIDE
                     2 -> TransitionType.WIPE
@@ -123,9 +123,22 @@ class TransitionPanel(
                 Triple("Dissolve", TransitionType.CROSS, 900),
             )
             val selectedPopular = popularPresets.indexOfFirst { (_, type, _) -> type == transition.type }
-            selectableTileGrid(
-                label = "Styles",
-                options = popularPresets.map { it.first },
+            val transitionCards = popularPresets.map { (label, type, _) ->
+                val gradient = when (type) {
+                    TransitionType.NONE -> Pair(android.graphics.Color.parseColor("#1C222C"), android.graphics.Color.parseColor("#252D3A"))
+                    TransitionType.FADE -> Pair(android.graphics.Color.parseColor("#111827"), android.graphics.Color.parseColor("#F97316"))
+                    TransitionType.CROSS -> Pair(android.graphics.Color.parseColor("#1E3A8A"), android.graphics.Color.parseColor("#3B82F6"))
+                    TransitionType.WIPE -> Pair(android.graphics.Color.parseColor("#065F46"), android.graphics.Color.parseColor("#10B981"))
+                    TransitionType.SLIDE -> Pair(android.graphics.Color.parseColor("#4C1D95"), android.graphics.Color.parseColor("#8B5CF6"))
+                }
+                ModernSheet.VisualCard(
+                    id = label,
+                    label = label,
+                    swatchGradient = gradient,
+                )
+            }
+            visualCardsGrid(
+                cards = transitionCards,
                 selected = selectedPopular,
                 columns = 3,
                 dismissOnSelect = false,
@@ -150,14 +163,16 @@ class TransitionPanel(
 
             if (onApplyToAll != null) {
                 divider()
-                chips(
-                    label = "Batch Actions",
-                    options = listOf("Apply to All Cuts"),
-                    selected = -1,
-                    dismissOnSelect = true,
-                ) { _, _ ->
-                    onApplyToAll.invoke(transition)
-                }
+                compactActionRow(
+                    listOf(
+                        ModernSheet.CompactAction(
+                            title = "Apply to All Cuts",
+                            isPrimary = true,
+                            dismissOnClick = true,
+                            onClick = { onApplyToAll.invoke(transition) },
+                        ),
+                    ),
+                )
             }
         }
     }

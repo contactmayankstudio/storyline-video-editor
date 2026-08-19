@@ -29,7 +29,7 @@ class EffectsPanel(
                 applyParams(initial, reset = true)
             },
         ) {
-            tabs(listOf("Hot", "Motion", "Glitch", "Love", "Nature"), selected = 0) { tabIdx ->
+            categories(listOf("Hot", "Motion", "Glitch", "Love", "Nature"), selected = 0) { tabIdx, _ ->
                 val effectPreset = when (tabIdx) {
                     0 -> "Beauty Lift"
                     1 -> "Seoul Vlog"
@@ -42,14 +42,45 @@ class EffectsPanel(
             }
 
             section("Trending Effects")
-            chipGrid(
-                "Popular",
-                listOf("Beauty Lift", "Golden Hour", "Cine Matte", "Teal Punch", "Night Neon", "Noir Mono"),
+            val effectCards = listOf(
+                ModernSheet.VisualCard(
+                    id = "Beauty Lift",
+                    label = "Beauty Lift",
+                    swatchGradient = Pair(android.graphics.Color.parseColor("#FF758C"), android.graphics.Color.parseColor("#FF7EB3")),
+                ),
+                ModernSheet.VisualCard(
+                    id = "Golden Hour",
+                    label = "Golden Hour",
+                    swatchGradient = Pair(android.graphics.Color.parseColor("#F7971E"), android.graphics.Color.parseColor("#FFD200")),
+                ),
+                ModernSheet.VisualCard(
+                    id = "Cine Matte",
+                    label = "Cine Matte",
+                    swatchGradient = Pair(android.graphics.Color.parseColor("#2C3E50"), android.graphics.Color.parseColor("#3498DB")),
+                ),
+                ModernSheet.VisualCard(
+                    id = "Teal Punch",
+                    label = "Teal Punch",
+                    swatchGradient = Pair(android.graphics.Color.parseColor("#00B4DB"), android.graphics.Color.parseColor("#0083B0")),
+                ),
+                ModernSheet.VisualCard(
+                    id = "Night Neon",
+                    label = "Night Neon",
+                    swatchGradient = Pair(android.graphics.Color.parseColor("#8E2DE2"), android.graphics.Color.parseColor("#4A00E0")),
+                ),
+                ModernSheet.VisualCard(
+                    id = "Noir Mono",
+                    label = "Noir Mono",
+                    swatchGradient = Pair(android.graphics.Color.parseColor("#232526"), android.graphics.Color.parseColor("#414345")),
+                ),
+            )
+            visualCardsGrid(
+                cards = effectCards,
                 selected = -1,
                 columns = 3,
                 dismissOnSelect = false,
-            ) { _, option ->
-                applyPreset(option)
+            ) { _, card ->
+                applyPreset(card.id)
             }
 
             divider()
@@ -89,9 +120,15 @@ class EffectsPanel(
             }
 
             divider()
-            chips("Reset", listOf("Reset All"), -1, dismissOnSelect = false) { _, _ ->
-                applyParams(EffectParams(), reset = true)
-            }
+            compactActionRow(
+                listOf(
+                    ModernSheet.CompactAction(
+                        title = "Reset All",
+                        isDestructive = false,
+                        onClick = { applyParams(EffectParams(), reset = true) },
+                    ),
+                ),
+            )
         }
     }
 

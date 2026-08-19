@@ -32,8 +32,8 @@ class TextEditorPanel(
 
     private lateinit var dialog: BottomSheetDialog
     private var isApplyingPreview = false
-    private val darkPanel = Color.parseColor("#1E1E1E")
-    private val chipIdle = Color.parseColor("#333333")
+    private val darkPanel = Color.parseColor("#11151B")
+    private val chipIdle = Color.parseColor("#171C23")
 
     fun show() {
         dialog = BottomSheetDialog(activity)
@@ -41,7 +41,12 @@ class TextEditorPanel(
 
         val root = LinearLayout(activity)
         root.orientation = LinearLayout.VERTICAL
-        root.setBackgroundColor(darkPanel)
+        root.background = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+            cornerRadii = floatArrayOf(px(24).toFloat(), px(24).toFloat(), px(24).toFloat(), px(24).toFloat(), 0f, 0f, 0f, 0f)
+            setColor(darkPanel)
+            setStroke(px(1), Color.parseColor("#1B222C"))
+        }
         root.setPadding(px(20), px(16), px(20), px(32))
         root.addView(createHandle())
         root.addView(createTitle())
@@ -76,7 +81,12 @@ class TextEditorPanel(
         editText.setTextColor(Color.WHITE)
         editText.setHintTextColor(Color.parseColor("#666666"))
         editText.hint = "Enter text"
-        editText.setBackgroundColor(Color.parseColor("#2A2A2A"))
+        editText.background = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+            cornerRadius = px(12).toFloat()
+            setColor(Color.parseColor("#141920"))
+            setStroke(px(1), Color.parseColor("#1E2632"))
+        }
         editText.setPadding(px(12), px(10), px(12), px(10))
         val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(80))
         params.bottomMargin = px(12)

@@ -222,62 +222,314 @@ object ModernSheet {
         }
 
         fun getTextInput(): String = textInputView?.text?.toString() ?: ""
-        fun tabs(
+        fun categories(
             titles: List<String>,
             selected: Int = 0,
-            onTabSelected: (Int) -> Unit,
+            onCategorySelected: (Int, String) -> Unit,
         ): (Int) -> Unit {
-            val tabContainer = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.RECTANGLE
-                    cornerRadius = px(context, 20).toFloat()
-                    setColor(Color.parseColor("#12171E"))
-                    setStroke(px(context, 1), Color.parseColor("#222C36"))
-                }
-                setPadding(px(context, 4), px(context, 4), px(context, 4), px(context, 4))
+            val scroller = HorizontalScrollView(context).apply {
+                isHorizontalScrollBarEnabled = false
+                clipToPadding = false
+                setPadding(0, 0, px(context, 8), 0)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
-                    px(context, 40),
-                ).also { it.bottomMargin = px(context, 12) }
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).also { it.bottomMargin = px(context, 10) }
             }
-            val tabViews = mutableListOf<TextView>()
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val catViews = mutableListOf<TextView>()
             fun render(sel: Int) {
-                tabViews.forEachIndexed { idx, tab ->
-                    if (idx == sel) {
-                        tab.background = GradientDrawable().apply {
+                catViews.forEachIndexed { idx, view ->
+                    val isSel = (idx == sel)
+                    if (isSel) {
+                        view.setTextColor(Color.WHITE)
+                        view.setTypeface(null, Typeface.BOLD)
+                        view.background = GradientDrawable().apply {
                             shape = GradientDrawable.RECTANGLE
-                            cornerRadius = px(context, 16).toFloat()
-                            setColor(Color.parseColor("#1E293B"))
-                            setStroke(px(context, 1), Color.parseColor("#6FDBFF"))
+                            cornerRadius = px(context, 12).toFloat()
+                            setColor(Color.parseColor("#162235"))
+                            setStroke(px(context, 1), Color.parseColor("#388BFD"))
                         }
-                        tab.setTextColor(Color.WHITE)
-                        tab.setTypeface(null, Typeface.BOLD)
                     } else {
-                        tab.background = null
-                        tab.setTextColor(Color.parseColor("#8E99A5"))
-                        tab.setTypeface(null, Typeface.NORMAL)
+                        view.setTextColor(Color.parseColor("#8A99AD"))
+                        view.setTypeface(null, Typeface.NORMAL)
+                        view.background = null
                     }
                 }
             }
             titles.forEachIndexed { idx, title ->
-                val tab = TextView(context).apply {
+                val catView = TextView(context).apply {
                     text = title
                     textSize = 13f
                     gravity = Gravity.CENTER
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+                    setPadding(px(context, 12), px(context, 6), px(context, 12), px(context, 6))
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ).also { it.setMargins(px(context, 2), 0, px(context, 2), 0) }
                     setOnClickListener {
                         render(idx)
-                        onTabSelected(idx)
+                        onCategorySelected(idx, title)
                     }
                 }
-                tabViews.add(tab)
-                tabContainer.addView(tab)
+                catViews.add(catView)
+                row.addView(catView)
             }
             render(selected)
-            root.addView(tabContainer)
+            scroller.addView(row)
+            root.addView(scroller)
             return { sel -> render(sel) }
+        }
+
+        fun tabs(
+            titles: List<String>,
+            selected: Int = 0,
+            onTabSelected: (Int) -> Unit,
+        ): (Int) -> Unit = categories(titles, selected) { idx, _ -> onTabSelected(idx) }
+
+        data class VisualCard(
+            val id: String = "",
+            val label: String,
+            val swatchGradient: Pair<Int, Int>? = null,
+            val swatchColor: Int? = null,
+            val emoji: String? = null,
+            val iconResId: Int? = null,
+            val subtitle: String? = null,
+        )
+
+        fun visualCardsGrid(
+            cards: List<VisualCard>,
+            selected: Int = -1,
+            columns: Int = 3,
+            dismissOnSelect: Boolean = false,
+            onSelect: (Int, VisualCard) -> Unit,
+        ): (Int) -> Unit {
+            val columnCount = columns.coerceAtLeast(1)
+            val container = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).also { it.bottomMargin = px(context, 8) }
+            }
+            val cardViews = mutableListOf<LinearLayout>()
+
+            fun render(sel: Int) {
+                cardViews.forEachIndexed { idx, cardView ->
+                    val isSel = (idx == sel)
+                    cardView.background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = px(context, 12).toFloat()
+                        if (isSel) {
+                            setColor(Color.parseColor("#162235"))
+                            setStroke(px(context, 1), Color.parseColor("#388BFD"))
+                        } else {
+                            setColor(Color.parseColor("#171C23"))
+                            setStroke(px(context, 1), Color.parseColor("#222A36"))
+                        }
+                    }
+                    val labelView = cardView.findViewWithTag<TextView>("card_label")
+                    labelView?.setTextColor(if (isSel) Color.WHITE else Color.parseColor("#8A99AD"))
+                    labelView?.setTypeface(null, if (isSel) Typeface.BOLD else Typeface.NORMAL)
+                }
+            }
+
+            cards.chunked(columnCount).forEachIndexed { rowIndex, chunk ->
+                val row = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.START
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ).also {
+                        if (rowIndex > 0) it.topMargin = px(context, 8)
+                    }
+                }
+
+                repeat(columnCount) { colIndex ->
+                    val itemIndex = rowIndex * columnCount + colIndex
+                    if (colIndex < chunk.size) {
+                        val card = chunk[colIndex]
+                        val cardView = LinearLayout(context).apply {
+                            orientation = LinearLayout.VERTICAL
+                            gravity = Gravity.CENTER
+                            setPadding(px(context, 6), px(context, 8), px(context, 6), px(context, 8))
+                            layoutParams = LinearLayout.LayoutParams(
+                                0,
+                                LinearLayout.LayoutParams.WRAP_CONTENT,
+                                1f,
+                            ).also { lp ->
+                                if (colIndex > 0) lp.marginStart = px(context, 8)
+                            }
+
+                            // Visual Thumbnail / Swatch Area
+                            val swatchFrame = FrameLayout(context).apply {
+                                layoutParams = LinearLayout.LayoutParams(
+                                    LinearLayout.LayoutParams.MATCH_PARENT,
+                                    px(context, 44),
+                                ).also { it.bottomMargin = px(context, 6) }
+                                background = GradientDrawable().apply {
+                                    shape = GradientDrawable.RECTANGLE
+                                    cornerRadius = px(context, 8).toFloat()
+                                    when {
+                                        card.swatchGradient != null -> {
+                                            colors = intArrayOf(card.swatchGradient.first, card.swatchGradient.second)
+                                            orientation = GradientDrawable.Orientation.TL_BR
+                                        }
+                                        card.swatchColor != null -> {
+                                            setColor(card.swatchColor)
+                                        }
+                                        card.emoji != null -> {
+                                            setColor(Color.parseColor("#12171E"))
+                                        }
+                                        else -> {
+                                            setColor(Color.parseColor("#1A212C"))
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (card.emoji != null) {
+                                val emojiText = TextView(context).apply {
+                                    text = card.emoji
+                                    textSize = 20f
+                                    gravity = Gravity.CENTER
+                                    layoutParams = FrameLayout.LayoutParams(
+                                        FrameLayout.LayoutParams.MATCH_PARENT,
+                                        FrameLayout.LayoutParams.MATCH_PARENT,
+                                    )
+                                }
+                                swatchFrame.addView(emojiText)
+                            } else if (card.iconResId != null) {
+                                val iconView = ImageView(context).apply {
+                                    setImageResource(card.iconResId)
+                                    setColorFilter(Color.WHITE)
+                                    layoutParams = FrameLayout.LayoutParams(
+                                        px(context, 24),
+                                        px(context, 24),
+                                        Gravity.CENTER,
+                                    )
+                                }
+                                swatchFrame.addView(iconView)
+                            }
+
+                            addView(swatchFrame)
+
+                            // Short Label underneath
+                            val labelView = TextView(context).apply {
+                                tag = "card_label"
+                                text = card.label
+                                textSize = 11f
+                                gravity = Gravity.CENTER
+                                setTextColor(Color.parseColor("#8A99AD"))
+                                maxLines = 1
+                                includeFontPadding = false
+                            }
+                            addView(labelView)
+
+                            setOnClickListener {
+                                render(itemIndex)
+                                onSelect(itemIndex, card)
+                                if (dismissOnSelect) dialog.dismiss()
+                            }
+                        }
+                        cardViews.add(cardView)
+                        row.addView(cardView)
+                    } else {
+                        val spacer = Space(context).apply {
+                            layoutParams = LinearLayout.LayoutParams(0, 0, 1f).also {
+                                if (colIndex > 0) it.marginStart = px(context, 8)
+                            }
+                        }
+                        row.addView(spacer)
+                    }
+                }
+                container.addView(row)
+            }
+
+            render(selected)
+            root.addView(container)
+            return { sel -> render(sel) }
+        }
+
+        data class CompactAction(
+            val title: String,
+            val iconResId: Int? = null,
+            val isPrimary: Boolean = false,
+            val isDestructive: Boolean = false,
+            val dismissOnClick: Boolean = false,
+            val onClick: () -> Unit,
+        )
+
+        fun compactActionRow(
+            actions: List<CompactAction>,
+        ) {
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).also { it.topMargin = px(context, 8) }
+            }
+            actions.forEachIndexed { idx, action ->
+                val btn = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER
+                    setPadding(px(context, 12), px(context, 8), px(context, 12), px(context, 8))
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = px(context, 10).toFloat()
+                        when {
+                            action.isPrimary -> {
+                                setColor(Color.parseColor("#17263C"))
+                                setStroke(px(context, 1), Color.parseColor("#2B5282"))
+                            }
+                            action.isDestructive -> {
+                                setColor(Color.parseColor("#2C1517"))
+                                setStroke(px(context, 1), Color.parseColor("#5A2226"))
+                            }
+                            else -> {
+                                setColor(Color.parseColor("#171C23"))
+                                setStroke(px(context, 1), Color.parseColor("#222A36"))
+                            }
+                        }
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        0,
+                        px(context, 38),
+                        1f,
+                    ).also {
+                        if (idx > 0) it.marginStart = px(context, 8)
+                    }
+                    if (action.iconResId != null) {
+                        val icon = ImageView(context).apply {
+                            setImageResource(action.iconResId)
+                            setColorFilter(if (action.isPrimary) Color.parseColor("#388BFD") else if (action.isDestructive) Color.parseColor("#FF6B6B") else Color.WHITE)
+                            layoutParams = LinearLayout.LayoutParams(px(context, 16), px(context, 16)).also {
+                                it.marginEnd = px(context, 6)
+                            }
+                        }
+                        addView(icon)
+                    }
+                    val label = TextView(context).apply {
+                        text = action.title
+                        textSize = 12f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(if (action.isPrimary) Color.parseColor("#388BFD") else if (action.isDestructive) Color.parseColor("#FF6B6B") else Color.WHITE)
+                    }
+                    addView(label)
+                    setOnClickListener {
+                        action.onClick()
+                        if (action.dismissOnClick) dialog.dismiss()
+                    }
+                }
+                row.addView(btn)
+            }
+            root.addView(row)
         }
 
         fun sliderWithBubble(
@@ -317,13 +569,13 @@ object ModernSheet {
                 text = "${format(value)}$unit"
                 textSize = 12f
                 setTypeface(null, Typeface.BOLD)
-                setTextColor(Color.parseColor("#6FDBFF"))
+                setTextColor(Color.parseColor("#388BFD"))
                 gravity = Gravity.CENTER
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = px(context, 10).toFloat()
-                    setColor(Color.parseColor("#152330"))
-                    setStroke(px(context, 1), Color.parseColor("#274059"))
+                    setColor(Color.parseColor("#162235"))
+                    setStroke(px(context, 1), Color.parseColor("#244B7A"))
                 }
                 setPadding(px(context, 10), px(context, 4), px(context, 10), px(context, 4))
             }
@@ -334,7 +586,7 @@ object ModernSheet {
             val seek = SeekBar(context).apply {
                 this.max = 1000
                 progress = (((value - min) / (max - min)) * 1000).roundToInt().coerceIn(0, 1000)
-                progressTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#6FDBFF"))
+                progressTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#388BFD"))
                 thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -952,37 +1204,37 @@ object ModernSheet {
     private fun sheetRootBackground(context: Context): GradientDrawable =
         GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadii = floatArrayOf(px(context, 26).toFloat(), px(context, 26).toFloat(), px(context, 26).toFloat(), px(context, 26).toFloat(), 0f, 0f, 0f, 0f)
-            setColor(Color.parseColor("#0B0F13"))
-            setStroke(px(context, 1), Color.parseColor("#1B222A"))
+            cornerRadii = floatArrayOf(px(context, 24).toFloat(), px(context, 24).toFloat(), px(context, 24).toFloat(), px(context, 24).toFloat(), 0f, 0f, 0f, 0f)
+            setColor(Color.parseColor("#11151B"))
+            setStroke(px(context, 1), Color.parseColor("#1B222C"))
         }
 
     private fun surfaceCard(context: Context): GradientDrawable =
         GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = px(context, 16).toFloat()
-            setColor(Color.parseColor("#131920"))
-            setStroke(px(context, 1), Color.parseColor("#252F38"))
+            cornerRadius = px(context, 14).toFloat()
+            setColor(Color.parseColor("#171C23"))
+            setStroke(px(context, 1), Color.parseColor("#222A36"))
         }
 
     private fun inputBackground(context: Context): GradientDrawable =
         GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = px(context, 14).toFloat()
-            setColor(Color.parseColor("#11161C"))
-            setStroke(px(context, 1), Color.parseColor("#27323B"))
+            cornerRadius = px(context, 12).toFloat()
+            setColor(Color.parseColor("#141920"))
+            setStroke(px(context, 1), Color.parseColor("#1E2632"))
         }
 
     private fun chipBackground(context: Context, selected: Boolean): GradientDrawable =
         GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = px(context, 14).toFloat()
+            cornerRadius = px(context, 12).toFloat()
             if (selected) {
-                setColor(Color.parseColor("#152330"))
-                setStroke(px(context, 1), Color.parseColor("#6FDBFF"))
+                setColor(Color.parseColor("#162235"))
+                setStroke(px(context, 1), Color.parseColor("#388BFD"))
             } else {
-                setColor(Color.parseColor("#12171D"))
-                setStroke(px(context, 1), Color.parseColor("#252F38"))
+                setColor(Color.parseColor("#171C23"))
+                setStroke(px(context, 1), Color.parseColor("#222A36"))
             }
         }
 

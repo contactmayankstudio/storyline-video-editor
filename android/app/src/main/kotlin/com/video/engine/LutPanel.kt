@@ -12,7 +12,6 @@ object LutPanel {
     fun show(activity: Activity, current: EffectParams, onChange: (EffectParams) -> Unit) {
         val initial = current
         var live = current
-        var currentTab = 0 // 0 = Filter, 1 = Adjust
 
         ModernSheet.showModal(
             context = activity,
@@ -26,9 +25,8 @@ object LutPanel {
                 onChange(initial)
             },
         ) {
-            tabs(listOf("Filter", "Adjust"), selected = 0) { tabIndex ->
-                currentTab = tabIndex
-            }
+            val sectionTitles = listOf("All") + ProFilterPresets.sections.map { it.title }
+            categories(sectionTitles, selected = 0) { _, _ -> }
 
             section("Color Adjustments")
             sliderWithBubble(
@@ -67,19 +65,47 @@ object LutPanel {
 
             divider()
             section("Cinematic Presets")
-            ProFilterPresets.sections.forEach { section ->
-                chipGrid(section.title, section.presets.map { it.name }, -1, columns = 3, dismissOnSelect = false) { index, _ ->
-                    val preset = section.presets[index]
+            val allFilterCards = ProFilterPresets.sections.flatMap { sec ->
+                sec.presets.map { preset ->
+                    val gradient = when (sec.title) {
+                        "Beauty" -> Pair(android.graphics.Color.parseColor("#FF758C"), android.graphics.Color.parseColor("#FF7EB3"))
+                        "Creator" -> Pair(android.graphics.Color.parseColor("#F7971E"), android.graphics.Color.parseColor("#FFD200"))
+                        "Cinematic" -> Pair(android.graphics.Color.parseColor("#00B4DB"), android.graphics.Color.parseColor("#0083B0"))
+                        else -> Pair(android.graphics.Color.parseColor("#232526"), android.graphics.Color.parseColor("#414345"))
+                    }
+                    ModernSheet.VisualCard(
+                        id = preset.name,
+                        label = preset.name,
+                        swatchGradient = gradient,
+                        subtitle = preset.mood,
+                    )
+                }
+            }
+            visualCardsGrid(
+                cards = allFilterCards,
+                selected = -1,
+                columns = 3,
+                dismissOnSelect = false,
+            ) { _, card ->
+                ProFilterPresets.findByName(card.id)?.let { preset ->
                     live = preset.params
                     onChange(live)
                 }
             }
 
             divider()
-            chips("Reset", listOf("Reset to Original"), -1, dismissOnSelect = false) { _, _ ->
-                live = EffectParams()
-                onChange(live)
-            }
+            compactActionRow(
+                listOf(
+                    ModernSheet.CompactAction(
+                        title = "Reset to Original",
+                        isDestructive = false,
+                        onClick = {
+                            live = EffectParams()
+                            onChange(live)
+                        },
+                    ),
+                ),
+            )
         }
     }
 }

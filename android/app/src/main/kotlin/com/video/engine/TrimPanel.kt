@@ -33,14 +33,23 @@ class TrimPanel(
         dialog.setCanceledOnTouchOutside(false)
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#1E1E1E"))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadii = floatArrayOf(px(24).toFloat(), px(24).toFloat(), px(24).toFloat(), px(24).toFloat(), 0f, 0f, 0f, 0f)
+                setColor(Color.parseColor("#11151B"))
+                setStroke(px(1), Color.parseColor("#1B222C"))
+            }
             setPadding(px(16), px(12), px(16), px(32))
         }
 
         // Handle
         root.addView(View(activity).apply {
-            setBackgroundColor(Color.parseColor("#555555"))
-            layoutParams = LinearLayout.LayoutParams(px(40), px(4)).also {
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = px(999).toFloat()
+                setColor(Color.parseColor("#3A4452"))
+            }
+            layoutParams = LinearLayout.LayoutParams(px(36), px(4)).also {
                 it.gravity = Gravity.CENTER; it.bottomMargin = px(12)
             }
         })
@@ -55,18 +64,26 @@ class TrimPanel(
 
         // Thumbnail preview
         val thumbView = ImageView(activity).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(160))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(160)).also {
+                it.bottomMargin = px(8)
+            }
             scaleType = ImageView.ScaleType.CENTER_CROP
-            setBackgroundColor(Color.parseColor("#111111"))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = px(12).toFloat()
+                setColor(Color.parseColor("#090B0F"))
+                setStroke(px(1), Color.parseColor("#1B222C"))
+            }
+            clipToOutline = true
         }
         root.addView(thumbView)
 
         // Time display
         val timeLabel = TextView(activity).apply {
             text = formatMs(inMs)
-            textSize = 13f; setTextColor(Color.parseColor("#4db8ff"))
+            textSize = 13f; setTextColor(Color.parseColor("#388BFD"))
             gravity = Gravity.CENTER
-            setPadding(0, px(6), 0, px(4))
+            setPadding(0, px(4), 0, px(4))
         }
         root.addView(timeLabel)
 
@@ -74,7 +91,7 @@ class TrimPanel(
         val scrubBar = SeekBar(activity).apply {
             max = 1000
             progress = if (sourceDurationMs > 0) (inMs * 1000 / sourceDurationMs).toInt() else 0
-            progressTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#4db8ff"))
+            progressTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#388BFD"))
             thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
             setPadding(0, px(4), 0, px(4))
         }
@@ -88,12 +105,12 @@ class TrimPanel(
         }
         val inLabel = TextView(activity).apply {
             text = "In: ${formatMs(inMs)}"; textSize = 12f
-            setTextColor(Color.parseColor("#88FF88"))
+            setTextColor(Color.parseColor("#4ADE80"))
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         val outLabel = TextView(activity).apply {
             text = "Out: ${formatMs(outMs)}"; textSize = 12f
-            setTextColor(Color.parseColor("#FF8888"))
+            setTextColor(Color.parseColor("#F87171"))
             gravity = Gravity.END
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
@@ -105,24 +122,35 @@ class TrimPanel(
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, px(4), 0, px(12))
         }
-        fun actionBtn(text: String, color: Int, action: () -> Unit) = TextView(activity).apply {
+        fun actionBtn(text: String, isPrimary: Boolean, action: () -> Unit) = TextView(activity).apply {
             this.text = text; textSize = 13f; gravity = Gravity.CENTER
-            setTextColor(Color.WHITE); setBackgroundColor(color)
-            layoutParams = LinearLayout.LayoutParams(0, px(40), 1f)
+            setTextColor(Color.WHITE)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = px(10).toFloat()
+                if (isPrimary) {
+                    setColor(Color.parseColor("#17263C"))
+                    setStroke(px(1), Color.parseColor("#2B5282"))
+                } else {
+                    setColor(Color.parseColor("#171C23"))
+                    setStroke(px(1), Color.parseColor("#222A36"))
+                }
+            }
+            layoutParams = LinearLayout.LayoutParams(0, px(38), 1f)
                 .also { it.setMargins(px(4), 0, px(4), 0) }
             setOnClickListener { action() }
         }
 
         var scrubMs = inMs
-        btnRow.addView(actionBtn("Set In", Color.parseColor("#1B5E20")) {
+        btnRow.addView(actionBtn("Set In", false) {
             inMs = scrubMs.coerceAtMost(outMs - 100)
             inLabel.text = "In: ${formatMs(inMs)}"
         })
-        btnRow.addView(actionBtn("Set Out", Color.parseColor("#B71C1C")) {
+        btnRow.addView(actionBtn("Set Out", false) {
             outMs = scrubMs.coerceAtLeast(inMs + 100)
             outLabel.text = "Out: ${formatMs(outMs)}"
         })
-        btnRow.addView(actionBtn("Reset", Color.parseColor("#333333")) {
+        btnRow.addView(actionBtn("Reset", false) {
             inMs = 0; outMs = sourceDurationMs
             inLabel.text = "In: ${formatMs(inMs)}"
             outLabel.text = "Out: ${formatMs(outMs)}"
@@ -132,11 +160,17 @@ class TrimPanel(
 
         // Apply button
         root.addView(TextView(activity).apply {
-            text = "Apply Trim"; textSize = 15f; gravity = Gravity.CENTER
+            text = "Apply Trim"; textSize = 14f; gravity = Gravity.CENTER
             setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#2196F3"))
+            setTextColor(Color.WHITE)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = px(12).toFloat()
+                setColor(Color.parseColor("#17263C"))
+                setStroke(px(1), Color.parseColor("#2B5282"))
+            }
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, px(48)
+                LinearLayout.LayoutParams.MATCH_PARENT, px(44)
             )
             setOnClickListener {
                 onApply(inMs, outMs)

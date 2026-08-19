@@ -225,12 +225,18 @@ class StickersPanel(
             showClose = true,
             showApply = false,
         ) {
-            tabs(listOf("Popular", "Reactions", "Vibe", "Symbols"), selected = 0) { _ -> }
+            categories(listOf("Popular", "Reactions", "Vibe", "Symbols"), selected = 0) { _, _ -> }
 
             section("Stickers & Emojis")
-            chipGrid(
-                label = "All Stickers",
-                options = emojis,
+            val stickerCards = emojis.mapIndexed { idx, emo ->
+                ModernSheet.VisualCard(
+                    id = "$idx",
+                    label = "",
+                    emoji = emo,
+                )
+            }
+            visualCardsGrid(
+                cards = stickerCards,
                 selected = -1,
                 columns = 6,
                 dismissOnSelect = true,
@@ -242,13 +248,16 @@ class StickersPanel(
 
             divider()
             section("Custom Image Overlay")
-            actionTile(
-                title = "Import Custom Image / Sticker",
-                subtitle = "Choose PNG / JPG from gallery with transparency",
-                dismissOnClick = true,
-            ) {
-                onImageSelected("gallery://picker")
-            }
+            compactActionRow(
+                listOf(
+                    ModernSheet.CompactAction(
+                        title = "Import Custom Image / PNG",
+                        isPrimary = true,
+                        dismissOnClick = true,
+                        onClick = { onImageSelected("gallery://picker") },
+                    ),
+                ),
+            )
         }
     }
 }
