@@ -300,14 +300,12 @@ class ExportDialog(
         }
         titleInput.visibility = View.GONE
 
-        // Hide quality section
-        qualityTitleRow.visibility = View.GONE
-        qualitySeek.visibility = View.GONE
-        qualityHintRow.visibility = View.GONE
-
-        // Hide watermark section
-        watermarkCard.visibility = View.GONE
-        watermarkAction.visibility = View.GONE
+        // Quality and watermark dummy initialization
+        qualityCurrent = TextView(activity)
+        bitrateCurrent = TextView(activity)
+        qualitySeek = SeekBar(activity)
+        watermarkStatus = TextView(activity)
+        watermarkAction = TextView(activity)
 
         val summaryCard = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL

@@ -153,6 +153,7 @@ class TimelineCanvasView @JvmOverloads constructor(
     private val trackBadgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#BEEBFF"); textSize = dp(8f); textAlign = Paint.Align.CENTER; isFakeBoldText = true
     }
+    private val trackBadgeRect = RectF()
     private val trackActionChipShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#12000000")
     }
