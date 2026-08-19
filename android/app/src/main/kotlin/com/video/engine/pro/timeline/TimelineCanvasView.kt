@@ -154,6 +154,7 @@ class TimelineCanvasView @JvmOverloads constructor(
         color = Color.parseColor("#BEEBFF"); textSize = dp(8f); textAlign = Paint.Align.CENTER; isFakeBoldText = true
     }
     private val trackBadgeRect = RectF()
+    private val thumbnailPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val trackActionChipShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#12000000")
     }
@@ -712,7 +713,7 @@ class TimelineCanvasView @JvmOverloads constructor(
             canvas.clipRect(coverCardRect)
             thumbSrcRect.set(0, 0, firstThumb.width, firstThumb.height)
             thumbDstRect.set(coverCardRect.left, coverCardRect.top, coverCardRect.right, coverCardRect.bottom - dp(15))
-            canvas.drawBitmap(firstThumb, thumbSrcRect, thumbDstRect, null)
+            canvas.drawBitmap(firstThumb, thumbSrcRect, thumbDstRect, thumbnailPaint)
             canvas.restore()
         }
 
@@ -827,12 +828,14 @@ class TimelineCanvasView @JvmOverloads constructor(
         val clipLeftPx = clipContentStartPx(clip)
         val clipRightPx = clipContentEndPx(clip)
         if (clipRightPx < windowStartPx || clipLeftPx > windowEndPx) return
-        val targetH = (laneHeightPx - dp(4)).coerceAtLeast(dp(12))
+        val track = tracks.firstOrNull { it.clips.any { c -> c.id == clip.id } }
+        val actualLaneH = track?.let { trackLaneHeightPx(it) } ?: laneHeightPx
+        val targetH = (actualLaneH * 2).coerceIn(120, 320)
         val visibleWidth = (min(clipRightPx, windowEndPx) - max(clipLeftPx, windowStartPx))
             .roundToInt()
             .coerceAtLeast(dp(72))
         val assetWindowWidth = (windowEndPx - windowStartPx).roundToInt().coerceAtLeast(dp(72))
-        val viewportW = visibleWidth.coerceAtMost(assetWindowWidth)
+        val viewportW = (visibleWidth.coerceAtMost(assetWindowWidth) * 2).coerceIn(120, 1920)
         val key = TimelineThumbnailCache.buildRequestKey(clip, viewportW, targetH)
         if (clipThumbnailKeys[clip.id] == key && clipThumbnails[clip.id]?.isNotEmpty() == true) return
         clipThumbnailKeys[clip.id] = key
@@ -902,7 +905,7 @@ class TimelineCanvasView @JvmOverloads constructor(
         clipPaint.color = color
         canvas.drawRoundRect(clipRect, dp(6).toFloat(), dp(6).toFloat(), clipPaint)
 
-        // Draw thumbnails
+        // Draw thumbnails with HD bilinear filtering and crisp brightness
         val thumbs = clipThumbnails[clip.id]
         if (!thumbs.isNullOrEmpty() && (clip.trackType == TrackType.VIDEO || clip.trackType.isOverlayLike())) {
             val clipW = right - left
@@ -913,12 +916,8 @@ class TimelineCanvasView @JvmOverloads constructor(
                 val tx = left + i * tileW
                 thumbSrcRect.set(0, 0, bmp.width, bmp.height)
                 thumbDstRect.set(tx, top + dp(2), tx + tileW, bottom - dp(2))
-                canvas.drawBitmap(bmp, thumbSrcRect, thumbDstRect, null)
+                canvas.drawBitmap(bmp, thumbSrcRect, thumbDstRect, thumbnailPaint)
             }
-            // Tint overlay so clip color shows through
-            clipPaint.color = color and 0x55FFFFFF.toInt()
-            canvas.drawRoundRect(clipRect, dp(6).toFloat(), dp(6).toFloat(), clipPaint)
-            clipPaint.color = color
             canvas.restore()
         }
 

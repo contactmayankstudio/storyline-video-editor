@@ -19,48 +19,27 @@ import kotlin.math.max
 import kotlin.math.min
 
 object TimelineThumbnailCache {
-    private const val MAX_CACHE_BYTES = 24 * 1024 * 1024
-    private const val MAX_STRIP_FRAMES = 8
-    private const val MAX_VIEWPORT_WIDTH_PX = 1440
-    private const val MAX_TARGET_HEIGHT_PX = 192
-    private const val MAX_TILE_WIDTH_PX = 256
+    private const val MAX_CACHE_BYTES = 64 * 1024 * 1024
+    private const val MAX_STRIP_FRAMES = 16
+    private const val MAX_VIEWPORT_WIDTH_PX = 1920
+    private const val MAX_TARGET_HEIGHT_PX = 320
+    private const val MAX_TILE_WIDTH_PX = 360
 
     private var appContext: Context? = null
 
     fun init(context: Context) {
         appContext = context.applicationContext
-        // Resize cache based on device tier now that DeviceDetector is initialized
         cache.resize(maxCacheBytes())
     }
-    private const val TARGET_TILE_WIDTH_PX = 84
+    private const val TARGET_TILE_WIDTH_PX = 120
 
-    private fun maxCacheBytes() =
-        when (DeviceDetector.getDeviceTier()) {
-            DeviceDetector.DeviceTier.LOW -> 8 * 1024 * 1024
-            DeviceDetector.DeviceTier.MID -> 12 * 1024 * 1024
-            DeviceDetector.DeviceTier.HIGH -> MAX_CACHE_BYTES
-        }
+    private fun maxCacheBytes() = MAX_CACHE_BYTES
 
-    private fun maxFrames() =
-        when (DeviceDetector.getDeviceTier()) {
-            DeviceDetector.DeviceTier.LOW -> 1
-            DeviceDetector.DeviceTier.MID -> 3
-            DeviceDetector.DeviceTier.HIGH -> MAX_STRIP_FRAMES
-        }
+    private fun maxFrames() = 12
 
-    private fun maxTargetHeightPx() =
-        when (DeviceDetector.getDeviceTier()) {
-            DeviceDetector.DeviceTier.LOW -> 72
-            DeviceDetector.DeviceTier.MID -> 96
-            DeviceDetector.DeviceTier.HIGH -> MAX_TARGET_HEIGHT_PX
-        }
+    private fun maxTargetHeightPx() = MAX_TARGET_HEIGHT_PX
 
-    private fun callbackDelayMs() =
-        when (DeviceDetector.getDeviceTier()) {
-            DeviceDetector.DeviceTier.LOW -> 180L
-            DeviceDetector.DeviceTier.MID -> 96L
-            DeviceDetector.DeviceTier.HIGH -> 0L
-        }
+    private fun callbackDelayMs() = 0L
     private val IMAGE_EXTENSIONS =
         setOf("jpg", "jpeg", "jpe", "jfif", "png", "webp", "bmp", "gif", "tif", "tiff", "heic", "heif", "avif")
 
