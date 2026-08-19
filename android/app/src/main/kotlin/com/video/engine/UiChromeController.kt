@@ -1,6 +1,7 @@
 package com.video.engine
 
 import android.app.Activity
+import android.graphics.Color
 import android.util.Log
 import android.view.View
 import android.widget.ImageView
@@ -570,12 +571,12 @@ class UiChromeController(
                 listOf(
                     ModernSheet.CompactAction(
                         title = "Import Audio",
-                        onClick = { onOpenAudioPicker() },
+                        onClick = { onShowAudioPicker() },
                     ),
                     ModernSheet.CompactAction(
                         title = "Split Audio",
                         onClick = {
-                            val success = onSplitAudioTrack()
+                            val success = onSplitAudioAtPlayhead()
                             if (!success) {
                                 Toast.makeText(activity, "Select an audio clip first", Toast.LENGTH_SHORT).show()
                             }
