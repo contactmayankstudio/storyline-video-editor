@@ -77,24 +77,24 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     // ── Paints ────────────────────────────────────────────────────────────────
     private val bgPaint = Paint().apply { color = Color.parseColor("#06080B") }
-    private val rulerPaint = Paint().apply { color = Color.parseColor("#080B10") }
+    private val rulerPaint = Paint().apply { color = Color.parseColor("#0D1015") }
     private val rulerTickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#28303A"); strokeWidth = 1f
+        color = Color.parseColor("#1E2530"); strokeWidth = 1f
     }
     private val rulerTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#74808D"); textSize = dp(8.5f); textAlign = Paint.Align.CENTER
+        color = Color.parseColor("#6B7888"); textSize = dp(8.5f); textAlign = Paint.Align.CENTER
     }
-    private val headerPaint = Paint().apply { color = Color.parseColor("#070A0E") }
+    private val headerPaint = Paint().apply { color = Color.parseColor("#0D1015") }
     private val clipPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val clipStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = dp(2).toFloat(); color = Color.parseColor("#87D9FF")
+        style = Paint.Style.STROKE; strokeWidth = dp(1.5f).toFloat(); color = Color.parseColor("#388BFD")
     }
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
     private val playheadPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#FFB56B"); strokeWidth = dp(2).toFloat()
+        color = Color.WHITE; strokeWidth = dp(1.5f).toFloat()
     }
     private val snapLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#6FDBFF"); strokeWidth = dp(1).toFloat()
+        color = Color.parseColor("#388BFD"); strokeWidth = dp(1).toFloat()
     }
     private val clipTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE; textSize = dp(9).toFloat()
@@ -106,18 +106,18 @@ class TimelineCanvasView @JvmOverloads constructor(
     private val laneRect = RectF()
 
     // ── Extra paints ──────────────────────────────────────────────────────────
-    private val tooltipBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#CC000000") }
+    private val tooltipBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#CC0D1015") }
     private val tooltipTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE; textSize = dp(11).toFloat(); textAlign = Paint.Align.CENTER
     }
     private val durationTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#D6E0EA"); textSize = dp(8).toFloat(); textAlign = Paint.Align.CENTER
     }
-    private val transitionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#FFB56B") }
+    private val transitionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#388BFD") }
     private val transitionStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(1.2f)
-        color = Color.parseColor("#FFF4D2")
+        color = Color.WHITE
     }
     private val transitionTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
@@ -129,29 +129,29 @@ class TimelineCanvasView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
     private val trackActionRailPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#08FFFFFF")
+        color = Color.parseColor("#04FFFFFF")
     }
     private val trackActionRailStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(0.65f)
-        color = Color.parseColor("#1FFFFFFF")
+        color = Color.parseColor("#0AFFFFFF")
     }
 
     // ── Cover & Track Badge Paints ───────────────────────────────────────────
-    private val coverBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#14181F") }
+    private val coverBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#11151B") }
     private val coverStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = dp(1).toFloat(); color = Color.parseColor("#2C3545")
+        style = Paint.Style.STROKE; strokeWidth = dp(0.75f).toFloat(); color = Color.parseColor("#1B222C")
     }
     private val coverTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#D0D7DE"); textSize = dp(9.5f); textAlign = Paint.Align.CENTER; isFakeBoldText = true
+        color = Color.parseColor("#8A99AD"); textSize = dp(9f); textAlign = Paint.Align.CENTER; isFakeBoldText = true
     }
     private val coverCardRect = RectF()
-    private val trackBadgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#CC101620") }
+    private val trackBadgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#141922") }
     private val trackBadgeStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = dp(1).toFloat(); color = Color.parseColor("#443A4C60")
+        style = Paint.Style.STROKE; strokeWidth = dp(0.75f).toFloat(); color = Color.parseColor("#1E2633")
     }
     private val trackBadgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#BEEBFF"); textSize = dp(8f); textAlign = Paint.Align.CENTER; isFakeBoldText = true
+        color = Color.parseColor("#8A99AD"); textSize = dp(8f); textAlign = Paint.Align.CENTER; isFakeBoldText = true
     }
     private val trackBadgeRect = RectF()
     private val thumbnailPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
@@ -160,13 +160,13 @@ class TimelineCanvasView @JvmOverloads constructor(
     }
     private val trackAddChipStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = dp(0.85f)
-        color = Color.WHITE
+        strokeWidth = dp(0.75f)
+        color = Color.parseColor("#222A36")
     }
     private val trackAddChipInnerStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(1).toFloat()
-        color = Color.parseColor("#33FFFFFF")
+        color = Color.parseColor("#14FFFFFF")
     }
     private val trackAddChipTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
@@ -181,15 +181,16 @@ class TimelineCanvasView @JvmOverloads constructor(
     private val trackLanePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val trackLaneStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = dp(1).toFloat()
+        strokeWidth = dp(0.75f).toFloat()
+        color = Color.parseColor("#171D26")
     }
     private val verticalScrollThumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#806FDBFF")
+        color = Color.parseColor("#60388BFD")
     }
     private val headerCellPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val headerDividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#171D25")
-        strokeWidth = dp(1).toFloat()
+        color = Color.parseColor("#141922")
+        strokeWidth = dp(0.75f).toFloat()
     }
 
     private data class TransitionMarker(
@@ -973,22 +974,16 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     private fun trackLaneFill(trackType: TrackType, locked: Boolean): Int {
         val base = when (trackType) {
-            TrackType.VIDEO -> "#0A1410"
-            TrackType.OVERLAY -> "#0A1119"
-            TrackType.LAYER -> "#091315"
-            TrackType.TEXT -> "#100D17"
-            TrackType.AUDIO -> "#140F0A"
+            TrackType.VIDEO -> "#131720"
+            TrackType.OVERLAY -> "#11151D"
+            TrackType.LAYER -> "#10141C"
+            TrackType.TEXT -> "#10141B"
+            TrackType.AUDIO -> "#0F131A"
         }
-        return Color.parseColor(if (locked) "#080B10" else base)
+        return Color.parseColor(if (locked) "#0B0E14" else base)
     }
 
-    private fun trackLaneStroke(trackType: TrackType): Int = when (trackType) {
-        TrackType.VIDEO -> Color.parseColor("#1E2E28")
-        TrackType.OVERLAY -> Color.parseColor("#1D2835")
-        TrackType.LAYER -> Color.parseColor("#1C3135")
-        TrackType.TEXT -> Color.parseColor("#2A2036")
-        TrackType.AUDIO -> Color.parseColor("#32261A")
-    }
+    private fun trackLaneStroke(trackType: TrackType): Int = Color.parseColor("#171D26")
 
     private fun drawTrackImportChips(canvas: Canvas) {
         tracks.forEachIndexed { i, track ->

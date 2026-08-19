@@ -889,61 +889,61 @@ class ExportDialog(
             }
         }
 
-    private fun accentBlue(): Int = Color.parseColor("#6FDBFF")
+    private fun accentBlue(): Int = Color.parseColor("#388BFD")
 
-    private fun accentWarm(): Int = Color.parseColor("#FFB257")
+    private fun accentWarm(): Int = Color.parseColor("#388BFD")
 
     private fun sheetRootBackground(): GradientDrawable =
         GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadii = floatArrayOf(dp(26).toFloat(), dp(26).toFloat(), dp(26).toFloat(), dp(26).toFloat(), 0f, 0f, 0f, 0f)
-            setColor(Color.parseColor("#0B0F13"))
-            setStroke(dp(1), Color.parseColor("#1B222A"))
+            cornerRadii = floatArrayOf(dp(24).toFloat(), dp(24).toFloat(), dp(24).toFloat(), dp(24).toFloat(), 0f, 0f, 0f, 0f)
+            setColor(Color.parseColor("#11151B"))
+            setStroke(dp(1), Color.parseColor("#1B222C"))
         }
 
     private fun surfaceCard(): GradientDrawable =
         GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(18).toFloat()
-            setColor(Color.parseColor("#131920"))
-            setStroke(dp(1), Color.parseColor("#252F38"))
+            cornerRadius = dp(16).toFloat()
+            setColor(Color.parseColor("#171C23"))
+            setStroke(dp(1), Color.parseColor("#222A36"))
         }
 
     private fun inputBackground(): GradientDrawable =
         GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(16).toFloat()
-            setColor(Color.parseColor("#11161C"))
-            setStroke(dp(1), Color.parseColor("#27323B"))
+            cornerRadius = dp(14).toFloat()
+            setColor(Color.parseColor("#141920"))
+            setStroke(dp(1), Color.parseColor("#1E2632"))
         }
 
     private fun chipBackground(selected: Boolean): GradientDrawable =
         GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(15).toFloat()
+            cornerRadius = dp(14).toFloat()
             if (selected) {
-                setColor(Color.parseColor("#152330"))
+                setColor(Color.parseColor("#162235"))
                 setStroke(dp(1), accentBlue())
             } else {
-                setColor(Color.parseColor("#12171D"))
-                setStroke(dp(1), Color.parseColor("#252F38"))
+                setColor(Color.parseColor("#171C23"))
+                setStroke(dp(1), Color.parseColor("#222A36"))
             }
         }
 
     private fun primaryButtonBackground(): GradientDrawable =
         GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(16).toFloat()
-            setColor(Color.parseColor("#12171D"))
-            setStroke(dp(1), accentWarm())
+            cornerRadius = dp(14).toFloat()
+            setColor(Color.parseColor("#17263C"))
+            setStroke(dp(1), Color.parseColor("#2B5282"))
         }
 
     private fun secondaryButtonBackground(): GradientDrawable =
         GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(16).toFloat()
-            setColor(Color.parseColor("#11161C"))
-            setStroke(dp(1), Color.parseColor("#27323B"))
+            cornerRadius = dp(14).toFloat()
+            setColor(Color.parseColor("#171C23"))
+            setStroke(dp(1), Color.parseColor("#222A36"))
         }
 
     private fun warningCard(): GradientDrawable =
