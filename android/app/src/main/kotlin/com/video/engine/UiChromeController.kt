@@ -351,39 +351,87 @@ class UiChromeController(
         pausePlaybackForPanel()
         onHealthAction("text_tool_sheet_opened")
         ModernSheet.show(activity, "Text") {
-            chips("Create", listOf("Composer", "Caption", "Title", "Lower 3rd", "Subtitle"), -1) { _, option ->
-                when (option) {
-                    "Composer" -> onShowTextComposer()
-                    else -> onAddTextPreset(option)
-                }
+            categories(listOf("Presets", "Styles"), selected = 0) { _, _ -> }
+
+            section("Text Presets")
+            val textCards = listOf(
+                ModernSheet.VisualCard("Hook", "Hook Title", emoji = "⚡"),
+                ModernSheet.VisualCard("CTA", "CTA Button", emoji = "🎯"),
+                ModernSheet.VisualCard("Quote", "Quote Card", emoji = "💬"),
+                ModernSheet.VisualCard("Caption", "Caption", emoji = "📝"),
+                ModernSheet.VisualCard("Title", "Main Title", emoji = "🎬"),
+                ModernSheet.VisualCard("Lower 3rd", "Lower Third", emoji = "🏷️"),
+            )
+            visualCardsGrid(
+                cards = textCards,
+                selected = -1,
+                columns = 3,
+                dismissOnSelect = true,
+            ) { _, card ->
+                onAddTextPreset(card.id)
             }
-            chips("Quick", listOf("Hook", "CTA", "Quote", "Label", "Basic", "Badge"), -1) { _, option ->
-                when (option) {
-                    else -> onAddTextPreset(option)
-                }
-            }
-            chips("Studio", listOf("Edit Selected"), -1) { _, _ ->
-                onOpenSelectedTextStudio()
-            }
+
+            divider()
+            compactActionRow(
+                listOf(
+                    ModernSheet.CompactAction(
+                        title = "Text Composer",
+                        isPrimary = true,
+                        onClick = { onShowTextComposer() },
+                    ),
+                    ModernSheet.CompactAction(
+                        title = "Edit Selected",
+                        isPrimary = false,
+                        onClick = { onOpenSelectedTextStudio() },
+                    ),
+                ),
+            )
         }
     }
 
     private fun showEffectsToolSheet() {
         onHealthAction("effects_tool_sheet_opened")
         ModernSheet.show(activity, "Effects") {
-            chips("Studio", listOf("Studio FX", "LUT Library", "Reset FX"), -1) { _, option ->
-                when (option) {
-                    "Studio FX" -> showEffectsStudio()
-                    "LUT Library" -> showLutLibrary()
-                    "Reset FX" -> applyEffectPreset(EffectParams())
-                }
+            categories(listOf("Popular", "Finish"), selected = 0) { _, _ -> }
+
+            section("Visual Effects")
+            val effectCards = listOf(
+                ModernSheet.VisualCard("Beauty Lift", "Beauty Lift", swatchGradient = Pair(Color.parseColor("#FF758C"), Color.parseColor("#FF7EB3"))),
+                ModernSheet.VisualCard("Bridal Glow", "Bridal Glow", swatchGradient = Pair(Color.parseColor("#F7971E"), Color.parseColor("#FFD200"))),
+                ModernSheet.VisualCard("Cine Matte", "Cine Matte", swatchGradient = Pair(Color.parseColor("#2C3E50"), Color.parseColor("#3498DB"))),
+                ModernSheet.VisualCard("Teal Punch", "Teal Punch", swatchGradient = Pair(Color.parseColor("#00B4DB"), Color.parseColor("#0083B0"))),
+                ModernSheet.VisualCard("Golden Hour", "Golden Hour", swatchGradient = Pair(Color.parseColor("#F7971E"), Color.parseColor("#FFD200"))),
+                ModernSheet.VisualCard("Noir Mono", "Noir Mono", swatchGradient = Pair(Color.parseColor("#232526"), Color.parseColor("#414345"))),
+            )
+            visualCardsGrid(
+                cards = effectCards,
+                selected = -1,
+                columns = 3,
+                dismissOnSelect = false,
+            ) { _, card ->
+                applyEffectPresetByName(card.id)
             }
-            chips("Quick Looks", listOf("Beauty Lift", "Bridal Glow", "Cine Matte", "Teal Punch", "Golden Hour", "Noir Mono"), -1, dismissOnSelect = false) { _, option ->
-                applyEffectPresetByName(option)
-            }
-            chips("Finish", listOf("Fair Lift", "Soft Skin", "Seoul Vlog", "Market Pop", "Night Neon", "Retro Print"), -1, dismissOnSelect = false) { _, option ->
-                applyEffectPresetByName(option)
-            }
+
+            divider()
+            compactActionRow(
+                listOf(
+                    ModernSheet.CompactAction(
+                        title = "Studio FX",
+                        isPrimary = true,
+                        onClick = { showEffectsStudio() },
+                    ),
+                    ModernSheet.CompactAction(
+                        title = "LUT Library",
+                        isPrimary = false,
+                        onClick = { showLutLibrary() },
+                    ),
+                    ModernSheet.CompactAction(
+                        title = "Reset FX",
+                        isDestructive = true,
+                        onClick = { applyEffectPreset(EffectParams()) },
+                    ),
+                ),
+            )
         }
     }
 
@@ -391,75 +439,71 @@ class UiChromeController(
         pausePlaybackForPanel()
         onHealthAction("graphics_tool_sheet_opened")
         ModernSheet.show(activity, "Graphics") {
-            chipGrid("Quick Graphics", listOf("Spark", "Flame", "Heart", "Film", "Boom", "Star"), -1, columns = 3) { _, option ->
-                val success = when (option) {
-                    "Spark" -> addQuickSticker(1, option)
-                    "Flame" -> addQuickSticker(2, option)
-                    "Heart" -> addQuickSticker(3, option)
-                    "Film" -> addQuickSticker(4, option)
-                    "Boom" -> addQuickSticker(5, option)
-                    "Star" -> addQuickSticker(6, option)
-                    else -> false
-                }
+            categories(listOf("Quick", "Media"), selected = 0) { _, _ -> }
+
+            section("Quick Graphics")
+            val graphicCards = listOf(
+                ModernSheet.VisualCard("Spark", "Spark", emoji = "✨"),
+                ModernSheet.VisualCard("Flame", "Flame", emoji = "🔥"),
+                ModernSheet.VisualCard("Heart", "Heart", emoji = "❤️"),
+                ModernSheet.VisualCard("Film", "Film", emoji = "🎞️"),
+                ModernSheet.VisualCard("Boom", "Boom", emoji = "💥"),
+                ModernSheet.VisualCard("Star", "Star", emoji = "⭐"),
+            )
+            visualCardsGrid(
+                cards = graphicCards,
+                selected = -1,
+                columns = 3,
+                dismissOnSelect = false,
+            ) { index, card ->
+                val success = addQuickSticker(index + 1, card.id)
                 if (!success) {
                     Toast.makeText(activity, "Graphic add failed", Toast.LENGTH_SHORT).show()
                 }
             }
 
-            chips(
-                "Text & Titles",
-                listOf("Composer", "Caption", "Title", "Lower 3rd", "Subtitle", "Label"),
-                -1,
-                dismissOnSelect = false,
-            ) { _, option ->
-                when (option) {
-                    "Composer" -> onShowTextComposer()
-                    else -> onAddTextPreset(option)
-                }
-            }
-
-            chips(
-                "Media Source",
-                listOf("Sticker Pack", "Overlay Import", "Layer Import", "Manage Layers"),
-                -1,
-                dismissOnSelect = false,
-            ) { _, option ->
-                when (option) {
-                    "Sticker Pack" -> showStickerLibrary()
-                    "Overlay Import" -> onOpenOverlayImportPicker()
-                    "Layer Import" -> onOpenLayerImportPicker()
-                    "Manage Layers" -> showLayerManager()
-                }
-            }
-
-            chips(
-                "Workflow",
-                listOf("Hook Title", "Quote Card", "CTA Badge", "Sticker Pack", "Manage Layers"),
-                -1,
-                dismissOnSelect = false,
-            ) { _, option ->
-                when (option) {
-                    "Hook Title" -> onAddTextPreset("Hook")
-                    "Quote Card" -> onAddTextPreset("Quote")
-                    "CTA Badge" -> onAddTextPreset("CTA")
-                    "Sticker Pack" -> showStickerLibrary()
-                    "Manage Layers" -> showLayerManager()
-                }
-            }
+            divider()
+            compactActionRow(
+                listOf(
+                    ModernSheet.CompactAction(
+                        title = "Sticker Pack",
+                        isPrimary = true,
+                        onClick = { showStickerLibrary() },
+                    ),
+                    ModernSheet.CompactAction(
+                        title = "Overlay Import",
+                        onClick = { onOpenOverlayImportPicker() },
+                    ),
+                    ModernSheet.CompactAction(
+                        title = "Manage Layers",
+                        onClick = { showLayerManager() },
+                    ),
+                ),
+            )
         }
     }
 
     private fun showTransitionToolSheet() {
         onHealthAction("transition_tool_sheet_opened")
         ModernSheet.show(activity, "Transition") {
-            chipGrid(
-                "Popular",
-                listOf("Soft Cross", "Quick Fade", "Smooth Wipe", "Push Slide", "Long Dissolve", "Clean Cut"),
-                -1,
+            categories(listOf("Popular", "Fast", "Pro"), selected = 0) { _, _ -> }
+
+            section("Transition Presets")
+            val transitionCards = listOf(
+                ModernSheet.VisualCard("Soft Cross", "Soft Cross", swatchGradient = Pair(Color.parseColor("#1E3A8A"), Color.parseColor("#3B82F6"))),
+                ModernSheet.VisualCard("Quick Fade", "Quick Fade", swatchGradient = Pair(Color.parseColor("#111827"), Color.parseColor("#F97316"))),
+                ModernSheet.VisualCard("Smooth Wipe", "Smooth Wipe", swatchGradient = Pair(Color.parseColor("#065F46"), Color.parseColor("#10B981"))),
+                ModernSheet.VisualCard("Push Slide", "Push Slide", swatchGradient = Pair(Color.parseColor("#4C1D95"), Color.parseColor("#8B5CF6"))),
+                ModernSheet.VisualCard("Long Dissolve", "Long Dissolve", swatchGradient = Pair(Color.parseColor("#1E3A8A"), Color.parseColor("#60A5FA"))),
+                ModernSheet.VisualCard("Clean Cut", "Clean Cut", swatchGradient = Pair(Color.parseColor("#1C222C"), Color.parseColor("#252D3A"))),
+            )
+            visualCardsGrid(
+                cards = transitionCards,
+                selected = -1,
                 columns = 3,
                 dismissOnSelect = false,
-            ) { _, option ->
-                val success = when (option) {
+            ) { _, card ->
+                val success = when (card.id) {
                     "Soft Cross" -> onApplyTransitionPreset(TransitionType.CROSS, 450)
                     "Quick Fade" -> onApplyTransitionPreset(TransitionType.FADE, 220)
                     "Smooth Wipe" -> onApplyTransitionPreset(TransitionType.WIPE, 500)
@@ -472,41 +516,30 @@ class UiChromeController(
                     Toast.makeText(activity, "Need clips around the cut for transition", Toast.LENGTH_SHORT).show()
                 }
             }
-            chips("Fast", listOf("Cross 180", "Fade 180", "Wipe 250", "Slide 250"), -1, dismissOnSelect = false) { _, option ->
-                val success = when (option) {
-                    "Cross 180" -> onApplyTransitionPreset(TransitionType.CROSS, 180)
-                    "Fade 180" -> onApplyTransitionPreset(TransitionType.FADE, 180)
-                    "Wipe 250" -> onApplyTransitionPreset(TransitionType.WIPE, 250)
-                    "Slide 250" -> onApplyTransitionPreset(TransitionType.SLIDE, 250)
-                    else -> false
-                }
-                if (!success) {
-                    Toast.makeText(activity, "Need clips around the cut for transition", Toast.LENGTH_SHORT).show()
-                }
-            }
-            chips("Pro", listOf("Cross 700", "Fade 700", "Wipe 700", "Slide 700", "Studio Panel", "Remove"), -1, dismissOnSelect = false) { _, option ->
-                val success = when (option) {
-                    "Cross 700" -> onApplyTransitionPreset(TransitionType.CROSS, 700)
-                    "Fade 700" -> onApplyTransitionPreset(TransitionType.FADE, 700)
-                    "Wipe 700" -> onApplyTransitionPreset(TransitionType.WIPE, 700)
-                    "Slide 700" -> onApplyTransitionPreset(TransitionType.SLIDE, 700)
-                    "Studio Panel" -> {
-                        val transitionPair = onResolveTransitionTargetPair()
-                        if (transitionPair == null) {
-                            false
-                        } else {
-                            val (outgoing, incoming) = transitionPair
-                            onTransitionRequested(outgoing, incoming)
-                            true
-                        }
-                    }
-                    "Remove" -> onRemoveTransitionPreset()
-                    else -> false
-                }
-                if (!success) {
-                    Toast.makeText(activity, "No transition target available", Toast.LENGTH_SHORT).show()
-                }
-            }
+
+            divider()
+            compactActionRow(
+                listOf(
+                    ModernSheet.CompactAction(
+                        title = "Studio Panel",
+                        isPrimary = true,
+                        onClick = {
+                            val transitionPair = onResolveTransitionTargetPair()
+                            if (transitionPair == null) {
+                                Toast.makeText(activity, "No transition target available", Toast.LENGTH_SHORT).show()
+                            } else {
+                                val (outgoing, incoming) = transitionPair
+                                onTransitionRequested(outgoing, incoming)
+                            }
+                        },
+                    ),
+                    ModernSheet.CompactAction(
+                        title = "Remove Transition",
+                        isDestructive = true,
+                        onClick = { onRemoveTransitionPreset() },
+                    ),
+                ),
+            )
         }
     }
 
@@ -514,19 +547,42 @@ class UiChromeController(
         pausePlaybackForPanel()
         onHealthAction("voiceover_tool_sheet_opened")
         ModernSheet.show(activity, "Voiceover") {
-            chips("Capture", listOf("Record Voice", "Punch-In"), -1) { _, _ ->
-                onVoiceoverRequested()
-            }
-            chips("Source", listOf("Import Audio", "Split Audio"), -1) { _, option ->
-                when (option) {
-                    "Import Audio" -> onShowAudioPicker()
-                    "Split Audio" -> {
-                        if (!onSplitAudioAtPlayhead()) {
-                            Toast.makeText(activity, "Select an audio clip first", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }
-            }
+            categories(listOf("Record", "Source"), selected = 0) { _, _ -> }
+
+            section("Voice Recording")
+            compactActionRow(
+                listOf(
+                    ModernSheet.CompactAction(
+                        title = "Record Voice",
+                        isPrimary = true,
+                        onClick = { onVoiceoverRequested() },
+                    ),
+                    ModernSheet.CompactAction(
+                        title = "Punch-In",
+                        onClick = { onVoiceoverRequested() },
+                    ),
+                ),
+            )
+
+            divider()
+            section("Audio Sources")
+            compactActionRow(
+                listOf(
+                    ModernSheet.CompactAction(
+                        title = "Import Audio",
+                        onClick = { onOpenAudioPicker() },
+                    ),
+                    ModernSheet.CompactAction(
+                        title = "Split Audio",
+                        onClick = {
+                            val success = onSplitAudioTrack()
+                            if (!success) {
+                                Toast.makeText(activity, "Select an audio clip first", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    ),
+                ),
+            )
         }
     }
 
@@ -534,20 +590,45 @@ class UiChromeController(
         onHealthAction("color_tool_sheet_opened")
         onRevealSelectedClipPreview()
         ModernSheet.show(activity, "Color") {
-            chips("Studio", listOf("Grade Controls", "LUT Library", "Reset Color"), -1) { _, option ->
-                when (option) {
-                    "Grade Controls" -> { showColorStudio() }
-                    "LUT Library" -> { showLutLibrary() }
-                    "Reset Color" -> { applyEffectPreset(EffectParams()) }
-                    else -> {}
-                }
+            categories(listOf("Quick Looks", "Finish"), selected = 0) { _, _ -> }
+
+            section("Color Presets")
+            val colorCards = listOf(
+                ModernSheet.VisualCard("Fair Lift", "Fair Lift", swatchGradient = Pair(Color.parseColor("#FF758C"), Color.parseColor("#FF7EB3"))),
+                ModernSheet.VisualCard("Beauty Lift", "Beauty Lift", swatchGradient = Pair(Color.parseColor("#FF7EB3"), Color.parseColor("#FF758C"))),
+                ModernSheet.VisualCard("Cine Matte", "Cine Matte", swatchGradient = Pair(Color.parseColor("#2C3E50"), Color.parseColor("#3498DB"))),
+                ModernSheet.VisualCard("Teal Punch", "Teal Punch", swatchGradient = Pair(Color.parseColor("#00B4DB"), Color.parseColor("#0083B0"))),
+                ModernSheet.VisualCard("Golden Hour", "Golden Hour", swatchGradient = Pair(Color.parseColor("#F7971E"), Color.parseColor("#FFD200"))),
+                ModernSheet.VisualCard("Noir Mono", "Noir Mono", swatchGradient = Pair(Color.parseColor("#232526"), Color.parseColor("#414345"))),
+            )
+            visualCardsGrid(
+                cards = colorCards,
+                selected = -1,
+                columns = 3,
+                dismissOnSelect = false,
+            ) { _, card ->
+                applyEffectPresetByName(card.id)
             }
-            chips("Quick Looks", listOf("Fair Lift", "Beauty Lift", "Cine Matte", "Teal Punch", "Golden Hour", "Noir Mono"), -1, dismissOnSelect = false) { _, option ->
-                applyEffectPresetByName(option)
-            }
-            chips("Finish", listOf("Bridal Glow", "Soft Skin", "Seoul Vlog", "Night Neon", "Retro Print", "Neutral"), -1, dismissOnSelect = false) { _, option ->
-                applyEffectPresetByName(option)
-            }
+
+            divider()
+            compactActionRow(
+                listOf(
+                    ModernSheet.CompactAction(
+                        title = "Grade Controls",
+                        isPrimary = true,
+                        onClick = { showColorStudio() },
+                    ),
+                    ModernSheet.CompactAction(
+                        title = "LUT Library",
+                        onClick = { showLutLibrary() },
+                    ),
+                    ModernSheet.CompactAction(
+                        title = "Reset Color",
+                        isDestructive = true,
+                        onClick = { applyEffectPreset(EffectParams()) },
+                    ),
+                ),
+            )
         }
     }
 
