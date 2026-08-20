@@ -344,10 +344,10 @@ class ExportDialog(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             ).also { it.topMargin = dp(18) }
         }
-        val cancelButton = actionButton("Cancel", "#2A2A2A", "#FFFFFF").apply {
+        val cancelButton = actionButton("Cancel", "#171C23", "#8A99AD").apply {
             setOnClickListener { dialog.dismiss() }
         }
-        exportButton = actionButton("Export", "#FF5A52", "#FFFFFF")
+        exportButton = actionButton("Export", "#388BFD", "#FFFFFF")
         actions.addView(cancelButton)
         actions.addView(exportButton)
         root.addView(actions)
@@ -877,7 +877,7 @@ class ExportDialog(
             gravity = Gravity.CENTER
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor(textColor))
-            background = if (backgroundColor.equals("#FF5A52", ignoreCase = true)) {
+            background = if (backgroundColor.equals("#388BFD", ignoreCase = true) || backgroundColor.equals("#FF5A52", ignoreCase = true)) {
                 primaryButtonBackground()
             } else {
                 secondaryButtonBackground()
