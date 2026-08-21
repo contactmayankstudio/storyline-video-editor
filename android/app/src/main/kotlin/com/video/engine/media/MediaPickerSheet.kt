@@ -48,6 +48,9 @@ data class MediaItem(
     val artist: String = ""
 )
 
+private fun dp(context: Context, v: Float): Float = v * context.resources.displayMetrics.density
+private fun dpInt(context: Context, v: Float): Int = (v * context.resources.displayMetrics.density).toInt()
+
 object MediaPickerSheet {
 
     private val thumbnailExecutor = Executors.newFixedThreadPool(2)
@@ -83,17 +86,17 @@ object MediaPickerSheet {
                     0f, 0f, 0f, 0f
                 )
             }
-            setPadding(0, dp(activity, 12f).toInt(), 0, dp(activity, 16f).toInt())
+            setPadding(0, dpInt(activity, 12f), 0, dpInt(activity, 16f))
         }
 
         // Header
         val header = FrameLayout(activity).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(activity, 44f).toInt()
+                dpInt(activity, 44f)
             ).also {
-                it.marginStart = dp(activity, 16f).toInt()
-                it.marginEnd = dp(activity, 16f).toInt()
+                it.marginStart = dpInt(activity, 16f)
+                it.marginEnd = dpInt(activity, 16f)
             }
         }
 
@@ -114,10 +117,10 @@ object MediaPickerSheet {
         val closeBtn = ImageView(activity).apply {
             setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
             setColorFilter(Color.parseColor("#8A99AD"))
-            setPadding(dp(activity, 8f).toInt(), dp(activity, 8f).toInt(), dp(activity, 8f).toInt(), dp(activity, 8f).toInt())
+            setPadding(dpInt(activity, 8f), dpInt(activity, 8f), dpInt(activity, 8f), dpInt(activity, 8f))
             layoutParams = FrameLayout.LayoutParams(
-                dp(activity, 36f).toInt(),
-                dp(activity, 36f).toInt(),
+                dpInt(activity, 36f),
+                dpInt(activity, 36f),
                 Gravity.END or Gravity.CENTER_VERTICAL
             )
             setOnClickListener { dialog.dismiss() }
@@ -131,12 +134,12 @@ object MediaPickerSheet {
             gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(activity, 36f).toInt()
+                dpInt(activity, 36f)
             ).also {
-                it.marginStart = dp(activity, 16f).toInt()
-                it.marginEnd = dp(activity, 16f).toInt()
-                it.topMargin = dp(activity, 4f).toInt()
-                it.bottomMargin = dp(activity, 8f).toInt()
+                it.marginStart = dpInt(activity, 16f)
+                it.marginEnd = dpInt(activity, 16f)
+                it.topMargin = dpInt(activity, 4f)
+                it.bottomMargin = dpInt(activity, 8f)
             }
         }
 
@@ -154,7 +157,7 @@ object MediaPickerSheet {
             setTextColor(Color.parseColor("#8A99AD"))
             textSize = 11.5f
             typeface = Typeface.SANS_SERIF
-            setPadding(dp(activity, 16f).toInt(), 0, dp(activity, 16f).toInt(), dp(activity, 6f).toInt())
+            setPadding(dpInt(activity, 16f), 0, dpInt(activity, 16f), dpInt(activity, 6f))
             visibility = View.GONE
         }
         root.addView(infoStrip)
@@ -163,9 +166,9 @@ object MediaPickerSheet {
         val recyclerView = RecyclerView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(activity, 320f).toInt()
+                dpInt(activity, 320f)
             )
-            setPadding(dp(activity, 12f).toInt(), 0, dp(activity, 12f).toInt(), 0)
+            setPadding(dpInt(activity, 12f), 0, dpInt(activity, 12f), 0)
             clipToPadding = false
         }
         root.addView(recyclerView)
@@ -176,7 +179,7 @@ object MediaPickerSheet {
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(activity, 200f).toInt()
+                dpInt(activity, 200f)
             )
             visibility = View.GONE
 
@@ -196,13 +199,13 @@ object MediaPickerSheet {
                 typeface = Typeface.DEFAULT_BOLD
                 background = GradientDrawable().apply {
                     setColor(Color.parseColor("#151A24"))
-                    setStroke(dp(activity, 1f).toInt(), Color.parseColor("#263244"))
+                    setStroke(dpInt(activity, 1f), Color.parseColor("#263244"))
                     cornerRadius = dp(activity, 8f)
                 }
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
-                    dp(activity, 34f).toInt()
-                ).also { it.topMargin = dp(activity, 10f).toInt() }
+                    dpInt(activity, 34f)
+                ).also { it.topMargin = dpInt(activity, 10f) }
                 setOnClickListener {
                     dialog.dismiss()
                     onBrowseSystemPicker(targetTrackType)
@@ -218,11 +221,11 @@ object MediaPickerSheet {
             gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(activity, 48f).toInt()
+                dpInt(activity, 48f)
             ).also {
-                it.marginStart = dp(activity, 16f).toInt()
-                it.marginEnd = dp(activity, 16f).toInt()
-                it.topMargin = dp(activity, 10f).toInt()
+                it.marginStart = dpInt(activity, 16f)
+                it.marginEnd = dpInt(activity, 16f)
+                it.topMargin = dpInt(activity, 10f)
             }
         }
 
@@ -234,14 +237,14 @@ object MediaPickerSheet {
             gravity = Gravity.CENTER
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#141922"))
-                setStroke(dp(activity, 1f).toInt(), Color.parseColor("#222A36"))
+                setStroke(dpInt(activity, 1f), Color.parseColor("#222A36"))
                 cornerRadius = dp(activity, 10f)
             }
             layoutParams = LinearLayout.LayoutParams(
                 0,
-                dp(activity, 40f).toInt(),
+                dpInt(activity, 40f),
                 1f
-            ).also { it.marginEnd = dp(activity, 8f).toInt() }
+            ).also { it.marginEnd = dpInt(activity, 8f) }
             setOnClickListener {
                 dialog.dismiss()
                 onBrowseSystemPicker(targetTrackType)
@@ -261,7 +264,7 @@ object MediaPickerSheet {
             }
             layoutParams = LinearLayout.LayoutParams(
                 0,
-                dp(activity, 40f).toInt(),
+                dpInt(activity, 40f),
                 1.3f
             )
             isEnabled = false
@@ -380,7 +383,7 @@ object MediaPickerSheet {
 
         dialog.setContentView(root)
         dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
-        dialog.behavior.peekHeight = dp(activity, 480f).toInt()
+        dialog.behavior.peekHeight = dpInt(activity, 480f)
         dialog.behavior.skipCollapsed = true
         dialog.show()
 
@@ -396,9 +399,9 @@ object MediaPickerSheet {
             updateTabButton(this, isSelected)
             layoutParams = LinearLayout.LayoutParams(
                 0,
-                dp(context, 32f).toInt(),
+                dpInt(context, 32f),
                 1f
-            ).also { it.marginEnd = dp(context, 6f).toInt() }
+            ).also { it.marginEnd = dpInt(context, 6f) }
         }
     }
 
@@ -414,7 +417,7 @@ object MediaPickerSheet {
             view.setTextColor(Color.parseColor("#8A99AD"))
             view.background = GradientDrawable().apply {
                 setColor(Color.parseColor("#141922"))
-                setStroke(dp(context, 1f).toInt(), Color.parseColor("#1F2633"))
+                setStroke(dpInt(context, 1f), Color.parseColor("#1F2633"))
                 cornerRadius = dp(context, 8f)
             }
         }
@@ -563,10 +566,6 @@ object MediaPickerSheet {
         return "%02d:%02d".format(min, sec)
     }
 
-    private fun dp(context: Context, v: Float): Float {
-        return v * context.resources.displayMetrics.density
-    }
-
     private class MediaAdapter(
         private val context: Context,
         private val items: List<MediaItem>,
@@ -585,26 +584,26 @@ object MediaPickerSheet {
                     gravity = Gravity.CENTER_VERTICAL
                     layoutParams = RecyclerView.LayoutParams(
                         RecyclerView.LayoutParams.MATCH_PARENT,
-                        dpInt(56f)
+                        dpInt(context, 56f)
                     ).also {
-                        it.bottomMargin = dpInt(6f)
+                        it.bottomMargin = dpInt(context, 6f)
                     }
                     background = GradientDrawable().apply {
                         setColor(Color.parseColor("#131720"))
                         cornerRadius = dp(context, 8f)
-                        setStroke(dpInt(1f), Color.parseColor("#1A212D"))
+                        setStroke(dpInt(context, 1f), Color.parseColor("#1A212D"))
                     }
-                    setPadding(dpInt(12f), dpInt(6f), dpInt(12f), dpInt(6f))
+                    setPadding(dpInt(context, 12f), dpInt(context, 6f), dpInt(context, 12f), dpInt(context, 6f))
                 }
                 AudioViewHolder(row)
             } else {
                 val frame = FrameLayout(context).apply {
                     layoutParams = RecyclerView.LayoutParams(
                         RecyclerView.LayoutParams.MATCH_PARENT,
-                        dpInt(104f)
+                        dpInt(context, 104f)
                     ).also {
-                        it.marginEnd = dpInt(6f)
-                        it.bottomMargin = dpInt(6f)
+                        it.marginEnd = dpInt(context, 6f)
+                        it.bottomMargin = dpInt(context, 6f)
                     }
                 }
                 GridViewHolder(frame)
@@ -623,8 +622,6 @@ object MediaPickerSheet {
                 holder.bind(item)
             }
         }
-
-        private fun dpInt(v: Float) = (v * context.resources.displayMetrics.density).toInt()
 
         inner class GridViewHolder(val container: FrameLayout) : RecyclerView.ViewHolder(container) {
             private val imageView = ImageView(context).apply {
@@ -648,14 +645,14 @@ object MediaPickerSheet {
                     setColor(Color.parseColor("#CC070A0F"))
                     cornerRadius = dp(context, 4f)
                 }
-                setPadding(dpInt(5f), dpInt(2f), dpInt(5f), dpInt(2f))
+                setPadding(dpInt(context, 5f), dpInt(context, 2f), dpInt(context, 5f), dpInt(context, 2f))
                 layoutParams = FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.WRAP_CONTENT,
                     FrameLayout.LayoutParams.WRAP_CONTENT,
                     Gravity.BOTTOM or Gravity.END
                 ).also {
-                    it.marginEnd = dpInt(4f)
-                    it.bottomMargin = dpInt(4f)
+                    it.marginEnd = dpInt(context, 4f)
+                    it.bottomMargin = dpInt(context, 4f)
                 }
             }
 
@@ -670,12 +667,12 @@ object MediaPickerSheet {
                     shape = GradientDrawable.OVAL
                 }
                 layoutParams = FrameLayout.LayoutParams(
-                    dpInt(20f),
-                    dpInt(20f),
+                    dpInt(context, 20f),
+                    dpInt(context, 20f),
                     Gravity.TOP or Gravity.END
                 ).also {
-                    it.marginEnd = dpInt(4f)
-                    it.topMargin = dpInt(4f)
+                    it.marginEnd = dpInt(context, 4f)
+                    it.topMargin = dpInt(context, 4f)
                 }
             }
 
@@ -686,7 +683,7 @@ object MediaPickerSheet {
                 )
                 background = GradientDrawable().apply {
                     setColor(Color.TRANSPARENT)
-                    setStroke(dpInt(2.5f), Color.parseColor("#388BFD"))
+                    setStroke(dpInt(context, 2.5f), Color.parseColor("#388BFD"))
                     cornerRadius = dp(context, 8f)
                 }
             }
@@ -698,7 +695,7 @@ object MediaPickerSheet {
                 container.addView(checkBadge)
 
                 container.setOnClickListener {
-                    val pos = adapterPosition
+                    val pos = bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: adapterPosition
                     if (pos != RecyclerView.NO_POSITION) {
                         val item = items[pos]
                         val currentlySelected = selectedItems.contains(item)
@@ -747,7 +744,7 @@ object MediaPickerSheet {
                     setColor(Color.parseColor("#388BFD"))
                     cornerRadius = dp(context, 6f)
                 }
-                setPadding(dpInt(12f), dpInt(6f), dpInt(12f), dpInt(6f))
+                setPadding(dpInt(context, 12f), dpInt(context, 6f), dpInt(context, 12f), dpInt(context, 6f))
             }
 
             init {
@@ -761,9 +758,9 @@ object MediaPickerSheet {
                         shape = GradientDrawable.OVAL
                     }
                     layoutParams = LinearLayout.LayoutParams(
-                        dpInt(32f),
-                        dpInt(32f)
-                    ).also { it.marginEnd = dpInt(10f) }
+                        dpInt(context, 32f),
+                        dpInt(context, 32f)
+                    ).also { it.marginEnd = dpInt(context, 10f) }
                 }
                 row.addView(icon)
 
@@ -781,13 +778,13 @@ object MediaPickerSheet {
                 row.addView(addBtn)
 
                 addBtn.setOnClickListener {
-                    val pos = adapterPosition
+                    val pos = bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: adapterPosition
                     if (pos != RecyclerView.NO_POSITION) {
                         onItemClick(items[pos], true)
                     }
                 }
                 row.setOnClickListener {
-                    val pos = adapterPosition
+                    val pos = bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: adapterPosition
                     if (pos != RecyclerView.NO_POSITION) {
                         onItemClick(items[pos], true)
                     }
