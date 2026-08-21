@@ -40,12 +40,21 @@
 - **Empty State**: Polished `"Add media"` state with direct tap-to-import.
 - **Toolbar Label**: Renamed `"Transit"` to `"Transitions"`.
 
+### Phase 4: Premium Media & Import UX
+- **Custom Bottom Sheet (`MediaPickerSheet.kt`)**: Professional dark bottom sheet with category tabs (`Video`, `Photo`, `Audio`).
+- **High-Performance Async Loader**: 2-thread background `MediaStore` query executor with 20MB `LruCache` bitmap caching preventing OOM on 2GB RAM devices (Redmi 9A).
+- **Video & Photo Grid**: 3-column rounded grid with instant downsampled thumbnails, clean duration pills, and multi-select support.
+- **Audio Studio List**: Clean audio track rows with ♪ badges, title, artist, duration, and instant `+ Add` action.
+- **Direct Toolbar & Track Routing**: Tapping toolbar "Media", "Overlay", "Audio" or track "+" chips directly opens the sheet pre-filtered to the target category.
+- **Fallback System Picker**: One-tap "Browse Files" button for document/SAF file picker when needed.
+
 ---
 
 ## 🛠️ Architecture Reference for ChatGPT
 1. **Presentation Layer**:
-   - `MainActivity.kt` (~16.5k lines): Central editor activity.
+   - `MainActivity.kt` (~16.6k lines): Central editor activity.
    - `TimelineCanvasView.kt` (~1.9k lines): High-performance single-canvas timeline renderer.
+   - `MediaPickerSheet.kt` (~850 lines): Premium bottom sheet media browser with async caching.
    - `VideoPreviewView.kt`: Custom GL surface host for native GPU frames.
 2. **Native Video Engine (C++ / JNI)**:
    - `NativeBridge.kt`: JNI bridge connecting Kotlin to C++ timeline commands (`SPLIT`, `UPDATE_CLIP_TIMING`, `SET_CLIP_TRACK`, `GET_TIMELINE_LAYOUT`, etc.).
@@ -55,9 +64,9 @@
 
 ---
 
-## 💬 Instructions for ChatGPT for Next Phase (Phase 4 / Feature Steps)
+## 💬 Instructions for ChatGPT for Next Phase (Phase 5 / Roadmap)
 When drafting the next prompt for the user:
-1. Specify clear, targeted requirements (e.g. Phase 4: Audio Studio / Transitions / Video Effects / Export Pipeline).
+1. Specify clear, targeted requirements (e.g. Phase 5: Audio Studio & Voiceover / Transitions Engine / Video Effects & Filters).
 2. Keep the existing Storyline design language intact (`#388BFD` blue accent, dark workstation surfaces).
 3. Do not change working C++ video rendering or FFmpeg export logic unless explicitly needed.
 4. Keep memory usage low for budget Android devices (Redmi 9A, 2GB RAM).
