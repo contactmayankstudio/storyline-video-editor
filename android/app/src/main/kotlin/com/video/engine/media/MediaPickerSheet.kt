@@ -4,11 +4,9 @@ import android.app.Activity
 import android.content.ContentUris
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.media.ThumbnailUtils
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -27,7 +25,6 @@ import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.video.engine.R
 import com.video.engine.pro.model.TrackType
-import java.io.File
 import java.util.concurrent.Executors
 
 enum class MediaType {
@@ -351,7 +348,6 @@ object MediaPickerSheet {
 
         adapter = MediaAdapter(activity, mediaItems, selectedItems) { item, isSelected ->
             if (currentTab == MediaType.AUDIO) {
-                // Direct add for audio
                 dialog.dismiss()
                 onMediaSelected(listOf(item.uri), TrackType.AUDIO)
             } else {
@@ -581,7 +577,6 @@ object MediaPickerSheet {
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
             return if (viewType == 1) {
-                // Audio Row
                 val row = LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
@@ -600,7 +595,6 @@ object MediaPickerSheet {
                 }
                 AudioViewHolder(row)
             } else {
-                // Grid Item
                 val frame = FrameLayout(context).apply {
                     layoutParams = RecyclerView.LayoutParams(
                         RecyclerView.LayoutParams.MATCH_PARENT,
