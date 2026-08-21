@@ -745,15 +745,7 @@ class UiChromeController(
         cutButton.setOnClickListener {
             onUiButtonTap("media", "main_toolbar", "tap")
             Log.d(TAG, "Video import button clicked")
-            showImportSourceSheet(
-                title = "Media",
-                openedAction = "media_source_sheet_opened",
-                browseLabel = "Browse Device",
-                onBrowse = onOpenVideoImportPicker,
-                extraActions = listOf(
-                    "Open Saved Project" to onShowLoadProjectDialog,
-                ),
-            )
+            onOpenVideoImportPicker()
         }
         activity.findViewById<LinearLayout>(R.id.cutButton).setOnLongClickListener(null)
 
@@ -762,16 +754,7 @@ class UiChromeController(
         overlayImportButton.setOnClickListener {
             onUiButtonTap("overlay", "main_toolbar", "tap")
             Log.d(TAG, "Overlay import button clicked")
-            showImportSourceSheet(
-                title = "Overlay",
-                openedAction = "overlay_source_sheet_opened",
-                browseLabel = "Browse Device",
-                onBrowse = onOpenOverlayImportPicker,
-                extraActions = listOf(
-                    "Sticker Pack" to { showStickerLibrary() },
-                    "Manage Layers" to { showLayerManager() },
-                ),
-            )
+            onOpenOverlayImportPicker()
         }
         activity.findViewById<LinearLayout>(R.id.overlayImportButton).setOnLongClickListener(null)
 
@@ -780,15 +763,7 @@ class UiChromeController(
         layersButton.setOnClickListener {
             onUiButtonTap("layers", "main_toolbar", "tap")
             Log.d(TAG, "Layer import button clicked")
-            showImportSourceSheet(
-                title = "Layers",
-                openedAction = "layers_source_sheet_opened",
-                browseLabel = "Import Layer",
-                onBrowse = onOpenLayerImportPicker,
-                extraActions = listOf(
-                    "Manage Layers" to { showLayerManager() },
-                ),
-            )
+            onOpenLayerImportPicker()
         }
         activity.findViewById<LinearLayout>(R.id.layersButton).setOnLongClickListener {
             onUiButtonTap("layers_manage", "main_toolbar", "long_press")
@@ -799,20 +774,7 @@ class UiChromeController(
         activity.findViewById<LinearLayout>(R.id.audioButton).setOnClickListener {
             onUiButtonTap("audio", "main_toolbar", "tap")
             Log.d(TAG, "Audio button clicked")
-            showImportSourceSheet(
-                title = "Audio",
-                openedAction = "audio_source_sheet_opened",
-                browseLabel = "Browse Device",
-                onBrowse = onShowAudioPicker,
-                extraActions = listOf(
-                    "Split Audio" to {
-                        if (!onSplitAudioAtPlayhead()) {
-                            Toast.makeText(activity, "Select an audio clip first", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    "Record Voice" to onVoiceoverRequested,
-                ),
-            )
+            onShowAudioPicker()
         }
         activity.findViewById<LinearLayout>(R.id.audioButton).setOnLongClickListener(null)
 
