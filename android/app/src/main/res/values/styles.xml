@@ -112,6 +112,14 @@
         <item name="android:letterSpacing">0</item>
     </style>
 
+    <style name="ClipToolbarItem.Delete">
+        <item name="android:background">@drawable/toolbar_item_danger_background</item>
+    </style>
+
+    <style name="ClipToolbarLabel.Delete">
+        <item name="android:textColor">@color/semantic_destructive</item>
+    </style>
+
     <!-- ── Design System Typography Styles ── -->
     <style name="Typography">
         <item name="android:textColor">@color/text_primary</item>

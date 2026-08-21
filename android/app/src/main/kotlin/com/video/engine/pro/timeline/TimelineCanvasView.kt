@@ -82,7 +82,7 @@ class TimelineCanvasView @JvmOverloads constructor(
         color = Color.parseColor("#1E2530"); strokeWidth = 1f
     }
     private val rulerTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#6B7888"); textSize = dp(8.5f); textAlign = Paint.Align.CENTER
+        color = Color.parseColor("#8A99AD"); textSize = dp(8.5f); textAlign = Paint.Align.CENTER
     }
     private val headerPaint = Paint().apply { color = Color.parseColor("#0D1015") }
     private val clipPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -192,6 +192,13 @@ class TimelineCanvasView @JvmOverloads constructor(
         color = Color.parseColor("#141922")
         strokeWidth = dp(0.75f).toFloat()
     }
+    private val clipPillBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D9090B0F") }
+    private val clipPillStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(0.75f).toFloat()
+        color = Color.parseColor("#28FFFFFF")
+    }
+    private val clipPillRect = RectF()
 
     private data class TransitionMarker(
         val outgoingClipId: Int,
@@ -750,7 +757,8 @@ class TimelineCanvasView @JvmOverloads constructor(
     private fun formatMs(ms: Long): String {
         val s = ms / 1000
         val m = s / 60
-        return if (m > 0) "%d:%02d".format(m, s % 60) else "0:%02d".format(s % 60)
+        val remS = s % 60
+        return "%02d:%02d".format(m, remS)
     }
 
     // ── Waveform cache ────────────────────────────────────────────────────────
@@ -885,11 +893,58 @@ class TimelineCanvasView @JvmOverloads constructor(
                 drawClip(canvas, clip, ct, cb)
                 drawWaveform(canvas, clip, ct, cb)
             }
+            if (track.type == TrackType.VIDEO && track.clips.isEmpty()) {
+                val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.parseColor("#485361")
+                    textSize = dp(10.5f).toFloat()
+                    textAlign = Paint.Align.CENTER
+                    isFakeBoldText = true
+                }
+                canvas.drawText("Add video to begin", laneRect.centerX(), laneRect.centerY() + dp(3.5f), hintPaint)
+            }
         }
     }
 
     private val thumbSrcRect = Rect()
     private val thumbDstRect = RectF()
+
+    private fun formatClipLabel(clip: ClipSegment, track: TrackState?): String {
+        val customName = clip.metadata["customName"]?.takeIf { it.isNotBlank() }
+        if (customName != null) return customName
+
+        val rawName = clip.sourcePath.substringAfterLast('/').substringBeforeLast('.')
+        val isCleanShortName = rawName.isNotBlank() &&
+                               rawName.length <= 14 &&
+                               !rawName.contains("istockphoto", ignoreCase = true) &&
+                               !rawName.contains("VID_", ignoreCase = true) &&
+                               !rawName.contains("IMG_", ignoreCase = true) &&
+                               !rawName.contains("proxy", ignoreCase = true) &&
+                               !rawName.matches(Regex(".*[0-9a-fA-F]{8,}.*"))
+
+        if (isCleanShortName) {
+            return rawName.replace('_', ' ')
+        }
+
+        val trackClips = track?.clips?.sortedBy { it.startTimeMs } ?: emptyList()
+        val index = trackClips.indexOfFirst { it.id == clip.id }.takeIf { it >= 0 }?.plus(1) ?: 1
+        val indexStr = "%02d".format(index)
+
+        return when (clip.trackType) {
+            TrackType.VIDEO -> "Video $indexStr"
+            TrackType.OVERLAY, TrackType.LAYER -> "Overlay $indexStr"
+            TrackType.TEXT -> {
+                val textContent = clip.metadata["text"]?.takeIf { it.isNotBlank() }
+                if (textContent != null && textContent.length <= 12) textContent else "Text $indexStr"
+            }
+            TrackType.AUDIO -> {
+                if (rawName.isNotBlank() && rawName.length <= 16 && !rawName.contains("audiotrack", ignoreCase = true)) {
+                    rawName.replace('_', ' ')
+                } else {
+                    "Audio $indexStr"
+                }
+            }
+        }
+    }
 
     private fun drawClip(canvas: Canvas, clip: ClipSegment, top: Float, bottom: Float) {
         val left = msToX(clip.startTimeMs)
@@ -908,7 +963,8 @@ class TimelineCanvasView @JvmOverloads constructor(
 
         // Draw thumbnails with HD bilinear filtering and crisp brightness
         val thumbs = clipThumbnails[clip.id]
-        if (!thumbs.isNullOrEmpty() && (clip.trackType == TrackType.VIDEO || clip.trackType.isOverlayLike())) {
+        val isVisual = (clip.trackType == TrackType.VIDEO || clip.trackType.isOverlayLike())
+        if (!thumbs.isNullOrEmpty() && isVisual) {
             val clipW = right - left
             val tileW = clipW / thumbs.size
             canvas.save()
@@ -922,16 +978,40 @@ class TimelineCanvasView @JvmOverloads constructor(
             canvas.restore()
         }
 
-        // Label
-        val labelX = max(clampedLeft + dp(4), left + dp(4))
-        val labelWidth = clampedRight - labelX - dp(4)
-        if (labelWidth > dp(20)) {
-            val name = clip.sourcePath.substringAfterLast('/').ifBlank { clip.id }
+        val track = tracks.firstOrNull { it.clips.any { c -> c.id == clip.id } }
+        val friendlyName = formatClipLabel(clip, track)
+
+        if (isVisual) {
+            // Draw subtle top-left capsule badge for video/overlay so thumbnail remains clearly visible
+            val padH = dp(5).toFloat()
+            clipTextPaint.textSize = dp(8f).toFloat()
+            clipTextPaint.isFakeBoldText = true
             clipTextPaint.color = Color.WHITE
-            canvas.save()
-            canvas.clipRect(labelX, top, clampedRight - dp(2), bottom)
-            canvas.drawText(name, labelX, top + ((bottom - top) * 0.62f), clipTextPaint)
-            canvas.restore()
+            val textW = clipTextPaint.measureText(friendlyName)
+            val badgeW = textW + padH * 2
+            val badgeH = dp(14).toFloat()
+            val badgeLeft = clampedLeft + dp(3)
+            val badgeTop = top + dp(3)
+
+            if (badgeLeft + badgeW <= clampedRight - dp(3)) {
+                clipPillRect.set(badgeLeft, badgeTop, badgeLeft + badgeW, badgeTop + badgeH)
+                canvas.drawRoundRect(clipPillRect, dp(3).toFloat(), dp(3).toFloat(), clipPillBgPaint)
+                canvas.drawRoundRect(clipPillRect, dp(3).toFloat(), dp(3).toFloat(), clipPillStrokePaint)
+                canvas.drawText(friendlyName, badgeLeft + padH, badgeTop + badgeH - dp(3.5f), clipTextPaint)
+            }
+        } else {
+            // Audio / Text label
+            val labelX = max(clampedLeft + dp(6), left + dp(6))
+            val labelWidth = clampedRight - labelX - dp(6)
+            if (labelWidth > dp(20)) {
+                clipTextPaint.textSize = dp(9f).toFloat()
+                clipTextPaint.isFakeBoldText = true
+                clipTextPaint.color = Color.WHITE
+                canvas.save()
+                canvas.clipRect(labelX, top, clampedRight - dp(2), bottom)
+                canvas.drawText(friendlyName, labelX, top + ((bottom - top) * 0.60f), clipTextPaint)
+                canvas.restore()
+            }
         }
 
         // Muted / hidden dim
@@ -965,22 +1045,22 @@ class TimelineCanvasView @JvmOverloads constructor(
     }
 
     private fun clipColor(clip: ClipSegment) = when (clip.trackType) {
-        TrackType.VIDEO -> Color.parseColor("#23634C")
-        TrackType.OVERLAY -> Color.parseColor("#335D89")
-        TrackType.LAYER -> Color.parseColor("#2F6970")
-        TrackType.TEXT -> Color.parseColor("#6C45A3")
-        TrackType.AUDIO -> Color.parseColor("#9A5C2F")
+        TrackType.VIDEO -> Color.parseColor("#18362B")
+        TrackType.OVERLAY -> Color.parseColor("#1E3650")
+        TrackType.LAYER -> Color.parseColor("#1B363E")
+        TrackType.TEXT -> Color.parseColor("#3E2360")
+        TrackType.AUDIO -> Color.parseColor("#5E3318")
     }
 
     private fun trackLaneFill(trackType: TrackType, locked: Boolean): Int {
         val base = when (trackType) {
-            TrackType.VIDEO -> "#131720"
-            TrackType.OVERLAY -> "#11151D"
-            TrackType.LAYER -> "#10141C"
-            TrackType.TEXT -> "#10141B"
-            TrackType.AUDIO -> "#0F131A"
+            TrackType.VIDEO -> "#10141C"
+            TrackType.OVERLAY -> "#0E1219"
+            TrackType.LAYER -> "#0D1118"
+            TrackType.TEXT -> "#0C1017"
+            TrackType.AUDIO -> "#0B0F15"
         }
-        return Color.parseColor(if (locked) "#0B0E14" else base)
+        return Color.parseColor(if (locked) "#07090D" else base)
     }
 
     private fun trackLaneStroke(trackType: TrackType): Int = Color.parseColor("#171D26")
@@ -1007,7 +1087,7 @@ class TimelineCanvasView @JvmOverloads constructor(
             trackAddChipStrokePaint.alpha = 255
             trackAddChipTextPaint.color = if (isLocked) Color.parseColor("#8B95A1") else Color.WHITE
             trackAddChipTextPaint.alpha = if (isLocked) 86 else 220
-            trackAddChipTextPaint.textSize = dp(11.5f)
+            trackAddChipTextPaint.textSize = dp(10f)
             trackAddChipTextPaint.isFakeBoldText = true
             canvas.drawText("+", chip.centerX(), chip.centerY() + dp(3.5f), trackAddChipTextPaint)
             trackAddChipTextPaint.alpha = 255
@@ -1019,32 +1099,32 @@ class TimelineCanvasView @JvmOverloads constructor(
         val top = trackTop(trackIndex).toFloat()
         val bottom = top + trackVisualHeightPx(track)
         val rail = RectF(
-            chip.left - dp(3),
+            chip.left - dp(2),
             top + dp(3),
-            chip.right + dp(3),
+            chip.right + dp(2),
             bottom - dp(3),
         )
         trackActionRailPaint.alpha = 8
-        canvas.drawRoundRect(rail, dp(9).toFloat(), dp(9).toFloat(), trackActionRailPaint)
+        canvas.drawRoundRect(rail, dp(8).toFloat(), dp(8).toFloat(), trackActionRailPaint)
         trackActionRailPaint.alpha = 255
         trackActionRailStrokePaint.color = trackActionRailStroke(track.type)
         trackActionRailStrokePaint.alpha = 18
-        canvas.drawRoundRect(rail, dp(9).toFloat(), dp(9).toFloat(), trackActionRailStrokePaint)
+        canvas.drawRoundRect(rail, dp(8).toFloat(), dp(8).toFloat(), trackActionRailStrokePaint)
         trackActionRailStrokePaint.alpha = 255
     }
 
     private fun trackImportChipRect(trackIndex: Int, track: TrackState): RectF {
-        val chipWidth = dp(28).toFloat()
-        val chipHeight = min(laneHeightPx - dp(16), dp(17)).coerceAtLeast(dp(15)).toFloat()
+        val chipWidth = dp(24).toFloat()
+        val chipHeight = min(laneHeightPx - dp(18), dp(16)).coerceAtLeast(dp(14)).toFloat()
         val top = trackTop(trackIndex).toFloat()
         val centerY = top + trackVisualHeightPx(track) / 2f
         val left = fixedTrackImportChipLeft(chipWidth)
         return RectF(left, centerY - chipHeight / 2f, left + chipWidth, centerY + chipHeight / 2f)
     }
 
-    private fun trackImportChipRadiusPx(): Float = dp(5).toFloat()
+    private fun trackImportChipRadiusPx(): Float = dp(4).toFloat()
 
-    private fun fixedTrackImportChipLeft(chipWidth: Float = dp(28).toFloat()): Float {
+    private fun fixedTrackImportChipLeft(chipWidth: Float = dp(24).toFloat()): Float {
         return (width - chipWidth - dp(6).toFloat())
             .coerceAtLeast(headerWidthPx + dp(6).toFloat())
     }
@@ -1345,7 +1425,19 @@ class TimelineCanvasView @JvmOverloads constructor(
         }
 
         // Find clip under touch
-        val clip = findClipAt(event.x, event.y) ?: return
+        val clip = findClipAt(event.x, event.y)
+        if (clip == null) {
+            val videoTrackIndex = tracks.indexOfFirst { it.type == TrackType.VIDEO }
+            if (videoTrackIndex >= 0 && tracks[videoTrackIndex].clips.isEmpty()) {
+                val top = trackTop(videoTrackIndex).toFloat()
+                val bottom = top + trackVisualHeightPx(videoTrackIndex)
+                if (event.y in top..bottom) {
+                    listener?.onTrackImportRequested(TrackType.VIDEO)
+                    return
+                }
+            }
+            return
+        }
         val left = msToX(clip.startTimeMs)
         val right = msToX(clip.startTimeMs + clip.durationMs)
 
@@ -1359,9 +1451,10 @@ class TimelineCanvasView @JvmOverloads constructor(
             return
         }
 
+        val handleTouchMargin = dp(8).toFloat()
         gesture = when {
-            clip.id == selectedClipId && event.x <= left + handleWidthPx + dp(4) -> GestureKind.TRIM_START
-            clip.id == selectedClipId && event.x >= right - handleWidthPx - dp(4) -> GestureKind.TRIM_END
+            clip.id == selectedClipId && event.x <= left + handleWidthPx + handleTouchMargin -> GestureKind.TRIM_START
+            clip.id == selectedClipId && event.x >= right - handleWidthPx - handleTouchMargin -> GestureKind.TRIM_END
             else -> GestureKind.MOVE
         }
         gestureClipId = clip.id

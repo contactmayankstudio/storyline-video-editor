@@ -2235,7 +2235,7 @@ class VideoEditorActivity : Activity() {
                     }
                 }
                 val safeUpdate = clampTimelineCanvasClipUpdateToSource(update, allowSourceProbe = false)
-                val videoClipId = parseNativeClipId(update.clipId) ?: return
+                val videoClipId = parseTimelineManagedClipId(update.clipId) ?: return
                 if (safeUpdate.gestureKind == com.video.engine.pro.timeline.ClipGestureKind.MOVE) {
                     nativeClipTrackType[videoClipId] = safeUpdate.trackType
                     restoredNativeClipTrackTypeOverrides[videoClipId] = safeUpdate.trackType
@@ -2271,7 +2271,8 @@ class VideoEditorActivity : Activity() {
                     return
                 }
                 val safeUpdate = clampTimelineCanvasClipUpdateToSource(update, allowSourceProbe = true)
-                val videoClipId = parseNativeClipId(safeUpdate.clipId) ?: return
+                val videoClipId = parseTimelineManagedClipId(safeUpdate.clipId) ?: return
+                recordUndoDomain(UndoDomain.EDITOR)
                 // Reuse existing commit logic via the MultiTrackTimelineView listener path
                 // Use async command to avoid blocking main thread (ANR fix)
                 if (safeUpdate.gestureKind == com.video.engine.pro.timeline.ClipGestureKind.MOVE) {
