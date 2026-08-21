@@ -25,7 +25,7 @@ def envStringResourceValue = { name, fallback = "" ->
 def isCiBuild = (System.getenv('CI') ?: "").equalsIgnoreCase("true")
 def bundledDebugKeystore = file("${rootProject.projectDir}/debug.keystore.stable")
 def envDebugKeystorePath = System.getenv('ANDROID_DEBUG_KEYSTORE_PATH')?.trim()
-def resolvedDebugKeystorePath = envDebugKeystorePath ?: (
+def resolvedDebugKeystorePath = (envDebugKeystorePath && file(envDebugKeystorePath).exists()) ? envDebugKeystorePath : (
     bundledDebugKeystore.exists()
         ? bundledDebugKeystore.absolutePath
         : "${System.properties['user.home']}/.android/debug.keystore"

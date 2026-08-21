@@ -46,6 +46,8 @@ jobs:
         run: |
           if [ -n "${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}" ]; then
             printf '%s' '${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}' | base64 --decode > "${GITHUB_WORKSPACE}/android/debug.keystore.stable"
+          elif [ ! -f "${GITHUB_WORKSPACE}/android/debug.keystore.stable" ]; then
+            keytool -genkey -v -keystore "${GITHUB_WORKSPACE}/android/debug.keystore.stable" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
 
       - name: Restore release keystore
