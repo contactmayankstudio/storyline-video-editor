@@ -956,7 +956,7 @@
                 <LinearLayout android:id="@+id/transitionButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_transition"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Transit"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Transitions"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/voiceoverButton"

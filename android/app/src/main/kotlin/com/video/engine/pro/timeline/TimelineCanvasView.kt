@@ -900,7 +900,7 @@ class TimelineCanvasView @JvmOverloads constructor(
                     textAlign = Paint.Align.CENTER
                     isFakeBoldText = true
                 }
-                canvas.drawText("Add video to begin", laneRect.centerX(), laneRect.centerY() + dp(3.5f), hintPaint)
+                canvas.drawText("Add media", laneRect.centerX(), laneRect.centerY() + dp(3.5f), hintPaint)
             }
         }
     }
@@ -1023,13 +1023,24 @@ class TimelineCanvasView @JvmOverloads constructor(
             canvas.drawRoundRect(clipRect, dp(6).toFloat(), dp(6).toFloat(), trackLockedOverlayPaint)
         }
 
+    private fun formatClipDuration(durationMs: Long): String {
+        val safeMs = durationMs.coerceAtLeast(0L)
+        val tenths = (safeMs % 1000L) / 100L
+        val totalSec = safeMs / 1000L
+        val sec = totalSec % 60L
+        val min = totalSec / 60L
+        return if (min > 0) {
+            "%d:%02d.%d".format(min, sec, tenths)
+        } else {
+            "%d.%ds".format(sec, tenths)
+        }
+    }
+
         // Selection border + handles
         if (clip.id == selectedClipId) {
             canvas.drawRoundRect(clipRect, dp(6).toFloat(), dp(6).toFloat(), clipStrokePaint)
             // Duration label
-            val durSec = clip.durationMs / 1000f
-            val durLabel = if (durSec >= 60) "%d:%02d".format((durSec/60).toInt(), (durSec%60).toInt())
-                           else "%.1fs".format(durSec)
+            val durLabel = formatClipDuration(clip.durationMs)
             val midX = (clipRect.left + clipRect.right) / 2f
             canvas.drawText(durLabel, midX, clipRect.bottom - dp(4), durationTextPaint)
             // Left handle

@@ -77,8 +77,8 @@
     <string name="preview_panel_title">Program Monitor</string>
     <string name="preview_panel_subtitle">Native GPU canvas • live crop • low-latency play</string>
     <string name="preview_empty_badge">Program Ready</string>
-    <string name="preview_empty_title">Ready for the first cut</string>
-    <string name="preview_empty_subtitle">Tap V1 to import video, stack layers above it, and keep playback focused in one live program monitor.</string>
+    <string name="preview_empty_title">Add media</string>
+    <string name="preview_empty_subtitle">Add a video, photo or audio clip to start.</string>
     <string name="preview_crop_status">Edit • Drag to reframe • Pinch to zoom • Double tap to focus</string>
     <string name="preview_crop_reset">Reset</string>
     <string name="preview_crop_fill">Fill</string>
