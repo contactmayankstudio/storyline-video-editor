@@ -63,7 +63,7 @@ object MediaPickerSheet {
         onMediaSelected: (uris: List<Uri>, trackType: TrackType) -> Unit,
         onBrowseSystemPicker: (trackType: TrackType) -> Unit
     ) {
-        val dialog = BottomSheetDialog(activity, R.style.BottomSheetDialogTheme)
+        val dialog = BottomSheetDialog(activity)
         var currentTab = when (initialTrackType) {
             TrackType.AUDIO -> MediaType.AUDIO
             TrackType.OVERLAY, TrackType.LAYER -> MediaType.VIDEO
