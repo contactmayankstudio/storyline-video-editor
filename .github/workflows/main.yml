@@ -68,7 +68,7 @@ jobs:
           ADMOB_BANNER_UNIT_ID: ${{ vars.ADMOB_BANNER_UNIT_ID }}
           ADMOB_REWARDED_HD_UNLOCK_UNIT_ID: ${{ vars.ADMOB_REWARDED_HD_UNLOCK_UNIT_ID }}
           ADMOB_INTERSTITIAL_POST_EXPORT_UNIT_ID: ${{ vars.ADMOB_INTERSTITIAL_POST_EXPORT_UNIT_ID }}
-        run: ./gradlew assemblePlayDebug
+        run: ./gradlew assemblePlayDebug --stacktrace
 
       - name: Build Play release APK
         if: github.event_name != 'pull_request'
