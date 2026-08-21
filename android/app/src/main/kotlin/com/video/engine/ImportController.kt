@@ -156,6 +156,27 @@ class ImportController(
         enqueueImport(path, nextImportTrackType, playheadTimeMsProvider().coerceAtLeast(0L))
     }
 
+    fun importUris(
+        uris: List<Uri>,
+        trackType: TrackType = nextImportTrackType,
+        startTimeMs: Long = playheadTimeMsProvider().coerceAtLeast(0L),
+    ) {
+        if (uris.isEmpty()) return
+        Thread {
+            var cursorMs = startTimeMs
+            for (uri in uris) {
+                val displayName = queryDisplayName(uri) ?: "imported_media"
+                val resolvedPath = resolveImportPath(uri, trackType, displayName)
+                if (resolvedPath != null) {
+                    mainHandler.post {
+                        enqueueImport(resolvedPath, trackType, cursorMs)
+                        maybeImportPendingClip()
+                    }
+                }
+            }
+        }.start()
+    }
+
     fun importQuickSample(): Boolean {
         val candidate = findQuickImportCandidate() ?: return false
         enqueueImport(candidate.absolutePath, nextImportTrackType, playheadTimeMsProvider().coerceAtLeast(0L))

@@ -10171,7 +10171,48 @@ class VideoEditorActivity : Activity() {
         })
     }
 
+    private fun openMediaPickerSheet(initialTrackType: TrackType = TrackType.VIDEO) {
+        pausePlaybackForPanel()
+        com.video.engine.media.MediaPickerSheet.show(
+            activity = this,
+            initialTrackType = initialTrackType,
+            onMediaSelected = { uris, trackType ->
+                val targetStartTimeMs = maxOf(currentPlayheadMs(), currentTimeMs.coerceAtLeast(0L))
+                importController?.importUris(
+                    uris = uris,
+                    trackType = trackType,
+                    startTimeMs = targetStartTimeMs
+                )
+            },
+            onBrowseSystemPicker = { trackType ->
+                when (trackType) {
+                    TrackType.VIDEO -> openVideoSystemPicker()
+                    TrackType.OVERLAY -> openOverlaySystemPicker()
+                    TrackType.LAYER -> openLayerSystemPicker()
+                    TrackType.AUDIO -> openAudioSystemPicker()
+                    TrackType.TEXT -> showAddTextDialog()
+                }
+            }
+        )
+    }
+
     private fun openVideoTrackImport() {
+        openMediaPickerSheet(TrackType.VIDEO)
+    }
+
+    private fun openOverlayTrackImport() {
+        openMediaPickerSheet(TrackType.OVERLAY)
+    }
+
+    private fun openLayerTrackImport() {
+        openMediaPickerSheet(TrackType.LAYER)
+    }
+
+    private fun openAudioTrackImport() {
+        openMediaPickerSheet(TrackType.AUDIO)
+    }
+
+    private fun openVideoSystemPicker() {
         if (!ensureTrackEditable(TrackType.VIDEO, "import")) return
         if (!prepareImportPickerLaunch(PICK_VIDEO_REQUEST, "video")) return
         val importStartTimeMs = maxOf(currentPlayheadMs(), currentTimeMs.coerceAtLeast(0L))
@@ -10197,7 +10238,7 @@ class VideoEditorActivity : Activity() {
         }
     }
 
-    private fun openOverlayTrackImport() {
+    private fun openOverlaySystemPicker() {
         if (!ensureTrackEditable(TrackType.OVERLAY, "import")) return
         if (!prepareImportPickerLaunch(PICK_OVERLAY_REQUEST, "overlay")) return
         val importStartTimeMs = maxOf(currentPlayheadMs(), currentTimeMs.coerceAtLeast(0L))
@@ -10223,7 +10264,7 @@ class VideoEditorActivity : Activity() {
         }
     }
 
-    private fun openLayerTrackImport() {
+    private fun openLayerSystemPicker() {
         if (!ensureTrackEditable(TrackType.LAYER, "import")) return
         if (!prepareImportPickerLaunch(PICK_LAYER_REQUEST, "layer")) return
         val importStartTimeMs = maxOf(currentPlayheadMs(), currentTimeMs.coerceAtLeast(0L))
@@ -10261,7 +10302,7 @@ class VideoEditorActivity : Activity() {
         }
     }
 
-    private fun openAudioTrackImport() {
+    private fun openAudioSystemPicker() {
         if (!ensureTrackEditable(TrackType.AUDIO, "import")) return
         if (!prepareImportPickerLaunch(PICK_AUDIO_REQUEST, "audio")) return
         val importStartTimeMs = maxOf(currentPlayheadMs(), currentTimeMs.coerceAtLeast(0L))
