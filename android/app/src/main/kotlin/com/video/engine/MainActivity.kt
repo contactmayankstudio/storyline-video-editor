@@ -10171,6 +10171,13 @@ class VideoEditorActivity : Activity() {
         })
     }
 
+    private fun pausePlaybackForPanel() {
+        if (isPlaying) {
+            isPlaying = false
+            playbackController?.pauseRendering()
+        }
+    }
+
     private fun openMediaPickerSheet(initialTrackType: TrackType = TrackType.VIDEO) {
         pausePlaybackForPanel()
         com.video.engine.media.MediaPickerSheet.show(

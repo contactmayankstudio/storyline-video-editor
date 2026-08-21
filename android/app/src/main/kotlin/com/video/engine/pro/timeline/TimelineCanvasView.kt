@@ -1023,19 +1023,6 @@ class TimelineCanvasView @JvmOverloads constructor(
             canvas.drawRoundRect(clipRect, dp(6).toFloat(), dp(6).toFloat(), trackLockedOverlayPaint)
         }
 
-    private fun formatClipDuration(durationMs: Long): String {
-        val safeMs = durationMs.coerceAtLeast(0L)
-        val tenths = (safeMs % 1000L) / 100L
-        val totalSec = safeMs / 1000L
-        val sec = totalSec % 60L
-        val min = totalSec / 60L
-        return if (min > 0) {
-            "%d:%02d.%d".format(min, sec, tenths)
-        } else {
-            "%d.%ds".format(sec, tenths)
-        }
-    }
-
         // Selection border + handles
         if (clip.id == selectedClipId) {
             canvas.drawRoundRect(clipRect, dp(6).toFloat(), dp(6).toFloat(), clipStrokePaint)
@@ -1052,6 +1039,19 @@ class TimelineCanvasView @JvmOverloads constructor(
                 handleRect.set(clipRect.right - handleWidthPx, top + dp(2), clipRect.right, bottom - dp(2))
                 canvas.drawRoundRect(handleRect, dp(4).toFloat(), dp(4).toFloat(), handlePaint)
             }
+        }
+    }
+
+    private fun formatClipDuration(durationMs: Long): String {
+        val safeMs = durationMs.coerceAtLeast(0L)
+        val tenths = (safeMs % 1000L) / 100L
+        val totalSec = safeMs / 1000L
+        val sec = totalSec % 60L
+        val min = totalSec / 60L
+        return if (min > 0) {
+            "%d:%02d.%d".format(min, sec, tenths)
+        } else {
+            "%d.%ds".format(sec, tenths)
         }
     }
 
