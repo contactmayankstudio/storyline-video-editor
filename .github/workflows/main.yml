@@ -68,7 +68,12 @@ jobs:
           ADMOB_BANNER_UNIT_ID: ${{ vars.ADMOB_BANNER_UNIT_ID }}
           ADMOB_REWARDED_HD_UNLOCK_UNIT_ID: ${{ vars.ADMOB_REWARDED_HD_UNLOCK_UNIT_ID }}
           ADMOB_INTERSTITIAL_POST_EXPORT_UNIT_ID: ${{ vars.ADMOB_INTERSTITIAL_POST_EXPORT_UNIT_ID }}
-        run: ./gradlew assemblePlayDebug --stacktrace
+        run: |
+          ./gradlew assemblePlayDebug --stacktrace --info 2>&1 | tee build_output.log || {
+            echo "::error::=== GRADLE BUILD FAILED ==="
+            grep -E "e: |error:|FAILURE|Exception" -A 5 build_output.log | head -n 50
+            exit 1
+          }
 
       - name: Build Play release APK
         if: github.event_name != 'pull_request'
