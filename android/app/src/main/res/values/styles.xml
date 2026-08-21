@@ -111,4 +111,63 @@
         <item name="android:includeFontPadding">false</item>
         <item name="android:letterSpacing">0</item>
     </style>
+
+    <!-- ── Design System Typography Styles ── -->
+    <style name="Typography">
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:fontFamily">sans-serif</item>
+    </style>
+
+    <style name="Typography.ScreenTitle">
+        <item name="android:textSize">@dimen/text_screen_title</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+    </style>
+
+    <style name="Typography.SectionTitle">
+        <item name="android:textSize">@dimen/text_section_title</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+    </style>
+
+    <style name="Typography.Body">
+        <item name="android:textSize">@dimen/text_body</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:fontFamily">sans-serif</item>
+    </style>
+
+    <style name="Typography.Secondary">
+        <item name="android:textSize">@dimen/text_secondary_size</item>
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:fontFamily">sans-serif</item>
+    </style>
+
+    <style name="Typography.Meta">
+        <item name="android:textSize">@dimen/text_meta</item>
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+    </style>
+
+    <!-- ── Design System Button Styles ── -->
+    <style name="StorylineButton">
+        <item name="android:layout_height">@dimen/button_height_lg</item>
+        <item name="android:minHeight">@dimen/touch_target_min</item>
+        <item name="android:textSize">@dimen/text_button</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingStart">@dimen/space_lg</item>
+        <item name="android:paddingEnd">@dimen/space_lg</item>
+    </style>
+
+    <style name="StorylineButton.Primary">
+        <item name="android:textColor">@color/text_primary</item>
+    </style>
+
+    <style name="StorylineButton.Secondary">
+        <item name="android:textColor">@color/text_secondary</item>
+    </style>
 </resources>

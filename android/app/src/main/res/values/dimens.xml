@@ -1,32 +1,73 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <dimen name="toolbar_height">52dp</dimen>
-    <dimen name="timeline_height">100dp</dimen>
-    <dimen name="seekbar_height">24dp</dimen>
-    <dimen name="spacing_small">6dp</dimen>
+    <!-- ── Spacing Scale (4, 8, 12, 16, 20, 24, 32dp) ── -->
+    <dimen name="space_2xs">2dp</dimen>
+    <dimen name="space_xs">4dp</dimen>
+    <dimen name="space_sm">8dp</dimen>
+    <dimen name="space_md">12dp</dimen>
+    <dimen name="space_lg">16dp</dimen>
+    <dimen name="space_xl">20dp</dimen>
+    <dimen name="space_2xl">24dp</dimen>
+    <dimen name="space_3xl">32dp</dimen>
+
+    <dimen name="spacing_small">8dp</dimen>
     <dimen name="spacing_medium">12dp</dimen>
     <dimen name="spacing_large">20dp</dimen>
+
+    <!-- ── Corner Radii (8-10dp small, 12-16dp buttons/cards, 24-32dp sheets) ── -->
+    <dimen name="radius_sm">8dp</dimen>
+    <dimen name="radius_md">12dp</dimen>
+    <dimen name="radius_lg">16dp</dimen>
+    <dimen name="radius_sheet">24dp</dimen>
+    <dimen name="radius_pill">999dp</dimen>
+
+    <dimen name="corner_radius_small">8dp</dimen>
+    <dimen name="corner_radius_medium">12dp</dimen>
+    <dimen name="corner_radius_large">16dp</dimen>
+
+    <!-- ── Icon Scale ── -->
+    <dimen name="icon_size_xs">16dp</dimen>
+    <dimen name="icon_size_sm">18dp</dimen>
     <dimen name="icon_size_small">20dp</dimen>
-    <dimen name="icon_size_medium">24dp</dimen>
+    <dimen name="icon_size_medium">22dp</dimen>
     <dimen name="icon_size_large">32dp</dimen>
+    <dimen name="toolbar_icon_size">22dp</dimen>
+
+    <!-- ── Button Heights & Touch Targets (minimum 48dp) ── -->
+    <dimen name="touch_target_min">48dp</dimen>
+    <dimen name="button_height_sm">32dp</dimen>
+    <dimen name="button_height_md">40dp</dimen>
+    <dimen name="button_height_lg">48dp</dimen>
     <dimen name="button_size_small">32dp</dimen>
     <dimen name="button_size_medium">48dp</dimen>
     <dimen name="button_size_large">52dp</dimen>
-    <dimen name="text_time">12sp</dimen>
+
+    <!-- ── Typography Scale ── -->
+    <dimen name="text_screen_title">24sp</dimen>
+    <dimen name="text_section_title">15sp</dimen>
+    <dimen name="text_body">14sp</dimen>
+    <dimen name="text_secondary_size">13sp</dimen>
+    <dimen name="text_button">14sp</dimen>
+    <dimen name="text_meta">11.5sp</dimen>
+    <dimen name="text_time">11.5sp</dimen>
     <dimen name="text_title">16sp</dimen>
     <dimen name="text_label">13sp</dimen>
-    <dimen name="corner_radius_small">4dp</dimen>
-    <dimen name="corner_radius_medium">8dp</dimen>
-    <dimen name="corner_radius_large">12dp</dimen>
-    <dimen name="elevation_app_bar">4dp</dimen>
-    <dimen name="elevation_surface">2dp</dimen>
+    <dimen name="toolbar_text_size">9sp</dimen>
+
+    <!-- ── Layout Component Dimensions ── -->
+    <dimen name="top_bar_height">42dp</dimen>
+    <dimen name="toolbar_height">52dp</dimen>
+    <dimen name="timeline_height">100dp</dimen>
+    <dimen name="seekbar_height">24dp</dimen>
+    <dimen name="elevation_app_bar">0dp</dimen>
+    <dimen name="elevation_surface">0dp</dimen>
     <dimen name="studio_toolbar_height">64dp</dimen>
-    <dimen name="toolbar_icon_size">18dp</dimen>
-    <dimen name="toolbar_text_size">8.5sp</dimen>
-    <dimen name="toolbar_item_width">62dp</dimen>
+    <dimen name="toolbar_item_width">64dp</dimen>
     <dimen name="timeline_scrubber_height">90dp</dimen>
     <dimen name="timeline_padding">200dp</dimen>
     <dimen name="playhead_width">2dp</dimen>
     <dimen name="clip_margin">4dp</dimen>
-    <dimen name="playback_bar_height">48dp</dimen>
+    <dimen name="playback_bar_height">42dp</dimen>
+    <dimen name="sheet_handle_width">36dp</dimen>
+    <dimen name="sheet_handle_height">4dp</dimen>
 </resources>
