@@ -126,6 +126,7 @@ class ExportDialog(
         val resolutionButtons = mutableListOf<TextView>()
         val fpsButtons = mutableListOf<TextView>()
         val qualityButtons = mutableListOf<TextView>()
+        var updateUi: () -> Unit = {}
 
         // 3. FORMAT SELECTOR
         root.addView(sectionLabel("FORMAT"))
@@ -318,7 +319,7 @@ class ExportDialog(
             return Triple(w, h, bitrateMbps)
         }
 
-        fun updateUi() {
+        updateUi = {
             // Update button styles
             formatButtons.forEachIndexed { i, btn -> styleChoiceButton(btn, i == selectedFormatIndex) }
             resolutionButtons.forEachIndexed { i, btn -> styleChoiceButton(btn, i == selectedProfileIndex) }
