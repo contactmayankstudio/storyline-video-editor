@@ -35,9 +35,9 @@ def envReleaseKeystorePath = System.getenv('KEYSTORE_PATH')?.trim()
 def releaseKeystoreFile = envReleaseKeystorePath ? file(envReleaseKeystorePath) : defaultReleaseKeystore
 def hasValidReleaseKeystore = releaseKeystoreFile.exists()
 def resolvedReleaseKeystorePath = hasValidReleaseKeystore ? releaseKeystoreFile.absolutePath : resolvedDebugKeystorePath
-def resolvedReleaseStorePassword = hasValidReleaseKeystore ? (System.getenv('KEYSTORE_PASSWORD') ?: "") : (System.getenv('ANDROID_DEBUG_KEYSTORE_PASSWORD') ?: "android")
-def resolvedReleaseKeyAlias = hasValidReleaseKeystore ? (System.getenv('KEY_ALIAS') ?: "video_engine") : (System.getenv('ANDROID_DEBUG_KEY_ALIAS') ?: "androiddebugkey")
-def resolvedReleaseKeyPassword = hasValidReleaseKeystore ? (System.getenv('KEY_PASSWORD') ?: "") : (System.getenv('ANDROID_DEBUG_KEY_PASSWORD') ?: "android")
+def resolvedReleaseStorePassword = (hasValidReleaseKeystore && System.getenv('KEYSTORE_PASSWORD')) ? System.getenv('KEYSTORE_PASSWORD') : (System.getenv('ANDROID_DEBUG_KEYSTORE_PASSWORD') ?: "android")
+def resolvedReleaseKeyAlias = (hasValidReleaseKeystore && System.getenv('KEY_ALIAS')) ? System.getenv('KEY_ALIAS') : (System.getenv('ANDROID_DEBUG_KEY_ALIAS') ?: "androiddebugkey")
+def resolvedReleaseKeyPassword = (hasValidReleaseKeystore && System.getenv('KEY_PASSWORD')) ? System.getenv('KEY_PASSWORD') : (System.getenv('ANDROID_DEBUG_KEY_PASSWORD') ?: "android")
 
 android {
     namespace = "com.video.engine"

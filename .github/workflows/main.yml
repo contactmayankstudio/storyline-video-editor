@@ -77,6 +77,12 @@ jobs:
             exit 1
           }
 
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: storyline-debug-apk
+          path: android/app/build/outputs/apk/play/debug/*.apk
+
       - name: Build Play release APK
         if: github.event_name != 'pull_request'
         working-directory: android
@@ -89,13 +95,11 @@ jobs:
           ADMOB_BANNER_UNIT_ID: ${{ vars.ADMOB_BANNER_UNIT_ID }}
           ADMOB_REWARDED_HD_UNLOCK_UNIT_ID: ${{ vars.ADMOB_REWARDED_HD_UNLOCK_UNIT_ID }}
           ADMOB_INTERSTITIAL_POST_EXPORT_UNIT_ID: ${{ vars.ADMOB_INTERSTITIAL_POST_EXPORT_UNIT_ID }}
-        run: ./gradlew assemblePlayRelease
-
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: storyline-debug-apk
-          path: android/app/build/outputs/apk/play/debug/*.apk
+        run: |
+          if [ ! -f "${KEYSTORE_PATH}" ]; then
+            echo "Release keystore file not present; using fallback debug signing."
+          fi
+          ./gradlew assemblePlayRelease
 
       - name: Upload Play release APK
         if: github.event_name != 'pull_request'
