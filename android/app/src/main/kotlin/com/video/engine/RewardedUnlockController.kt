@@ -26,10 +26,9 @@ class RewardedUnlockController(
     private var pendingShowAfterLoad = false
     private var watermarkUnlockCredits = 0
 
-    fun isWatermarkUnlocked(): Boolean = !enabled || watermarkUnlockCredits > 0
+    fun isWatermarkUnlocked(): Boolean = watermarkUnlockCredits > 0
 
     fun consumeWatermarkUnlock() {
-        if (!enabled) return
         if (watermarkUnlockCredits > 0) {
             watermarkUnlockCredits -= 1
         }
@@ -44,12 +43,13 @@ class RewardedUnlockController(
     }
 
     fun requestWatermarkUnlock(onResult: (Boolean) -> Unit) {
-        if (!enabled) {
+        if (watermarkUnlockCredits > 0) {
             onResult(true)
             return
         }
-        if (watermarkUnlockCredits > 0) {
-            onResult(true)
+        if (!enabled) {
+            Toast.makeText(activity, "Rewarded ads not available", Toast.LENGTH_SHORT).show()
+            onResult(false)
             return
         }
         if (activity.isFinishing || activity.isDestroyed) {

@@ -5,24 +5,18 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Environment
-import android.text.InputType
 import android.view.Gravity
 import android.view.View
-import android.widget.EditText
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.SeekBar
 import android.widget.TextView
 import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.video.engine.overlay.OverlayStore
-import com.video.engine.stickers.StickerClipStore
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class ExportDialog(
@@ -32,90 +26,40 @@ class ExportDialog(
     private val isWatermarkUnlockedProvider: () -> Boolean = { false },
     private val onRequestWatermarkUnlock: ((callback: (Boolean) -> Unit) -> Unit) = {},
 ) {
-    private data class ExportProfile(val label: String, val width: Int, val height: Int)
-    private enum class ExportVideoCodec(
-        val label: String,
-        val shortLabel: String,
-        val nativeValue: String,
-    ) {
-        H264("H.264 Hardware", "H.264", "h264"),
-        HEVC("H.265 / HEVC", "H.265", "hevc"),
-    }
-
-    private data class ExportMode(
-        val label: String,
-        val profileIndex: Int,
-        val fps: Int,
-        val qualityIndex: Int,
-        val codec: ExportVideoCodec,
-        val note: String? = null,
-    )
-
-    private data class EffectiveExportSettings(
-        val width: Int,
-        val height: Int,
-        val fps: Int,
-        val bitrateMbps: Int,
-        val codec: ExportVideoCodec,
-    )
-
-    private data class ProjectExportComplexity(
-        val visualClipCount: Int,
-        val overlayClipCount: Int,
-        val audioClipCount: Int,
-        val textOverlayCount: Int,
-        val stickerOverlayCount: Int,
-        val editedClipCount: Int,
-        val effectsClipCount: Int,
-        val chromaClipCount: Int,
-    ) {
-        val totalOverlayLayers: Int
-            get() = overlayClipCount + textOverlayCount + stickerOverlayCount
-
-        val isComplex: Boolean
-            get() = visualClipCount > 1 || totalOverlayLayers > 0 || editedClipCount > 0 || effectsClipCount > 0 || chromaClipCount > 0
-    }
-
-    private data class ExportRecommendation(
-        val modeIndex: Int,
-        val note: String?,
-    )
-
+    private data class ExportProfile(val label: String, val longEdge: Int)
     private data class AspectRatio(val label: String, val w: Int, val h: Int)
+
     private val aspectRatios = listOf(
         AspectRatio("16:9", 16, 9),
-        AspectRatio("21:9", 21, 9),
-        AspectRatio("1:1",  1,  1),
         AspectRatio("9:16", 9, 16),
-        AspectRatio("4:5",  4,  5),
-        AspectRatio("5:4",  5,  4),
-        AspectRatio("4:3",  4,  3),
-        AspectRatio("3:4",  3,  4),
-        AspectRatio("3:2",  3,  2),
-        AspectRatio("2:3",  2,  3),
-        AspectRatio("2:1",  2,  1),
+        AspectRatio("1:1", 1, 1),
+        AspectRatio("4:5", 4, 5),
+        AspectRatio("4:3", 4, 3),
+        AspectRatio("21:9", 21, 9),
     )
 
     private val profiles = listOf(
-        ExportProfile("HD", 1280, 720),
-        ExportProfile("2K", 2560, 1440),
+        ExportProfile("720p", 1280),
+        ExportProfile("1080p", 1920),
+        ExportProfile("2K", 2560),
+        ExportProfile("4K", 3840),
     )
-    private val qualityLabels = listOf("Fast", "Balanced", "Clean")
+
+    private val frameRates = listOf(24, 30, 60)
+    private val qualityLevels = listOf("Standard", "High", "Best")
 
     fun show() {
-        val complexity = inspectProjectComplexity()
-        val codecCapabilities = ExportCodecSupport.getCapabilities()
-        val exportModes = buildExportModes(codecCapabilities)
-        val recommendation = recommendExportSettings(complexity, exportModes)
         val dialog = BottomSheetDialog(activity)
         val scroll = ScrollView(activity).apply {
             setBackgroundColor(Color.TRANSPARENT)
             isFillViewport = true
+            overScrollMode = View.OVER_SCROLL_NEVER
         }
+
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             background = sheetRootBackground()
-            setPadding(dp(20), dp(14), dp(20), dp(28))
+            setPadding(dp(20), dp(12), dp(20), dp(24))
         }
         scroll.addView(
             root,
@@ -125,188 +69,133 @@ class ExportDialog(
             ),
         )
 
+        // 1. Drag Handle
         root.addView(dragHandle())
-        root.addView(titleView("Export Video"))
-        root.addView(
-            subtitleView(
-                "${describeDuration(durationMs)}  •  ${complexity.visualClipCount} visual  •  " +
-                    "${complexity.audioClipCount} audio  •  ${complexity.totalOverlayLayers} overlays",
-            ),
-        )
-        recommendation.note?.let { root.addView(recommendationBanner(it)) }
 
-        val recommendedMode = exportModes[recommendation.modeIndex]
-        var selectedModeIndex: Int? = recommendation.modeIndex
-        var selectedProfileIndex = recommendedMode.profileIndex
-        var selectedFps = recommendedMode.fps
-        var selectedQualityIndex = recommendedMode.qualityIndex
-        var selectedCodec = recommendedMode.codec
+        // 2. Header Row (Title & Close)
+        val headerRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).also { it.bottomMargin = dp(4) }
+        }
+
+        val titleView = TextView(activity).apply {
+            text = "Export Video"
+            textSize = 20f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val closeButton = TextView(activity).apply {
+            text = "✕"
+            textSize = 16f
+            setTextColor(Color.parseColor("#8A99AD"))
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            setOnClickListener { dialog.dismiss() }
+        }
+
+        headerRow.addView(titleView)
+        headerRow.addView(closeButton)
+        root.addView(headerRow)
+
+        val durationLabel = describeDuration(durationMs)
+        val subtitleView = TextView(activity).apply {
+            text = "$durationLabel • Ready to export"
+            textSize = 12.5f
+            setTextColor(Color.parseColor("#8A99AD"))
+            setPadding(0, 0, 0, dp(16))
+        }
+        root.addView(subtitleView)
+
+        // Initial State
+        val defaultProfileIndex = if (DeviceDetector.isLowEndDevice()) 0 else 1 // 720p for low-end, 1080p default
+        var selectedProfileIndex = defaultProfileIndex
+        var selectedFpsIndex = if (DeviceDetector.isLowEndDevice()) 0 else 1 // 24 for low-end, 30 default
+        var selectedQualityIndex = 1 // High default
+        var selectedFormatIndex = 0 // 0 = Video
         var watermarkUnlocked = isWatermarkUnlockedProvider()
-        var selectedAspectRatioIndex = if (activity is VideoEditorActivity) activity.getSelectedAspectRatioIndex() else 0
-        var isApplyingMode = false
+        val selectedAspectRatioIndex = if (activity is VideoEditorActivity) activity.getSelectedAspectRatioIndex() else 0
 
-        val modeButtons = mutableListOf<TextView>()
-        val ratioButtons = mutableListOf<TextView>()
+        // Buttons tracking
+        val formatButtons = mutableListOf<TextView>()
         val resolutionButtons = mutableListOf<TextView>()
         val fpsButtons = mutableListOf<TextView>()
-        val qualityLabelsRow = mutableListOf<TextView>()
-        lateinit var summaryValue: TextView
-        lateinit var summaryMeta: TextView
-        lateinit var exportButton: TextView
-        lateinit var watermarkStatus: TextView
-        lateinit var watermarkAction: TextView
-        lateinit var modeGuidance: TextView
-        lateinit var qualityCurrent: TextView
-        lateinit var bitrateCurrent: TextView
-        lateinit var qualitySeek: SeekBar
+        val qualityButtons = mutableListOf<TextView>()
 
-        fun refreshUi() {
-            modeButtons.forEachIndexed { index, button ->
-                styleChoiceButton(button, selectedModeIndex == index)
-            }
-            refreshExportSummary(
-                resolutionButtons = resolutionButtons,
-                ratioButtons = ratioButtons,
-                fpsButtons = fpsButtons,
-                qualityLabelsRow = qualityLabelsRow,
-                selectedProfileIndex = selectedProfileIndex,
-                selectedAspectRatioIndex = selectedAspectRatioIndex,
-                selectedFps = selectedFps,
-                selectedQualityIndex = selectedQualityIndex,
-                selectedModeLabel = exportModes.getOrNull(selectedModeIndex ?: -1)?.label,
-                selectedCodec = selectedCodec,
-                watermarkUnlocked = watermarkUnlocked,
-                summaryValue = summaryValue,
-                summaryMeta = summaryMeta,
-                exportButton = exportButton,
-            )
-            val profile = profiles[selectedProfileIndex]
-            val ratio = aspectRatios[selectedAspectRatioIndex]
-            val effective = resolveEffectiveExportSettings(
-                profile = profile,
-                requestedFps = selectedFps,
-                selectedQualityIndex = selectedQualityIndex,
-                selectedCodec = selectedCodec,
-                selectedModeLabel = exportModes.getOrNull(selectedModeIndex ?: -1)?.label,
-                ratioW = ratio.w,
-                ratioH = ratio.h,
-            )
-            val selectedMode = exportModes.getOrNull(selectedModeIndex ?: -1)
-            qualityCurrent.text = exportModes.getOrNull(selectedModeIndex ?: -1)?.label ?: "Custom"
-            bitrateCurrent.text = "${effective.bitrateMbps} Mbps • ${effective.codec.shortLabel}"
-            modeGuidance.text = buildModeGuidance(selectedMode, complexity, effective)
-            modeGuidance.setTextColor(
-                when {
-                    DeviceDetector.isLowEndDevice() && selectedMode?.label == "Standard" -> accentWarm()
-                    DeviceDetector.isLowEndDevice() && selectedMode?.label == "Master" -> Color.parseColor("#FF7A6A")
-                    else -> Color.parseColor("#B8C0C8")
-                },
-            )
-            refreshWatermarkState(watermarkUnlocked, watermarkStatus, watermarkAction)
-        }
-
-        fun applyMode(index: Int) {
-            val mode = exportModes[index]
-            selectedModeIndex = index
-            selectedProfileIndex = mode.profileIndex
-            selectedFps = mode.fps
-            selectedQualityIndex = mode.qualityIndex
-            selectedCodec = mode.codec
-            isApplyingMode = true
-            qualitySeek.progress = selectedQualityIndex
-            isApplyingMode = false
-            refreshUi()
-        }
-
-        root.addView(sectionLabel("Export Mode"))
-        val modeScroller = HorizontalScrollView(activity).apply {
-            isHorizontalScrollBarEnabled = false
-        }
-        val modeRow = LinearLayout(activity).apply {
+        // 3. FORMAT SELECTOR
+        root.addView(sectionLabel("FORMAT"))
+        val formatRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.START
+            gravity = Gravity.CENTER_VERTICAL
         }
-        exportModes.forEachIndexed { index, mode ->
-            val button = choiceButton(mode.label).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                ).also {
-                    it.marginStart = dp(4)
-                    it.marginEnd = dp(4)
-                }
+        listOf("MP4 Video").forEachIndexed { index, formatName ->
+            val btn = choiceButton(formatName)
+            btn.setOnClickListener {
+                selectedFormatIndex = index
+                updateUi()
             }
-            button.setOnClickListener { applyMode(index) }
-            modeButtons += button
-            modeRow.addView(button)
+            formatButtons += btn
+            formatRow.addView(btn)
         }
-        modeScroller.addView(modeRow)
-        root.addView(modeScroller)
-        modeGuidance = subtitleView("").apply {
-            gravity = Gravity.START
-            setPadding(0, dp(8), 0, dp(4))
-        }
-        root.addView(modeGuidance)
-        // ── Simplified export: hide Mode selector ──
-        modeScroller.visibility = View.GONE
-        modeGuidance.visibility = View.GONE
+        root.addView(formatRow)
 
-        root.addView(sectionLabel("Resolution"))
+        // 4. RESOLUTION SELECTOR
+        root.addView(sectionLabel("RESOLUTION"))
         val resolutionRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+            gravity = Gravity.CENTER_VERTICAL
         }
         profiles.forEachIndexed { index, profile ->
-            val button = choiceButton(profile.label)
-            button.setOnClickListener {
+            val btn = choiceButton(profile.label)
+            btn.setOnClickListener {
                 selectedProfileIndex = index
-                selectedModeIndex = null
-                refreshUi()
+                updateUi()
             }
-            resolutionButtons += button
-            resolutionRow.addView(button)
+            resolutionButtons += btn
+            resolutionRow.addView(btn)
         }
         root.addView(resolutionRow)
 
-        root.addView(sectionLabel("Frame Rate").apply { visibility = View.GONE })
+        // 5. FRAME RATE SELECTOR
+        root.addView(sectionLabel("FRAME RATE"))
         val fpsRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+            gravity = Gravity.CENTER_VERTICAL
         }
-        listOf(24, 30).forEach { fps ->
-            val button = choiceButton("${fps}fps")
-            button.setOnClickListener {
-                selectedFps = fps
-                selectedModeIndex = null
-                refreshUi()
+        frameRates.forEachIndexed { index, fpsVal ->
+            val btn = choiceButton("${fpsVal} FPS")
+            btn.setOnClickListener {
+                selectedFpsIndex = index
+                updateUi()
             }
-            fpsButtons += button
-            fpsRow.addView(button)
+            fpsButtons += btn
+            fpsRow.addView(btn)
         }
         root.addView(fpsRow)
-        fpsRow.visibility = View.GONE
 
-        root.addView(sectionLabel("Title").apply { visibility = View.GONE })
-        val titleInput = EditText(activity).apply {
-            setText("Storyline")
-            setSelection(text.length)
-            hint = "Storyline"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
-            setSingleLine(true)
-            setTextColor(Color.WHITE)
-            setHintTextColor(Color.parseColor("#6F7E8B"))
-            background = inputBackground()
-            setPadding(dp(14), dp(12), dp(14), dp(12))
+        // 6. QUALITY SELECTOR
+        root.addView(sectionLabel("QUALITY"))
+        val qualityRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
-        titleInput.visibility = View.GONE
+        qualityLevels.forEachIndexed { index, qName ->
+            val btn = choiceButton(qName)
+            btn.setOnClickListener {
+                selectedQualityIndex = index
+                updateUi()
+            }
+            qualityButtons += btn
+            qualityRow.addView(btn)
+        }
+        root.addView(qualityRow)
 
-        // Quality and watermark dummy initialization
-        qualityCurrent = TextView(activity)
-        bitrateCurrent = TextView(activity)
-        qualitySeek = SeekBar(activity)
-        watermarkStatus = TextView(activity)
-        watermarkAction = TextView(activity)
-
+        // 7. EXPORT SUMMARY CARD
         val summaryCard = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             background = surfaceCard()
@@ -314,541 +203,206 @@ class ExportDialog(
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).also { it.topMargin = dp(18) }
+            ).also { it.topMargin = dp(20) }
         }
+
         val summaryCaption = TextView(activity).apply {
-            text = "Export Summary"
-            textSize = 12f
-            setTextColor(Color.parseColor("#8E9AA6"))
+            text = "EXPORT SUMMARY"
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#8A99AD"))
+            letterSpacing = 0.06f
         }
-        summaryValue = TextView(activity).apply {
-            textSize = 20f
+        val summaryTitle = TextView(activity).apply {
+            textSize = 16.5f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.WHITE)
-            setPadding(0, dp(8), 0, dp(4))
+            setPadding(0, dp(6), 0, dp(3))
         }
-        summaryMeta = TextView(activity).apply {
-            textSize = 13f
-            setTextColor(Color.parseColor("#C8C8C8"))
+        val summaryMeta = TextView(activity).apply {
+            textSize = 12.5f
+            setTextColor(Color.parseColor("#8A99AD"))
         }
         summaryCard.addView(summaryCaption)
-        summaryCard.addView(summaryValue)
+        summaryCard.addView(summaryTitle)
         summaryCard.addView(summaryMeta)
         root.addView(summaryCard)
 
-        val actions = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+        // 8. WATERMARK SECTION
+        val watermarkCard = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = surfaceCard()
+            setPadding(dp(16), dp(14), dp(16), dp(14))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).also { it.topMargin = dp(18) }
+            ).also { it.topMargin = dp(14) }
         }
-        val cancelButton = actionButton("Cancel", "#171C23", "#8A99AD").apply {
-            setOnClickListener { dialog.dismiss() }
-        }
-        exportButton = actionButton("Export", "#388BFD", "#FFFFFF")
-        actions.addView(cancelButton)
-        actions.addView(exportButton)
-        root.addView(actions)
 
-        fun launchExport() {
+        val watermarkHeader = TextView(activity).apply {
+            text = "Watermark"
+            textSize = 14.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+        }
+        val watermarkSubtitle = TextView(activity).apply {
+            textSize = 12.5f
+            setTextColor(Color.parseColor("#8A99AD"))
+            setPadding(0, dp(3), 0, dp(12))
+        }
+        val watermarkButton = TextView(activity).apply {
+            textSize = 13.5f
+            setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+        }
+
+        watermarkButton.setOnClickListener {
+            if (!watermarkUnlocked) {
+                watermarkButton.text = "Loading Ad..."
+                watermarkButton.isEnabled = false
+                onRequestWatermarkUnlock { success ->
+                    activity.runOnUiThread {
+                        if (success) {
+                            watermarkUnlocked = true
+                        }
+                        updateUi()
+                    }
+                }
+            }
+        }
+
+        watermarkCard.addView(watermarkHeader)
+        watermarkCard.addView(watermarkSubtitle)
+        watermarkCard.addView(watermarkButton)
+        root.addView(watermarkCard)
+
+        // 9. PRIMARY EXPORT BUTTON
+        val exportButton = TextView(activity).apply {
+            text = "Export Video"
+            textSize = 16f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            background = primaryExportButtonBackground()
+            setPadding(dp(20), dp(16), dp(20), dp(16))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(52),
+            ).also { it.topMargin = dp(20) }
+        }
+        root.addView(exportButton)
+
+        fun resolveEffectiveSettings(): Triple<Int, Int, Int> {
             val profile = profiles[selectedProfileIndex]
-            val ratio = aspectRatios[selectedAspectRatioIndex]
-            val effectiveSettings = resolveEffectiveExportSettings(
-                profile = profile,
-                requestedFps = selectedFps,
-                selectedQualityIndex = selectedQualityIndex,
-                selectedCodec = selectedCodec,
-                selectedModeLabel = exportModes.getOrNull(selectedModeIndex ?: -1)?.label,
-                ratioW = ratio.w,
-                ratioH = ratio.h,
-            )
-            val exportTitle = titleInput.text?.toString()?.trim().orEmpty().ifBlank { "Storyline" }
-            val requestedProfileLabel =
-                exportModes.getOrNull(selectedModeIndex ?: -1)?.label ?: resolutionLabelFor(effectiveSettings.width, effectiveSettings.height)
+            val fps = frameRates[selectedFpsIndex]
+            val ratio = aspectRatios.getOrNull(selectedAspectRatioIndex) ?: aspectRatios[0]
+
+            val longEdge = profile.longEdge
+            val (w, h) = if (ratio.w >= ratio.h) {
+                longEdge to (longEdge * ratio.h / ratio.w)
+            } else {
+                (longEdge * ratio.w / ratio.h) to longEdge
+            }
+
+            // Bitrate in Mbps based on resolution, fps, quality
+            val baseBitrate = when {
+                longEdge <= 1280 -> intArrayOf(3, 5, 7)[selectedQualityIndex]
+                longEdge <= 1920 -> intArrayOf(6, 10, 14)[selectedQualityIndex]
+                longEdge <= 2560 -> intArrayOf(12, 18, 26)[selectedQualityIndex]
+                else -> intArrayOf(20, 30, 45)[selectedQualityIndex]
+            }
+            val fpsFactor = if (fps == 60) 1.35f else 1.0f
+            val bitrateMbps = (baseBitrate * fpsFactor).roundToInt().coerceAtLeast(2)
+
+            return Triple(w, h, bitrateMbps)
+        }
+
+        fun updateUi() {
+            // Update button styles
+            formatButtons.forEachIndexed { i, btn -> styleChoiceButton(btn, i == selectedFormatIndex) }
+            resolutionButtons.forEachIndexed { i, btn -> styleChoiceButton(btn, i == selectedProfileIndex) }
+            fpsButtons.forEachIndexed { i, btn -> styleChoiceButton(btn, i == selectedFpsIndex) }
+            qualityButtons.forEachIndexed { i, btn -> styleChoiceButton(btn, i == selectedQualityIndex) }
+
+            val (width, height, bitrateMbps) = resolveEffectiveSettings()
+            val fps = frameRates[selectedFpsIndex]
+            val qualityLabel = qualityLevels[selectedQualityIndex]
+            val profileLabel = profiles[selectedProfileIndex].label
+
+            // Update Summary Card
+            summaryTitle.text = "$profileLabel • $fps FPS • $qualityLabel"
+            val estimatedBytes = estimateOutputSize(durationMs, bitrateMbps)
+            val sizeStr = formatSize(estimatedBytes)
+            val wmText = if (watermarkUnlocked) "No Watermark" else "Watermark Included"
+            summaryMeta.text = "$sizeStr estimated • $width x $height • $wmText"
+
+            // Update Watermark Section
+            if (watermarkUnlocked) {
+                watermarkSubtitle.text = "✓ Watermark will be removed for this export."
+                watermarkSubtitle.setTextColor(Color.parseColor("#3FB950"))
+                watermarkButton.text = "✓ Watermark Removed"
+                watermarkButton.background = unlockedBadgeBackground()
+                watermarkButton.setTextColor(Color.parseColor("#3FB950"))
+                watermarkButton.isEnabled = false
+                watermarkButton.alpha = 0.85f
+            } else {
+                watermarkSubtitle.text = "Your video will include a Storyline watermark."
+                watermarkSubtitle.setTextColor(Color.parseColor("#8A99AD"))
+                watermarkButton.text = "🎁 Watch Ad to Remove Watermark"
+                watermarkButton.background = rewardButtonBackground()
+                watermarkButton.setTextColor(Color.parseColor("#58A6FF"))
+                watermarkButton.isEnabled = true
+                watermarkButton.alpha = 1f
+            }
+        }
+
+        exportButton.setOnClickListener {
+            val (width, height, bitrateMbps) = resolveEffectiveSettings()
+            val fps = frameRates[selectedFpsIndex]
+            val profileLabel = profiles[selectedProfileIndex].label
+            val exportTitle = "Storyline"
+
             if (activity is VideoEditorActivity) {
                 activity.performExport(
-                    effectiveSettings.width,
-                    effectiveSettings.height,
-                    effectiveSettings.fps,
-                    effectiveSettings.bitrateMbps,
-                    exportTitle,
-                    requestedProfileLabel,
+                    width = width,
+                    height = height,
+                    fps = fps,
+                    bitrateMbps = bitrateMbps,
+                    exportTitle = exportTitle,
+                    requestedProfileLabel = profileLabel,
                     includeWatermark = !watermarkUnlocked,
-                    videoCodec = effectiveSettings.codec.nativeValue,
+                    videoCodec = "h264",
                 )
             } else {
                 val movies = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
                 val appDir = File(movies, "Storyline").also { it.mkdirs() }
                 val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                val outFile = File(appDir, "Storyline_${profileLabel}_$ts.mp4")
                 previewView.startExport(
-                    File(appDir, buildRequestedExportFileName(exportTitle, requestedProfileLabel, ts)).absolutePath,
-                    effectiveSettings.width,
-                    effectiveSettings.height,
-                    effectiveSettings.fps,
+                    outFile.absolutePath,
+                    width,
+                    height,
+                    fps,
                 )
             }
             dialog.dismiss()
         }
 
-        exportButton.setOnClickListener { launchExport() }
-        qualitySeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                selectedQualityIndex = progress.coerceIn(0, qualityLabels.lastIndex)
-                if (!isApplyingMode) {
-                    selectedModeIndex = null
-                }
-                refreshUi()
-            }
-
-            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
-            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
-        })
-
-        qualitySeek.progress = selectedQualityIndex
-        refreshUi()
-
+        updateUi()
         dialog.setContentView(scroll)
-        ModernSheet.applyEditorBehavior(dialog, activity, peekRatio = 0.58f, maxRatio = 0.88f)
+        ModernSheet.applyEditorBehavior(dialog, activity, peekRatio = 0.72f, maxRatio = 0.95f)
         dialog.show()
     }
 
-    private fun refreshExportSummary(
-        resolutionButtons: List<TextView>,
-        ratioButtons: List<TextView>,
-        fpsButtons: List<TextView>,
-        qualityLabelsRow: List<TextView>,
-        selectedProfileIndex: Int,
-        selectedAspectRatioIndex: Int,
-        selectedFps: Int,
-        selectedQualityIndex: Int,
-        selectedModeLabel: String?,
-        selectedCodec: ExportVideoCodec,
-        watermarkUnlocked: Boolean,
-        summaryValue: TextView,
-        summaryMeta: TextView,
-        exportButton: TextView,
-    ) {
-        resolutionButtons.forEachIndexed { index, button ->
-            styleChoiceButton(button, index == selectedProfileIndex)
-        }
-        ratioButtons.forEachIndexed { index, button ->
-            styleChoiceButton(button, index == selectedAspectRatioIndex)
-        }
-        fpsButtons.forEachIndexed { index, button ->
-            styleChoiceButton(button, if (index == 0) selectedFps == 24 else selectedFps == 30)
-        }
-        qualityLabelsRow.forEachIndexed { index, label ->
-            label.setTextColor(
-                when {
-                    index == selectedQualityIndex -> accentBlue()
-                    else -> Color.parseColor("#74808C")
-                }
-            )
-            label.setTypeface(null, if (index == selectedQualityIndex) Typeface.BOLD else Typeface.NORMAL)
-        }
-
-        val profile = profiles[selectedProfileIndex]
-        val ratio = aspectRatios[selectedAspectRatioIndex]
-        val effectiveSettings = resolveEffectiveExportSettings(
-            profile = profile,
-            requestedFps = selectedFps,
-            selectedQualityIndex = selectedQualityIndex,
-            selectedCodec = selectedCodec,
-            selectedModeLabel = selectedModeLabel,
-            ratioW = ratio.w,
-            ratioH = ratio.h,
-        )
-        val estimatedSize = estimateOutputSize(durationMs, effectiveSettings.bitrateMbps)
-        val resolutionLabel = resolutionLabelFor(effectiveSettings.width, effectiveSettings.height)
-        summaryValue.text = "${selectedModeLabel ?: "Custom"} • $resolutionLabel • ${effectiveSettings.codec.shortLabel}"
-        summaryMeta.text =
-            "${effectiveSettings.fps}fps  •  ${effectiveSettings.bitrateMbps} Mbps  •  " +
-                "${if (watermarkUnlocked) "No watermark" else "Watermark ON"}  •  ${formatSize(estimatedSize)}"
-        exportButton.text = if (selectedModeLabel != null) "Start ${selectedModeLabel} Export" else "Start Export"
-    }
-
-    private fun refreshWatermarkState(
-        watermarkUnlocked: Boolean,
-        watermarkStatus: TextView,
-        watermarkAction: TextView,
-    ) {
-        watermarkStatus.text = if (watermarkUnlocked) {
-            "Reward unlocked. Next export runs without watermark."
-        } else {
-            "Logo watermark stays on export until ad unlock."
-        }
-        watermarkAction.text = if (watermarkUnlocked) {
-            "Watermark Removed for Next Export"
-        } else {
-            "Watch Ad Remove Watermark Once"
-        }
-        watermarkAction.isEnabled = !watermarkUnlocked
-        watermarkAction.alpha = if (watermarkUnlocked) 0.7f else 1f
-    }
-
-    private fun resolveEffectiveExportSettings(
-        profile: ExportProfile,
-        requestedFps: Int,
-        selectedQualityIndex: Int,
-        selectedCodec: ExportVideoCodec,
-        selectedModeLabel: String? = null,
-        ratioW: Int = 16,
-        ratioH: Int = 9,
-    ): EffectiveExportSettings {
-        val qualityProfile = DeviceDetector.getQualityProfile()
-        val isLowEndFastMode = DeviceDetector.isLowEndDevice() && (selectedModeLabel?.equals("Fast", ignoreCase = true) == true)
-        // Derive dimensions from profile's long edge + ratio
-        val longEdge = when {
-            isLowEndFastMode -> minOf(maxOf(profile.width, profile.height), 960)
-            else -> maxOf(profile.width, profile.height)
-        }
-        val (baseW, baseH) = if (ratioW >= ratioH) {
-            longEdge to (longEdge * ratioH / ratioW)
-        } else {
-            (longEdge * ratioW / ratioH) to longEdge
-        }
-        val (lockedWidth, lockedHeight) = clampExportSize(baseW, baseH, selectedModeLabel)
-        val maxBitrateMbps = maxOf(1, (qualityProfile.exportBitrate + 999) / 1000)
-        val effectiveFps = if (isLowEndFastMode) {
-            requestedFps.coerceAtMost(24)
-        } else {
-            requestedFps.coerceAtMost(qualityProfile.maxExportFps).coerceAtLeast(24)
-        }
-        val bitrateCapMbps = if (isLowEndFastMode) minOf(maxBitrateMbps, 1) else maxBitrateMbps
-        return EffectiveExportSettings(
-            width = lockedWidth,
-            height = lockedHeight,
-            fps = effectiveFps,
-            bitrateMbps = suggestedBitrateMbps(
-                width = lockedWidth,
-                height = lockedHeight,
-                fps = effectiveFps,
-                qualityIndex = selectedQualityIndex,
-                codec = selectedCodec,
-                selectedModeLabel = selectedModeLabel,
-            ).coerceAtMost(bitrateCapMbps),
-            codec = selectedCodec,
-        )
-    }
-
-    private fun clampExportSize(width: Int, height: Int, selectedModeLabel: String? = null): Pair<Int, Int> {
-        if (width <= 0 || height <= 0) {
-            return 1280 to 720
-        }
-        val isLandscape = width >= height
-        val isLowEndFastMode = DeviceDetector.isLowEndDevice() && (selectedModeLabel?.equals("Fast", ignoreCase = true) == true)
-        val (maxWidth, maxHeight) = if (isLowEndFastMode) {
-            if (isLandscape) 960f to 540f else 540f to 960f
-        } else {
-            if (isLandscape) 1280f to 720f else 720f to 1280f
-        }
-        val scale = minOf(maxWidth / width.toFloat(), maxHeight / height.toFloat(), 1f)
-        return maxOf((width * scale).toInt(), 1) to maxOf((height * scale).toInt(), 1)
-    }
-
-    private fun suggestedBitrateMbps(
-        width: Int,
-        height: Int,
-        fps: Int,
-        qualityIndex: Int,
-        codec: ExportVideoCodec,
-        selectedModeLabel: String? = null,
-    ): Int {
-        if (DeviceDetector.isLowEndDevice() && (selectedModeLabel?.equals("Fast", ignoreCase = true) == true)) {
-            return if (codec == ExportVideoCodec.HEVC) 1 else 1
-        }
-        val q = qualityIndex.coerceIn(0, qualityLabels.lastIndex)
-        val longEdge = maxOf(width, height)
-        val shortEdge = minOf(width, height)
-        val baseBitrate = when {
-            longEdge <= 960 && shortEdge <= 540 -> if (fps >= 30) intArrayOf(2, 2, 3)[q] else intArrayOf(1, 2, 3)[q]
-            longEdge <= 1280 && shortEdge <= 720 -> if (fps >= 30) intArrayOf(2, 3, 4)[q] else intArrayOf(2, 2, 3)[q]
-            longEdge <= 1920 && shortEdge <= 1080 -> if (fps >= 30) intArrayOf(4, 6, 8)[q] else intArrayOf(3, 5, 6)[q]
-            else -> if (fps >= 30) intArrayOf(12, 16, 24)[q] else intArrayOf(8, 12, 18)[q]
-        }
-        return when (codec) {
-            ExportVideoCodec.H264 -> baseBitrate
-            ExportVideoCodec.HEVC -> maxOf(1, (baseBitrate * 3) / 4)
-        }
-    }
-
-    private fun buildRequestedExportFileName(title: String, profileLabel: String, timestamp: String): String {
-        val safeTitle = sanitizeFileComponent(title).ifBlank { "Storyline" }
-        val safeProfile = sanitizeFileComponent(profileLabel).ifBlank { "HD" }
-        return "${safeTitle}_${safeProfile}_$timestamp.mp4"
-    }
-
-    private fun sanitizeFileComponent(value: String): String {
-        return value.trim().replace(Regex("[^A-Za-z0-9._-]+"), "_").trim('_')
-    }
-
-    private fun inspectProjectComplexity(): ProjectExportComplexity {
-        var visualClipCount = 0
-        var overlayClipCount = 0
-        var audioClipCount = 0
-        var editedClipCount = 0
-        var effectsClipCount = 0
-        var chromaClipCount = 0
-
-        val layoutResult = runCatching { NativeBridge.executeCommand("GET_TIMELINE_LAYOUT") }.getOrNull()
-        val clips = layoutResult?.data?.optJSONArray("clips")
-        if (layoutResult?.success == true && clips != null) {
-            for (index in 0 until clips.length()) {
-                val clip = clips.optJSONObject(index) ?: continue
-                if (!clip.optBoolean("enabled", true)) {
-                    continue
-                }
-
-                when (clip.optString("trackType", "VIDEO").uppercase(Locale.US)) {
-                    "VIDEO" -> visualClipCount += 1
-                    "OVERLAY" -> {
-                        visualClipCount += 1
-                        overlayClipCount += 1
-                    }
-                    "AUDIO" -> audioClipCount += 1
-                }
-
-                val playbackSpeed = clip.optDouble("playbackSpeed", 1.0)
-                val opacity = clip.optDouble("opacity", 1.0)
-                val curveProfile = clip.optString("curveSpeedProfile", "linear")
-                val hasEdit =
-                    abs(playbackSpeed - 1.0) > 0.01 ||
-                        clip.optBoolean("reversePlayback", false) ||
-                        clip.optBoolean("freezeFrameEnabled", false) ||
-                        !curveProfile.equals("linear", ignoreCase = true) ||
-                        abs(opacity - 1.0) > 0.01
-                if (hasEdit) {
-                    editedClipCount += 1
-                }
-
-                val hasEffects =
-                    clip.optBoolean("effectsEnabled", false) ||
-                        abs(clip.optDouble("brightness", 0.0)) > 0.01 ||
-                        abs(clip.optDouble("contrast", 1.0) - 1.0) > 0.01 ||
-                        abs(clip.optDouble("saturation", 1.0) - 1.0) > 0.01 ||
-                        clip.optBoolean("lutEnabled", false)
-                if (hasEffects) {
-                    effectsClipCount += 1
-                }
-
-                if (clip.optBoolean("chromaEnabled", false)) {
-                    chromaClipCount += 1
-                }
-            }
-        }
-
-        val textOverlayCount = OverlayStore.all().count { it.visible && it.endTimeMs > it.startTimeMs }
-        val stickerOverlayCount = StickerClipStore.all().count { it.visible && it.durationMs > 0 }
-
-        return ProjectExportComplexity(
-            visualClipCount = visualClipCount,
-            overlayClipCount = overlayClipCount,
-            audioClipCount = audioClipCount,
-            textOverlayCount = textOverlayCount,
-            stickerOverlayCount = stickerOverlayCount,
-            editedClipCount = editedClipCount,
-            effectsClipCount = effectsClipCount,
-            chromaClipCount = chromaClipCount,
-        )
-    }
-
-    private fun recommendExportSettings(
-        complexity: ProjectExportComplexity,
-        exportModes: List<ExportMode>,
-    ): ExportRecommendation {
-        val isLowEnd = DeviceDetector.isLowEndDevice()
-        val isHighEnd = DeviceDetector.isHighEndDevice()
-        val layeredProject = complexity.totalOverlayLayers > 0 || complexity.visualClipCount > 1
-        val featureHeavy = complexity.editedClipCount > 0 || complexity.effectsClipCount > 0 || complexity.chromaClipCount > 0
-        val shouldUseSafeDefault = isLowEnd || layeredProject || featureHeavy
-
-        val fastModeIndex = exportModes.indexOfFirst { it.label == "Fast" }.coerceAtLeast(0)
-        val standardModeIndex = exportModes.indexOfFirst { it.label == "Standard" }.takeIf { it >= 0 } ?: fastModeIndex
-        val note = when {
-            isLowEnd && complexity.isComplex ->
-                "Complex layered project on this device: Fast export uses 540p/24fps H.264 so it can finish sooner."
-            complexity.isComplex ->
-                "Complex layered project detected: hardware-first H.264 Fast export will finish sooner."
-            isLowEnd ->
-                "This device is memory-limited: Fast export uses 540p/24fps H.264 by default."
-            isHighEnd ->
-                "This device can hold Standard export by default, with Smaller File available when HEVC is supported."
-            else -> null
-        }
-
-        return ExportRecommendation(
-            modeIndex = if (shouldUseSafeDefault) fastModeIndex else standardModeIndex,
-            note = note,
-        )
-    }
-
-    private fun buildExportModes(codecCapabilities: ExportCodecSupport.Capabilities): List<ExportMode> {
-        val modes = mutableListOf(
-            ExportMode(
-                label = "Fast",
-                profileIndex = 0,
-                fps = if (DeviceDetector.isLowEndDevice()) 24 else 30,
-                qualityIndex = 0,
-                codec = ExportVideoCodec.H264,
-                note = if (DeviceDetector.isLowEndDevice()) {
-                    "Fastest hardware-first H.264 preset locked to 540p/24fps on low-end devices."
-                } else {
-                    "Fastest hardware-first H.264 preset."
-                },
-            ),
-            ExportMode(
-                label = "Standard",
-                profileIndex = 0,
-                fps = 30,
-                qualityIndex = if (DeviceDetector.isHighEndDevice()) 2 else 1,
-                codec = ExportVideoCodec.H264,
-                note = "Balanced H.264 preset for everyday delivery.",
-            ),
-        )
-        if (codecCapabilities.hevcEncoder) {
-            modes += ExportMode(
-                label = "Smaller File",
-                profileIndex = 0,
-                fps = 30,
-                qualityIndex = if (DeviceDetector.isLowEndDevice()) 0 else 1,
-                codec = ExportVideoCodec.HEVC,
-                note = "HEVC export for smaller files on supported devices.",
-            )
-        }
-        modes += ExportMode(
-            label = "Master",
-            profileIndex = 0,
-            fps = 30,
-            qualityIndex = 2,
-            codec = ExportVideoCodec.H264,
-            note = "Highest bitrate H.264 preset for strongest devices.",
-        )
-        return modes
-    }
-
-    private fun buildModeGuidance(
-        mode: ExportMode?,
-        complexity: ProjectExportComplexity,
-        effectiveSettings: EffectiveExportSettings,
-    ): String {
-        val modeLabel = mode?.label ?: "Custom"
-        val resolution = resolutionLabelFor(effectiveSettings.width, effectiveSettings.height)
-        return when {
-            DeviceDetector.isLowEndDevice() && modeLabel == "Fast" ->
-                "Recommended on low-end phones. Uses $resolution/${effectiveSettings.fps}fps ${effectiveSettings.codec.shortLabel} and finished the 30s layered benchmark on this device in about 4 minutes."
-            DeviceDetector.isLowEndDevice() && modeLabel == "Standard" ->
-                "Sharper output, but roughly 2x slower than Fast on this low-end device. Use when quality matters more than export time."
-            DeviceDetector.isLowEndDevice() && modeLabel == "Master" ->
-                "Highest bitrate H.264. Works on low-end devices too, but expect the longest render time."
-            DeviceDetector.isHighEndDevice() && modeLabel == "Standard" ->
-                "Best default on stronger devices. Keeps $resolution/${effectiveSettings.fps}fps H.264 quality without the low-end delay."
-            modeLabel == "Smaller File" ->
-                "Uses HEVC on supported devices for smaller files. Export speed depends on hardware encoder support."
-            complexity.isComplex && modeLabel == "Fast" ->
-                "Layered edit detected. Fast keeps the quickest hardware-first render path."
-            else -> mode?.note ?: "$modeLabel export uses $resolution/${effectiveSettings.fps}fps ${effectiveSettings.codec.shortLabel}."
-        }
-    }
-
-    private fun resolutionLabelFor(width: Int, height: Int): String {
-        val longEdge = maxOf(width, height)
-        val shortEdge = minOf(width, height)
-        return when {
-            longEdge >= 1920 && shortEdge >= 1080 -> "1080p"
-            longEdge >= 1280 && shortEdge >= 720 -> "720p"
-            longEdge >= 960 && shortEdge >= 540 -> "540p"
-            longEdge >= 854 && shortEdge >= 480 -> "480p"
-            else -> "${width}x${height}"
-        }
-    }
-
-    private fun estimateOutputSize(durationMs: Long, bitrateMbps: Int): Long {
-        if (durationMs <= 0L) {
-            return 0L
-        }
-        val bitrateBytesPerSec = bitrateMbps * 1024L * 1024L / 8L
-        val payloadBytes = bitrateBytesPerSec * durationMs / 1000L
-        val overheadBytes = 4L * 1024L * 1024L
-        return payloadBytes + overheadBytes
-    }
-
-    private fun formatSize(bytes: Long): String {
-        if (bytes <= 0L) {
-            return "small file"
-        }
-        val mb = bytes / (1024.0 * 1024.0)
-        return if (mb >= 1024.0) {
-            String.format(Locale.US, "%.2f GB", mb / 1024.0)
-        } else {
-            String.format(Locale.US, "%.1f MB", mb)
-        }
-    }
-
-    private fun describeDuration(durationMs: Long): String {
-        if (durationMs <= 0L) return "Quick export"
-        val totalSec = (durationMs / 1000L).coerceAtLeast(0L)
-        val minutes = totalSec / 60L
-        val seconds = totalSec % 60L
-        return if (minutes > 0) {
-            String.format(Locale.US, "%d:%02d timeline", minutes, seconds)
-        } else {
-            String.format(Locale.US, "%ds timeline", seconds)
-        }
-    }
-
-    private fun dragHandle(): View =
-        View(activity).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(999).toFloat()
-                setColor(Color.parseColor("#4A5561"))
-            }
-            layoutParams = LinearLayout.LayoutParams(dp(42), dp(4)).also {
-                it.gravity = Gravity.CENTER_HORIZONTAL
-                it.bottomMargin = dp(14)
-            }
-        }
-
-    private fun titleView(textValue: String): TextView =
+    private fun sectionLabel(title: String): TextView =
         TextView(activity).apply {
-            text = textValue
-            textSize = 22f
+            text = title
+            textSize = 11f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-        }
-
-    private fun subtitleView(textValue: String): TextView =
-        TextView(activity).apply {
-            text = textValue
-            textSize = 12f
-            setTextColor(Color.parseColor("#8E99A5"))
-            gravity = Gravity.CENTER
-            setPadding(0, dp(8), 0, dp(16))
-        }
-
-    private fun sectionLabel(textValue: String): TextView =
-        TextView(activity).apply {
-            text = textValue
-            textSize = 12f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#8E99A5"))
-            setPadding(0, dp(12), 0, dp(8))
-        }
-
-    private fun recommendationBanner(textValue: String): TextView =
-        TextView(activity).apply {
-            text = textValue
-            textSize = 12f
-            setTextColor(Color.parseColor("#FFD4A5"))
-            background = warningCard()
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).also { it.bottomMargin = dp(14) }
+            setTextColor(Color.parseColor("#8A99AD"))
+            letterSpacing = 0.06f
+            setPadding(0, dp(16), 0, dp(8))
         }
 
     private fun choiceButton(label: String): TextView =
@@ -856,42 +410,32 @@ class ExportDialog(
             text = label
             textSize = 13f
             gravity = Gravity.CENTER
-            setPadding(dp(16), dp(10), dp(16), dp(10))
+            setPadding(dp(14), dp(10), dp(14), dp(10))
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).also {
-                it.marginStart = dp(4)
-                it.marginEnd = dp(4)
+                it.marginStart = dp(3)
+                it.marginEnd = dp(3)
             }
             styleChoiceButton(this, false)
         }
 
     private fun styleChoiceButton(button: TextView, selected: Boolean) {
         button.background = chipBackground(selected)
-        button.setTextColor(if (selected) Color.WHITE else Color.parseColor("#D8D8D8"))
+        button.setTextColor(if (selected) Color.WHITE else Color.parseColor("#8A99AD"))
         button.setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
     }
 
-    private fun actionButton(label: String, backgroundColor: String, textColor: String): TextView =
-        TextView(activity).apply {
-            text = label
-            textSize = 15f
-            gravity = Gravity.CENTER
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor(textColor))
-            background = if (backgroundColor.equals("#388BFD", ignoreCase = true) || backgroundColor.equals("#FF5A52", ignoreCase = true)) {
-                primaryButtonBackground()
-            } else {
-                secondaryButtonBackground()
+    private fun dragHandle(): View =
+        View(activity).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(999).toFloat()
+                setColor(Color.parseColor("#3A4452"))
             }
-            setPadding(dp(16), dp(14), dp(16), dp(14))
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).also {
-                it.marginStart = dp(4)
-                it.marginEnd = dp(4)
+            layoutParams = LinearLayout.LayoutParams(dp(36), dp(4)).also {
+                it.gravity = Gravity.CENTER_HORIZONTAL
+                it.bottomMargin = dp(14)
             }
         }
-
-    private fun accentBlue(): Int = Color.parseColor("#388BFD")
-
-    private fun accentWarm(): Int = Color.parseColor("#388BFD")
 
     private fun sheetRootBackground(): GradientDrawable =
         GradientDrawable().apply {
@@ -904,55 +448,77 @@ class ExportDialog(
     private fun surfaceCard(): GradientDrawable =
         GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(16).toFloat()
+            cornerRadius = dp(14).toFloat()
             setColor(Color.parseColor("#171C23"))
             setStroke(dp(1), Color.parseColor("#222A36"))
-        }
-
-    private fun inputBackground(): GradientDrawable =
-        GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(14).toFloat()
-            setColor(Color.parseColor("#141920"))
-            setStroke(dp(1), Color.parseColor("#1E2632"))
         }
 
     private fun chipBackground(selected: Boolean): GradientDrawable =
         GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(14).toFloat()
+            cornerRadius = dp(12).toFloat()
             if (selected) {
-                setColor(Color.parseColor("#162235"))
-                setStroke(dp(1), accentBlue())
+                setColor(Color.parseColor("#16263D"))
+                setStroke(dp(1), Color.parseColor("#388BFD"))
             } else {
                 setColor(Color.parseColor("#171C23"))
                 setStroke(dp(1), Color.parseColor("#222A36"))
             }
         }
 
-    private fun primaryButtonBackground(): GradientDrawable =
+    private fun rewardButtonBackground(): GradientDrawable =
         GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(14).toFloat()
-            setColor(Color.parseColor("#17263C"))
+            cornerRadius = dp(12).toFloat()
+            setColor(Color.parseColor("#142033"))
             setStroke(dp(1), Color.parseColor("#2B5282"))
         }
 
-    private fun secondaryButtonBackground(): GradientDrawable =
+    private fun unlockedBadgeBackground(): GradientDrawable =
+        GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(12).toFloat()
+            setColor(Color.parseColor("#12231A"))
+            setStroke(dp(1), Color.parseColor("#235432"))
+        }
+
+    private fun primaryExportButtonBackground(): GradientDrawable =
         GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(14).toFloat()
-            setColor(Color.parseColor("#171C23"))
-            setStroke(dp(1), Color.parseColor("#222A36"))
+            setColor(Color.parseColor("#1F6FEB"))
+            setStroke(dp(1), Color.parseColor("#388BFD"))
         }
 
-    private fun warningCard(): GradientDrawable =
-        GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(16).toFloat()
-            setColor(Color.parseColor("#17120E"))
-            setStroke(dp(1), Color.parseColor("#5A4121"))
+    private fun estimateOutputSize(durationMs: Long, bitrateMbps: Int): Long {
+        if (durationMs <= 0L) return 0L
+        val bitrateBytesPerSec = bitrateMbps * 1024L * 1024L / 8L
+        val payloadBytes = bitrateBytesPerSec * (durationMs / 1000L)
+        val overheadBytes = 2L * 1024L * 1024L
+        return payloadBytes + overheadBytes
+    }
+
+    private fun formatSize(bytes: Long): String {
+        if (bytes <= 0L) return "File size varies"
+        val mb = bytes / (1024.0 * 1024.0)
+        return if (mb >= 1024.0) {
+            String.format(Locale.US, "%.2f GB", mb / 1024.0)
+        } else {
+            String.format(Locale.US, "%.1f MB", mb)
         }
+    }
+
+    private fun describeDuration(durationMs: Long): String {
+        if (durationMs <= 0L) return "0s"
+        val totalSec = (durationMs / 1000L).coerceAtLeast(0L)
+        val minutes = totalSec / 60L
+        val seconds = totalSec % 60L
+        return if (minutes > 0) {
+            String.format(Locale.US, "%d:%02d", minutes, seconds)
+        } else {
+            String.format(Locale.US, "%ds", seconds)
+        }
+    }
 
     private fun dp(value: Int): Int =
         (value * activity.resources.displayMetrics.density).roundToInt()

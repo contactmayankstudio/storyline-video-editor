@@ -16,6 +16,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -101,6 +103,34 @@ jobs:
         with:
           name: storyline-play-release-apk
           path: android/app/build/outputs/apk/play/release/*.apk
+
+      - name: Prepare APKs for direct release
+        if: (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && github.event_name != 'pull_request'
+        run: |
+          mkdir -p release-apks
+          find android/app/build/outputs/apk/play/debug -name "*.apk" -exec cp {} release-apks/Storyline-Debug.apk \; 2>/dev/null || true
+          find android/app/build/outputs/apk/play/release -name "*.apk" -exec cp {} release-apks/Storyline-Release.apk \; 2>/dev/null || true
+
+      - name: Publish Direct APK to GitHub Release
+        if: (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Storyline Latest Android Build"
+          body: |
+            ### 📱 Storyline Latest Android Build
+            - **Build Run:** #${{ github.run_number }}
+            - **Branch:** `${{ github.ref_name }}`
+            - **Commit:** `${{ github.sha }}`
+
+            #### 📥 Direct 1-Click Install Links:
+            - **[Download Storyline-Debug.apk](https://github.com/${{ github.repository }}/releases/download/latest/Storyline-Debug.apk)** (Testing Build)
+            - **[Download Storyline-Release.apk](https://github.com/${{ github.repository }}/releases/download/latest/Storyline-Release.apk)** (Production / Release Build)
+          draft: false
+          prerelease: false
+          files: release-apks/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Node.js
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
