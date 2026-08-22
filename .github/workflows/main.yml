@@ -78,6 +78,7 @@ jobs:
           }
 
       - name: Upload debug APK
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: storyline-debug-apk
@@ -103,6 +104,7 @@ jobs:
 
       - name: Upload Play release APK
         if: github.event_name != 'pull_request'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: storyline-play-release-apk
@@ -112,8 +114,9 @@ jobs:
         if: (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && github.event_name != 'pull_request'
         run: |
           mkdir -p release-apks
-          find android/app/build/outputs/apk/play/debug -name "*.apk" -exec cp {} release-apks/Storyline-Debug.apk \; 2>/dev/null || true
-          find android/app/build/outputs/apk/play/release -name "*.apk" -exec cp {} release-apks/Storyline-Release.apk \; 2>/dev/null || true
+          find android/app/build/outputs/apk -name "*debug*.apk" -exec cp {} release-apks/Storyline-Debug.apk \; 2>/dev/null || true
+          find android/app/build/outputs/apk -name "*release*.apk" -exec cp {} release-apks/Storyline-Release.apk \; 2>/dev/null || true
+          ls -la release-apks/
 
       - name: Publish Direct APK to GitHub Release
         if: (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && github.event_name != 'pull_request'
