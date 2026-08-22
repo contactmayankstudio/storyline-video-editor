@@ -142,7 +142,7 @@ class LaunchActivity : Activity() {
     }
 
     private fun showProjectOptions(project: File) {
-        val displayName = project.nameWithoutExtension.replace(Regex("_[0-9]{8}_[0-9]{6}$"), "")
+        val displayName = getProjectDisplayName(project)
         val options = arrayOf("Rename", "Duplicate", "Delete")
         AlertDialog.Builder(this)
             .setTitle(displayName)
@@ -157,7 +157,7 @@ class LaunchActivity : Activity() {
     }
 
     private fun promptRenameProject(project: File) {
-        val currentName = project.nameWithoutExtension.replace(Regex("_[0-9]{8}_[0-9]{6}$"), "")
+        val currentName = getProjectDisplayName(project)
         val input = android.widget.EditText(this).apply {
             setText(currentName)
             setSelection(currentName.length)
@@ -205,6 +205,21 @@ class LaunchActivity : Activity() {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    private fun getProjectDisplayName(project: File): String {
+        if (project.isAutoSaveEntry()) {
+            return "Video Draft"
+        }
+        val raw = project.nameWithoutExtension
+        return raw.replace(Regex("_[0-9]{8}_[0-9]{6}$"), "")
+    }
+
+    private fun File.isAutoSaveEntry(): Boolean {
+        return name.equals("autosave.vne", ignoreCase = true) ||
+            name.startsWith("autosave_", ignoreCase = true) ||
+            parentFile?.name == "autosave" ||
+            parentFile?.name == "backups"
     }
 
     private fun setStartActionsEnabled(enabled: Boolean) {
