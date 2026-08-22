@@ -296,7 +296,7 @@ class ExportDialog(
 
         fun resolveEffectiveSettings(): Triple<Int, Int, Int> {
             val fps = frameRates[selectedFpsIndex]
-            val (ratioW, ratioH) = if (activity is MainActivity) {
+            val (ratioW, ratioH) = if (activity is VideoEditorActivity) {
                 activity.getSelectedAspectRatio()
             } else {
                 16 to 9
