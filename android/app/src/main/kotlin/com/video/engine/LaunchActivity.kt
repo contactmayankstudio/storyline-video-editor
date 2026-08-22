@@ -131,10 +131,66 @@ class LaunchActivity : Activity() {
                 onProjectClick = { project ->
                     openEditor(EditorLaunchIntents.START_ACTION_OPEN, project.absolutePath)
                 },
+                onProjectMore = { project, _ ->
+                    showProjectOptions(project)
+                },
                 onProjectDelete = { project ->
                     confirmDeleteVideoProject(project)
                 },
             )
+        }
+    }
+
+    private fun showProjectOptions(project: File) {
+        val displayName = project.nameWithoutExtension.replace(Regex("_[0-9]{8}_[0-9]{6}$"), "")
+        val options = arrayOf("Rename", "Duplicate", "Delete")
+        AlertDialog.Builder(this)
+            .setTitle(displayName)
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> promptRenameProject(project)
+                    1 -> duplicateProject(project)
+                    2 -> confirmDeleteVideoProject(project)
+                }
+            }
+            .show()
+    }
+
+    private fun promptRenameProject(project: File) {
+        val currentName = project.nameWithoutExtension.replace(Regex("_[0-9]{8}_[0-9]{6}$"), "")
+        val input = android.widget.EditText(this).apply {
+            setText(currentName)
+            setSelection(currentName.length)
+            setPadding(48, 32, 48, 32)
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.GRAY)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Rename Project")
+            .setView(input)
+            .setPositiveButton("Rename") { _, _ ->
+                val newName = input.text.toString().trim()
+                if (newName.isNotBlank() && newName != currentName) {
+                    val renamed = RecentProjectFiles.rename(this, project, newName)
+                    if (renamed != null) {
+                        Toast.makeText(this, "Project renamed", Toast.LENGTH_SHORT).show()
+                        refreshRecentProjects()
+                    } else {
+                        Toast.makeText(this, "Rename failed", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun duplicateProject(project: File) {
+        val duplicated = RecentProjectFiles.duplicate(this, project)
+        if (duplicated != null) {
+            Toast.makeText(this, "Project duplicated", Toast.LENGTH_SHORT).show()
+            refreshRecentProjects()
+        } else {
+            Toast.makeText(this, "Duplicate failed", Toast.LENGTH_SHORT).show()
         }
     }
 

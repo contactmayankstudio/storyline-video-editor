@@ -13,6 +13,7 @@ import java.util.*
 class ProjectListAdapter(
     private val projects: List<File>,
     private val onProjectClick: (File) -> Unit,
+    private val onProjectMore: ((File, View) -> Unit)? = null,
     private val onProjectDelete: ((File) -> Unit)? = null,
 ) : RecyclerView.Adapter<ProjectListAdapter.ViewHolder>() {
 
@@ -20,8 +21,7 @@ class ProjectListAdapter(
         val tag: TextView = view.findViewById(R.id.projectCardTag)
         val name: TextView = view.findViewById(R.id.projectCardName)
         val date: TextView = view.findViewById(R.id.projectCardDate)
-        val status: TextView = view.findViewById(R.id.projectCardStatus)
-        val delete: TextView = view.findViewById(R.id.projectCardDelete)
+        val moreButton: View? = view.findViewById(R.id.projectCardMoreButton)
         val icon: ImageView = view.findViewById(R.id.projectCardIcon)
     }
 
@@ -34,29 +34,22 @@ class ProjectListAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val project = projects[position]
         val isAutosave = project.isAutoSaveEntry()
-        holder.tag.text = holder.itemView.context.getString(
-            if (isAutosave) R.string.project_card_tag_autosave else R.string.project_card_tag,
-        )
+        holder.tag.text = if (isAutosave) "Autosave" else "Draft"
         holder.name.text = if (isAutosave) {
             holder.itemView.context.getString(R.string.project_card_name_autosave, position + 1)
         } else {
             displayName(project)
         }
-        val sdf = SimpleDateFormat("dd MMM yyyy • HH:mm", Locale.getDefault())
+        val sdf = SimpleDateFormat("dd MMM • HH:mm", Locale.getDefault())
         holder.date.text = "Updated ${sdf.format(Date(project.lastModified()))}"
-        holder.status.text = holder.itemView.context.getString(
-            if (isAutosave) R.string.project_card_status_resume else R.string.project_card_status,
-        )
         holder.icon.setImageResource(R.drawable.ic_video_clip)
 
         holder.itemView.setOnClickListener { onProjectClick(project) }
-        if (onProjectDelete == null) {
-            holder.delete.visibility = View.GONE
-            holder.delete.setOnClickListener(null)
-        } else {
-            holder.delete.visibility = View.VISIBLE
-            holder.delete.setOnClickListener {
-                onProjectDelete.invoke(project)
+        holder.moreButton?.setOnClickListener { v ->
+            if (onProjectMore != null) {
+                onProjectMore.invoke(project, v)
+            } else {
+                onProjectDelete?.invoke(project)
             }
         }
     }

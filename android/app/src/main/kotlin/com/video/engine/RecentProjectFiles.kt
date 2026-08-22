@@ -50,6 +50,47 @@ object RecentProjectFiles {
         return !projectFile.exists()
     }
 
+    fun rename(context: Context, projectFile: File, newName: String): File? {
+        val sanitized = newName.trim().replace(Regex("[^a-zA-Z0-9_\\- ]"), "").takeIf { it.isNotBlank() } ?: return null
+        val parent = projectFile.parentFile ?: return null
+        val targetFile = File(parent, "$sanitized.vne")
+        if (targetFile.absolutePath == projectFile.absolutePath) return projectFile
+        if (targetFile.exists()) targetFile.delete()
+        val success = projectFile.renameTo(targetFile)
+        if (success) {
+            sidecarFile(projectFile)?.let { sidecar ->
+                val targetSidecar = File(parent, "$sanitized.ui.json")
+                if (targetSidecar.exists()) targetSidecar.delete()
+                sidecar.renameTo(targetSidecar)
+            }
+            return targetFile
+        }
+        return null
+    }
+
+    fun duplicate(context: Context, projectFile: File): File? {
+        if (!projectFile.isFile) return null
+        val parent = projectFile.parentFile ?: return null
+        val baseName = projectFile.nameWithoutExtension
+        var copyIndex = 1
+        var targetFile = File(parent, "$baseName Copy.vne")
+        while (targetFile.exists()) {
+            copyIndex++
+            targetFile = File(parent, "$baseName Copy $copyIndex.vne")
+        }
+        val copied = runCatching {
+            projectFile.copyTo(targetFile, overwrite = true)
+        }.isSuccess
+        if (copied) {
+            sidecarFile(projectFile)?.let { sidecar ->
+                val targetSidecar = File(parent, "${targetFile.nameWithoutExtension}.ui.json")
+                runCatching { sidecar.copyTo(targetSidecar, overwrite = true) }
+            }
+            return targetFile
+        }
+        return null
+    }
+
     fun autoSaveFile(context: Context): File =
         File(baseDir(context), "autosave/autosave.vne")
 

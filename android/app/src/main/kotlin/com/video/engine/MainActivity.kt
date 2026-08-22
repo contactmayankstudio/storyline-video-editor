@@ -9136,6 +9136,11 @@ class VideoEditorActivity : Activity() {
      */
     fun getSelectedAspectRatioIndex(): Int = selectedAspectRatioIndex
 
+    fun getSelectedAspectRatio(): Pair<Int, Int> {
+        val option = aspectRatioOptions.getOrNull(selectedAspectRatioIndex) ?: aspectRatioOptions[0]
+        return option.width to option.height
+    }
+
     fun performExport(
         width: Int = 1280,
         height: Int = 720,

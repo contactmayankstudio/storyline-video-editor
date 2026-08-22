@@ -295,28 +295,42 @@ class ExportDialog(
         root.addView(exportButton)
 
         fun resolveEffectiveSettings(): Triple<Int, Int, Int> {
-            val profile = profiles[selectedProfileIndex]
             val fps = frameRates[selectedFpsIndex]
-            val ratio = aspectRatios.getOrNull(selectedAspectRatioIndex) ?: aspectRatios[0]
-
-            val longEdge = profile.longEdge
-            val (w, h) = if (ratio.w >= ratio.h) {
-                longEdge to (longEdge * ratio.h / ratio.w)
+            val (ratioW, ratioH) = if (activity is MainActivity) {
+                activity.getSelectedAspectRatio()
             } else {
-                (longEdge * ratio.w / ratio.h) to longEdge
+                16 to 9
+            }
+
+            val base = when (selectedProfileIndex) {
+                0 -> 720
+                1 -> 1080
+                2 -> 1440
+                3 -> 2160
+                else -> 1080
+            }
+
+            val (rawW, rawH) = if (ratioW >= ratioH) {
+                val h = base
+                val w = ((base.toFloat() * ratioW.toFloat() / ratioH.toFloat()).roundToInt() / 2) * 2
+                w to h
+            } else {
+                val w = base
+                val h = ((base.toFloat() * ratioH.toFloat() / ratioW.toFloat()).roundToInt() / 2) * 2
+                w to h
             }
 
             // Bitrate in Mbps based on resolution, fps, quality
-            val baseBitrate = when {
-                longEdge <= 1280 -> intArrayOf(3, 5, 7)[selectedQualityIndex]
-                longEdge <= 1920 -> intArrayOf(6, 10, 14)[selectedQualityIndex]
-                longEdge <= 2560 -> intArrayOf(12, 18, 26)[selectedQualityIndex]
+            val baseBitrate = when (selectedProfileIndex) {
+                0 -> intArrayOf(3, 5, 7)[selectedQualityIndex]
+                1 -> intArrayOf(6, 10, 14)[selectedQualityIndex]
+                2 -> intArrayOf(12, 18, 26)[selectedQualityIndex]
                 else -> intArrayOf(20, 30, 45)[selectedQualityIndex]
             }
             val fpsFactor = if (fps == 60) 1.35f else 1.0f
             val bitrateMbps = (baseBitrate * fpsFactor).roundToInt().coerceAtLeast(2)
 
-            return Triple(w, h, bitrateMbps)
+            return Triple(rawW, rawH, bitrateMbps)
         }
 
         updateUi = {
@@ -335,14 +349,14 @@ class ExportDialog(
             summaryTitle.text = "$profileLabel • $fps FPS • $qualityLabel"
             val estimatedBytes = estimateOutputSize(durationMs, bitrateMbps)
             val sizeStr = formatSize(estimatedBytes)
-            val wmText = if (watermarkUnlocked) "No Watermark" else "Watermark Included"
-            summaryMeta.text = "$sizeStr estimated • $width x $height • $wmText"
+            val wmText = if (watermarkUnlocked) "Watermark removed" else "Watermark included"
+            summaryMeta.text = "$width × $height  •  $sizeStr  •  $wmText"
 
             // Update Watermark Section
             if (watermarkUnlocked) {
                 watermarkSubtitle.text = "✓ Watermark will be removed for this export."
                 watermarkSubtitle.setTextColor(Color.parseColor("#3FB950"))
-                watermarkButton.text = "✓ Watermark Removed"
+                watermarkButton.text = "✓ Watermark removed"
                 watermarkButton.background = unlockedBadgeBackground()
                 watermarkButton.setTextColor(Color.parseColor("#3FB950"))
                 watermarkButton.isEnabled = false
