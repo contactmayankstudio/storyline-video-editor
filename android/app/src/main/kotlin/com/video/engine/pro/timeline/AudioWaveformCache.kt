@@ -16,7 +16,11 @@ import kotlin.math.abs
 import kotlin.math.max
 
 object AudioWaveformCache {
-    private val executor = Executors.newSingleThreadExecutor()
+    private val executor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "AudioWaveformCache").apply {
+            priority = Thread.MIN_PRIORITY
+        }
+    }
     private val mainHandler = Handler(Looper.getMainLooper())
     private val lock = Any()
     private val cache = object : android.util.LruCache<String, FloatArray>(128) {}

@@ -199,6 +199,21 @@ class TimelineCanvasView @JvmOverloads constructor(
         color = Color.parseColor("#28FFFFFF")
     }
     private val clipPillRect = RectF()
+    private val clipDimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x88000000.toInt() }
+    private val emptyTrackHintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#485361")
+        textSize = dp(10.5f).toFloat()
+        textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
+    }
+    private val tempTrackChipRect = RectF()
+    private val tempTrackRailRect = RectF()
+    private val tempTrackChipShadowRect = RectF()
+    private val tempHitRect = RectF()
+    private val tempTransitionMarkerRect = RectF()
+    private val tooltipRect = RectF()
+    private val playheadTrianglePath = Path()
+    private var waveformLinePts = FloatArray(1024)
 
     private data class TransitionMarker(
         val outgoingClipId: Int,
@@ -758,13 +773,18 @@ class TimelineCanvasView @JvmOverloads constructor(
         val s = ms / 1000
         val m = s / 60
         val remS = s % 60
-        return "%02d:%02d".format(m, remS)
+        val mStr = if (m < 10) "0$m" else "$m"
+        val sStr = if (remS < 10) "0$remS" else "$remS"
+        return "$mStr:$sStr"
     }
 
     // ── Waveform cache ────────────────────────────────────────────────────────
     private val clipWaveforms = mutableMapOf<String, FloatArray>()
     private val clipWaveformKeys = mutableMapOf<String, String>()
-    private val waveformPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#AAFFFFFF") }
+    private val waveformPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#AAFFFFFF")
+        strokeWidth = dp(1.5f).toFloat()
+    }
     private var lastInvalidateMs = 0L
     private val invalidateThrottleMs = 16L
     private val assetRequestHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -813,19 +833,34 @@ class TimelineCanvasView @JvmOverloads constructor(
     private fun drawWaveform(canvas: Canvas, clip: ClipSegment, top: Float, bottom: Float) {
         if (playbackActive && DeviceDetector.isLowEndDevice()) return
         val peaks = clipWaveforms[clip.id] ?: return
-        if (peaks.isEmpty()) return
+        val peakCount = peaks.size
+        if (peakCount == 0) return
         val left = msToX(clip.startTimeMs)
         val right = msToX(clip.startTimeMs + clip.durationMs)
+        val clipDrawRight = contentRightLimitPx()
+        if (right < headerWidthPx || left > clipDrawRight) return
+
         val midY = (top + bottom) / 2f
         val maxAmp = (bottom - top) / 2f - dp(4)
-        val barW = (right - left) / peaks.size
-        canvas.save()
-        canvas.clipRect(maxOf(left, headerWidthPx.toFloat()), top, right, bottom)
-        peaks.forEachIndexed { i, peak ->
+        val barW = (right - left) / peakCount
+        val ptsNeeded = peakCount * 4
+        if (waveformLinePts.size < ptsNeeded) {
+            waveformLinePts = FloatArray(ptsNeeded)
+        }
+        val pts = waveformLinePts
+        var ptIdx = 0
+        for (i in 0 until peakCount) {
+            val peak = peaks[i]
             val x = left + i * barW + barW / 2f
             val amp = peak * maxAmp
-            canvas.drawLine(x, midY - amp, x, midY + amp, waveformPaint)
+            pts[ptIdx++] = x
+            pts[ptIdx++] = midY - amp
+            pts[ptIdx++] = x
+            pts[ptIdx++] = midY + amp
         }
+        canvas.save()
+        canvas.clipRect(max(left, headerWidthPx.toFloat()), top, min(right, clipDrawRight), bottom)
+        canvas.drawLines(pts, 0, ptsNeeded, waveformPaint)
         canvas.restore()
     }
     private val clipThumbnails = mutableMapOf<String, List<android.graphics.Bitmap>>()
@@ -894,13 +929,7 @@ class TimelineCanvasView @JvmOverloads constructor(
                 drawWaveform(canvas, clip, ct, cb)
             }
             if (track.type == TrackType.VIDEO && track.clips.isEmpty()) {
-                val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = Color.parseColor("#485361")
-                    textSize = dp(10.5f).toFloat()
-                    textAlign = Paint.Align.CENTER
-                    isFakeBoldText = true
-                }
-                canvas.drawText("Add media", laneRect.centerX(), laneRect.centerY() + dp(3.5f), hintPaint)
+                canvas.drawText("Add media", laneRect.centerX(), laneRect.centerY() + dp(3.5f), emptyTrackHintPaint)
             }
         }
     }
@@ -927,7 +956,7 @@ class TimelineCanvasView @JvmOverloads constructor(
 
         val trackClips = track?.clips?.sortedBy { it.startTimeMs } ?: emptyList()
         val index = trackClips.indexOfFirst { it.id == clip.id }.takeIf { it >= 0 }?.plus(1) ?: 1
-        val indexStr = "%02d".format(index)
+        val indexStr = if (index < 10) "0$index" else "$index"
 
         return when (clip.trackType) {
             TrackType.VIDEO -> "Video $indexStr"
@@ -1016,8 +1045,7 @@ class TimelineCanvasView @JvmOverloads constructor(
 
         // Muted / hidden dim
         if (clip.isMuted || clip.isHidden) {
-            val dimPaint = Paint(Paint.ANTI_ALIAS_FLAG).also { it.color = 0x88000000.toInt() }
-            canvas.drawRoundRect(clipRect, dp(6).toFloat(), dp(6).toFloat(), dimPaint)
+            canvas.drawRoundRect(clipRect, dp(6).toFloat(), dp(6).toFloat(), clipDimPaint)
         }
         if (trackLocked[clip.trackType] == true) {
             canvas.drawRoundRect(clipRect, dp(6).toFloat(), dp(6).toFloat(), trackLockedOverlayPaint)
@@ -1048,10 +1076,11 @@ class TimelineCanvasView @JvmOverloads constructor(
         val totalSec = safeMs / 1000L
         val sec = totalSec % 60L
         val min = totalSec / 60L
+        val secStr = if (sec < 10 && min > 0) "0$sec" else "$sec"
         return if (min > 0) {
-            "%d:%02d.%d".format(min, sec, tenths)
+            "$min:$secStr.$tenths"
         } else {
-            "%d.%ds".format(sec, tenths)
+            "$secStr.${tenths}s"
         }
     }
 
@@ -1078,12 +1107,14 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     private fun drawTrackImportChips(canvas: Canvas) {
         tracks.forEachIndexed { i, track ->
-            drawTrackActionRail(canvas, i, track)
-            val chip = trackImportChipRect(i, track)
+            populateTrackImportChipRect(i, track, tempTrackChipRect)
+            drawTrackActionRail(canvas, i, track, tempTrackChipRect)
+            val chip = tempTrackChipRect
             if (chip.right < headerWidthPx || chip.left > width) return@forEachIndexed
             val isLocked = trackLocked[track.type] == true
+            tempTrackChipShadowRect.set(chip.left + dp(0.4f), chip.top + dp(0.6f), chip.right + dp(0.8f), chip.bottom + dp(1f))
             canvas.drawRoundRect(
-                RectF(chip.left + dp(0.4f), chip.top + dp(0.6f), chip.right + dp(0.8f), chip.bottom + dp(1f)),
+                tempTrackChipShadowRect,
                 trackImportChipRadiusPx(),
                 trackImportChipRadiusPx(),
                 trackActionChipShadowPaint,
@@ -1105,32 +1136,31 @@ class TimelineCanvasView @JvmOverloads constructor(
         }
     }
 
-    private fun drawTrackActionRail(canvas: Canvas, trackIndex: Int, track: TrackState) {
-        val chip = trackImportChipRect(trackIndex, track)
+    private fun drawTrackActionRail(canvas: Canvas, trackIndex: Int, track: TrackState, chipRect: RectF) {
         val top = trackTop(trackIndex).toFloat()
         val bottom = top + trackVisualHeightPx(track)
-        val rail = RectF(
-            chip.left - dp(2),
+        tempTrackRailRect.set(
+            chipRect.left - dp(2),
             top + dp(3),
-            chip.right + dp(2),
+            chipRect.right + dp(2),
             bottom - dp(3),
         )
         trackActionRailPaint.alpha = 8
-        canvas.drawRoundRect(rail, dp(8).toFloat(), dp(8).toFloat(), trackActionRailPaint)
+        canvas.drawRoundRect(tempTrackRailRect, dp(8).toFloat(), dp(8).toFloat(), trackActionRailPaint)
         trackActionRailPaint.alpha = 255
         trackActionRailStrokePaint.color = trackActionRailStroke(track.type)
         trackActionRailStrokePaint.alpha = 18
-        canvas.drawRoundRect(rail, dp(8).toFloat(), dp(8).toFloat(), trackActionRailStrokePaint)
+        canvas.drawRoundRect(tempTrackRailRect, dp(8).toFloat(), dp(8).toFloat(), trackActionRailStrokePaint)
         trackActionRailStrokePaint.alpha = 255
     }
 
-    private fun trackImportChipRect(trackIndex: Int, track: TrackState): RectF {
+    private fun populateTrackImportChipRect(trackIndex: Int, track: TrackState, outRect: RectF) {
         val chipWidth = dp(24).toFloat()
         val chipHeight = min(laneHeightPx - dp(18), dp(16)).coerceAtLeast(dp(14)).toFloat()
         val top = trackTop(trackIndex).toFloat()
         val centerY = top + trackVisualHeightPx(track) / 2f
         val left = fixedTrackImportChipLeft(chipWidth)
-        return RectF(left, centerY - chipHeight / 2f, left + chipWidth, centerY + chipHeight / 2f)
+        outRect.set(left, centerY - chipHeight / 2f, left + chipWidth, centerY + chipHeight / 2f)
     }
 
     private fun trackImportChipRadiusPx(): Float = dp(4).toFloat()
@@ -1147,10 +1177,10 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     private fun trackImportChipHit(x: Float, y: Float): TrackState? {
         tracks.forEachIndexed { i, track ->
-            val hitRect = RectF(trackImportChipRect(i, track)).apply {
-                inset(-dp(8).toFloat(), -dp(8).toFloat())
-            }
-            if (hitRect.contains(x, y)) {
+            populateTrackImportChipRect(i, track, tempTrackChipRect)
+            tempHitRect.set(tempTrackChipRect)
+            tempHitRect.inset(-dp(8).toFloat(), -dp(8).toFloat())
+            if (tempHitRect.contains(x, y)) {
                 return track
             }
         }
@@ -1182,81 +1212,88 @@ class TimelineCanvasView @JvmOverloads constructor(
     }
 
     private fun drawTransitionMarkers(canvas: Canvas) {
-        tracks.firstOrNull { it.type == TrackType.VIDEO }?.let { track ->
-            val sorted = track.clips.sortedBy { it.startTimeMs }
-            for (i in 0 until sorted.size - 1) {
-                val marker = transitionMarkerFor(track, i, sorted) ?: continue
-                if (marker.rect.right < headerWidthPx || marker.rect.left > contentRightLimitPx()) continue
-                drawTransitionMarker(canvas, marker)
-            }
-        }
-    }
-
-    private fun transitionMarkerFor(track: TrackState, sortedIndex: Int, sorted: List<ClipSegment>): TransitionMarker? {
-        val outgoing = sorted.getOrNull(sortedIndex) ?: return null
-        val incoming = sorted.getOrNull(sortedIndex + 1) ?: return null
-        val outgoingClipId = outgoing.id.toIntOrNull() ?: return null
-        val incomingClipId = incoming.id.toIntOrNull() ?: return null
-        val gapMs = incoming.startTimeMs - outgoing.endTimeMs()
-        if (kotlin.math.abs(gapMs) > 250L) return null
-
-        val x = msToX(outgoing.endTimeMs())
-        val trackIndex = tracks.indexOf(track).takeIf { it >= 0 } ?: return null
+        val videoTrack = tracks.firstOrNull { it.type == TrackType.VIDEO } ?: return
+        val clips = videoTrack.clips
+        val clipCount = clips.size
+        if (clipCount < 2) return
+        val trackIndex = tracks.indexOf(videoTrack).takeIf { it >= 0 } ?: return
         val top = trackTop(trackIndex).toFloat()
-        val mid = top + trackVisualHeightPx(track) / 2f
-        val activeTransition =
-            TransitionStore.getByOutgoingClip(outgoingClipId)
-                .firstOrNull { it.incomingClipId == incomingClipId && it.type != TransitionType.NONE }
-        val chipWidth = if (activeTransition == null) dp(28).toFloat() else dp(38).toFloat()
-        val chipHeight = dp(22).toFloat()
-        return TransitionMarker(
-            outgoingClipId = outgoingClipId,
-            incomingClipId = incomingClipId,
-            rect = RectF(
-                x - chipWidth / 2f,
-                mid - chipHeight / 2f,
-                x + chipWidth / 2f,
-                mid + chipHeight / 2f,
-            ),
-        )
-    }
+        val mid = top + trackVisualHeightPx(videoTrack) / 2f
+        val clipDrawRight = contentRightLimitPx()
 
-    private fun drawTransitionMarker(canvas: Canvas, marker: TransitionMarker) {
-        val transition =
-            TransitionStore.getByOutgoingClip(marker.outgoingClipId)
-                .firstOrNull { it.incomingClipId == marker.incomingClipId && it.type != TransitionType.NONE }
-        val active = transition != null
-        val rect = marker.rect
-        val radius = dp(8).toFloat()
-        transitionPaint.color = if (active) Color.parseColor("#FFB56B") else Color.parseColor("#EE05070A")
-        transitionPaint.alpha = if (active) 255 else 248
-        canvas.drawRoundRect(rect, radius, radius, transitionPaint)
-        transitionPaint.alpha = 255
-        transitionStrokePaint.color = if (active) Color.parseColor("#FFF4D2") else Color.parseColor("#F2F5F8")
-        canvas.drawRoundRect(rect, radius, radius, transitionStrokePaint)
+        for (i in 0 until clipCount - 1) {
+            val outgoing = clips[i]
+            val incoming = clips[i + 1]
+            val outgoingClipId = outgoing.id.toIntOrNull() ?: continue
+            val incomingClipId = incoming.id.toIntOrNull() ?: continue
+            val gapMs = incoming.startTimeMs - outgoing.endTimeMs()
+            if (kotlin.math.abs(gapMs) > 250L) continue
 
-        val label =
-            when (transition?.type) {
+            val x = msToX(outgoing.endTimeMs())
+            val activeTransition =
+                TransitionStore.getByOutgoingClip(outgoingClipId)
+                    .firstOrNull { it.incomingClipId == incomingClipId && it.type != TransitionType.NONE }
+            val chipWidth = if (activeTransition == null) dp(28).toFloat() else dp(38).toFloat()
+            val chipHeight = dp(22).toFloat()
+            val left = x - chipWidth / 2f
+            val right = x + chipWidth / 2f
+            if (right < headerWidthPx || left > clipDrawRight) continue
+
+            tempTransitionMarkerRect.set(left, mid - chipHeight / 2f, right, mid + chipHeight / 2f)
+            val active = activeTransition != null
+            val radius = dp(8).toFloat()
+            transitionPaint.color = if (active) Color.parseColor("#FFB56B") else Color.parseColor("#EE05070A")
+            transitionPaint.alpha = if (active) 255 else 248
+            canvas.drawRoundRect(tempTransitionMarkerRect, radius, radius, transitionPaint)
+            transitionPaint.alpha = 255
+            transitionStrokePaint.color = if (active) Color.parseColor("#FFF4D2") else Color.parseColor("#F2F5F8")
+            canvas.drawRoundRect(tempTransitionMarkerRect, radius, radius, transitionStrokePaint)
+
+            val label = when (activeTransition?.type) {
                 TransitionType.FADE -> "FD"
                 TransitionType.CROSS -> "MX"
                 TransitionType.WIPE -> "WP"
                 TransitionType.SLIDE -> "SL"
                 else -> "+"
             }
-        transitionTextPaint.color = if (active) Color.parseColor("#141414") else Color.WHITE
-        canvas.drawText(label, rect.centerX(), rect.centerY() + dp(3.1f), transitionTextPaint)
+            transitionTextPaint.color = if (active) Color.parseColor("#141414") else Color.WHITE
+            canvas.drawText(label, tempTransitionMarkerRect.centerX(), tempTransitionMarkerRect.centerY() + dp(3.1f), transitionTextPaint)
+        }
     }
 
     private fun transitionMarkerHit(x: Float, y: Float): TransitionMarker? {
-        tracks.firstOrNull { it.type == TrackType.VIDEO }?.let { track ->
-            val sorted = track.clips.sortedBy { it.startTimeMs }
-            for (i in 0 until sorted.size - 1) {
-                val marker = transitionMarkerFor(track, i, sorted) ?: continue
-                val hitRect = RectF(marker.rect)
-                hitRect.inset(-dp(8).toFloat(), -dp(8).toFloat())
-                if (hitRect.contains(x, y)) {
-                    return marker
-                }
+        val videoTrack = tracks.firstOrNull { it.type == TrackType.VIDEO } ?: return null
+        val clips = videoTrack.clips
+        val clipCount = clips.size
+        if (clipCount < 2) return null
+        val trackIndex = tracks.indexOf(videoTrack).takeIf { it >= 0 } ?: return null
+        val top = trackTop(trackIndex).toFloat()
+        val mid = top + trackVisualHeightPx(videoTrack) / 2f
+
+        for (i in 0 until clipCount - 1) {
+            val outgoing = clips[i]
+            val incoming = clips[i + 1]
+            val outgoingClipId = outgoing.id.toIntOrNull() ?: continue
+            val incomingClipId = incoming.id.toIntOrNull() ?: continue
+            val gapMs = incoming.startTimeMs - outgoing.endTimeMs()
+            if (kotlin.math.abs(gapMs) > 250L) continue
+
+            val markX = msToX(outgoing.endTimeMs())
+            val activeTransition =
+                TransitionStore.getByOutgoingClip(outgoingClipId)
+                    .firstOrNull { it.incomingClipId == incomingClipId && it.type != TransitionType.NONE }
+            val chipWidth = if (activeTransition == null) dp(28).toFloat() else dp(38).toFloat()
+            val chipHeight = dp(22).toFloat()
+            val rect = RectF(
+                markX - chipWidth / 2f,
+                mid - chipHeight / 2f,
+                markX + chipWidth / 2f,
+                mid + chipHeight / 2f,
+            )
+            tempHitRect.set(rect)
+            tempHitRect.inset(-dp(8).toFloat(), -dp(8).toFloat())
+            if (tempHitRect.contains(x, y)) {
+                return TransitionMarker(outgoingClipId, incomingClipId, rect)
             }
         }
         return null
@@ -1272,8 +1309,8 @@ class TimelineCanvasView @JvmOverloads constructor(
         val bh = dp(20).toFloat()
         val bx = (x - bw / 2f).coerceIn(headerWidthPx.toFloat(), width - bw)
         val by = rulerHeightPx.toFloat() + dp(4)
-        val r = RectF(bx, by, bx + bw, by + bh)
-        canvas.drawRoundRect(r, dp(4).toFloat(), dp(4).toFloat(), tooltipBgPaint)
+        tooltipRect.set(bx, by, bx + bw, by + bh)
+        canvas.drawRoundRect(tooltipRect, dp(4).toFloat(), dp(4).toFloat(), tooltipBgPaint)
         canvas.drawText(label, bx + bw / 2f, by + bh - dp(5), tooltipTextPaint)
     }
 
@@ -1302,12 +1339,12 @@ class TimelineCanvasView @JvmOverloads constructor(
         val x = centerX()
         canvas.drawLine(x, rulerHeightPx.toFloat(), x, height.toFloat(), playheadPaint)
         // Triangle head on ruler
-        val path = Path()
-        path.moveTo(x - dp(6), 0f)
-        path.lineTo(x + dp(6), 0f)
-        path.lineTo(x, dp(12).toFloat())
-        path.close()
-        canvas.drawPath(path, playheadPaint)
+        playheadTrianglePath.rewind()
+        playheadTrianglePath.moveTo(x - dp(6), 0f)
+        playheadTrianglePath.lineTo(x + dp(6), 0f)
+        playheadTrianglePath.lineTo(x, dp(12).toFloat())
+        playheadTrianglePath.close()
+        canvas.drawPath(playheadTrianglePath, playheadPaint)
         if (showPlayheadSplitButton) {
             val btnY = rulerHeightPx + splitBtnRadiusPx + dp(4)
             splitBtnRect.set(x - splitBtnRadiusPx, btnY - splitBtnRadiusPx, x + splitBtnRadiusPx, btnY + splitBtnRadiusPx)

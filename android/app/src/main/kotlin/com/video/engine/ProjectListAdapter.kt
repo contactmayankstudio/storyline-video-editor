@@ -40,8 +40,7 @@ class ProjectListAdapter(
         } else {
             displayName(project)
         }
-        val sdf = SimpleDateFormat("dd MMM • HH:mm", Locale.getDefault())
-        holder.date.text = "Updated ${sdf.format(Date(project.lastModified()))}"
+        holder.date.text = "Updated ${DATE_FORMAT.format(Date(project.lastModified()))}"
         holder.icon.setImageResource(R.drawable.ic_video_clip)
 
         holder.itemView.setOnClickListener { onProjectClick(project) }
@@ -65,5 +64,9 @@ class ProjectListAdapter(
         return name.equals("autosave.vne", ignoreCase = true) ||
             parentFile?.name == "autosave" ||
             parentFile?.name == "backups"
+    }
+
+    companion object {
+        private val DATE_FORMAT = SimpleDateFormat("dd MMM • HH:mm", Locale.getDefault())
     }
 }

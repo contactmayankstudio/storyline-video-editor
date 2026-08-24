@@ -44,7 +44,11 @@ object TimelineThumbnailCache {
         setOf("jpg", "jpeg", "jpe", "jfif", "png", "webp", "bmp", "gif", "tif", "tiff", "heic", "heif", "avif")
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val executor = Executors.newFixedThreadPool(1)
+    private val executor = Executors.newFixedThreadPool(1) { runnable ->
+        Thread(runnable, "TimelineThumbnailCache").apply {
+            priority = Thread.MIN_PRIORITY
+        }
+    }
     private val lock = Any()
     private val inFlight = mutableMapOf<String, MutableList<(String, List<Bitmap>) -> Unit>>()
     private val lastVideoStripBuildElapsedMsBySource = mutableMapOf<String, Long>()

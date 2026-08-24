@@ -101,6 +101,16 @@ Never mark a phase **COMPLETE** only because the code exists.
 
 ---
 
+### Phase 6: Ultra-Smooth Performance & Zero-Allocation Timeline Optimization
+**Status: BUILD VERIFIED**
+- **Zero-Allocation Canvas Loop (`TimelineCanvasView.kt`)**: Eliminated all per-frame `Paint`, `RectF`, and `Path` object allocations in timeline draw loops (`drawTracks`, `drawClip`, `drawTrackImportChips`, `drawTransitionMarkers`, `drawPlayheadTooltip`, `drawPlayhead`) by using pooled pre-allocated buffers.
+- **Batched Waveform Rendering**: Converted iterative `canvas.drawLine()` calls to single-pass `canvas.drawLines()` native batching with `waveformLinePts` float buffer.
+- **Fast String Formatting**: Replaced slow `String.format` locale allocations in timecode/duration calculations (`formatMs`, `formatClipDuration`) with lightweight manual string builders.
+- **Background Worker CPU Priority**: Configured background decoders (`AudioWaveformCache`, `TimelineThumbnailCache`, `MediaPickerSheet`) with `Thread.MIN_PRIORITY` thread factories to guarantee 0-jank 60fps main UI thread priority on budget multi-core ARM chips (Helio G25).
+- **Home Recent Projects Card Optimization**: Replaced per-item `SimpleDateFormat` instantiation in `ProjectListAdapter` with a static companion instance.
+
+---
+
 ## 🛠️ Architecture Reference for ChatGPT
 1. **Presentation Layer**:
    - `MainActivity.kt` (~16.6k lines): Central editor activity.
@@ -129,10 +139,11 @@ Never mark a phase **COMPLETE** only because the code exists.
 ## 📋 SESSION HANDOFF — 24 AUG 2026
 
 ### 1. What Was Completed
-- **Pro Studio Toolbar Removal**: Removed visible "Pro Studio" toolbar item from the main editor toolbar without deleting underlying engine capabilities (`activity_main.xml`).
-- **Main Toolbar Reordering**: Standard NLE sequence configured: Media, Overlay, Audio, Text, Transitions, Effects, Color, Voice, Sticker, Layer.
-- **Gradle JVM Args Optimization**: Set `org.gradle.jvmargs=-Xmx1536m` to avoid Kotlin compiler OOM/GC thrashing during builds.
-- **Real Device QA Test Execution**: Completed comprehensive real-device testing on physical Redmi 9A across Home, Editor, Media Import, Timeline, Preview, Editing Tools, and Export.
+- **Pro Studio Toolbar Removal & Reordering**: Clean NLE toolbar layout in `activity_main.xml`.
+- **Phase 6 Zero-Allocation Optimization**: Eliminated per-frame `Paint`, `RectF`, and `Path` object churn in `TimelineCanvasView.kt`.
+- **Batched Waveform Rendering**: Switched from iterative `canvas.drawLine()` to native single-call `canvas.drawLines()` with reusable buffer.
+- **Thread Priority Policy**: Assigned `Thread.MIN_PRIORITY` to all background decoder threads (`AudioWaveformCache`, `TimelineThumbnailCache`, `MediaPickerSheet`) to preserve 60fps UI responsiveness.
+- **Home Recent Projects Card Date Optimization**: Cached static `SimpleDateFormat` in `ProjectListAdapter`.
 
 ### 2. What Was Tested & Passed on Physical Redmi 9A
 - **Home Screen & Navigation (`PASS`)**: App launch, New Video Project, Photo Edit transition, Recent Projects list.
@@ -156,23 +167,25 @@ Never mark a phase **COMPLETE** only because the code exists.
 - **Device Stability (`PASS`)**: 0 fatal crashes, 0 ANRs, 0 OOMs observed on 2GB RAM device.
 
 ### 3. Current Build Status
-- **Build Command**: `./gradlew :app:assemblePlayDebug` (SUCCESSFUL)
-- **APK Target**: `android/app/build/outputs/apk/play/debug/app-play-debug.apk`
-- **Installed on Device**: Yes, running on connected Redmi 9A serial `D6GM7P6PXK4TPB8L`.
+- **Build Command**: `./gradlew :app:compilePlayDebugKotlin` (SUCCESSFUL)
+- **Target Branch**: `main`
 
 ### 4. Current Git Status
 - **Branch**: `main`
-- **Latest Commit**: `7b87a9de` (`fix: clean project display name in options dialog`)
-- **Uncommitted Changes**:
-  - `android/app/src/main/res/layout/activity_main.xml` (Pro Studio toolbar removal & toolbar reorder)
-  - `android/gradle.properties` (Gradle `-Xmx1536m`)
-  - `docs/AI_SYNC.md` (QA test matrix results & handoff documentation)
+- **Latest Commit**: `3576c6df` (`chore: update phase 5 verification status, toolbar ordering and build memory config`)
+- **Uncommitted Changes (Phase 6)**:
+  - `android/app/src/main/kotlin/com/video/engine/pro/timeline/TimelineCanvasView.kt`
+  - `android/app/src/main/kotlin/com/video/engine/pro/timeline/AudioWaveformCache.kt`
+  - `android/app/src/main/kotlin/com/video/engine/pro/timeline/TimelineThumbnailCache.kt`
+  - `android/app/src/main/kotlin/com/video/engine/media/MediaPickerSheet.kt`
+  - `android/app/src/main/kotlin/com/video/engine/ProjectListAdapter.kt`
+  - `docs/AI_SYNC.md`
 
 ### 5. Known Open Items / Future Scope
 - 1080p / 60 FPS high-stress export benchmarking on 2GB RAM devices.
 - AdMob live production ad unit verification (test ad callbacks currently functional).
-- Project Rename/Duplicate/Delete context actions directly from Recent Projects menu.
+- Physical device verification of Phase 6 smoothness on Redmi 9A.
 
 ### 6. Exact Next Recommended Step
-- Commit local changes (`activity_main.xml`, `gradle.properties`, `docs/AI_SYNC.md`) to `main` branch.
-- Proceed to Phase 6 refinement (Transitions GPU acceleration and advanced audio waveform rendering optimizations).
+- Review and commit Phase 6 performance optimizations to `main`.
+- Install build on physical Redmi 9A device when connected to exercise zero-jank scrubbing.

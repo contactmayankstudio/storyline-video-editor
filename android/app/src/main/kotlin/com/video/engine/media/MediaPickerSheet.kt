@@ -53,7 +53,11 @@ private fun dpInt(context: Context, v: Float): Int = (v * context.resources.disp
 
 object MediaPickerSheet {
 
-    private val thumbnailExecutor = Executors.newFixedThreadPool(2)
+    private val thumbnailExecutor = Executors.newFixedThreadPool(2) { runnable ->
+        Thread(runnable, "MediaPickerThumbnail").apply {
+            priority = Thread.MIN_PRIORITY
+        }
+    }
     private val mainHandler = Handler(Looper.getMainLooper())
     private val thumbnailCache = object : LruCache<Long, Bitmap>(20 * 1024 * 1024) {
         override fun sizeOf(key: Long, value: Bitmap): Int = value.byteCount
