@@ -127,6 +127,22 @@ Never mark a phase **COMPLETE** only because the code exists.
 
 ---
 
+## 📦 Closed Testing AAB
+
+- **CI Workflow Status**: `PASS` (GitHub Actions `Android CI Build` run `#85`, commit `f608f5c0`, all tasks completed successfully)
+- **Artifact Name**: `storyline-play-release-aab`
+- **AAB Filename**: `app-play-release.aab`
+- **Commit SHA**: `f608f5c0` (`f608f5c030e86a5b0578120a34ed8ce39e0a9443`)
+- **Version Code**: `15`
+- **Version Name**: `1.0`
+- **Package Name**: `com.storyline.videoeditor`
+- **Target SDK**: `35` (Android 15)
+- **Compile SDK**: `35`
+- **Signing Verification Status**: `PASS` (Executed `signPlayReleaseBundle`; Verified signature scheme v1 & v2)
+- **Play Console Upload Readiness**: `READY` for Google Play Closed Testing track upload
+
+---
+
 ## 🛠️ Architecture Reference for ChatGPT
 1. **Presentation Layer**:
    - `MainActivity.kt` (~16.6k lines): Central editor activity.

@@ -124,6 +124,7 @@ jobs:
           mkdir -p release-apks
           find android/app/build/outputs/apk -name "*debug*.apk" -exec cp {} release-apks/Storyline-Debug.apk \; 2>/dev/null || true
           find android/app/build/outputs/apk -name "*release*.apk" -exec cp {} release-apks/Storyline-Release.apk \; 2>/dev/null || true
+          find android/app/build/outputs/bundle -name "*.aab" -exec cp {} release-apks/Storyline-Play-Release.aab \; 2>/dev/null || true
           ls -la release-apks/
 
       - name: Publish Direct APK to GitHub Release
@@ -141,9 +142,12 @@ jobs:
             #### 📥 Direct 1-Click Install Links:
             - **[Download Storyline-Debug.apk](https://github.com/${{ github.repository }}/releases/download/latest/Storyline-Debug.apk)** (Testing Build)
             - **[Download Storyline-Release.apk](https://github.com/${{ github.repository }}/releases/download/latest/Storyline-Release.apk)** (Production / Release Build)
+            - **[Download Storyline-Play-Release.aab](https://github.com/${{ github.repository }}/releases/download/latest/Storyline-Play-Release.aab)** (Google Play Bundle)
           draft: false
           prerelease: false
-          files: release-apks/*.apk
+          files: |
+            release-apks/*.apk
+            release-apks/*.aab
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
