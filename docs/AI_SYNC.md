@@ -111,6 +111,22 @@ Never mark a phase **COMPLETE** only because the code exists.
 
 ---
 
+## 🚀 Play Store Release Readiness
+
+- **Current targetSdk**: `35` (Android 15)
+- **Required targetSdk**: `35` (Compliant for new apps/updates until Aug 31, 2026; API 36 required post Aug 31, 2026)
+- **Current compileSdk**: `35`
+- **SDK 36 Local Availability**: `NOT INSTALLED` (Host has `android-34`, `android-35`; build-tools `35.0.0`)
+- **Dependencies Compatibility**: `COMPLIANT` (AndroidX, Material 1.11, Play Services Ads 23.6.0, Firebase BOM 32.7.0)
+- **Foreground Service Permissions**: `FIXED` (Added `FOREGROUND_SERVICE` & `FOREGROUND_SERVICE_DATA_SYNC` to `AndroidManifest.xml` for `ExportService`)
+- **Release Signing Status**: `CONFIGURED` (`video_engine.keystore` present locally; CI backed by GitHub secrets)
+- **AAB Status**: `READY` (`:app:bundlePlayRelease` produces `app-play-release.aab`; CI upload step added)
+- **versionCode / versionName**: `15` / `"1.0"` (`productFlavors.play`)
+- **Blockers**: `NONE` for API 35 Closed Testing
+- **Next Action**: Run CI / release build to generate `app-play-release.aab` for Google Play Closed Testing track
+
+---
+
 ## 🛠️ Architecture Reference for ChatGPT
 1. **Presentation Layer**:
    - `MainActivity.kt` (~16.6k lines): Central editor activity.

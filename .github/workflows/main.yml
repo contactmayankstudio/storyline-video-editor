@@ -100,7 +100,7 @@ jobs:
           if [ ! -f "${KEYSTORE_PATH}" ]; then
             echo "Release keystore file not present; using fallback debug signing."
           fi
-          ./gradlew assemblePlayRelease
+          ./gradlew assemblePlayRelease bundlePlayRelease
 
       - name: Upload Play release APK
         if: github.event_name != 'pull_request'
@@ -109,6 +109,14 @@ jobs:
         with:
           name: storyline-play-release-apk
           path: android/app/build/outputs/apk/play/release/*.apk
+
+      - name: Upload Play release AAB Bundle
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: storyline-play-release-aab
+          path: android/app/build/outputs/bundle/playRelease/*.aab
 
       - name: Prepare APKs for direct release
         if: (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && github.event_name != 'pull_request'
