@@ -83,6 +83,7 @@
             <ImageView android:id="@+id/saveProjectButton" android:layout_width="0dp" android:layout_height="0dp" />
             <TextView android:id="@+id/topPanZoomButton" android:layout_width="0dp" android:layout_height="0dp" />
             <TextView android:id="@+id/topProStudioButton" android:layout_width="0dp" android:layout_height="0dp" />
+            <LinearLayout android:id="@+id/proStudioButton" android:layout_width="0dp" android:layout_height="0dp" />
             <TextView android:id="@+id/topPreviewStatus" android:layout_width="0dp" android:layout_height="0dp" />
             <TextView android:id="@+id/topPreviewGridToggle" android:layout_width="0dp" android:layout_height="0dp" />
             <TextView android:id="@+id/topPreviewSafeToggle" android:layout_width="0dp" android:layout_height="0dp" />
@@ -953,30 +954,6 @@
                 android:paddingStart="6dp"
                 android:paddingEnd="6dp">
 
-                <LinearLayout android:id="@+id/transitionButton"
-                    style="@style/ToolbarItem">
-                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_transition"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Transitions"/>
-                </LinearLayout>
-
-                <LinearLayout android:id="@+id/voiceoverButton"
-                    style="@style/ToolbarItem">
-                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_audio"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Voice"/>
-                </LinearLayout>
-
-                <LinearLayout android:id="@+id/colorGradingButton"
-                    style="@style/ToolbarItem">
-                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_filter"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Color"/>
-                </LinearLayout>
-
-                <LinearLayout android:id="@+id/proStudioButton"
-                    style="@style/ToolbarItem">
-                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_magic_wand" android:tint="@color/accent_cyan"/>
-                    <TextView style="@style/ToolbarLabel" android:text="@string/pro_studio_label" android:textColor="@color/accent_cyan"/>
-                </LinearLayout>
-
                 <LinearLayout android:id="@+id/cutButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_video_clip"/>
@@ -1001,10 +978,28 @@
                     <TextView style="@style/ToolbarLabel" android:text="Text"/>
                 </LinearLayout>
 
+                <LinearLayout android:id="@+id/transitionButton"
+                    style="@style/ToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_transition"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Transitions"/>
+                </LinearLayout>
+
                 <LinearLayout android:id="@+id/effectsButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_fx"/>
                     <TextView style="@style/ToolbarLabel" android:text="Effects"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/colorGradingButton"
+                    style="@style/ToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_filter"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Color"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/voiceoverButton"
+                    style="@style/ToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_audio"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Voice"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/stickersButton"
