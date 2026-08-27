@@ -16,10 +16,19 @@ class TextInputDialog(private val activity: Activity, private val onConfirm: (St
                     else -> Color.WHITE
                 }
             }
-            chips("", listOf("Add"), -1) { _, _ ->
-                val text = getTextInput().ifEmpty { "Text" }
-                onConfirm(text, fontSize, color)
-            }
+            compactActionRow(
+                listOf(
+                    ModernSheet.CompactAction(
+                        title = "Add Text Overlay",
+                        isPrimary = true,
+                        dismissOnClick = true,
+                        onClick = {
+                            val text = getTextInput().ifEmpty { "Text" }
+                            onConfirm(text, fontSize, color)
+                        },
+                    ),
+                ),
+            )
         }
     }
 }

@@ -487,18 +487,18 @@ class TextEditorPanel(
         val row = LinearLayout(activity)
         row.orientation = LinearLayout.HORIZONTAL
         row.setPadding(0, px(8), 0, 0)
-        row.addView(actionButton("Duplicate", Color.parseColor("#2A2A2A"), Color.WHITE) {
+        row.addView(actionButton("Duplicate", Color.parseColor("#171C23"), Color.WHITE, Color.parseColor("#222A36")) {
             overlay.text = editText.text.toString().ifEmpty { "Text" }
             applyPreviewChanges(refreshTimelineLabel = true)
             onDuplicate(overlay)
             dialog.dismiss()
         })
-        row.addView(actionButton("Delete", Color.parseColor("#FF3333"), Color.WHITE) {
+        row.addView(actionButton("Delete", Color.parseColor("#1A1214"), Color.parseColor("#F85149"), Color.parseColor("#4A1E22")) {
             onDelete(overlay)
             previewView.removeTextOverlay(overlay.id)
             dialog.dismiss()
         })
-        row.addView(actionButton("Done", Color.parseColor("#2196F3"), Color.WHITE) {
+        row.addView(actionButton("Done", Color.parseColor("#1F6FEB"), Color.WHITE, Color.parseColor("#388BFD")) {
             overlay.text = editText.text.toString().ifEmpty { "Text" }
             applyPreviewChanges(refreshTimelineLabel = true)
             onDone(overlay)
@@ -552,7 +552,11 @@ class TextEditorPanel(
         view.text = text
         view.textSize = 11f
         view.gravity = Gravity.CENTER
-        view.setBackgroundColor(backgroundColor)
+        view.background = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+            cornerRadius = px(6).toFloat()
+            setColor(backgroundColor)
+        }
         view.setTextColor(readableTextColor(backgroundColor))
         val params = LinearLayout.LayoutParams(0, px(36), 1f)
         params.setMargins(px(2), 0, px(2), 0)
@@ -572,7 +576,12 @@ class TextEditorPanel(
         var current = active
         fun refresh() {
             view.setTextColor(if (current) Color.BLACK else Color.WHITE)
-            view.setBackgroundColor(if (current) Color.WHITE else chipIdle)
+            view.background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = px(6).toFloat()
+                setColor(if (current) Color.WHITE else chipIdle)
+                setStroke(px(1), if (current) Color.WHITE else Color.parseColor("#222A36"))
+            }
         }
         refresh()
         view.setOnClickListener {
@@ -584,13 +593,21 @@ class TextEditorPanel(
         return view
     }
 
-    private fun actionButton(text: String, backgroundColor: Int, textColor: Int, action: () -> Unit): TextView {
+    private fun actionButton(text: String, backgroundColor: Int, textColor: Int, strokeColor: Int = Color.TRANSPARENT, action: () -> Unit): TextView {
         val view = TextView(activity)
         view.text = text
         view.textSize = 13f
         view.gravity = Gravity.CENTER
+        view.setTypeface(null, Typeface.BOLD)
         view.setTextColor(textColor)
-        view.setBackgroundColor(backgroundColor)
+        view.background = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+            cornerRadius = px(8).toFloat()
+            setColor(backgroundColor)
+            if (strokeColor != Color.TRANSPARENT) {
+                setStroke(px(1), strokeColor)
+            }
+        }
         val params = LinearLayout.LayoutParams(0, px(44), 1f)
         params.setMargins(px(4), 0, px(4), 0)
         view.layoutParams = params
@@ -615,7 +632,7 @@ class TextEditorPanel(
         val titleView = TextView(activity)
         titleView.text = title
         titleView.textSize = 12f
-        titleView.setTextColor(Color.parseColor("#CCCCCC"))
+        titleView.setTextColor(Color.parseColor("#8A99AD"))
         titleView.layoutParams = LinearLayout.LayoutParams(px(74), LinearLayout.LayoutParams.WRAP_CONTENT)
         row.addView(titleView)
 
@@ -629,7 +646,7 @@ class TextEditorPanel(
         val seekBar = SeekBar(activity)
         seekBar.max = (max - min).coerceAtLeast(1)
         seekBar.progress = safeInitial - min
-        seekBar.progressTintList = ColorStateList.valueOf(Color.parseColor("#2196F3"))
+        seekBar.progressTintList = ColorStateList.valueOf(Color.parseColor("#388BFD"))
         seekBar.thumbTintList = ColorStateList.valueOf(Color.WHITE)
         seekBar.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         seekBar.setOnSeekBarChangeListener(seekListener { progress: Int ->
@@ -658,8 +675,12 @@ class TextEditorPanel(
         handle.gravity = Gravity.CENTER
         handle.setPadding(0, 0, 0, px(12))
         val bar = View(activity)
-        bar.setBackgroundColor(Color.parseColor("#555555"))
-        val params = LinearLayout.LayoutParams(px(40), px(4))
+        bar.background = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+            cornerRadius = px(999).toFloat()
+            setColor(Color.parseColor("#3A4452"))
+        }
+        val params = LinearLayout.LayoutParams(px(36), px(4))
         params.gravity = Gravity.CENTER
         bar.layoutParams = params
         handle.addView(bar)

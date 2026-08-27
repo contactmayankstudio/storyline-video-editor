@@ -12,8 +12,8 @@ import android.widget.TextView
 import kotlin.math.roundToInt
 
 /**
- * Storyline Design System — Phase 1 Consolidation
- * Central source of truth for colors, typography, spacing, corner radii, and standard controls.
+ * Storyline Design System — Foundation
+ * Single source of truth for colors, typography, spacing, corner radii, and standard controls.
  */
 object DesignSystem {
 
@@ -85,7 +85,7 @@ object DesignSystem {
 
     // ── 3. CORNER RADII (dp) ──
     object Radius {
-        const val small = 8      // Small controls, badges, chips
+        const val small = 8      // Small controls, badges, chips, preset thumbs
         const val medium = 12    // Buttons, cards, inputs
         const val large = 16     // Prominent cards, summary blocks
         const val sheet = 24     // Top corners of modal bottom sheets
@@ -159,6 +159,13 @@ object DesignSystem {
             setStroke(dp(context, 1), Colors.accentMutedBorder)
         }
 
+    fun solidPrimaryButtonBackground(context: Context, cornerRadiusDp: Int = Radius.medium): GradientDrawable =
+        GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dpF(context, cornerRadiusDp)
+            setColor(Colors.accentPrimary)
+        }
+
     fun secondaryButtonBackground(context: Context, cornerRadiusDp: Int = Radius.medium): GradientDrawable =
         GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
@@ -215,6 +222,34 @@ object DesignSystem {
                 dp(context, Spacing.spaceMd),
                 dp(context, Spacing.spaceSm),
                 dp(context, Spacing.spaceXs),
+            )
+        }
+
+    fun controlLabel(context: Context, text: String): TextView =
+        TextView(context).apply {
+            this.text = text
+            textSize = Typography.sizeSecondary
+            setTextColor(Colors.textSecondary)
+            setTypeface(null, Typeface.NORMAL)
+        }
+
+    fun valueBadge(context: Context, text: String): TextView =
+        TextView(context).apply {
+            this.text = text
+            textSize = Typography.sizeMeta
+            setTextColor(Colors.textAccent)
+            setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpF(context, Radius.small)
+                setColor(Colors.accentMutedBg)
+                setStroke(dp(context, 1), Colors.accentMutedBorder)
+            }
+            setPadding(
+                dp(context, Spacing.spaceSm),
+                dp(context, Spacing.space2xs),
+                dp(context, Spacing.spaceSm),
+                dp(context, Spacing.space2xs),
             )
         }
 

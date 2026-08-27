@@ -13,6 +13,36 @@
         <item name="android:textColorPrimary">@color/text_primary</item>
         <item name="android:textColorSecondary">@color/text_secondary</item>
         <item name="android:buttonStyle">@style/Widget.Button</item>
+        <item name="alertDialogTheme">@style/Theme.Storyline.Dialog</item>
+        <item name="android:dialogTheme">@style/Theme.Storyline.Dialog</item>
+    </style>
+
+    <style name="Theme.Storyline.Dialog" parent="Theme.AppCompat.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/dialog_background</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="android:textColorSecondary">@color/text_secondary</item>
+        <item name="colorAccent">@color/accent_blue</item>
+        <item name="buttonBarPositiveButtonStyle">@style/DialogButton.Positive</item>
+        <item name="buttonBarNegativeButtonStyle">@style/DialogButton.Negative</item>
+        <item name="buttonBarNeutralButtonStyle">@style/DialogButton.Neutral</item>
+    </style>
+
+    <style name="DialogButton.Positive" parent="Widget.AppCompat.Button.ButtonBar.AlertDialog">
+        <item name="android:textColor">@color/accent_blue</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="DialogButton.Negative" parent="Widget.AppCompat.Button.ButtonBar.AlertDialog">
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="DialogButton.Neutral" parent="Widget.AppCompat.Button.ButtonBar.AlertDialog">
+        <item name="android:textColor">@color/semantic_destructive</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textSize">14sp</item>
     </style>
 
     <style name="Theme.Storyline.Launch" parent="@android:style/Theme.Material.NoActionBar">
@@ -40,16 +70,18 @@
     <style name="ToolbarItem">
         <item name="android:layout_width">@dimen/toolbar_item_width</item>
         <item name="android:layout_height">match_parent</item>
+        <item name="android:minWidth">@dimen/touch_target_min</item>
+        <item name="android:minHeight">@dimen/touch_target_min</item>
         <item name="android:orientation">vertical</item>
         <item name="android:gravity">center</item>
         <item name="android:background">@drawable/toolbar_item_background</item>
-        <item name="android:layout_marginStart">4dp</item>
-        <item name="android:layout_marginEnd">4dp</item>
-        <item name="android:layout_marginTop">3dp</item>
-        <item name="android:layout_marginBottom">3dp</item>
-        <item name="android:paddingStart">5dp</item>
-        <item name="android:paddingTop">5dp</item>
-        <item name="android:paddingEnd">5dp</item>
+        <item name="android:layout_marginStart">2dp</item>
+        <item name="android:layout_marginEnd">2dp</item>
+        <item name="android:layout_marginTop">2dp</item>
+        <item name="android:layout_marginBottom">2dp</item>
+        <item name="android:paddingStart">3dp</item>
+        <item name="android:paddingTop">4dp</item>
+        <item name="android:paddingEnd">3dp</item>
         <item name="android:paddingBottom">4dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
@@ -67,30 +99,30 @@
         <item name="android:layout_height">wrap_content</item>
         <item name="android:textColor">@color/text_secondary</item>
         <item name="android:textSize">@dimen/toolbar_text_size</item>
-        <item name="android:textStyle">bold</item>
         <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="android:layout_marginTop">4dp</item>
-        <item name="android:maxLines">2</item>
+        <item name="android:layout_marginTop">3dp</item>
+        <item name="android:singleLine">true</item>
         <item name="android:ellipsize">end</item>
         <item name="android:gravity">center</item>
         <item name="android:textAlignment">center</item>
         <item name="android:includeFontPadding">false</item>
-        <item name="android:letterSpacing">0</item>
     </style>
 
     <style name="ClipToolbarItem">
         <item name="android:layout_width">@dimen/toolbar_item_width</item>
         <item name="android:layout_height">match_parent</item>
+        <item name="android:minWidth">@dimen/touch_target_min</item>
+        <item name="android:minHeight">@dimen/touch_target_min</item>
         <item name="android:orientation">vertical</item>
         <item name="android:gravity">center</item>
         <item name="android:background">@drawable/toolbar_item_background</item>
-        <item name="android:layout_marginStart">4dp</item>
-        <item name="android:layout_marginEnd">4dp</item>
-        <item name="android:layout_marginTop">3dp</item>
-        <item name="android:layout_marginBottom">3dp</item>
-        <item name="android:paddingStart">5dp</item>
-        <item name="android:paddingTop">5dp</item>
-        <item name="android:paddingEnd">5dp</item>
+        <item name="android:layout_marginStart">2dp</item>
+        <item name="android:layout_marginEnd">2dp</item>
+        <item name="android:layout_marginTop">2dp</item>
+        <item name="android:layout_marginBottom">2dp</item>
+        <item name="android:paddingStart">3dp</item>
+        <item name="android:paddingTop">4dp</item>
+        <item name="android:paddingEnd">3dp</item>
         <item name="android:paddingBottom">4dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
@@ -101,15 +133,13 @@
         <item name="android:layout_height">wrap_content</item>
         <item name="android:textColor">@color/text_primary</item>
         <item name="android:textSize">@dimen/toolbar_text_size</item>
-        <item name="android:textStyle">bold</item>
         <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="android:layout_marginTop">4dp</item>
-        <item name="android:maxLines">2</item>
+        <item name="android:layout_marginTop">3dp</item>
+        <item name="android:singleLine">true</item>
         <item name="android:ellipsize">end</item>
         <item name="android:gravity">center</item>
         <item name="android:textAlignment">center</item>
         <item name="android:includeFontPadding">false</item>
-        <item name="android:letterSpacing">0</item>
     </style>
 
     <style name="ClipToolbarItem.Delete">

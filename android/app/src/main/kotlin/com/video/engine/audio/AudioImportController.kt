@@ -95,15 +95,26 @@ class AudioImportController(
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "audio/*"
+            putExtra(
+                Intent.EXTRA_MIME_TYPES,
+                arrayOf(
+                    "audio/*",
+                    "application/ogg",
+                    "audio/mpeg",
+                    "audio/mp3",
+                    "audio/mp4",
+                    "audio/wav",
+                    "audio/x-wav",
+                    "audio/aac",
+                    "audio/m4a",
+                    "audio/x-m4a",
+                    "audio/flac",
+                ),
+            )
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
             addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
-            val initialDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
-                ?.takeIf { it.exists() }
-            if (initialDir != null) {
-                putExtra(DocumentsContract.EXTRA_INITIAL_URI, Uri.fromFile(initialDir))
-            }
         }
         activity.startActivityForResult(intent, requestCode)
     }

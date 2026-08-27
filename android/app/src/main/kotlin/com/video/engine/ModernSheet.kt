@@ -110,9 +110,9 @@ object ModernSheet {
 
             val titleView = TextView(context).apply {
                 text = title
-                textSize = 16f
+                textSize = 15.5f
                 setTypeface(null, Typeface.BOLD)
-                setTextColor(Color.WHITE)
+                setTextColor(DesignSystem.Colors.textPrimary)
                 gravity = Gravity.CENTER
                 layoutParams = FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -125,7 +125,7 @@ object ModernSheet {
             if (showApply) {
                 val applyBtn = ImageView(context).apply {
                     setImageResource(android.R.drawable.checkbox_on_background)
-                    setColorFilter(Color.parseColor("#4ADE80"))
+                    setColorFilter(DesignSystem.Colors.semanticSuccess)
                     setPadding(px(context, 6), px(context, 6), px(context, 6), px(context, 6))
                     background = surfaceCard(context)
                     layoutParams = FrameLayout.LayoutParams(px(context, 32), px(context, 32), Gravity.END or Gravity.CENTER_VERTICAL)
@@ -147,9 +147,9 @@ object ModernSheet {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = px(context, 999).toFloat()
-                setColor(Color.parseColor("#4A5561"))
+                setColor(DesignSystem.Colors.handleColor)
             }
-            layoutParams = LinearLayout.LayoutParams(px(context, 36), px(context, 4)).also {
+            layoutParams = LinearLayout.LayoutParams(px(context, DesignSystem.Dimensions.dragHandleWidth), px(context, DesignSystem.Dimensions.dragHandleHeight)).also {
                 it.gravity = Gravity.CENTER
             }
         })
@@ -218,13 +218,15 @@ object ModernSheet {
 
         fun textInput(label: String, hint: String, onChange: (String) -> Unit) {
             root.addView(TextView(context).apply {
-                text = label; textSize = 12f; setTextColor(Color.parseColor("#8E99A5"))
+                text = label
+                textSize = 12f
+                setTextColor(DesignSystem.Colors.textSecondary)
                 setPadding(0, px(context, 8), 0, px(context, 4))
             })
             val edit = EditText(context).apply {
                 this.hint = hint
-                setTextColor(Color.WHITE)
-                setHintTextColor(Color.parseColor("#6F7E8B"))
+                setTextColor(DesignSystem.Colors.textPrimary)
+                setHintTextColor(DesignSystem.Colors.textDisabled)
                 background = inputBackground(context)
                 setPadding(px(context, 12), px(context, 10), px(context, 12), px(context, 10))
                 layoutParams = LinearLayout.LayoutParams(
@@ -241,6 +243,7 @@ object ModernSheet {
         }
 
         fun getTextInput(): String = textInputView?.text?.toString() ?: ""
+
         fun categories(
             titles: List<String>,
             selected: Int = 0,
@@ -249,6 +252,7 @@ object ModernSheet {
             val scroller = HorizontalScrollView(context).apply {
                 isHorizontalScrollBarEnabled = false
                 clipToPadding = false
+                overScrollMode = View.OVER_SCROLL_NEVER
                 setPadding(0, 0, px(context, 8), 0)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -264,16 +268,16 @@ object ModernSheet {
                 catViews.forEachIndexed { idx, view ->
                     val isSel = (idx == sel)
                     if (isSel) {
-                        view.setTextColor(Color.WHITE)
+                        view.setTextColor(DesignSystem.Colors.textPrimary)
                         view.setTypeface(null, Typeface.BOLD)
                         view.background = GradientDrawable().apply {
                             shape = GradientDrawable.RECTANGLE
-                            cornerRadius = px(context, 12).toFloat()
-                            setColor(Color.parseColor("#162235"))
-                            setStroke(px(context, 1), Color.parseColor("#388BFD"))
+                            cornerRadius = px(context, DesignSystem.Radius.medium).toFloat()
+                            setColor(Color.parseColor("#141E2E"))
+                            setStroke(px(context, 1), DesignSystem.Colors.accentPrimary)
                         }
                     } else {
-                        view.setTextColor(Color.parseColor("#8A99AD"))
+                        view.setTextColor(DesignSystem.Colors.textSecondary)
                         view.setTypeface(null, Typeface.NORMAL)
                         view.background = null
                     }
@@ -331,17 +335,17 @@ object ModernSheet {
                     val isSel = (idx == sel)
                     cardView.background = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
-                        cornerRadius = px(context, 12).toFloat()
+                        cornerRadius = px(context, DesignSystem.Radius.medium).toFloat()
                         if (isSel) {
-                            setColor(Color.parseColor("#162235"))
-                            setStroke(px(context, 1), Color.parseColor("#388BFD"))
+                            setColor(Color.parseColor("#141E2E"))
+                            setStroke(px(context, 1), DesignSystem.Colors.accentPrimary)
                         } else {
-                            setColor(Color.parseColor("#171C23"))
-                            setStroke(px(context, 1), Color.parseColor("#222A36"))
+                            setColor(DesignSystem.Colors.bgCard)
+                            setStroke(px(context, 1), DesignSystem.Colors.borderCard)
                         }
                     }
                     val labelView = cardView.findViewWithTag<TextView>("card_label")
-                    labelView?.setTextColor(if (isSel) Color.WHITE else Color.parseColor("#8A99AD"))
+                    labelView?.setTextColor(if (isSel) DesignSystem.Colors.textPrimary else DesignSystem.Colors.textSecondary)
                     labelView?.setTypeface(null, if (isSel) Typeface.BOLD else Typeface.NORMAL)
                 }
             }
@@ -482,25 +486,25 @@ object ModernSheet {
                     setPadding(px(context, 12), px(context, 8), px(context, 12), px(context, 8))
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
-                        cornerRadius = px(context, 10).toFloat()
+                        cornerRadius = px(context, DesignSystem.Radius.small).toFloat()
                         when {
                             action.isPrimary -> {
-                                setColor(Color.parseColor("#17263C"))
-                                setStroke(px(context, 1), Color.parseColor("#2B5282"))
+                                setColor(Color.parseColor("#141E2E"))
+                                setStroke(px(context, 1), Color.parseColor("#244B7A"))
                             }
                             action.isDestructive -> {
-                                setColor(Color.parseColor("#2C1517"))
-                                setStroke(px(context, 1), Color.parseColor("#5A2226"))
+                                setColor(Color.parseColor("#1A1214"))
+                                setStroke(px(context, 1), Color.parseColor("#4A1E22"))
                             }
                             else -> {
-                                setColor(Color.parseColor("#171C23"))
-                                setStroke(px(context, 1), Color.parseColor("#222A36"))
+                                setColor(DesignSystem.Colors.bgCard)
+                                setStroke(px(context, 1), DesignSystem.Colors.borderCard)
                             }
                         }
                     }
                     layoutParams = LinearLayout.LayoutParams(
                         0,
-                        px(context, 38),
+                        px(context, 40),
                         1f,
                     ).also {
                         if (idx > 0) it.marginStart = px(context, 8)
@@ -508,7 +512,7 @@ object ModernSheet {
                     if (action.iconResId != null) {
                         val icon = ImageView(context).apply {
                             setImageResource(action.iconResId)
-                            setColorFilter(if (action.isPrimary) Color.parseColor("#388BFD") else if (action.isDestructive) Color.parseColor("#FF6B6B") else Color.WHITE)
+                            setColorFilter(if (action.isPrimary) DesignSystem.Colors.accentPrimary else if (action.isDestructive) DesignSystem.Colors.textDestructive else DesignSystem.Colors.textPrimary)
                             layoutParams = LinearLayout.LayoutParams(px(context, 16), px(context, 16)).also {
                                 it.marginEnd = px(context, 6)
                             }
@@ -519,7 +523,7 @@ object ModernSheet {
                         text = action.title
                         textSize = 12f
                         setTypeface(null, Typeface.BOLD)
-                        setTextColor(if (action.isPrimary) Color.parseColor("#388BFD") else if (action.isDestructive) Color.parseColor("#FF6B6B") else Color.WHITE)
+                        setTextColor(if (action.isPrimary) DesignSystem.Colors.accentPrimary else if (action.isDestructive) DesignSystem.Colors.textDestructive else DesignSystem.Colors.textPrimary)
                     }
                     addView(label)
                     setOnClickListener {
@@ -562,19 +566,19 @@ object ModernSheet {
                 text = label
                 textSize = 13f
                 setTypeface(null, Typeface.BOLD)
-                setTextColor(Color.WHITE)
+                setTextColor(DesignSystem.Colors.textPrimary)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             val bubbleView = TextView(context).apply {
                 text = "${format(value)}$unit"
                 textSize = 12f
                 setTypeface(null, Typeface.BOLD)
-                setTextColor(Color.parseColor("#388BFD"))
+                setTextColor(DesignSystem.Colors.accentPrimary)
                 gravity = Gravity.CENTER
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = px(context, 10).toFloat()
-                    setColor(Color.parseColor("#162235"))
+                    setColor(Color.parseColor("#141E2E"))
                     setStroke(px(context, 1), Color.parseColor("#244B7A"))
                 }
                 setPadding(px(context, 10), px(context, 4), px(context, 10), px(context, 4))
@@ -586,7 +590,7 @@ object ModernSheet {
             val seek = SeekBar(context).apply {
                 this.max = 1000
                 progress = (((value - min) / (max - min)) * 1000).roundToInt().coerceIn(0, 1000)
-                progressTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#388BFD"))
+                progressTintList = android.content.res.ColorStateList.valueOf(DesignSystem.Colors.accentPrimary)
                 thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -677,6 +681,7 @@ object ModernSheet {
             val scroller = HorizontalScrollView(context).apply {
                 isHorizontalScrollBarEnabled = false
                 clipToPadding = false
+                overScrollMode = View.OVER_SCROLL_NEVER
                 setPadding(0, px(context, 8), 0, px(context, 8))
             }
             val row = LinearLayout(context).apply {
@@ -689,17 +694,17 @@ object ModernSheet {
                     val isSel = (idx == sel)
                     card.background = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
-                        cornerRadius = px(context, 14).toFloat()
+                        cornerRadius = px(context, DesignSystem.Radius.medium).toFloat()
                         if (isSel) {
-                            setColor(Color.parseColor("#152330"))
-                            setStroke(px(context, 2), Color.parseColor("#6FDBFF"))
+                            setColor(Color.parseColor("#141E2E"))
+                            setStroke(px(context, 1), DesignSystem.Colors.accentPrimary)
                         } else {
-                            setColor(Color.parseColor("#131920"))
-                            setStroke(px(context, 1), Color.parseColor("#252F38"))
+                            setColor(DesignSystem.Colors.bgCard)
+                            setStroke(px(context, 1), DesignSystem.Colors.borderCard)
                         }
                     }
                     val label = card.getChildAt(1) as? TextView
-                    label?.setTextColor(if (isSel) Color.WHITE else Color.parseColor("#8E99A5"))
+                    label?.setTextColor(if (isSel) DesignSystem.Colors.textPrimary else DesignSystem.Colors.textSecondary)
                     label?.setTypeface(null, if (isSel) Typeface.BOLD else Typeface.NORMAL)
                 }
             }
@@ -726,9 +731,9 @@ object ModernSheet {
                     val aspectBox = View(context).apply {
                         background = GradientDrawable().apply {
                             shape = GradientDrawable.RECTANGLE
-                            cornerRadius = px(context, 4).toFloat()
-                            setColor(Color.parseColor("#273340"))
-                            setStroke(px(context, 1), Color.parseColor("#4A5D70"))
+                            cornerRadius = px(context, DesignSystem.Radius.small / 2).toFloat()
+                            setColor(Color.parseColor("#141E2E"))
+                            setStroke(px(context, 1), Color.parseColor("#244B7A"))
                         }
                         layoutParams = LinearLayout.LayoutParams(boxW, boxH).also {
                             it.bottomMargin = px(context, 6)
@@ -738,14 +743,14 @@ object ModernSheet {
                         text = item.first
                         textSize = 11f
                         gravity = Gravity.CENTER
-                        setTextColor(Color.parseColor("#8E99A5"))
+                        setTextColor(DesignSystem.Colors.textSecondary)
                         maxLines = 1
                     }
                     val ratioSub = TextView(context).apply {
                         text = item.second
                         textSize = 9f
                         gravity = Gravity.CENTER
-                        setTextColor(Color.parseColor("#5A6773"))
+                        setTextColor(DesignSystem.Colors.textSecondary)
                         maxLines = 1
                     }
                     addView(aspectBox)
@@ -773,12 +778,15 @@ object ModernSheet {
             onSelect: (Int, String) -> Unit,
         ) {
             root.addView(TextView(context).apply {
-                text = label; textSize = 12f; setTextColor(Color.parseColor("#8E99A5"))
+                text = label
+                textSize = 12f
+                setTextColor(DesignSystem.Colors.textSecondary)
                 setPadding(0, px(context, 8), 0, px(context, 4))
             })
             val scroller = HorizontalScrollView(context).apply {
                 isHorizontalScrollBarEnabled = false
                 clipToPadding = false
+                overScrollMode = View.OVER_SCROLL_NEVER
                 setPadding(0, 0, px(context, 8), 0)
             }
             val row = LinearLayout(context).apply {
@@ -787,8 +795,10 @@ object ModernSheet {
             }
             options.forEachIndexed { i, opt ->
                 val chip = TextView(context).apply {
-                    text = opt; textSize = 13f; gravity = Gravity.CENTER
-                    setTextColor(Color.WHITE)
+                    text = opt
+                    textSize = 13f
+                    gravity = Gravity.CENTER
+                    setTextColor(if (i == selected) DesignSystem.Colors.textPrimary else DesignSystem.Colors.textSecondary)
                     background = chipBackground(context, i == selected)
                     setPadding(px(context, 16), px(context, 8), px(context, 16), px(context, 8))
                     layoutParams = LinearLayout.LayoutParams(
@@ -814,12 +824,15 @@ object ModernSheet {
             onSelect: (Int, String) -> Unit,
         ): (Int) -> Unit {
             root.addView(TextView(context).apply {
-                text = label; textSize = 12f; setTextColor(Color.parseColor("#8E99A5"))
+                text = label
+                textSize = 12f
+                setTextColor(DesignSystem.Colors.textSecondary)
                 setPadding(0, px(context, 8), 0, px(context, 4))
             })
             val scroller = HorizontalScrollView(context).apply {
                 isHorizontalScrollBarEnabled = false
                 clipToPadding = false
+                overScrollMode = View.OVER_SCROLL_NEVER
                 setPadding(0, 0, px(context, 8), 0)
             }
             val row = LinearLayout(context).apply {
@@ -829,14 +842,18 @@ object ModernSheet {
             val chipViews = mutableListOf<TextView>()
             fun render(selectedIndex: Int) {
                 chipViews.forEachIndexed { i, chip ->
-                    chip.background = chipBackground(context, i == selectedIndex)
-                    chip.setTypeface(null, if (i == selectedIndex) Typeface.BOLD else Typeface.NORMAL)
+                    val isSel = (i == selectedIndex)
+                    chip.background = chipBackground(context, isSel)
+                    chip.setTextColor(if (isSel) DesignSystem.Colors.textPrimary else DesignSystem.Colors.textSecondary)
+                    chip.setTypeface(null, if (isSel) Typeface.BOLD else Typeface.NORMAL)
                 }
             }
             options.forEachIndexed { i, opt ->
                 val chip = TextView(context).apply {
-                    text = opt; textSize = 13f; gravity = Gravity.CENTER
-                    setTextColor(Color.WHITE)
+                    text = opt
+                    textSize = 13f
+                    gravity = Gravity.CENTER
+                    setTextColor(DesignSystem.Colors.textSecondary)
                     setPadding(px(context, 16), px(context, 8), px(context, 16), px(context, 8))
                     layoutParams = LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -868,7 +885,7 @@ object ModernSheet {
             root.addView(TextView(context).apply {
                 text = label
                 textSize = 12f
-                setTextColor(Color.parseColor("#8E99A5"))
+                setTextColor(DesignSystem.Colors.textSecondary)
                 setPadding(0, px(context, 8), 0, px(context, 4))
             })
 
@@ -898,7 +915,7 @@ object ModernSheet {
                                 text = opt
                                 textSize = 13f
                                 gravity = Gravity.CENTER
-                                setTextColor(Color.WHITE)
+                                setTextColor(if (optionIndex == selected) DesignSystem.Colors.textPrimary else DesignSystem.Colors.textSecondary)
                                 background = chipBackground(context, optionIndex == selected)
                                 minHeight = px(context, 40)
                                 setPadding(px(context, 8), px(context, 8), px(context, 8), px(context, 8))
@@ -944,7 +961,7 @@ object ModernSheet {
             root.addView(TextView(context).apply {
                 text = label
                 textSize = 12f
-                setTextColor(Color.parseColor("#8E99A5"))
+                setTextColor(DesignSystem.Colors.textSecondary)
                 setPadding(0, px(context, 8), 0, px(context, 4))
             })
 
@@ -997,7 +1014,7 @@ object ModernSheet {
                                     text = opt
                                     textSize = 12f
                                     gravity = Gravity.CENTER
-                                    setTextColor(Color.WHITE)
+                                    setTextColor(DesignSystem.Colors.textPrimary)
                                     maxLines = 1
                                     includeFontPadding = false
                                     setPadding(0, px(context, 6), 0, 0)
@@ -1038,20 +1055,22 @@ object ModernSheet {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 background = surfaceCard(context)
-                setPadding(px(context, 12), px(context, 10), px(context, 12), px(context, 10))
+                setPadding(px(context, 14), px(context, 12), px(context, 14), px(context, 12))
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                 ).also { it.topMargin = px(context, 6) }
             }
             row.addView(TextView(context).apply {
-                text = label; textSize = 14f; setTextColor(Color.WHITE)
+                text = label
+                textSize = 14f
+                setTextColor(DesignSystem.Colors.textPrimary)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             })
             row.addView(Switch(context).apply {
                 isChecked = checked
                 thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
-                trackTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#6FDBFF"))
+                trackTintList = android.content.res.ColorStateList.valueOf(DesignSystem.Colors.accentPrimary)
                 setOnCheckedChangeListener { _, v -> onChange(v) }
             })
             root.addView(row)
@@ -1062,7 +1081,7 @@ object ModernSheet {
                 text = label.uppercase()
                 textSize = 11f
                 setTypeface(null, Typeface.BOLD)
-                setTextColor(Color.parseColor("#7D8994"))
+                setTextColor(DesignSystem.Colors.textSecondary)
                 setPadding(px(context, 2), px(context, 14), 0, px(context, 6))
                 letterSpacing = 0.06f
             })
@@ -1071,8 +1090,8 @@ object ModernSheet {
         fun caption(text: String) {
             root.addView(TextView(context).apply {
                 this.text = text
-                textSize = 13f
-                setTextColor(Color.parseColor("#B4BEC8"))
+                textSize = 12.5f
+                setTextColor(DesignSystem.Colors.textSecondary)
                 setPadding(px(context, 2), 0, px(context, 2), px(context, 8))
             })
         }
@@ -1106,7 +1125,7 @@ object ModernSheet {
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = px(context, 999).toFloat()
-                    setColor(Color.parseColor("#6FDBFF"))
+                    setColor(DesignSystem.Colors.accentPrimary)
                 }
                 layoutParams = LinearLayout.LayoutParams(px(context, 4), px(context, 34)).also {
                     it.marginEnd = px(context, 12)
@@ -1121,7 +1140,7 @@ object ModernSheet {
                 text = title
                 textSize = 14f
                 setTypeface(null, Typeface.BOLD)
-                setTextColor(Color.WHITE)
+                setTextColor(DesignSystem.Colors.textPrimary)
                 maxLines = 1
                 includeFontPadding = false
             })
@@ -1129,7 +1148,7 @@ object ModernSheet {
                 textColumn.addView(TextView(context).apply {
                     text = subtitle
                     textSize = 12f
-                    setTextColor(Color.parseColor("#8E99A5"))
+                    setTextColor(DesignSystem.Colors.textSecondary)
                     setPadding(0, px(context, 5), 0, 0)
                     maxLines = 2
                 })
@@ -1141,12 +1160,13 @@ object ModernSheet {
                     text = badge
                     textSize = 11f
                     setTypeface(null, Typeface.BOLD)
-                    setTextColor(Color.parseColor("#0B0F13"))
+                    setTextColor(DesignSystem.Colors.accentPrimary)
                     gravity = Gravity.CENTER
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
                         cornerRadius = px(context, 999).toFloat()
-                        setColor(Color.parseColor("#E7F7FF"))
+                        setColor(Color.parseColor("#141E2E"))
+                        setStroke(px(context, 1), Color.parseColor("#244B7A"))
                     }
                     setPadding(px(context, 10), px(context, 5), px(context, 10), px(context, 5))
                     layoutParams = LinearLayout.LayoutParams(
@@ -1173,14 +1193,14 @@ object ModernSheet {
             row.addView(TextView(context).apply {
                 text = label
                 textSize = 12f
-                setTextColor(Color.parseColor("#8E99A5"))
+                setTextColor(DesignSystem.Colors.textSecondary)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             })
             row.addView(TextView(context).apply {
                 text = value
                 textSize = 12f
                 setTypeface(null, Typeface.BOLD)
-                setTextColor(Color.WHITE)
+                setTextColor(DesignSystem.Colors.textPrimary)
                 gravity = Gravity.END
             })
             root.addView(row)
@@ -1188,7 +1208,7 @@ object ModernSheet {
 
         fun divider() {
             root.addView(TextView(context).apply {
-                setBackgroundColor(Color.parseColor("#222A33"))
+                setBackgroundColor(DesignSystem.Colors.borderSubtle)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, px(context, 1)
                 ).also { it.setMargins(0, px(context, 8), 0, px(context, 8)) }
@@ -1199,44 +1219,19 @@ object ModernSheet {
     }
 
     private fun px(context: Context, dp: Int) =
-        (dp * context.resources.displayMetrics.density).roundToInt()
+        DesignSystem.dp(context, dp)
 
     private fun sheetRootBackground(context: Context): GradientDrawable =
-        GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadii = floatArrayOf(px(context, 24).toFloat(), px(context, 24).toFloat(), px(context, 24).toFloat(), px(context, 24).toFloat(), 0f, 0f, 0f, 0f)
-            setColor(Color.parseColor("#11151B"))
-            setStroke(px(context, 1), Color.parseColor("#1B222C"))
-        }
+        DesignSystem.sheetBackground(context)
 
     private fun surfaceCard(context: Context): GradientDrawable =
-        GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = px(context, 14).toFloat()
-            setColor(Color.parseColor("#171C23"))
-            setStroke(px(context, 1), Color.parseColor("#222A36"))
-        }
+        DesignSystem.cardBackground(context, selected = false, cornerRadiusDp = DesignSystem.Radius.medium)
 
     private fun inputBackground(context: Context): GradientDrawable =
-        GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = px(context, 12).toFloat()
-            setColor(Color.parseColor("#141920"))
-            setStroke(px(context, 1), Color.parseColor("#1E2632"))
-        }
+        DesignSystem.inputBackground(context, cornerRadiusDp = DesignSystem.Radius.medium)
 
     private fun chipBackground(context: Context, selected: Boolean): GradientDrawable =
-        GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = px(context, 12).toFloat()
-            if (selected) {
-                setColor(Color.parseColor("#162235"))
-                setStroke(px(context, 1), Color.parseColor("#388BFD"))
-            } else {
-                setColor(Color.parseColor("#171C23"))
-                setStroke(px(context, 1), Color.parseColor("#222A36"))
-            }
-        }
+        DesignSystem.chipBackground(context, selected = selected)
 
     private fun transitionPreviewSwatch(context: Context, label: String): FrameLayout {
         val swatch = FrameLayout(context).apply {

@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.util.AttributeSet
 import android.util.TypedValue
@@ -776,21 +777,28 @@ class MultiTrackTimelineView @JvmOverloads constructor(
     ) : FrameLayout(context) {
 
         private val labelView = TextView(context).apply {
-            setTextColor(Color.parseColor("#BEEBFF"))
+            setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
             textSize = 10f
+            setTypeface(typeface, Typeface.BOLD)
             text = trackType.timelineCode()
             background = GradientDrawable().apply {
                 cornerRadius = dp(4).toFloat()
-                setColor(Color.parseColor("#80171717"))
+                setColor(Color.parseColor("#141922"))
+                setStroke(dp(1), Color.parseColor("#222A36"))
             }
-            setPadding(dp(4), dp(2), dp(4), dp(2))
+            setPadding(dp(6), dp(2), dp(6), dp(2))
         }
         private val importButton = ImageView(context).apply {
             setImageResource(android.R.drawable.ic_input_add)
-            setColorFilter(Color.WHITE)
+            setColorFilter(Color.parseColor("#8A99AD"))
             contentDescription = "Import ${trackType.name.lowercase()}"
             alpha = 0.98f
+            background = GradientDrawable().apply {
+                cornerRadius = dp(4).toFloat()
+                setColor(Color.parseColor("#141922"))
+                setStroke(dp(1), Color.parseColor("#222A36"))
+            }
             setPadding(dp(4), dp(4), dp(4), dp(4))
         }
         private val recyclerView = RecyclerView(context)
@@ -1266,7 +1274,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
         private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = dpPx(2).toFloat()
-            color = Color.WHITE
+            color = Color.parseColor("#388BFD")
         }
         private val audioWavePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#55FFFFFF")

@@ -124,26 +124,12 @@ class PreviewActivity : AppCompatActivity() {
 
         setContentView(rootLayout)
 
-        // Request permissions
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-            requestPermissions(
-                arrayOf(
-                    android.Manifest.permission.READ_EXTERNAL_STORAGE,
-                    android.Manifest.permission.WRITE_EXTERNAL_STORAGE
-                ),
-                1
-            )
-        } else {
-            loadVideo()
-        }
+        // Load video
+        loadVideo()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1 && grantResults.isNotEmpty() &&
-            grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            loadVideo()
-        }
     }
 
     private fun loadVideo() {

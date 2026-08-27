@@ -974,17 +974,18 @@ class ExportController(
         val progressBar = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100; progress = 0
             isIndeterminate = true
-            progressTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#FF4444"))
+            progressTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#388BFD"))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(8))
                 .also { it.topMargin = dp(8); it.bottomMargin = dp(8) }
         }
         root.addView(progressBar)
-        val percentText = darkLabel("0%").also { it.textSize = 28f; it.gravity = android.view.Gravity.CENTER }
+        val percentText = darkLabel("0%").also { it.textSize = 28f; it.gravity = android.view.Gravity.CENTER; it.setTextColor(android.graphics.Color.WHITE); it.setTypeface(null, Typeface.BOLD) }
         root.addView(percentText)
-        val etaText = darkLabel("Processing...").also { it.gravity = android.view.Gravity.CENTER }
+        val etaText = darkLabel("Processing...").also { it.gravity = android.view.Gravity.CENTER; it.setTextColor(android.graphics.Color.parseColor("#8A99AD")) }
         root.addView(etaText)
         val statusText = darkLabel("Processing...").also {
             it.gravity = android.view.Gravity.CENTER
+            it.setTextColor(android.graphics.Color.parseColor("#8A99AD"))
             it.setPadding(0, dp(8), 0, dp(10))
         }
         root.addView(statusText)
@@ -1185,13 +1186,13 @@ class ExportController(
         background = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadii = floatArrayOf(
-                dp(26).toFloat(), dp(26).toFloat(),
-                dp(26).toFloat(), dp(26).toFloat(),
+                dp(24).toFloat(), dp(24).toFloat(),
+                dp(24).toFloat(), dp(24).toFloat(),
                 0f, 0f,
                 0f, 0f,
             )
-            setColor(Color.parseColor("#0B0F13"))
-            setStroke(dp(1), Color.parseColor("#1B222A"))
+            setColor(Color.parseColor("#11151B"))
+            setStroke(dp(1), Color.parseColor("#1B222C"))
         }
         setPadding(dp(20), dp(14), dp(20), dp(32))
         addView(sheetHandle())
@@ -1200,9 +1201,9 @@ class ExportController(
         background = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(999).toFloat()
-            setColor(Color.parseColor("#4A5561"))
+            setColor(Color.parseColor("#3A4452"))
         }
-        layoutParams = LinearLayout.LayoutParams(dp(40), dp(4)).also {
+        layoutParams = LinearLayout.LayoutParams(dp(36), dp(4)).also {
             it.gravity = Gravity.CENTER_HORIZONTAL
             it.bottomMargin = dp(14)
         }
@@ -1216,7 +1217,7 @@ class ExportController(
     }
     private fun darkLabel(text: String) = TextView(activity).apply {
         this.text = text; textSize = 13f
-        setTextColor(Color.parseColor("#B4BEC8"))
+        setTextColor(Color.parseColor("#8A99AD"))
     }
     private fun actionBtn(label: String, onClick: () -> Unit) = TextView(activity).apply {
         text = label; textSize = 14f; gravity = Gravity.CENTER
@@ -1224,9 +1225,9 @@ class ExportController(
         setTextColor(Color.WHITE)
         background = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(14).toFloat()
-            setColor(Color.parseColor("#131920"))
-            setStroke(dp(1), Color.parseColor("#2D3944"))
+            cornerRadius = dp(12).toFloat()
+            setColor(Color.parseColor("#171C23"))
+            setStroke(dp(1), Color.parseColor("#222A36"))
         }
         layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(44))
         setOnClickListener { onClick() }

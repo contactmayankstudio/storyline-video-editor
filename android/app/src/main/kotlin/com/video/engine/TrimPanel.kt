@@ -123,14 +123,17 @@ class TrimPanel(
             setPadding(0, px(4), 0, px(12))
         }
         fun actionBtn(text: String, isPrimary: Boolean, action: () -> Unit) = TextView(activity).apply {
-            this.text = text; textSize = 13f; gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
+            this.text = text
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(if (isPrimary) DesignSystem.Colors.accentPrimary else Color.WHITE)
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.RECTANGLE
                 cornerRadius = px(10).toFloat()
                 if (isPrimary) {
-                    setColor(Color.parseColor("#17263C"))
-                    setStroke(px(1), Color.parseColor("#2B5282"))
+                    setColor(Color.parseColor("#141E2E"))
+                    setStroke(px(1), Color.parseColor("#244B7A"))
                 } else {
                     setColor(Color.parseColor("#171C23"))
                     setStroke(px(1), Color.parseColor("#222A36"))
@@ -160,14 +163,16 @@ class TrimPanel(
 
         // Apply button
         root.addView(TextView(activity).apply {
-            text = "Apply Trim"; textSize = 14f; gravity = Gravity.CENTER
+            text = "Apply Trim"
+            textSize = 14f
+            gravity = Gravity.CENTER
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.WHITE)
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.RECTANGLE
                 cornerRadius = px(12).toFloat()
-                setColor(Color.parseColor("#17263C"))
-                setStroke(px(1), Color.parseColor("#2B5282"))
+                setColor(Color.parseColor("#1F6FEB"))
+                setStroke(px(1), Color.parseColor("#388BFD"))
             }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, px(44)

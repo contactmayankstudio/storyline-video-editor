@@ -487,7 +487,17 @@ class UiChromeController(
     private fun showTransitionToolSheet() {
         onHealthAction("transition_tool_sheet_opened")
         ModernSheet.show(activity, "Transition") {
-            categories(listOf("Popular", "Fast", "Pro"), selected = 0) { _, _ -> }
+            categories(listOf("Popular", "Fast", "Pro"), selected = 0) { tabIdx, _ ->
+                val success = when (tabIdx) {
+                    0 -> onApplyTransitionPreset(TransitionType.CROSS, 450)
+                    1 -> onApplyTransitionPreset(TransitionType.FADE, 220)
+                    2 -> onApplyTransitionPreset(TransitionType.CROSS, 900)
+                    else -> false
+                }
+                if (!success) {
+                    Toast.makeText(activity, "Need clips around the cut for transition", Toast.LENGTH_SHORT).show()
+                }
+            }
 
             section("Transition Presets")
             val transitionCards = listOf(

@@ -8,6 +8,7 @@
     <color name="bg_preview">#000000</color>
     <color name="bg_timeline">#0D1015</color>
     <color name="bg_sheet">#11151B</color>
+    <color name="bg_surface">#11151B</color>
     <color name="bg_card">#171C23</color>
     <color name="bg_card_selected">#162235</color>
     <color name="bg_input">#141920</color>
@@ -15,6 +16,7 @@
     <!-- ── Borders & Dividers ── -->
     <color name="border_subtle">#1B222C</color>
     <color name="border_card">#222A36</color>
+    <color name="border_strong">#3A4452</color>
     <color name="border_focus">#388BFD</color>
     <color name="handle_color">#3A4452</color>
     <color name="toolbar_divider">#161B23</color>
@@ -47,4 +49,11 @@
     <color name="clip_selected_border">#388BFD</color>
     <color name="playhead_color">#FFFFFF</color>
     <color name="timeline_bg">#0D1015</color>
+    <color name="bg_canvas">#090B0F</color>
+    <color name="accent_blue_dim">#141E2E</color>
+    <color name="accent_blue_border">#244B7A</color>
+    <color name="semantic_destructive_dim">#1A1214</color>
+    <color name="semantic_destructive_border">#4A1E22</color>
+    <color name="ripple_light">#1AFFFFFF</color>
+    <color name="ripple_primary">#22388BFD</color>
 </resources>

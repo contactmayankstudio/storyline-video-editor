@@ -9,6 +9,7 @@ import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
+import android.graphics.Typeface
 import android.media.AudioManager
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -36,6 +37,9 @@ import android.widget.ProgressBar
 import android.widget.SeekBar
 import android.widget.TextView
 import com.video.engine.UiToast as Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.recyclerview.widget.RecyclerView
 import com.video.engine.audio.AudioClip
 import com.video.engine.audio.AudioGainKeyframe
@@ -93,7 +97,47 @@ import org.json.JSONObject
  * - Export: Resolution/FPS selection with progress dialog
  * - Text/Effects: Interactive overlay system
  */
-class VideoEditorActivity : Activity() {
+class VideoEditorActivity : ComponentActivity() {
+    private val pickMultipleVisualMediaLauncher = registerForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia()
+    ) { uris: List<Uri> ->
+        val activeRequestCode = activeImportPickerRequestCode
+        val targetTrackType = (activeRequestCode?.let { resolveVisualPickerTrackType(it) })
+            ?: selectedImportTrackType()
+            ?: TrackType.VIDEO
+        val targetStartTimeMs = activeImportPickerStartTimeMs
+        val startedFromStart = activeImportPickerStartedFromStartScreen
+
+        if (activeRequestCode != null) {
+            clearActiveImportPickerRequest(activeRequestCode)
+        }
+
+        val replaceClipId = pendingVideoReplaceClipId
+        if (uris.isNotEmpty()) {
+            if (replaceClipId != null) {
+                pendingVideoReplaceClipId = null
+                handleVideoReplaceUri(replaceClipId, uris.first())
+            } else {
+                if (startedFromStart) {
+                    setStartScreenVisible(false)
+                }
+                importController?.importUris(
+                    uris = uris,
+                    trackType = targetTrackType,
+                    startTimeMs = targetStartTimeMs,
+                )
+            }
+        } else {
+            pendingVideoReplaceClipId = null
+            if (activeRequestCode != null) {
+                recoverEditorStateAfterImportPickerCancel(activeRequestCode)
+            }
+            if (startedFromStart && !hasProjectContent()) {
+                setStartScreenVisible(true)
+            }
+        }
+    }
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private val commandExecutor = Executors.newSingleThreadExecutor()
     private var playbackIdleUiRestoreRunnable: Runnable? = null
@@ -2216,6 +2260,8 @@ class VideoEditorActivity : Activity() {
         val timelineLayout = findViewById<View>(R.id.timelineLayout)
         timelineCurrentTimeText = findViewById(R.id.timelineCurrentTimeText)
         timelineCurrentTimeText?.visibility = View.VISIBLE
+        timelineCurrentTimeText?.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+        timelineCurrentTimeText?.setTextColor(DesignSystem.Colors.textPrimary)
         updateTimelineTimeText(0L)
         previewAspectRatioText = null
         clipToolbarContextLabel?.visibility = View.GONE
@@ -7872,18 +7918,24 @@ class VideoEditorActivity : Activity() {
 
     private fun handleVideoReplaceResult(resultCode: Int, data: Intent?): Boolean {
         val targetClipId = pendingVideoReplaceClipId ?: return false
-        pendingVideoReplaceClipId = null
 
         if (resultCode != Activity.RESULT_OK) {
+            pendingVideoReplaceClipId = null
             safeToast("Replace cancelled", Toast.LENGTH_SHORT)
             return true
         }
 
         val uri = data?.data ?: run {
+            pendingVideoReplaceClipId = null
             safeToast("No replacement file selected", Toast.LENGTH_SHORT)
             return true
         }
 
+        return handleVideoReplaceUri(targetClipId, uri)
+    }
+
+    private fun handleVideoReplaceUri(targetClipId: Int, uri: Uri): Boolean {
+        pendingVideoReplaceClipId = null
         runCatching {
             contentResolver.takePersistableUriPermission(
                 uri,
@@ -10185,121 +10237,73 @@ class VideoEditorActivity : Activity() {
 
     private fun openMediaPickerSheet(initialTrackType: TrackType = TrackType.VIDEO) {
         pausePlaybackForPanel()
-        com.video.engine.media.MediaPickerSheet.show(
-            activity = this,
-            initialTrackType = initialTrackType,
-            onMediaSelected = { uris, trackType ->
-                val targetStartTimeMs = maxOf(currentPlayheadMs(), currentTimeMs.coerceAtLeast(0L))
-                importController?.importUris(
-                    uris = uris,
-                    trackType = trackType,
-                    startTimeMs = targetStartTimeMs
-                )
-            },
-            onBrowseSystemPicker = { trackType ->
-                when (trackType) {
-                    TrackType.VIDEO -> openVideoSystemPicker()
-                    TrackType.OVERLAY -> openOverlaySystemPicker()
-                    TrackType.LAYER -> openLayerSystemPicker()
-                    TrackType.AUDIO -> openAudioSystemPicker()
-                    TrackType.TEXT -> showAddTextDialog()
+        if (initialTrackType == TrackType.AUDIO) {
+            openAudioSystemPicker()
+        } else {
+            launchVisualPhotoPicker(
+                trackType = initialTrackType,
+                requestCode = when (initialTrackType) {
+                    TrackType.OVERLAY -> PICK_OVERLAY_REQUEST
+                    TrackType.LAYER -> PICK_LAYER_REQUEST
+                    else -> PICK_VIDEO_REQUEST
                 }
-            }
-        )
+            )
+        }
     }
 
     private fun openVideoTrackImport() {
-        openMediaPickerSheet(TrackType.VIDEO)
+        launchVisualPhotoPicker(TrackType.VIDEO, PICK_VIDEO_REQUEST)
     }
 
     private fun openOverlayTrackImport() {
-        openMediaPickerSheet(TrackType.OVERLAY)
+        launchVisualPhotoPicker(TrackType.OVERLAY, PICK_OVERLAY_REQUEST)
     }
 
     private fun openLayerTrackImport() {
-        openMediaPickerSheet(TrackType.LAYER)
+        launchVisualPhotoPicker(TrackType.LAYER, PICK_LAYER_REQUEST)
     }
 
     private fun openAudioTrackImport() {
-        openMediaPickerSheet(TrackType.AUDIO)
+        openAudioSystemPicker()
+    }
+
+    private fun launchVisualPhotoPicker(trackType: TrackType, requestCode: Int) {
+        if (!ensureTrackEditable(trackType, "import")) return
+        if (!prepareImportPickerLaunch(requestCode, trackType.name.lowercase(Locale.US))) return
+        val importStartTimeMs = maxOf(currentPlayheadMs(), currentTimeMs.coerceAtLeast(0L))
+        activeImportPickerStartTimeMs = importStartTimeMs
+        persistActiveImportPickerRequest(
+            requestCode = requestCode,
+            startTimeMs = importStartTimeMs,
+            startedFromStartScreen = activeImportPickerStartedFromStartScreen,
+        )
+        rememberPreviewLifecycleAnchor(importStartTimeMs)
+        setSelectedImportTrackType(trackType)
+        importController?.preparePickerImportTrackType(requestCode, trackType, importStartTimeMs)
+        noteAppHealthAction("${trackType.name.lowercase(Locale.US)}_import_picker_opened")
+        if (::uiFreezeWatchdog.isInitialized) {
+            uiFreezeWatchdog.suspendFor(12_000L)
+        }
+        runCatching {
+            pickMultipleVisualMediaLauncher.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+            )
+        }.onFailure {
+            clearActiveImportPickerRequest(requestCode)
+            throw it
+        }
     }
 
     private fun openVideoSystemPicker() {
-        if (!ensureTrackEditable(TrackType.VIDEO, "import")) return
-        if (!prepareImportPickerLaunch(PICK_VIDEO_REQUEST, "video")) return
-        val importStartTimeMs = maxOf(currentPlayheadMs(), currentTimeMs.coerceAtLeast(0L))
-        activeImportPickerStartTimeMs = importStartTimeMs
-        persistActiveImportPickerRequest(
-            requestCode = PICK_VIDEO_REQUEST,
-            startTimeMs = importStartTimeMs,
-            startedFromStartScreen = activeImportPickerStartedFromStartScreen,
-        )
-        rememberPreviewLifecycleAnchor(importStartTimeMs)
-        setSelectedImportTrackType(TrackType.VIDEO)
-        importController?.preparePickerImportTrackType(PICK_VIDEO_REQUEST, TrackType.VIDEO, importStartTimeMs)
-        noteAppHealthAction("video_import_picker_opened")
-        if (::uiFreezeWatchdog.isInitialized) {
-            uiFreezeWatchdog.suspendFor(12_000L)
-        }
-        val intent = buildVisualImportIntent()
-        runCatching {
-            startActivityForResult(intent, PICK_VIDEO_REQUEST)
-        }.onFailure {
-            clearActiveImportPickerRequest(PICK_VIDEO_REQUEST)
-            throw it
-        }
+        launchVisualPhotoPicker(TrackType.VIDEO, PICK_VIDEO_REQUEST)
     }
 
     private fun openOverlaySystemPicker() {
-        if (!ensureTrackEditable(TrackType.OVERLAY, "import")) return
-        if (!prepareImportPickerLaunch(PICK_OVERLAY_REQUEST, "overlay")) return
-        val importStartTimeMs = maxOf(currentPlayheadMs(), currentTimeMs.coerceAtLeast(0L))
-        activeImportPickerStartTimeMs = importStartTimeMs
-        persistActiveImportPickerRequest(
-            requestCode = PICK_OVERLAY_REQUEST,
-            startTimeMs = importStartTimeMs,
-            startedFromStartScreen = activeImportPickerStartedFromStartScreen,
-        )
-        rememberPreviewLifecycleAnchor(importStartTimeMs)
-        setSelectedImportTrackType(TrackType.OVERLAY)
-        importController?.preparePickerImportTrackType(PICK_OVERLAY_REQUEST, TrackType.OVERLAY, importStartTimeMs)
-        noteAppHealthAction("overlay_import_picker_opened")
-        if (::uiFreezeWatchdog.isInitialized) {
-            uiFreezeWatchdog.suspendFor(12_000L)
-        }
-        val intent = buildVisualImportIntent()
-        runCatching {
-            startActivityForResult(intent, PICK_OVERLAY_REQUEST)
-        }.onFailure {
-            clearActiveImportPickerRequest(PICK_OVERLAY_REQUEST)
-            throw it
-        }
+        launchVisualPhotoPicker(TrackType.OVERLAY, PICK_OVERLAY_REQUEST)
     }
 
     private fun openLayerSystemPicker() {
-        if (!ensureTrackEditable(TrackType.LAYER, "import")) return
-        if (!prepareImportPickerLaunch(PICK_LAYER_REQUEST, "layer")) return
-        val importStartTimeMs = maxOf(currentPlayheadMs(), currentTimeMs.coerceAtLeast(0L))
-        activeImportPickerStartTimeMs = importStartTimeMs
-        persistActiveImportPickerRequest(
-            requestCode = PICK_LAYER_REQUEST,
-            startTimeMs = importStartTimeMs,
-            startedFromStartScreen = activeImportPickerStartedFromStartScreen,
-        )
-        rememberPreviewLifecycleAnchor(importStartTimeMs)
-        setSelectedImportTrackType(TrackType.LAYER)
-        importController?.preparePickerImportTrackType(PICK_LAYER_REQUEST, TrackType.LAYER, importStartTimeMs)
-        noteAppHealthAction("layer_import_picker_opened")
-        if (::uiFreezeWatchdog.isInitialized) {
-            uiFreezeWatchdog.suspendFor(12_000L)
-        }
-        val intent = buildVisualImportIntent()
-        runCatching {
-            startActivityForResult(intent, PICK_LAYER_REQUEST)
-        }.onFailure {
-            clearActiveImportPickerRequest(PICK_LAYER_REQUEST)
-            throw it
-        }
+        launchVisualPhotoPicker(TrackType.LAYER, PICK_LAYER_REQUEST)
     }
 
     private fun buildVisualImportIntent(): Intent {
@@ -14488,28 +14492,32 @@ class VideoEditorActivity : Activity() {
                     when {
                         isDestructive -> {
                             button.setBackgroundResource(R.drawable.toolbar_item_danger_background)
-                            val dangerColor = Color.parseColor("#FF8C86")
+                            val dangerColor = DesignSystem.Colors.textDestructive
                             icon?.setColorFilter(dangerColor)
                             label?.setTextColor(dangerColor)
                             button.alpha = 1f
                         }
                         isCropModeButton -> {
                             button.setBackgroundResource(R.drawable.toolbar_item_active_background)
-                            icon?.setColorFilter(resources.getColor(R.color.accent_blue))
-                            label?.setTextColor(resources.getColor(R.color.accent_blue))
+                            val activeColor = DesignSystem.Colors.accentPrimary
+                            icon?.setColorFilter(activeColor)
+                            label?.setTextColor(activeColor)
                             button.alpha = 1f
                         }
                         isFeatured -> {
-                            button.setBackgroundResource(R.drawable.toolbar_item_active_background)
-                            icon?.setColorFilter(resources.getColor(R.color.accent_blue))
-                            label?.setTextColor(resources.getColor(R.color.accent_blue))
+                            button.setBackgroundResource(R.drawable.toolbar_item_background)
+                            val activeColor = DesignSystem.Colors.accentPrimary
+                            icon?.setColorFilter(activeColor)
+                            label?.setTextColor(activeColor)
                             button.alpha = 1f
                         }
                         else -> {
                             button.setBackgroundResource(R.drawable.toolbar_item_background)
-                            icon?.setColorFilter(resources.getColor(R.color.text_primary))
-                            label?.setTextColor(resources.getColor(R.color.text_primary))
-                            button.alpha = 0.94f
+                            val normalIconColor = DesignSystem.Colors.textPrimary
+                            val normalLabelColor = DesignSystem.Colors.textSecondary
+                            icon?.setColorFilter(normalIconColor)
+                            label?.setTextColor(normalLabelColor)
+                            button.alpha = 1f
                         }
                     }
                 }

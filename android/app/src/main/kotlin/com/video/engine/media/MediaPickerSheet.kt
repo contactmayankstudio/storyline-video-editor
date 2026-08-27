@@ -83,15 +83,33 @@ object MediaPickerSheet {
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#0E1219"))
+                setColor(Color.parseColor("#11151B"))
                 cornerRadii = floatArrayOf(
-                    dp(activity, 16f), dp(activity, 16f),
-                    dp(activity, 16f), dp(activity, 16f),
+                    dp(activity, 24f), dp(activity, 24f),
+                    dp(activity, 24f), dp(activity, 24f),
                     0f, 0f, 0f, 0f
                 )
+                setStroke(dpInt(activity, 1f), Color.parseColor("#1B222C"))
             }
             setPadding(0, dpInt(activity, 12f), 0, dpInt(activity, 16f))
         }
+
+        // Drag handle
+        val handle = LinearLayout(activity).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dpInt(activity, 8f))
+        }
+        handle.addView(TextView(activity).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(activity, 999f)
+                setColor(Color.parseColor("#3A4452"))
+            }
+            layoutParams = LinearLayout.LayoutParams(dpInt(activity, 36f), dpInt(activity, 4f)).also {
+                it.gravity = Gravity.CENTER
+            }
+        })
+        root.addView(handle)
 
         // Header
         val header = FrameLayout(activity).apply {
@@ -414,14 +432,15 @@ object MediaPickerSheet {
         if (isSelected) {
             view.setTextColor(Color.WHITE)
             view.background = GradientDrawable().apply {
-                setColor(Color.parseColor("#388BFD"))
+                setColor(Color.parseColor("#141E2E"))
+                setStroke(dpInt(context, 1f), Color.parseColor("#388BFD"))
                 cornerRadius = dp(context, 8f)
             }
         } else {
             view.setTextColor(Color.parseColor("#8A99AD"))
             view.background = GradientDrawable().apply {
-                setColor(Color.parseColor("#141922"))
-                setStroke(dpInt(context, 1f), Color.parseColor("#1F2633"))
+                setColor(Color.parseColor("#171C23"))
+                setStroke(dpInt(context, 1f), Color.parseColor("#222A36"))
                 cornerRadius = dp(context, 8f)
             }
         }

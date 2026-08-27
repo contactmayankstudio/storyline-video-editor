@@ -101,16 +101,14 @@ class TransitionPanel(
                 onApply(transition)
             },
         ) {
-            categories(listOf("Featured", "3D", "Shape", "Motion", "Glitch", "Shake"), selected = 0) { tabIdx, _ ->
-                val chosenType = when (tabIdx) {
-                    1 -> TransitionType.SLIDE
-                    2 -> TransitionType.WIPE
-                    3 -> TransitionType.CROSS
-                    4 -> TransitionType.FADE
-                    5 -> TransitionType.SLIDE
-                    else -> TransitionType.CROSS
+            categories(listOf("Popular", "Fast", "Pro"), selected = 0) { tabIdx, _ ->
+                val (chosenType, chosenDuration) = when (tabIdx) {
+                    0 -> Pair(TransitionType.CROSS, 450)
+                    1 -> Pair(TransitionType.FADE, 220)
+                    2 -> Pair(TransitionType.CROSS, 900)
+                    else -> Pair(TransitionType.CROSS, 450)
                 }
-                applyPreset(chosenType, transition.durationMs)
+                applyPreset(chosenType, chosenDuration)
             }
 
             section("Transition Presets")

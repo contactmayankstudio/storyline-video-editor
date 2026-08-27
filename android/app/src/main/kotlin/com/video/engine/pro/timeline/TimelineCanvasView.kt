@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.*
 import android.os.SystemClock
 import android.os.VibrationEffect
+import com.video.engine.DesignSystem
 import com.video.engine.DeviceDetector
 import com.video.engine.transition.TransitionStore
 import com.video.engine.transition.TransitionType
@@ -76,25 +77,26 @@ class TimelineCanvasView @JvmOverloads constructor(
     private val playheadFollowMarginPx = dp(28).toFloat()
 
     // ── Paints ────────────────────────────────────────────────────────────────
-    private val bgPaint = Paint().apply { color = Color.parseColor("#06080B") }
-    private val rulerPaint = Paint().apply { color = Color.parseColor("#0D1015") }
+    private val bgPaint = Paint().apply { color = DesignSystem.Colors.bgRoot }
+    private val rulerPaint = Paint().apply { color = DesignSystem.Colors.bgTimeline }
     private val rulerTickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#1E2530"); strokeWidth = 1f
+        color = DesignSystem.Colors.borderSubtle; strokeWidth = 1f
     }
     private val rulerTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#8A99AD"); textSize = dp(8.5f); textAlign = Paint.Align.CENTER
+        color = DesignSystem.Colors.textSecondary; textSize = dp(8.5f); textAlign = Paint.Align.CENTER
+        typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
     }
-    private val headerPaint = Paint().apply { color = Color.parseColor("#0D1015") }
+    private val headerPaint = Paint().apply { color = DesignSystem.Colors.bgTimeline }
     private val clipPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val clipStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = dp(1.5f).toFloat(); color = Color.parseColor("#388BFD")
+        style = Paint.Style.STROKE; strokeWidth = dp(1.5f).toFloat(); color = DesignSystem.Colors.accentPrimary
     }
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
     private val playheadPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE; strokeWidth = dp(1.5f).toFloat()
     }
     private val snapLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#388BFD"); strokeWidth = dp(1).toFloat()
+        color = DesignSystem.Colors.accentPrimary; strokeWidth = dp(1).toFloat()
     }
     private val clipTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE; textSize = dp(9).toFloat()
@@ -138,20 +140,20 @@ class TimelineCanvasView @JvmOverloads constructor(
     }
 
     // ── Cover & Track Badge Paints ───────────────────────────────────────────
-    private val coverBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#11151B") }
+    private val coverBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = DesignSystem.Colors.bgSheet }
     private val coverStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = dp(0.75f).toFloat(); color = Color.parseColor("#1B222C")
+        style = Paint.Style.STROKE; strokeWidth = dp(0.75f).toFloat(); color = DesignSystem.Colors.borderSubtle
     }
     private val coverTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#8A99AD"); textSize = dp(9f); textAlign = Paint.Align.CENTER; isFakeBoldText = true
+        color = DesignSystem.Colors.textSecondary; textSize = dp(9f); textAlign = Paint.Align.CENTER; isFakeBoldText = true
     }
     private val coverCardRect = RectF()
-    private val trackBadgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#141922") }
+    private val trackBadgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = DesignSystem.Colors.buttonEnabled }
     private val trackBadgeStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = dp(0.75f).toFloat(); color = Color.parseColor("#1E2633")
+        style = Paint.Style.STROKE; strokeWidth = dp(0.75f).toFloat(); color = DesignSystem.Colors.borderCard
     }
     private val trackBadgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#8A99AD"); textSize = dp(8f); textAlign = Paint.Align.CENTER; isFakeBoldText = true
+        color = Color.WHITE; textSize = dp(8f); textAlign = Paint.Align.CENTER; isFakeBoldText = true
     }
     private val trackBadgeRect = RectF()
     private val thumbnailPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
@@ -161,7 +163,7 @@ class TimelineCanvasView @JvmOverloads constructor(
     private val trackAddChipStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(0.75f)
-        color = Color.parseColor("#222A36")
+        color = DesignSystem.Colors.borderCard
     }
     private val trackAddChipInnerStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -182,27 +184,27 @@ class TimelineCanvasView @JvmOverloads constructor(
     private val trackLaneStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(0.75f).toFloat()
-        color = Color.parseColor("#171D26")
+        color = DesignSystem.Colors.borderSubtle
     }
     private val verticalScrollThumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#60388BFD")
     }
     private val headerCellPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val headerDividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#141922")
+        color = DesignSystem.Colors.borderSubtle
         strokeWidth = dp(0.75f).toFloat()
     }
     private val clipPillBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D9090B0F") }
     private val clipPillStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(0.75f).toFloat()
-        color = Color.parseColor("#28FFFFFF")
+        color = DesignSystem.Colors.borderCard
     }
     private val clipPillRect = RectF()
     private val clipDimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x88000000.toInt() }
     private val emptyTrackHintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#485361")
-        textSize = dp(10.5f).toFloat()
+        color = DesignSystem.Colors.textDisabled
+        textSize = dp(10f).toFloat()
         textAlign = Paint.Align.CENTER
         isFakeBoldText = true
     }
