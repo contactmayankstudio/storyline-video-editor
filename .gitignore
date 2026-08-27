@@ -55,9 +55,11 @@ play_smooth_*.txt
 *_gfxinfo.txt
 testlab-direct-*/
 .tmp-run-*/
-Tera_Chehra*.mp4
-tera_proxy*.mp4
-exports_*.mp4
+*.mp4
+*.mkv
+*.mov
+.ignore
+playstore/
 tmp/
 artifacts/
 .gradle-home/
