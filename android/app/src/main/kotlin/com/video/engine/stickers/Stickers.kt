@@ -60,6 +60,7 @@ object StickerPacks {
 class StickerOverlayView(context: Context) : FrameLayout(context) {
     var onTransformChanged: ((Float, Float, Float, Float) -> Unit)? = null
     var onDeleteRequested: (() -> Unit)? = null
+    var onSelected: (() -> Unit)? = null
 
     private val label = TextView(context).apply {
         textSize = 28f
@@ -136,6 +137,7 @@ class StickerOverlayView(context: Context) : FrameLayout(context) {
                 setLayerType(View.LAYER_TYPE_HARDWARE, null)
                 showControls(true)
                 parent.requestDisallowInterceptTouchEvent(true)
+                onSelected?.invoke()
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 if (event.pointerCount >= 2) {

@@ -37,6 +37,12 @@ data class NativeClipUiState(
     val sourcePath: String,
     val sourceDurationMs: Long = 0L,
     val effectParams: EffectParams = EffectParams(),
+    val zoom: Float = 1f,
+    val scaleX: Float = 1f,
+    val scaleY: Float = 1f,
+    val panXPx: Float = 0f,
+    val panYPx: Float = 0f,
+    val rotationDeg: Float = 0f,
 )
 
 class ProjectStateSerializer(
@@ -93,7 +99,13 @@ class ProjectStateSerializer(
                     .put("brightness", nativeClip?.effectParams?.brightness?.toDouble() ?: 0.0)
                     .put("contrast", nativeClip?.effectParams?.contrast?.toDouble() ?: 1.0)
                     .put("saturation", nativeClip?.effectParams?.saturation?.toDouble() ?: 1.0)
-                    .put("visible", timelineManager?.getClipVisibility(clip.id) ?: true),
+                    .put("visible", timelineManager?.getClipVisibility(clip.id) ?: true)
+                    .put("zoom", nativeClip?.zoom?.toDouble() ?: 1.0)
+                    .put("scaleX", nativeClip?.scaleX?.toDouble() ?: 1.0)
+                    .put("scaleY", nativeClip?.scaleY?.toDouble() ?: 1.0)
+                    .put("panXPx", nativeClip?.panXPx?.toDouble() ?: 0.0)
+                    .put("panYPx", nativeClip?.panYPx?.toDouble() ?: 0.0)
+                    .put("rotationDeg", nativeClip?.rotationDeg?.toDouble() ?: 0.0),
             )
         }
         root.put("clips", clips)
@@ -115,7 +127,13 @@ class ProjectStateSerializer(
                             .put("sourcePath", state.sourcePath)
                             .put("brightness", state.effectParams.brightness.toDouble())
                             .put("contrast", state.effectParams.contrast.toDouble())
-                            .put("saturation", state.effectParams.saturation.toDouble()),
+                            .put("saturation", state.effectParams.saturation.toDouble())
+                            .put("zoom", state.zoom.toDouble())
+                            .put("scaleX", state.scaleX.toDouble())
+                            .put("scaleY", state.scaleY.toDouble())
+                            .put("panXPx", state.panXPx.toDouble())
+                            .put("panYPx", state.panYPx.toDouble())
+                            .put("rotationDeg", state.rotationDeg.toDouble()),
                     )
                 }
             },
@@ -508,6 +526,12 @@ class ProjectStateSerializer(
                 contrast = item.optDouble("contrast", 1.0).toFloat().coerceIn(0f, 2f),
                 saturation = item.optDouble("saturation", 1.0).toFloat().coerceIn(0f, 2f),
             ),
+            zoom = item.optDouble("zoom", 1.0).toFloat().coerceIn(0.1f, 10f),
+            scaleX = item.optDouble("scaleX", 1.0).toFloat().coerceIn(0.1f, 10f),
+            scaleY = item.optDouble("scaleY", 1.0).toFloat().coerceIn(0.1f, 10f),
+            panXPx = item.optDouble("panXPx", 0.0).toFloat(),
+            panYPx = item.optDouble("panYPx", 0.0).toFloat(),
+            rotationDeg = item.optDouble("rotationDeg", 0.0).toFloat(),
         )
     }
 

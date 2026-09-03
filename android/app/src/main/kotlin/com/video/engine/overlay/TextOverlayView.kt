@@ -62,6 +62,11 @@ class TextOverlayView @JvmOverloads constructor(
      */
     var onDeleteRequested: (() -> Unit)? = null
 
+    /**
+     * Callback when this overlay view is touched/selected.
+     */
+    var onSelected: (() -> Unit)? = null
+
     private var lastX = 0f
     private var lastY = 0f
     private var lastRawX = 0f
@@ -240,6 +245,7 @@ class TextOverlayView @JvmOverloads constructor(
                 setLayerType(View.LAYER_TYPE_HARDWARE, null)
                 parent.requestDisallowInterceptTouchEvent(true)
                 showControls(true)
+                onSelected?.invoke()
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 if (event.pointerCount >= 2) {

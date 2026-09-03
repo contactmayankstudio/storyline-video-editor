@@ -2772,6 +2772,7 @@ class VideoEditorActivity : ComponentActivity() {
             stickerOverlayViews = stickerOverlayViews,
             onRefreshOverlayStack = { refreshOverlayStack() },
             onTimelineContentChanged = { refreshMainTimelineTracks() },
+            onSelectClip = { key -> selectTimelineClipKey(key, revealPreview = false) },
         )
         importController = ImportController(
             activity = this,
@@ -4490,16 +4491,27 @@ class VideoEditorActivity : ComponentActivity() {
     }
 
     private fun selectedPreviewObjectHitRectOnScreen(extraPaddingPx: Float? = null): RectF? {
-        val frame = previewCropFrameGuideView ?: return null
-        if (frame.visibility != View.VISIBLE || frame.width <= 0 || frame.height <= 0) return null
-        val padding = extraPaddingPx ?: previewDp(24f)
-        val location = IntArray(2)
-        frame.getLocationOnScreen(location)
+        val frame = previewCropFrameGuideView
+        if (frame != null && frame.visibility == View.VISIBLE && frame.width > 0 && frame.height > 0) {
+            val padding = extraPaddingPx ?: previewDp(24f)
+            val location = IntArray(2)
+            frame.getLocationOnScreen(location)
+            return RectF(
+                location[0] - padding,
+                location[1] - padding,
+                location[0] + frame.width + padding,
+                location[1] + frame.height + padding,
+            )
+        }
+        val viewport = previewViewportFrame ?: previewView ?: return null
+        if (viewport.width <= 0 || viewport.height <= 0) return null
+        val loc = IntArray(2)
+        viewport.getLocationOnScreen(loc)
         return RectF(
-            location[0] - padding,
-            location[1] - padding,
-            location[0] + frame.width + padding,
-            location[1] + frame.height + padding,
+            loc[0].toFloat(),
+            loc[1].toFloat(),
+            loc[0].toFloat() + viewport.width,
+            loc[1].toFloat() + viewport.height,
         )
     }
 
@@ -4817,7 +4829,7 @@ class VideoEditorActivity : ComponentActivity() {
         val showDirectResizeHandles = showCropUi && canDirectPreviewTransformSelectedClip()
         previewCropOverlayView?.visibility = if (showCropUi) View.VISIBLE else View.GONE
         previewCropFrameGuideView?.visibility = if (showDirectResizeHandles) View.VISIBLE else View.GONE
-        previewCropFrameGuideView?.alpha = 0f
+        previewCropFrameGuideView?.alpha = if (showDirectResizeHandles) 1f else 0f
         findViewById<View?>(R.id.previewCropTopRail)?.visibility = if (showPanZoomControls) View.VISIBLE else View.GONE
         findViewById<View?>(R.id.previewCropActionRail)?.visibility = if (showPanZoomControls) View.VISIBLE else View.GONE
         previewTrimSession = null
@@ -4825,7 +4837,7 @@ class VideoEditorActivity : ComponentActivity() {
         previewTrimStartHandleView?.visibility = View.GONE
         previewTrimEndHandleView?.visibility = View.GONE
         previewResizeHandleViews().forEach { handle ->
-            handle?.visibility = View.GONE
+            handle?.visibility = if (showDirectResizeHandles) View.VISIBLE else View.GONE
         }
         findViewById<View?>(R.id.playbackUndoRedoRow)?.apply {
             visibility = View.VISIBLE
@@ -5366,6 +5378,12 @@ class VideoEditorActivity : ComponentActivity() {
                         .ifBlank { AudioClipStore.get(clipId)?.sourcePath.orEmpty() },
                     sourceDurationMs = knownNativeClipSourceDurationMs(clipId),
                     effectParams = clipEffects[clipId] ?: EffectParams(),
+                    zoom = clipPreviewTransforms[clipId]?.zoom ?: 1f,
+                    scaleX = clipPreviewTransforms[clipId]?.scaleX ?: 1f,
+                    scaleY = clipPreviewTransforms[clipId]?.scaleY ?: 1f,
+                    panXPx = clipPreviewTransforms[clipId]?.panXPx ?: 0f,
+                    panYPx = clipPreviewTransforms[clipId]?.panYPx ?: 0f,
+                    rotationDeg = clipPreviewTransforms[clipId]?.rotationDeg ?: 0f,
                 )
             }
     }
@@ -5438,6 +5456,19 @@ class VideoEditorActivity : ComponentActivity() {
                 rememberMediaSourceDuration(state.sourcePath, state.sourceDurationMs)
                 if (state.sourcePath.isNotBlank()) {
                     nativeClipSourcePath[state.id] = state.sourcePath
+                }
+                // Restore preview transform if non-identity
+                val hasTransform = state.zoom != 1f || state.scaleX != 1f || state.scaleY != 1f ||
+                    state.panXPx != 0f || state.panYPx != 0f || state.rotationDeg != 0f
+                if (hasTransform) {
+                    clipPreviewTransforms[state.id] = ClipPreviewTransform(
+                        zoom = state.zoom,
+                        scaleX = state.scaleX,
+                        scaleY = state.scaleY,
+                        panXPx = state.panXPx,
+                        panYPx = state.panYPx,
+                        rotationDeg = state.rotationDeg,
+                    )
                 }
                 if (state.trackType == TrackType.VIDEO || state.trackType == TrackType.OVERLAY || state.trackType == TrackType.LAYER) {
                     restoredVisualTimings += state.copy(
@@ -12675,8 +12706,7 @@ class VideoEditorActivity : ComponentActivity() {
     }
 
     private fun canDirectPreviewTransformSelectedClip(): Boolean {
-        return previewPanZoomControlsVisible &&
-            shouldShowDirectPreviewEdit() &&
+        return shouldShowDirectPreviewEdit() &&
             (selectedClipKind() == ClipKind.VIDEO || selectedClipKind() == ClipKind.OVERLAY) &&
             selectedVideoClipId() != null
     }
@@ -13029,7 +13059,7 @@ class VideoEditorActivity : ComponentActivity() {
         event: MotionEvent,
         edgeSignX: Float = 0f,
         edgeSignY: Float = 0f,
-        allowRotation: Boolean = false,
+        allowRotation: Boolean = true,
     ): ClipPreviewTransform? {
         previewPendingGestureGeometry = null
         previewLastAppliedGestureGeometry = null
@@ -13758,7 +13788,7 @@ class VideoEditorActivity : ComponentActivity() {
                     clipId = clipId,
                     mode = PreviewTransformGestureMode.PINCH_ROTATE,
                     event = event,
-                    allowRotation = false,
+                    allowRotation = true,
                 )
                 previewView?.setLayerType(View.LAYER_TYPE_NONE, null)
                 return true

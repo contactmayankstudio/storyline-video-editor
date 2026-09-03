@@ -31,6 +31,7 @@ class OverlayController(
     private val stickerOverlayViews: MutableMap<Int, StickerOverlayView>,
     private val onRefreshOverlayStack: () -> Unit,
     private val onTimelineContentChanged: () -> Unit,
+    private val onSelectClip: ((String) -> Unit)? = null,
 ) {
     companion object {
         private const val TAG = "[UI]"
@@ -298,6 +299,10 @@ class OverlayController(
             Log.d("[TEXT UI]", "deleted via overlay view id=${overlay.id}")
         }
 
+        overlayView.onSelected = {
+            onSelectClip?.invoke("text-${overlay.id}")
+        }
+
         overlayViews[overlay.id] = overlayView
         applyTextOverlayState(overlay)
     }
@@ -367,6 +372,10 @@ class OverlayController(
             removeStickerOverlayView(clip.id)
             onTimelineContentChanged()
             Log.d("[STICKER]", "deleted id=${clip.id}")
+        }
+
+        stickerView.onSelected = {
+            onSelectClip?.invoke("sticker-${clip.id}")
         }
 
         stickerOverlayViews[clip.id] = stickerView
