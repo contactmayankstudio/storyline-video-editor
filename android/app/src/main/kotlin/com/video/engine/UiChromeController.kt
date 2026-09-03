@@ -836,7 +836,8 @@ class UiChromeController(
 
         bindOptionalLinearButton("voiceoverButton", "Voiceover button not found") {
             onUiButtonTap("voiceover", "main_toolbar", "tap")
-            showVoiceToolSheet()
+            pausePlaybackForPanel()
+            onVoiceoverRequested()
         }
         activity.findViewById<LinearLayout>(R.id.voiceoverButton).setOnLongClickListener {
             onUiButtonTap("voiceover_record", "main_toolbar", "long_press")

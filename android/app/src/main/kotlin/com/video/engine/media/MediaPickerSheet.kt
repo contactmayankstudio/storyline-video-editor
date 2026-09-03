@@ -1,8 +1,10 @@
 package com.video.engine.media
 
+import android.Manifest
 import android.app.Activity
 import android.content.ContentUris
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
@@ -22,6 +24,10 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -40,7 +46,7 @@ data class MediaItem(
     val id: Long,
     val uri: Uri,
     val displayName: String,
-    val durationMs: Long = 0L,
+    var durationMs: Long = 0L,
     val width: Int = 0,
     val height: Int = 0,
     val sizeBytes: Long = 0L,
@@ -52,6 +58,58 @@ private fun dp(context: Context, v: Float): Float = v * context.resources.displa
 private fun dpInt(context: Context, v: Float): Int = (v * context.resources.displayMetrics.density).toInt()
 
 object MediaPickerSheet {
+
+    const val PERMISSION_REQUEST_CODE = 4091
+    private var activeReloadCallback: (() -> Unit)? = null
+
+    fun onPermissionResult(granted: Boolean) {
+        if (granted) {
+            activeReloadCallback?.invoke()
+        }
+    }
+
+    fun hasMediaPermission(context: Context, type: MediaType): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            when (type) {
+                MediaType.AUDIO -> ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
+                MediaType.VIDEO -> ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED ||
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
+                MediaType.PHOTO -> ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            when (type) {
+                MediaType.AUDIO -> ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
+                MediaType.VIDEO -> ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+                MediaType.PHOTO -> ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+            }
+        } else {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    fun requiredPermissions(type: MediaType): Array<String> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            when (type) {
+                MediaType.AUDIO -> arrayOf(Manifest.permission.READ_MEDIA_AUDIO)
+                MediaType.VIDEO, MediaType.PHOTO -> arrayOf(
+                    Manifest.permission.READ_MEDIA_VIDEO,
+                    Manifest.permission.READ_MEDIA_IMAGES,
+                    Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+                )
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            when (type) {
+                MediaType.AUDIO -> arrayOf(Manifest.permission.READ_MEDIA_AUDIO)
+                MediaType.VIDEO, MediaType.PHOTO -> arrayOf(
+                    Manifest.permission.READ_MEDIA_VIDEO,
+                    Manifest.permission.READ_MEDIA_IMAGES
+                )
+            }
+        } else {
+            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+    }
 
     private val thumbnailExecutor = Executors.newFixedThreadPool(2) { runnable ->
         Thread(runnable, "MediaPickerThumbnail").apply {
@@ -92,6 +150,12 @@ object MediaPickerSheet {
                 setStroke(dpInt(activity, 1f), Color.parseColor("#1B222C"))
             }
             setPadding(0, dpInt(activity, 12f), 0, dpInt(activity, 16f))
+        }
+
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val navInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
+            root.setPadding(0, dpInt(activity, 12f), 0, dpInt(activity, 16f) + navInsets)
+            insets
         }
 
         // Drag handle
@@ -207,12 +271,29 @@ object MediaPickerSheet {
 
             val emptyText = TextView(activity).apply {
                 text = "No media found"
-                setTextColor(Color.parseColor("#6B7888"))
-                textSize = 14f
+                setTextColor(Color.parseColor("#8A99AD"))
+                textSize = 13.5f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
             }
             addView(emptyText)
+
+            val grantBtn = Button(activity).apply {
+                text = "Allow Media Access"
+                setTextColor(Color.WHITE)
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#1F6FEB"))
+                    cornerRadius = dp(activity, 8f)
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    dpInt(activity, 36f)
+                ).also { it.topMargin = dpInt(activity, 10f) }
+                visibility = View.GONE
+            }
+            addView(grantBtn)
 
             val browseBtn = Button(activity).apply {
                 text = "Browse from Device"
@@ -227,7 +308,7 @@ object MediaPickerSheet {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     dpInt(activity, 34f)
-                ).also { it.topMargin = dpInt(activity, 10f) }
+                ).also { it.topMargin = dpInt(activity, 8f) }
                 setOnClickListener {
                     dialog.dismiss()
                     onBrowseSystemPicker(targetTrackType)
@@ -352,6 +433,30 @@ object MediaPickerSheet {
                 recyclerView.layoutManager = GridLayoutManager(activity, 3)
             }
 
+            val emptyText = emptyStateView.getChildAt(0) as? TextView
+            val grantBtn = emptyStateView.getChildAt(1) as? Button
+            val browseBtn = emptyStateView.getChildAt(2) as? Button
+
+            val hasPerm = hasMediaPermission(activity, tab)
+            if (!hasPerm) {
+                grantBtn?.visibility = View.VISIBLE
+                grantBtn?.setOnClickListener {
+                    ActivityCompat.requestPermissions(
+                        activity,
+                        requiredPermissions(tab),
+                        PERMISSION_REQUEST_CODE
+                    )
+                }
+                emptyText?.text = "Permission required to view device ${tab.name.lowercase()}"
+                browseBtn?.text = "Browse Files (No permission needed)"
+                emptyStateView.visibility = View.VISIBLE
+                recyclerView.visibility = View.GONE
+                return
+            }
+
+            grantBtn?.visibility = View.GONE
+            browseBtn?.text = "Browse from Device"
+
             mediaItems.clear()
             adapter.notifyDataSetChanged()
             emptyStateView.visibility = View.GONE
@@ -364,6 +469,9 @@ object MediaPickerSheet {
                     mediaItems.addAll(loaded)
                     adapter.notifyDataSetChanged()
                     if (mediaItems.isEmpty()) {
+                        emptyText?.text = if (tab == MediaType.AUDIO) "No audio files found" else "No ${tab.name.lowercase()}s found on device"
+                        browseBtn?.text = "Browse from Device / Google Photos"
+                        browseBtn?.visibility = View.VISIBLE
                         emptyStateView.visibility = View.VISIBLE
                         recyclerView.visibility = View.GONE
                     } else {
@@ -375,18 +483,13 @@ object MediaPickerSheet {
         }
 
         adapter = MediaAdapter(activity, mediaItems, selectedItems) { item, isSelected ->
-            if (currentTab == MediaType.AUDIO) {
-                dialog.dismiss()
-                onMediaSelected(listOf(item.uri), TrackType.AUDIO)
+            if (isSelected) {
+                selectedItems.add(item)
             } else {
-                if (isSelected) {
-                    selectedItems.add(item)
-                } else {
-                    selectedItems.remove(item)
-                }
-                adapter.notifyDataSetChanged()
-                updateAddButtonState()
+                selectedItems.remove(item)
             }
+            adapter.notifyDataSetChanged()
+            updateAddButtonState()
         }
         recyclerView.adapter = adapter
 
@@ -407,6 +510,8 @@ object MediaPickerSheet {
         dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
         dialog.behavior.peekHeight = dpInt(activity, 480f)
         dialog.behavior.skipCollapsed = true
+        activeReloadCallback = { loadMediaForTab(currentTab) }
+        dialog.setOnDismissListener { activeReloadCallback = null }
         dialog.show()
 
         loadMediaForTab(currentTab)
@@ -460,25 +565,52 @@ object MediaPickerSheet {
                         MediaStore.Video.Media.DURATION,
                         MediaStore.Video.Media.WIDTH,
                         MediaStore.Video.Media.HEIGHT,
-                        MediaStore.Video.Media.SIZE
+                        MediaStore.Video.Media.SIZE,
                     )
-                    cr.query(uri, projection, null, null, "${MediaStore.Video.Media.DATE_ADDED} DESC")?.use { cursor ->
-                        val idCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
-                        val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
-                        val durCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
-                        val wCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.WIDTH)
-                        val hCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.HEIGHT)
-                        val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
+                    var cursor = runCatching {
+                        cr.query(uri, projection, null, null, "${MediaStore.Video.Media.DATE_ADDED} DESC")
+                    }.getOrNull()
+
+                    if (cursor == null || cursor.count == 0) {
+                        cursor?.close()
+                        cursor = runCatching {
+                            cr.query(uri, arrayOf(MediaStore.Video.Media._ID, MediaStore.Video.Media.DISPLAY_NAME, MediaStore.Video.Media.DURATION), null, null, "${MediaStore.MediaColumns._ID} DESC")
+                        }.getOrNull()
+                    }
+
+                    if (cursor == null || cursor.count == 0) {
+                        cursor?.close()
+                        val filesUri = MediaStore.Files.getContentUri("external")
+                        cursor = runCatching {
+                            cr.query(
+                                filesUri,
+                                arrayOf(MediaStore.Files.FileColumns._ID, MediaStore.Files.FileColumns.DISPLAY_NAME, MediaStore.MediaColumns.DURATION),
+                                "${MediaStore.Files.FileColumns.MEDIA_TYPE} = ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO}",
+                                null,
+                                "${MediaStore.MediaColumns.DATE_ADDED} DESC"
+                            )
+                        }.getOrNull()
+                    }
+
+                    cursor?.use { c ->
+                        val idCol = c.getColumnIndex(MediaStore.Video.Media._ID)
+                        val nameCol = c.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME)
+                        val durCol = c.getColumnIndex(MediaStore.Video.Media.DURATION)
+                        val wCol = c.getColumnIndex(MediaStore.Video.Media.WIDTH)
+                        val hCol = c.getColumnIndex(MediaStore.Video.Media.HEIGHT)
+                        val sizeCol = c.getColumnIndex(MediaStore.Video.Media.SIZE)
 
                         var count = 0
-                        while (cursor.moveToNext() && count < 80) {
-                            val id = cursor.getLong(idCol)
-                            val name = cursor.getString(nameCol) ?: "Video ${count + 1}"
-                            val dur = cursor.getLong(durCol).coerceAtLeast(0L)
-                            val w = cursor.getInt(wCol)
-                            val h = cursor.getInt(hCol)
-                            val size = cursor.getLong(sizeCol)
+                        while (c.moveToNext() && count < 150) {
+                            if (idCol < 0) continue
+                            val id = c.getLong(idCol)
+                            val name = if (nameCol >= 0) c.getString(nameCol) ?: "Video ${count + 1}" else "Video ${count + 1}"
+                            val dur = if (durCol >= 0) c.getLong(durCol).coerceAtLeast(0L) else 0L
+                            val w = if (wCol >= 0) c.getInt(wCol) else 0
+                            val h = if (hCol >= 0) c.getInt(hCol) else 0
+                            val size = if (sizeCol >= 0) c.getLong(sizeCol) else 0L
                             val contentUri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
+
                             items.add(
                                 MediaItem(
                                     id = id,
@@ -488,8 +620,8 @@ object MediaPickerSheet {
                                     width = w,
                                     height = h,
                                     sizeBytes = size,
-                                    mediaType = MediaType.VIDEO
-                                )
+                                    mediaType = MediaType.VIDEO,
+                                ),
                             )
                             count++
                         }
@@ -502,22 +634,48 @@ object MediaPickerSheet {
                         MediaStore.Images.Media.DISPLAY_NAME,
                         MediaStore.Images.Media.WIDTH,
                         MediaStore.Images.Media.HEIGHT,
-                        MediaStore.Images.Media.SIZE
+                        MediaStore.Images.Media.SIZE,
                     )
-                    cr.query(uri, projection, null, null, "${MediaStore.Images.Media.DATE_ADDED} DESC")?.use { cursor ->
-                        val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-                        val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
-                        val wCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.WIDTH)
-                        val hCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)
-                        val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+                    var cursor = runCatching {
+                        cr.query(uri, projection, null, null, "${MediaStore.Images.Media.DATE_ADDED} DESC")
+                    }.getOrNull()
+
+                    if (cursor == null || cursor.count == 0) {
+                        cursor?.close()
+                        cursor = runCatching {
+                            cr.query(uri, arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME), null, null, "${MediaStore.MediaColumns._ID} DESC")
+                        }.getOrNull()
+                    }
+
+                    if (cursor == null || cursor.count == 0) {
+                        cursor?.close()
+                        val filesUri = MediaStore.Files.getContentUri("external")
+                        cursor = runCatching {
+                            cr.query(
+                                filesUri,
+                                arrayOf(MediaStore.Files.FileColumns._ID, MediaStore.Files.FileColumns.DISPLAY_NAME),
+                                "${MediaStore.Files.FileColumns.MEDIA_TYPE} = ${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}",
+                                null,
+                                "${MediaStore.MediaColumns.DATE_ADDED} DESC"
+                            )
+                        }.getOrNull()
+                    }
+
+                    cursor?.use { c ->
+                        val idCol = c.getColumnIndex(MediaStore.Images.Media._ID)
+                        val nameCol = c.getColumnIndex(MediaStore.Images.Media.DISPLAY_NAME)
+                        val wCol = c.getColumnIndex(MediaStore.Images.Media.WIDTH)
+                        val hCol = c.getColumnIndex(MediaStore.Images.Media.HEIGHT)
+                        val sizeCol = c.getColumnIndex(MediaStore.Images.Media.SIZE)
 
                         var count = 0
-                        while (cursor.moveToNext() && count < 80) {
-                            val id = cursor.getLong(idCol)
-                            val name = cursor.getString(nameCol) ?: "Photo ${count + 1}"
-                            val w = cursor.getInt(wCol)
-                            val h = cursor.getInt(hCol)
-                            val size = cursor.getLong(sizeCol)
+                        while (c.moveToNext() && count < 150) {
+                            if (idCol < 0) continue
+                            val id = c.getLong(idCol)
+                            val name = if (nameCol >= 0) c.getString(nameCol) ?: "Photo ${count + 1}" else "Photo ${count + 1}"
+                            val w = if (wCol >= 0) c.getInt(wCol) else 0
+                            val h = if (hCol >= 0) c.getInt(hCol) else 0
+                            val size = if (sizeCol >= 0) c.getLong(sizeCol) else 0L
                             val contentUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
                             items.add(
                                 MediaItem(
@@ -528,8 +686,8 @@ object MediaPickerSheet {
                                     width = w,
                                     height = h,
                                     sizeBytes = size,
-                                    mediaType = MediaType.PHOTO
-                                )
+                                    mediaType = MediaType.PHOTO,
+                                ),
                             )
                             count++
                         }
@@ -542,23 +700,65 @@ object MediaPickerSheet {
                         MediaStore.Audio.Media.TITLE,
                         MediaStore.Audio.Media.ARTIST,
                         MediaStore.Audio.Media.DURATION,
-                        MediaStore.Audio.Media.SIZE
+                        MediaStore.Audio.Media.SIZE,
+                        MediaStore.Audio.Media.IS_MUSIC,
+                        MediaStore.Audio.Media.IS_NOTIFICATION,
+                        MediaStore.Audio.Media.IS_RINGTONE,
+                        MediaStore.Audio.Media.IS_ALARM,
                     )
-                    cr.query(uri, projection, null, null, "${MediaStore.Audio.Media.DATE_ADDED} DESC")?.use { cursor ->
-                        val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                        val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-                        val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-                        val durCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-                        val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
+                    val selection = "(${MediaStore.Audio.Media.IS_MUSIC} != 0 OR ${MediaStore.Audio.Media.IS_MUSIC} IS NULL) AND " +
+                        "${MediaStore.Audio.Media.IS_NOTIFICATION} == 0 AND " +
+                        "${MediaStore.Audio.Media.IS_RINGTONE} == 0 AND " +
+                        "${MediaStore.Audio.Media.IS_ALARM} == 0"
+
+                    val cursor = runCatching {
+                        cr.query(uri, projection, selection, null, "${MediaStore.Audio.Media.DATE_ADDED} DESC")
+                    }.getOrNull() ?: runCatching {
+                        cr.query(
+                            uri,
+                            arrayOf(
+                                MediaStore.Audio.Media._ID,
+                                MediaStore.Audio.Media.TITLE,
+                                MediaStore.Audio.Media.ARTIST,
+                                MediaStore.Audio.Media.DURATION,
+                                MediaStore.Audio.Media.SIZE,
+                            ),
+                            null,
+                            null,
+                            "${MediaStore.Audio.Media.DATE_ADDED} DESC",
+                        )
+                    }.getOrNull()
+
+                    cursor?.use { c ->
+                        val idCol = c.getColumnIndex(MediaStore.Audio.Media._ID)
+                        val titleCol = c.getColumnIndex(MediaStore.Audio.Media.TITLE)
+                        val artistCol = c.getColumnIndex(MediaStore.Audio.Media.ARTIST)
+                        val durCol = c.getColumnIndex(MediaStore.Audio.Media.DURATION)
+                        val sizeCol = c.getColumnIndex(MediaStore.Audio.Media.SIZE)
 
                         var count = 0
-                        while (cursor.moveToNext() && count < 80) {
-                            val id = cursor.getLong(idCol)
-                            val title = cursor.getString(titleCol) ?: "Audio ${count + 1}"
-                            val artist = cursor.getString(artistCol) ?: "Unknown"
-                            val dur = cursor.getLong(durCol).coerceAtLeast(0L)
-                            val size = cursor.getLong(sizeCol)
+                        while (c.moveToNext() && count < 150) {
+                            if (idCol < 0) continue
+                            val id = c.getLong(idCol)
+                            val title = if (titleCol >= 0) c.getString(titleCol) ?: "Audio ${count + 1}" else "Audio ${count + 1}"
+                            val artist = if (artistCol >= 0) c.getString(artistCol) ?: "Unknown" else "Unknown"
+                            val dur = if (durCol >= 0) c.getLong(durCol).coerceAtLeast(0L) else 0L
+                            val size = if (sizeCol >= 0) c.getLong(sizeCol) else 0L
                             val contentUri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+
+                            val lowerTitle = title.lowercase(java.util.Locale.US)
+                            if (lowerTitle in listOf(
+                                "pulse", "resonate", "rimshot", "ringring", "ringing",
+                                "ripple", "notification", "ringtone", "alarm", "hangouts_message"
+                            )) {
+                                continue
+                            }
+
+                            // Reject sub-second items (system chirps/notifications)
+                            if (durCol >= 0 && dur in 1..999L) {
+                                continue
+                            }
+
                             items.add(
                                 MediaItem(
                                     id = id,
@@ -567,8 +767,8 @@ object MediaPickerSheet {
                                     durationMs = dur,
                                     sizeBytes = size,
                                     mediaType = MediaType.AUDIO,
-                                    artist = artist
-                                )
+                                    artist = artist,
+                                ),
                             )
                             count++
                         }
@@ -583,6 +783,7 @@ object MediaPickerSheet {
     }
 
     private fun formatDuration(durationMs: Long): String {
+        if (durationMs <= 0L) return ""
         val totalSec = (durationMs / 1000L).coerceAtLeast(0L)
         val min = totalSec / 60L
         val sec = totalSec % 60L
@@ -642,7 +843,7 @@ object MediaPickerSheet {
             if (holder is GridViewHolder) {
                 holder.bind(item, isSelected)
             } else if (holder is AudioViewHolder) {
-                holder.bind(item)
+                holder.bind(item, isSelected)
             }
         }
 
@@ -732,14 +933,43 @@ object MediaPickerSheet {
                 checkBadge.visibility = if (isSelected) View.VISIBLE else View.GONE
 
                 if (item.mediaType == MediaType.VIDEO) {
-                    durationBadge.visibility = View.VISIBLE
-                    durationBadge.text = formatDuration(item.durationMs)
+                    val formatted = formatDuration(item.durationMs)
+                    if (formatted.isNotBlank()) {
+                        durationBadge.visibility = View.VISIBLE
+                        durationBadge.text = formatted
+                    } else {
+                        durationBadge.visibility = View.GONE
+                        resolveDurationAsync(item) { resolvedDur ->
+                            if (resolvedDur > 0L) {
+                                durationBadge.visibility = View.VISIBLE
+                                durationBadge.text = formatDuration(resolvedDur)
+                            }
+                        }
+                    }
                 } else {
                     durationBadge.visibility = View.GONE
                 }
 
                 imageView.setImageBitmap(null)
                 loadThumbnailAsync(item, imageView)
+            }
+        }
+
+        private fun resolveDurationAsync(item: MediaItem, onResolved: (Long) -> Unit) {
+            thumbnailExecutor.execute {
+                val retriever = android.media.MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(context, item.uri)
+                    val durStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    val dur = durStr?.toLongOrNull() ?: 0L
+                    if (dur > 0L) {
+                        item.durationMs = dur
+                        mainHandler.post { onResolved(dur) }
+                    }
+                } catch (_: Exception) {
+                } finally {
+                    runCatching { retriever.release() }
+                }
             }
         }
 
@@ -803,21 +1033,43 @@ object MediaPickerSheet {
                 addBtn.setOnClickListener {
                     val pos = bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: adapterPosition
                     if (pos != RecyclerView.NO_POSITION) {
-                        onItemClick(items[pos], true)
+                        val item = items[pos]
+                        val currentlySelected = selectedItems.contains(item)
+                        onItemClick(item, !currentlySelected)
                     }
                 }
                 row.setOnClickListener {
                     val pos = bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: adapterPosition
                     if (pos != RecyclerView.NO_POSITION) {
-                        onItemClick(items[pos], true)
+                        val item = items[pos]
+                        val currentlySelected = selectedItems.contains(item)
+                        onItemClick(item, !currentlySelected)
                     }
                 }
             }
 
-            fun bind(item: MediaItem) {
+            fun bind(item: MediaItem, isSelected: Boolean) {
                 titleText.text = item.displayName.replace('_', ' ')
                 val durStr = formatDuration(item.durationMs)
                 artistText.text = if (item.artist.isNotBlank() && item.artist != "<unknown>") "${item.artist} • $durStr" else durStr
+
+                if (isSelected) {
+                    addBtn.text = "✓ Added"
+                    (addBtn.background as? GradientDrawable)?.setColor(Color.parseColor("#238636"))
+                    row.background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#141E2E"))
+                        cornerRadius = dp(context, 8f)
+                        setStroke(dpInt(context, 1.5f), Color.parseColor("#388BFD"))
+                    }
+                } else {
+                    addBtn.text = "+ Add"
+                    (addBtn.background as? GradientDrawable)?.setColor(Color.parseColor("#388BFD"))
+                    row.background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#131720"))
+                        cornerRadius = dp(context, 8f)
+                        setStroke(dpInt(context, 1f), Color.parseColor("#1A212D"))
+                    }
+                }
             }
         }
 

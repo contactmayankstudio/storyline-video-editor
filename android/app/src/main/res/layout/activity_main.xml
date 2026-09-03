@@ -973,6 +973,12 @@
                     <TextView style="@style/ToolbarLabel" android:text="Audio"/>
                 </LinearLayout>
 
+                <LinearLayout android:id="@+id/voiceoverButton"
+                    style="@style/ToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_audio"/>
+                    <TextView style="@style/ToolbarLabel" android:text="Voiceover"/>
+                </LinearLayout>
+
                 <LinearLayout android:id="@+id/textButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_text"/>
@@ -995,12 +1001,6 @@
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_filter"/>
                     <TextView style="@style/ToolbarLabel" android:text="Color"/>
-                </LinearLayout>
-
-                <LinearLayout android:id="@+id/voiceoverButton"
-                    style="@style/ToolbarItem">
-                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_audio"/>
-                    <TextView style="@style/ToolbarLabel" android:text="Voice"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/stickersButton"

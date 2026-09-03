@@ -20,6 +20,17 @@ object ContentUriImportResolver {
         return queryContentLength(contentResolver, buildCandidateUris(uri))
     }
 
+    fun findDirectReadablePath(contentResolver: ContentResolver, uri: Uri): String? {
+        val candidateUris = buildCandidateUris(uri)
+        for (path in buildCandidateFilePaths(contentResolver, candidateUris)) {
+            val file = File(path)
+            if (file.exists() && file.isFile && file.canRead() && file.length() > 0L) {
+                return file.absolutePath
+            }
+        }
+        return null
+    }
+
     fun copyToFile(
         contentResolver: ContentResolver,
         uri: Uri,

@@ -64,7 +64,9 @@ object AudioClipStore {
                 deferredNativeSyncDepth = 0
                 if (deferredNativeSyncPending) {
                     deferredNativeSyncPending = false
-                    com.video.engine.NativeBridge.syncAudioClips()
+                    runCatching {
+                        com.video.engine.NativeBridge.syncAudioClips()
+                    }
                 }
             }
         }
@@ -132,7 +134,9 @@ object AudioClipStore {
             deferredNativeSyncPending = true
             return
         }
-        com.video.engine.NativeBridge.syncAudioClips()
+        runCatching {
+            com.video.engine.NativeBridge.syncAudioClips()
+        }
     }
 
     private fun sampleGainAt(keyframes: List<AudioGainKeyframe>, timeMs: Long): Float {

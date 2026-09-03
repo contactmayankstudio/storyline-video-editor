@@ -111,7 +111,7 @@ class AudioImportController(
                     "audio/flac",
                 ),
             )
-            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false)
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
             addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
@@ -129,79 +129,110 @@ class AudioImportController(
         if (requestCode != expectedRequestCode || resultCode != Activity.RESULT_OK) {
             return false
         }
-        val uri = data?.data ?: return true
-        Log.d(TAG, "Audio picker returned URI: $uri")
-        runCatching {
-            activity.contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION,
-            )
+        val uris = mutableListOf<Uri>()
+        val clipData = data?.clipData
+        if (clipData != null && clipData.itemCount > 0) {
+            for (i in 0 until clipData.itemCount) {
+                clipData.getItemAt(i)?.uri?.let { uris.add(it) }
+            }
+        } else {
+            data?.data?.let { uris.add(it) }
         }
-        val displayName = queryDisplayName(uri)?.takeIf { it.isNotBlank() }
-            ?: uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
-            ?: "audio"
-        dispatchImportProgress(
-            ImportProgressUpdate(
-                phase = ImportProgressPhase.OPENING,
-                displayName = displayName,
-                trackType = TrackType.AUDIO,
-                path = uri.toString(),
-                message = "Opening selected audio",
-            ),
-        )
-        val resolvedPath = resolveImportPath(uri) ?: run {
-            dispatchImportProgress(
-                ImportProgressUpdate(
-                    phase = ImportProgressPhase.FAILED,
-                    displayName = displayName,
-                    trackType = TrackType.AUDIO,
-                    path = uri.toString(),
-                    message = "Unable to open selected audio",
-                ),
-            )
-            Toast.makeText(activity, "Unable to open selected audio", Toast.LENGTH_SHORT).show()
+        if (uris.isEmpty()) {
             return true
         }
+
         val resolvedStartTimeMs = (startTimeMsOverride ?: defaultStartTimeMsProvider()).coerceAtLeast(0L)
-        dispatchImportProgress(
-            ImportProgressUpdate(
-                phase = ImportProgressPhase.TIMELINE,
-                displayName = File(resolvedPath).name.ifBlank { displayName },
-                trackType = TrackType.AUDIO,
-                path = resolvedPath,
-                percent = 100,
-                message = "Adding audio to timeline",
-            ),
-        )
-        val imported = importResolvedAudioPath(
-            path = resolvedPath,
-            startTimeMs = resolvedStartTimeMs,
-        )
-        if (imported == null) {
-            dispatchImportProgress(
-                ImportProgressUpdate(
-                    phase = ImportProgressPhase.FAILED,
-                    displayName = File(resolvedPath).name.ifBlank { displayName },
-                    trackType = TrackType.AUDIO,
-                    path = resolvedPath,
-                    message = "Unable to read audio duration",
-                ),
-            )
-            Toast.makeText(activity, "Unable to read audio duration", Toast.LENGTH_SHORT).show()
-            return true
-        }
-        dispatchImportProgress(
-            ImportProgressUpdate(
-                phase = ImportProgressPhase.READY,
-                displayName = File(resolvedPath).name.ifBlank { displayName },
-                trackType = TrackType.AUDIO,
-                path = resolvedPath,
-                percent = 100,
-                message = "Ready in editor",
-            ),
-        )
-        Log.d(TAG, "Audio picker import success: id=${imported.id} path=${imported.sourcePath} duration=${imported.durationMs}ms")
+        importUris(uris, resolvedStartTimeMs)
         return true
+    }
+
+    fun importUris(
+        uris: List<Uri>,
+        startTimeMs: Long = defaultStartTimeMsProvider().coerceAtLeast(0L),
+    ) {
+        if (uris.isEmpty()) return
+        Thread {
+            var currentStartMs = startTimeMs.coerceAtLeast(0L)
+            for (uri in uris) {
+                runCatching {
+                    activity.contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                }
+                val displayName = queryDisplayName(uri)?.takeIf { it.isNotBlank() }
+                    ?: uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+                    ?: "audio"
+                dispatchImportProgress(
+                    ImportProgressUpdate(
+                        phase = ImportProgressPhase.OPENING,
+                        displayName = displayName,
+                        trackType = TrackType.AUDIO,
+                        path = uri.toString(),
+                        message = "Opening $displayName",
+                    ),
+                )
+                val resolvedPath = resolveImportPath(uri)
+                if (resolvedPath == null) {
+                    dispatchImportProgress(
+                        ImportProgressUpdate(
+                            phase = ImportProgressPhase.FAILED,
+                            displayName = displayName,
+                            trackType = TrackType.AUDIO,
+                            path = uri.toString(),
+                            message = "Unable to open $displayName",
+                        ),
+                    )
+                    mainHandler.post {
+                        Toast.makeText(activity, "Unable to open $displayName", Toast.LENGTH_SHORT).show()
+                    }
+                    continue
+                }
+
+                val clipName = File(resolvedPath).name.ifBlank { displayName }
+                dispatchImportProgress(
+                    ImportProgressUpdate(
+                        phase = ImportProgressPhase.TIMELINE,
+                        displayName = clipName,
+                        trackType = TrackType.AUDIO,
+                        path = resolvedPath,
+                        percent = 100,
+                        message = "Adding $clipName to timeline",
+                    ),
+                )
+
+                val imported = importResolvedAudioPath(
+                    path = resolvedPath,
+                    startTimeMs = currentStartMs,
+                    displayNameOverride = clipName.substringBeforeLast('.'),
+                )
+                if (imported != null) {
+                    currentStartMs = imported.startTimeMs + imported.durationMs
+                    dispatchImportProgress(
+                        ImportProgressUpdate(
+                            phase = ImportProgressPhase.READY,
+                            displayName = clipName,
+                            trackType = TrackType.AUDIO,
+                            path = resolvedPath,
+                            percent = 100,
+                            message = "Ready: $clipName",
+                        ),
+                    )
+                    Log.d(TAG, "Audio import success: id=${imported.id} path=${imported.sourcePath} duration=${imported.durationMs}ms start=${imported.startTimeMs}ms")
+                } else {
+                    dispatchImportProgress(
+                        ImportProgressUpdate(
+                            phase = ImportProgressPhase.FAILED,
+                            displayName = clipName,
+                            trackType = TrackType.AUDIO,
+                            path = resolvedPath,
+                            message = "Unable to read audio duration",
+                        ),
+                    )
+                }
+            }
+        }.start()
     }
 
     fun importFromPath(

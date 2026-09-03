@@ -47,6 +47,7 @@ import com.video.engine.audio.AudioClipStore
 import com.video.engine.audio.AudioImportController
 import com.video.engine.audio.VoiceoverController
 import com.video.engine.effects.EffectParams
+import com.video.engine.media.MediaPickerSheet
 import com.video.engine.overlay.OverlayStore
 import com.video.engine.overlay.TextOverlay
 import com.video.engine.overlay.TextOverlayView
@@ -2257,6 +2258,36 @@ class VideoEditorActivity : ComponentActivity() {
         previewFitFillToggleButton = findViewById(R.id.topPreviewFitFillToggle)
         previewQualityToggleButton = findViewById(R.id.topPreviewQualityToggle)
         val bottomContainer = findViewById<View>(R.id.bottomContainer)
+        val topBarView = findViewById<View>(R.id.topBar)
+        val startScreenView = findViewById<View>(R.id.startScreenOverlay)
+        val rootContentView = findViewById<View>(android.R.id.content) ?: window.decorView
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(rootContentView) { _, windowInsets ->
+            val systemBars = windowInsets.getInsets(
+                androidx.core.view.WindowInsetsCompat.Type.systemBars() or
+                    androidx.core.view.WindowInsetsCompat.Type.displayCutout()
+            )
+            topBarView?.let { tb ->
+                (tb.layoutParams as? android.view.ViewGroup.MarginLayoutParams)?.let { lp ->
+                    if (lp.topMargin != systemBars.top) {
+                        lp.topMargin = systemBars.top
+                        tb.layoutParams = lp
+                    }
+                }
+            }
+            startScreenView?.setPadding(
+                startScreenView.paddingLeft,
+                systemBars.top,
+                startScreenView.paddingRight,
+                systemBars.bottom
+            )
+            bottomContainer?.setPadding(
+                bottomContainer.paddingLeft,
+                bottomContainer.paddingTop,
+                bottomContainer.paddingRight,
+                systemBars.bottom
+            )
+            windowInsets
+        }
         val timelineLayout = findViewById<View>(R.id.timelineLayout)
         timelineCurrentTimeText = findViewById(R.id.timelineCurrentTimeText)
         timelineCurrentTimeText?.visibility = View.VISIBLE
@@ -3824,6 +3855,7 @@ class VideoEditorActivity : ComponentActivity() {
             viewportFrame.requestLayout()
             preview.requestLayout()
             overlay.requestLayout()
+            resetPlaybackGestureSurfaceTransform()
             schedulePreviewSurfaceSyncAfterAspectLayout()
             if (previewCropOverlayView?.visibility == View.VISIBLE && canDirectPreviewTransformSelectedClip()) {
                 previewCropOverlayView?.post { layoutSelectedPreviewObjectFrame() }
@@ -7740,11 +7772,17 @@ class VideoEditorActivity : ComponentActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         appShellController?.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == PERMISSION_REQUEST_CODE &&
-            grantResults.isNotEmpty() &&
-            grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED &&
             permissions.contains(android.Manifest.permission.RECORD_AUDIO)
         ) {
-            voiceoverController?.onPermissionGranted()
+            if (grantResults.isNotEmpty() && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                voiceoverController?.onPermissionGranted()
+            } else {
+                voiceoverController?.onPermissionDenied()
+            }
+        }
+        if (requestCode == MediaPickerSheet.PERMISSION_REQUEST_CODE) {
+            val anyGranted = grantResults.any { it == android.content.pm.PackageManager.PERMISSION_GRANTED }
+            MediaPickerSheet.onPermissionResult(anyGranted)
         }
     }
 
@@ -9161,11 +9199,37 @@ class VideoEditorActivity : ComponentActivity() {
     }
 
     private fun withAutoSubTracks(clips: List<ClipSegment>): List<ClipSegment> {
-        return clips
-            .sortedWith(compareBy<ClipSegment> { it.startTimeMs }.thenBy { it.zOrder })
-            .map { clip ->
-                clip.copy(metadata = clip.metadata + ("subTrack" to "1"))
+        val sorted = clips.sortedWith(compareBy<ClipSegment> { it.startTimeMs }.thenBy { it.zOrder })
+        val laneEndTimes = mutableListOf<Long>()
+        return sorted.map { clip ->
+            val explicitSub = clip.metadata["subTrack"]?.toIntOrNull()
+            val laneIndex = if (explicitSub != null && explicitSub > 0) {
+                (explicitSub - 1).coerceIn(0, 3)
+            } else {
+                var chosen = -1
+                for (i in laneEndTimes.indices) {
+                    if (clip.startTimeMs >= laneEndTimes[i]) {
+                        chosen = i
+                        break
+                    }
+                }
+                if (chosen == -1) {
+                    chosen = laneEndTimes.size.coerceAtMost(3)
+                    if (chosen >= laneEndTimes.size) {
+                        laneEndTimes.add(clip.endTimeMs())
+                    } else {
+                        laneEndTimes[chosen] = clip.endTimeMs()
+                    }
+                } else {
+                    laneEndTimes[chosen] = clip.endTimeMs()
+                }
+                chosen
             }
+            if (laneIndex < laneEndTimes.size) {
+                laneEndTimes[laneIndex] = maxOf(laneEndTimes[laneIndex], clip.endTimeMs())
+            }
+            clip.copy(metadata = clip.metadata + ("subTrack" to (laneIndex + 1).toString()))
+        }
     }
 
     /**
@@ -10237,34 +10301,44 @@ class VideoEditorActivity : ComponentActivity() {
 
     private fun openMediaPickerSheet(initialTrackType: TrackType = TrackType.VIDEO) {
         pausePlaybackForPanel()
-        if (initialTrackType == TrackType.AUDIO) {
-            openAudioSystemPicker()
-        } else {
-            launchVisualPhotoPicker(
-                trackType = initialTrackType,
-                requestCode = when (initialTrackType) {
-                    TrackType.OVERLAY -> PICK_OVERLAY_REQUEST
-                    TrackType.LAYER -> PICK_LAYER_REQUEST
-                    else -> PICK_VIDEO_REQUEST
+        MediaPickerSheet.show(
+            activity = this,
+            initialTrackType = initialTrackType,
+            onMediaSelected = { uris, trackType ->
+                when (trackType) {
+                    TrackType.AUDIO -> {
+                        audioImportController?.importUris(uris, currentTimeMs.coerceAtLeast(0L))
+                    }
+                    else -> {
+                        importController?.importUris(uris, trackType, currentTimeMs.coerceAtLeast(0L))
+                    }
                 }
-            )
-        }
+            },
+            onBrowseSystemPicker = { trackType ->
+                when (trackType) {
+                    TrackType.AUDIO -> openAudioSystemPicker()
+                    TrackType.OVERLAY -> launchVisualPhotoPicker(TrackType.OVERLAY, PICK_OVERLAY_REQUEST)
+                    TrackType.LAYER -> launchVisualPhotoPicker(TrackType.LAYER, PICK_LAYER_REQUEST)
+                    else -> launchVisualPhotoPicker(TrackType.VIDEO, PICK_VIDEO_REQUEST)
+                }
+            },
+        )
     }
 
     private fun openVideoTrackImport() {
-        launchVisualPhotoPicker(TrackType.VIDEO, PICK_VIDEO_REQUEST)
+        openMediaPickerSheet(TrackType.VIDEO)
     }
 
     private fun openOverlayTrackImport() {
-        launchVisualPhotoPicker(TrackType.OVERLAY, PICK_OVERLAY_REQUEST)
+        openMediaPickerSheet(TrackType.OVERLAY)
     }
 
     private fun openLayerTrackImport() {
-        launchVisualPhotoPicker(TrackType.LAYER, PICK_LAYER_REQUEST)
+        openMediaPickerSheet(TrackType.LAYER)
     }
 
     private fun openAudioTrackImport() {
-        openAudioSystemPicker()
+        openMediaPickerSheet(TrackType.AUDIO)
     }
 
     private fun launchVisualPhotoPicker(trackType: TrackType, requestCode: Int) {
@@ -10698,46 +10772,67 @@ class VideoEditorActivity : ComponentActivity() {
         val audioTrack = TrackState(
             id = "main-audio",
             type = TrackType.AUDIO,
-            clips = audioStoreClips
-                .sortedWith(
-                    compareBy<AudioClip> { it.startTimeMs }
-                        .thenBy { it.layerIndex }
-                        .thenBy { it.id },
-                )
-                .map { clip ->
-                val gain = audioClipGainOverrides[clip.id] ?: if (clip.muted) 0f else clip.gain.coerceIn(0f, 2f)
-                val startTimeMs = nativeClipStartMs[clip.id] ?: clip.startTimeMs
-                val durationMs = nativeClipDurationMs[clip.id] ?: clip.durationMs.coerceAtLeast(1L)
-                val sourceInMs = nativeClipSourceInMs[clip.id] ?: 0L
-                val sourceOutMs = nativeClipSourceOutMs[clip.id] ?: (sourceInMs + durationMs)
-                ClipSegment(
-                    id = "audio-${clip.id}",
-                    sourcePath = nativeClipSourcePath[clip.id].orEmpty().ifBlank { clip.sourcePath },
-                    trackType = TrackType.AUDIO,
-                    startTimeMs = startTimeMs,
-                    durationMs = durationMs,
-                    sourceInMs = sourceInMs,
-                    sourceOutMs = sourceOutMs,
-                    zOrder = nativeClipZOrder[clip.id] ?: clip.layerIndex,
-                    isMuted = gain <= 0.001f,
-                    isHidden = !clip.visible,
-                    metadata = mapOf(
-                        "displayName" to clip.displayName,
-                        "isImportedAudio" to "true",
-                        "gain" to String.format(Locale.US, "%.2f", gain),
-                        "peakMapPath" to (clip.peakMapPath ?: ""),
-                        "peakBucketMs" to clip.peakBucketMs.toString(),
-                        "peakLevels" to clip.peakLevelsCsv,
-                    ) + nativeClipSourceDurationMetadata(clip.id),
-                )
-            },
+            clips = withAutoSubTracks(
+                audioStoreClips
+                    .sortedWith(
+                        compareBy<AudioClip> { it.startTimeMs }
+                            .thenBy { it.layerIndex }
+                            .thenBy { it.id },
+                    )
+                    .map { clip ->
+                        val gain = audioClipGainOverrides[clip.id] ?: if (clip.muted) 0f else clip.gain.coerceIn(0f, 2f)
+                        val startTimeMs = nativeClipStartMs[clip.id] ?: clip.startTimeMs
+                        val durationMs = nativeClipDurationMs[clip.id] ?: clip.durationMs.coerceAtLeast(1L)
+                        val sourceInMs = nativeClipSourceInMs[clip.id] ?: 0L
+                        val sourceOutMs = nativeClipSourceOutMs[clip.id] ?: (sourceInMs + durationMs)
+                        val isVoiceover = clip.displayName.equals("Voiceover", ignoreCase = true) ||
+                            clip.sourcePath.contains("voiceover", ignoreCase = true) ||
+                            clip.sourcePath.contains("/vo_", ignoreCase = true)
+                        val preferredSubTrack = if (isVoiceover) "2" else "1"
+                        ClipSegment(
+                            id = "audio-${clip.id}",
+                            sourcePath = nativeClipSourcePath[clip.id].orEmpty().ifBlank { clip.sourcePath },
+                            trackType = TrackType.AUDIO,
+                            startTimeMs = startTimeMs,
+                            durationMs = durationMs,
+                            sourceInMs = sourceInMs,
+                            sourceOutMs = sourceOutMs,
+                            zOrder = nativeClipZOrder[clip.id] ?: clip.layerIndex,
+                            isMuted = gain <= 0.001f,
+                            isHidden = !clip.visible,
+                            metadata = mapOf(
+                                "displayName" to clip.displayName,
+                                "isImportedAudio" to "true",
+                                "subTrack" to preferredSubTrack,
+                                "gain" to String.format(Locale.US, "%.2f", gain),
+                                "peakMapPath" to (clip.peakMapPath ?: ""),
+                                "peakBucketMs" to clip.peakBucketMs.toString(),
+                                "peakLevels" to clip.peakLevelsCsv,
+                            ) + nativeClipSourceDurationMetadata(clip.id),
+                        )
+                    },
+            ),
             isLocked = resolvedTrackLocked(TrackType.AUDIO),
             isVisible = resolvedTrackVisibility(
                 TrackType.AUDIO,
                 true,
             ),
         )
-        val trackStates = listOf(topLayerTrack, overlayTrack, layerTrack, videoTrack, audioTrack)
+        val trackStates = buildList {
+            if (topLayerTrack.clips.isNotEmpty() || selectedImportTrackType() == TrackType.TEXT) {
+                add(topLayerTrack)
+            }
+            if (overlayTrack.clips.isNotEmpty() || selectedImportTrackType() == TrackType.OVERLAY) {
+                add(overlayTrack)
+            }
+            if (layerTrack.clips.isNotEmpty() || selectedImportTrackType() == TrackType.LAYER) {
+                add(layerTrack)
+            }
+            add(videoTrack)
+            if (audioTrack.clips.isNotEmpty() || selectedImportTrackType() == TrackType.AUDIO) {
+                add(audioTrack)
+            }
+        }
         val selectedClipKey =
             selectedTimelineClipKey ?: timelineManager?.getSelectedClipId()?.let(::selectionKeyForNativeClipId)
 
@@ -11053,14 +11148,36 @@ class VideoEditorActivity : ComponentActivity() {
         // Immediately update cache from split result so next split uses correct positions
         val origStart = nativeClipStartMs[clipId] ?: 0L
         val origDur = nativeClipDurationMs[clipId] ?: 0L
-        val leftDur = targetTimeMs - origStart
-        val rightDur = origDur - leftDur
+        val origSourceIn = nativeClipSourceInMs[clipId] ?: 0L
+        val origSourceOut = nativeClipSourceOutMs[clipId] ?: (origSourceIn + origDur)
+        val origSourcePath = nativeClipSourcePath[clipId].orEmpty()
+        val origTrackType = nativeClipTrackType[clipId] ?: TrackType.VIDEO
+        val origLane = nativeClipLane[clipId] ?: 0
+        val origZOrder = nativeClipZOrder[clipId] ?: 0
+        val origSpeed = nativeClipPlaybackSpeed[clipId] ?: 1.0f
+
+        val leftDur = (targetTimeMs - origStart).coerceAtLeast(1L)
+        val rightDur = (origDur - leftDur).coerceAtLeast(1L)
+        val splitSourcePoint = origSourceIn + leftDur
+
+        // Left clip A (in-place original)
         nativeClipStartMs[clipId] = origStart
         nativeClipDurationMs[clipId] = leftDur
+        nativeClipSourceInMs[clipId] = origSourceIn
+        nativeClipSourceOutMs[clipId] = splitSourcePoint
+        nativeClipSourcePath[clipId] = origSourcePath
+
+        // Right clip B (new split segment)
         if (rightClipId != null) {
             nativeClipStartMs[rightClipId] = targetTimeMs
             nativeClipDurationMs[rightClipId] = rightDur
-            nativeClipTrackType[rightClipId] = nativeClipTrackType[clipId] ?: TrackType.VIDEO
+            nativeClipSourceInMs[rightClipId] = splitSourcePoint
+            nativeClipSourceOutMs[rightClipId] = origSourceOut
+            nativeClipSourcePath[rightClipId] = origSourcePath
+            nativeClipTrackType[rightClipId] = origTrackType
+            nativeClipLane[rightClipId] = origLane
+            nativeClipZOrder[rightClipId] = origZOrder
+            nativeClipPlaybackSpeed[rightClipId] = origSpeed
         }
 
         val stabilizedPreviewTimeMs = resolvePostSplitPreviewTimeMs(
@@ -11070,6 +11187,7 @@ class VideoEditorActivity : ComponentActivity() {
         syncTimelineShellFromNative(selectedClipId = rightClipId ?: clipId)
         recordUndoDomain(UndoDomain.TIMELINE)
         runOnUiThread {
+            refreshMainTimelineTracks()
             stabilizeAfterSplit(stabilizedPreviewTimeMs, selectionKeyForNativeClipId(rightClipId ?: clipId))
             notePreviewInteractionBusy(2400L)
             playbackController?.refreshPausedPreviewAt(stabilizedPreviewTimeMs)
@@ -11681,17 +11799,31 @@ class VideoEditorActivity : ComponentActivity() {
                     sourceOutMs = outMs,
                     sourceDurationMs = totalMs,
                     onApply = { newIn, newOut ->
+                        val startMs = nativeClipStartMs[clipId] ?: 0L
+                        val newDur = (newOut - newIn).coerceAtLeast(100L)
+                        val oldIn = nativeClipSourceInMs[clipId] ?: 0L
+                        val oldOut = nativeClipSourceOutMs[clipId] ?: (oldIn + newDur)
+                        val oldDur = nativeClipDurationMs[clipId] ?: newDur
                         nativeClipSourceInMs[clipId] = newIn
                         nativeClipSourceOutMs[clipId] = newOut
+                        nativeClipDurationMs[clipId] = newDur
                         execCmd(
-                            "TRIM_CLIP",
+                            "UPDATE_CLIP_TIMING",
                             mapOf(
                                 "clipId" to clipId,
-                                "sourceInMs" to newIn,
-                                "sourceOutMs" to newOut,
+                                "newStartTimeMs" to startMs,
+                                "newDurationMs" to newDur,
+                                "newSourceInMs" to newIn,
+                                "newSourceOutMs" to newOut,
+                                "originalStartTimeMs" to startMs,
+                                "originalDurationMs" to oldDur,
+                                "originalSourceInMs" to oldIn,
+                                "originalSourceOutMs" to oldOut,
                             ),
                         ) {
                             lastLayoutFetchMs = 0L
+                            syncTimelineShellFromNative(selectedClipId = clipId)
+                            recordUndoDomain(UndoDomain.TIMELINE)
                             refreshMainTimelineTracks()
                             safeToast("Trimmed", Toast.LENGTH_SHORT)
                         }
@@ -12543,7 +12675,8 @@ class VideoEditorActivity : ComponentActivity() {
     }
 
     private fun canDirectPreviewTransformSelectedClip(): Boolean {
-        return shouldShowDirectPreviewEdit() &&
+        return previewPanZoomControlsVisible &&
+            shouldShowDirectPreviewEdit() &&
             (selectedClipKind() == ClipKind.VIDEO || selectedClipKind() == ClipKind.OVERLAY) &&
             selectedVideoClipId() != null
     }
@@ -12852,34 +12985,23 @@ class VideoEditorActivity : ComponentActivity() {
         base: ClipPreviewTransform,
         updated: ClipPreviewTransform,
     ) {
-        val preview = previewView ?: return
-        val scaleRatioX =
-            ((updated.zoom * updated.scaleX) / maxOf(base.zoom * base.scaleX, 0.001f))
-                .coerceIn(0.2f, 6.0f)
-        val scaleRatioY =
-            ((updated.zoom * updated.scaleY) / maxOf(base.zoom * base.scaleY, 0.001f))
-                .coerceIn(0.2f, 6.0f)
-        previewPlaybackSurfaceTransformActive = true
-        preview.pivotX = preview.width * 0.5f
-        preview.pivotY = preview.height * 0.5f
-        preview.translationX = updated.panXPx - base.panXPx
-        preview.translationY = updated.panYPx - base.panYPx
-        preview.scaleX = scaleRatioX
-        preview.scaleY = scaleRatioY
-        preview.rotation = normalizePreviewRotationDeg(updated.rotationDeg - base.rotationDeg)
-        if (preview.layerType != View.LAYER_TYPE_NONE) {
-            preview.setLayerType(View.LAYER_TYPE_NONE, null)
-        }
+        val clipId = selectedVideoClipId() ?: return
+        syncClipPreviewTransformToNative(
+            clipId = clipId,
+            transform = updated,
+            preview = previewView ?: return,
+            immediate = false,
+        )
     }
 
     private fun resetPlaybackGestureSurfaceTransform() {
         val preview = previewView ?: return
         previewPlaybackSurfaceTransformActive = false
-        preview.scaleX = 1f
-        preview.scaleY = 1f
-        preview.translationX = 0f
-        preview.translationY = 0f
-        preview.rotation = 0f
+        if (preview.scaleX != 1f) preview.scaleX = 1f
+        if (preview.scaleY != 1f) preview.scaleY = 1f
+        if (preview.translationX != 0f) preview.translationX = 0f
+        if (preview.translationY != 0f) preview.translationY = 0f
+        if (preview.rotation != 0f) preview.rotation = 0f
         if (preview.layerType != View.LAYER_TYPE_NONE) {
             preview.setLayerType(View.LAYER_TYPE_NONE, null)
         }
@@ -12892,16 +13014,13 @@ class VideoEditorActivity : ComponentActivity() {
             currentClipPreviewTransform(clipId, allowNativeFetch = false),
             allowNativeMetrics = false,
         )
-        val resetDelayMs = if (isPlaying) 96L else 0L
-        preview.postDelayed({
-            syncClipPreviewTransformToNative(
-                clipId = clipId,
-                transform = transform,
-                preview = preview,
-                immediate = false,
-            )
-            resetPlaybackGestureSurfaceTransform()
-        }, resetDelayMs)
+        syncClipPreviewTransformToNative(
+            clipId = clipId,
+            transform = transform,
+            preview = preview,
+            immediate = false,
+        )
+        resetPlaybackGestureSurfaceTransform()
     }
 
     private fun beginNativePreviewTransformGesture(

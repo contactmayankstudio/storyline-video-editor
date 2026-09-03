@@ -183,6 +183,29 @@ class ProjectStateSerializer(
             )
         }
         root.put("stickers", stickersJson)
+        val audioClipsJson = JSONArray()
+        AudioClipStore.all().forEach { clip ->
+            audioClipsJson.put(
+                JSONObject()
+                    .put("id", clip.id)
+                    .put("sourcePath", clip.sourcePath)
+                    .put("displayName", clip.displayName)
+                    .put("startTimeMs", clip.startTimeMs)
+                    .put("durationMs", clip.durationMs)
+                    .put("sourceInMs", clip.sourceInMs)
+                    .put("sourceOutMs", clip.sourceOutMs)
+                    .put("gain", clip.gain.toDouble())
+                    .put("fadeInMs", clip.fadeInMs)
+                    .put("fadeOutMs", clip.fadeOutMs)
+                    .put("layerIndex", clip.layerIndex)
+                    .put("visible", clip.visible)
+                    .put("muted", clip.muted)
+                    .put("peakMapPath", clip.peakMapPath.orEmpty())
+                    .put("peakBucketMs", clip.peakBucketMs)
+                    .put("peakLevelsCsv", clip.peakLevelsCsv),
+            )
+        }
+        root.put("audioClips", audioClipsJson)
         root.put("nextTextOverlayId", maxOf(nextTextOverlayIdProvider(), (textOverlays.maxOfOrNull { it.id } ?: 0) + 1))
         root.put("nextStickerId", maxOf(nextStickerIdProvider(), (stickers.maxOfOrNull { it.id } ?: 0) + 1))
         root.put(
@@ -328,6 +351,40 @@ class ProjectStateSerializer(
             )
             StickerClipStore.add(clip)
             onAddStickerOverlayView(clip)
+        }
+
+        val audioClipsJson = root.optJSONArray("audioClips") ?: JSONArray()
+        for (i in 0 until audioClipsJson.length()) {
+            val item = audioClipsJson.optJSONObject(i) ?: continue
+            val clipId = item.optInt("id", -1)
+            val path = item.optString("sourcePath", "")
+            if (clipId > 0 && path.isNotBlank()) {
+                val csv = item.optString("peakLevelsCsv", "")
+                val peaks = if (csv.isNotBlank()) csv.split(',').mapNotNull { it.trim().toIntOrNull() } else emptyList()
+                val clip = com.video.engine.audio.AudioClip(
+                    id = clipId,
+                    sourcePath = path,
+                    displayName = item.optString("displayName", "Audio"),
+                    startTimeMs = item.optLong("startTimeMs", 0L),
+                    durationMs = item.optLong("durationMs", 1000L),
+                    sourceInMs = item.optLong("sourceInMs", 0L),
+                    sourceOutMs = item.optLong("sourceOutMs", item.optLong("durationMs", 1000L)),
+                    gain = item.optDouble("gain", 1.0).toFloat(),
+                    fadeInMs = item.optInt("fadeInMs", 0),
+                    fadeOutMs = item.optInt("fadeOutMs", 0),
+                    layerIndex = item.optInt("layerIndex", 0),
+                    visible = item.optBoolean("visible", true),
+                    muted = item.optBoolean("muted", false),
+                    peakMapPath = item.optString("peakMapPath").takeIf { it.isNotBlank() && it != "null" },
+                    peakBucketMs = item.optInt("peakBucketMs", 20),
+                    peakLevels = peaks,
+                    peakLevelsCsv = csv,
+                )
+                AudioClipStore.add(clip)
+            }
+        }
+        if (audioClipsJson.length() > 0) {
+            NativeBridge.syncAudioClips()
         }
 
         val trackStates = root.optJSONArray("trackStates") ?: JSONArray()

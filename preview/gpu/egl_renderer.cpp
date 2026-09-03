@@ -113,18 +113,19 @@ vec3 despillChroma(vec3 rgb, vec3 keyColor, float matte, float spillValue) {
 }
 
 void main() {
-    vec2 sampleCoord = fragTexCoord;
+    vec2 viewportSize = max(uViewportSize, vec2(1.0));
+    vec2 textureSize = max(uTextureSize, vec2(1.0));
+    float sourceAspect = textureSize.x / max(textureSize.y, 1.0);
+    float viewportAspect = viewportSize.x / max(viewportSize.y, 1.0);
+    vec2 baseRenderedSize;
+    if (sourceAspect > viewportAspect) {
+        baseRenderedSize = vec2(viewportSize.x, viewportSize.x / max(sourceAspect, 0.0001));
+    } else {
+        baseRenderedSize = vec2(viewportSize.y * sourceAspect, viewportSize.y);
+    }
+
+    vec2 sampleCoord;
     if (uTransformEnabled) {
-        vec2 viewportSize = max(uViewportSize, vec2(1.0));
-        vec2 textureSize = max(uTextureSize, vec2(1.0));
-        float sourceAspect = textureSize.x / max(textureSize.y, 1.0);
-        float viewportAspect = viewportSize.x / max(viewportSize.y, 1.0);
-        vec2 baseRenderedSize;
-        if (sourceAspect > viewportAspect) {
-            baseRenderedSize = vec2(viewportSize.y * sourceAspect, viewportSize.y);
-        } else {
-            baseRenderedSize = vec2(viewportSize.x, viewportSize.x / max(sourceAspect, 0.0001));
-        }
         float minZoom = uObjectTransform ? 0.15 : 0.35;
         vec2 renderedSize = max(
             baseRenderedSize * max(uZoom, minZoom) * max(uScale, vec2(0.15)),
@@ -149,11 +150,15 @@ void main() {
             localPx.x = -localPx.x;
         }
         sampleCoord = (localPx / renderedSize) + vec2(0.5);
-        if (sampleCoord.x < 0.0 || sampleCoord.x > 1.0 ||
-            sampleCoord.y < 0.0 || sampleCoord.y > 1.0) {
-            outColor = vec4(0.0);
-            return;
-        }
+    } else {
+        vec2 localPx = (fragTexCoord - vec2(0.5)) * viewportSize;
+        sampleCoord = (localPx / baseRenderedSize) + vec2(0.5);
+    }
+
+    if (sampleCoord.x < 0.0 || sampleCoord.x > 1.0 ||
+        sampleCoord.y < 0.0 || sampleCoord.y > 1.0) {
+        outColor = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
     }
 
     vec4 color = texture(textureSampler, sampleCoord);
@@ -805,6 +810,18 @@ bool EGLRenderer::renderFrameRegion(
         glUniform1f(m_uContrastLoc, 1.0f);
     if (m_uSaturationLoc >= 0)
         glUniform1f(m_uSaturationLoc, 1.0f);
+    if (m_uTransformEnabledLoc >= 0)
+        glUniform1i(m_uTransformEnabledLoc, 0);
+    if (m_uViewportSizeLoc >= 0)
+        glUniform2f(
+            m_uViewportSizeLoc,
+            static_cast<float>(std::max(1, m_viewportWidth)),
+            static_cast<float>(std::max(1, m_viewportHeight)));
+    if (m_uTextureSizeLoc >= 0)
+        glUniform2f(
+            m_uTextureSizeLoc,
+            static_cast<float>(std::max(1, texture.getWidth())),
+            static_cast<float>(std::max(1, texture.getHeight())));
 
     // Bind texture to unit 0
     texture.bind(0);

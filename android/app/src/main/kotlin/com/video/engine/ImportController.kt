@@ -168,8 +168,13 @@ class ImportController(
                 val displayName = queryDisplayName(uri) ?: "imported_media"
                 val resolvedPath = resolveImportPath(uri, trackType, displayName)
                 if (resolvedPath != null) {
+                    val startMs = cursorMs
+                    val durMs = resolveMediaDurationMs(resolvedPath)
+                    if (trackType == TrackType.VIDEO) {
+                        cursorMs += durMs
+                    }
                     mainHandler.post {
-                        enqueueImport(resolvedPath, trackType, cursorMs)
+                        enqueueImport(resolvedPath, trackType, startMs)
                         maybeImportPendingClip()
                     }
                 }
@@ -358,7 +363,7 @@ class ImportController(
                 val existingClipCount =
                     timelineManagerProvider()?.getClips()?.size
                         ?: timelineProvider().getClips().size
-                val requestedStartTimeMs = resolveRequestedStartTimeMs(request.requestedStartTimeMs)
+                val requestedStartTimeMs = resolveRequestedStartTimeMs(trackType, request.requestedStartTimeMs)
                 val requestedZOrder = resolveImportZOrder(trackType)
                 val requestedTrackLane = resolveImportTrackLane(trackType, requestedZOrder)
                 Log.d(TAG, "Attempting NativeBridge.addClip for: $nativeImportPath at start=$requestedStartTimeMs track=$trackType")
@@ -719,8 +724,13 @@ class ImportController(
         }
     }
 
-    private fun resolveRequestedStartTimeMs(requestedStartTimeMs: Long): Long {
-        return requestedStartTimeMs.coerceAtLeast(0L)
+    private fun resolveRequestedStartTimeMs(trackType: TrackType, requestedStartTimeMs: Long): Long {
+        val safeRequested = requestedStartTimeMs.coerceAtLeast(0L)
+        return if (trackType == TrackType.VIDEO && sharedVideoAppendCursorMs > safeRequested) {
+            sharedVideoAppendCursorMs
+        } else {
+            safeRequested
+        }
     }
 
     private fun maybeStartGhostProxyBuild(clipId: Int, importPath: String, trackType: TrackType) {
@@ -884,8 +894,29 @@ class ImportController(
         }
     }
 
+    private fun resolveMediaDurationMs(sourcePath: String): Long {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(sourcePath)
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.coerceAtLeast(1000L) ?: 3000L
+        } catch (_: Exception) {
+            3000L
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
+
     private fun resolveImportPath(uri: Uri, trackType: TrackType, importDisplayName: String): String? {
         if (uri.scheme == "file") return uri.path
+
+        if (uri.scheme == "content" && trackType == TrackType.VIDEO) {
+            val directPath = ContentUriImportResolver.findDirectReadablePath(activity.contentResolver, uri)
+            if (directPath != null) {
+                Log.d(TAG, "Using direct readable file path for video import: $directPath")
+                return directPath
+            }
+        }
+
         if (uri.scheme != "content") return uri.toString()
 
         val importsDir = File(activity.filesDir, "imports").apply { mkdirs() }
