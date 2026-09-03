@@ -55,7 +55,7 @@ android {
         applicationId = "com.storyline.videoeditor"
         minSdk = 21
         targetSdk = 36
-        versionCode = 1
+        versionCode = 18
         versionName = "1.0"
         resValue "string", "aws_control_plane_url", stringResourceValue("")
         resValue "string", "aws_control_plane_device_key", stringResourceValue("")
@@ -115,7 +115,7 @@ android {
     productFlavors {
         play {
             dimension "store"
-            versionCode 17
+            versionCode 18
             versionName "1.0"
         }
     }
