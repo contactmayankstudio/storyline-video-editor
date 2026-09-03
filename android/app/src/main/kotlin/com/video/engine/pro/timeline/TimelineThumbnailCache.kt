@@ -33,7 +33,7 @@ object TimelineThumbnailCache {
     }
     private const val TARGET_TILE_WIDTH_PX = 120
 
-    private fun maxCacheBytes() = MAX_CACHE_BYTES
+    private fun maxCacheBytes() = DeviceDetector.getRecommendedThumbnailCacheBytes()
 
     private fun maxFrames() = 12
 
@@ -56,6 +56,12 @@ object TimelineThumbnailCache {
     private val cache = object : LruCache<String, List<Bitmap>>(MAX_CACHE_BYTES) {
         override fun sizeOf(key: String, value: List<Bitmap>): Int {
             return value.sumOf { bitmap -> bitmap.allocationByteCount }
+        }
+    }
+
+    fun evictAll() {
+        synchronized(lock) {
+            cache.evictAll()
         }
     }
 
@@ -221,7 +227,7 @@ object TimelineThumbnailCache {
                     retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 }
                     ?: return@mapNotNull null
-                if (rawBitmap.width == tileWidthPx && rawBitmap.height == tileHeightPx) {
+                val sized = if (rawBitmap.width == tileWidthPx && rawBitmap.height == tileHeightPx) {
                     rawBitmap
                 } else {
                     Bitmap.createScaledBitmap(rawBitmap, tileWidthPx, tileHeightPx, true).also { scaled ->
@@ -229,6 +235,14 @@ object TimelineThumbnailCache {
                             rawBitmap.recycle()
                         }
                     }
+                }
+                // Use RGB_565 on low-end devices to halve thumbnail memory
+                if (DeviceDetector.shouldUseRgb565Thumbnails() && sized.config != Bitmap.Config.RGB_565) {
+                    sized.copy(Bitmap.Config.RGB_565, false)?.also { compact ->
+                        sized.recycle()
+                    } ?: sized
+                } else {
+                    sized
                 }
             }
         } catch (_: Throwable) {

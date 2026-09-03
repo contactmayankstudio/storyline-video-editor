@@ -51,9 +51,9 @@ class PlaybackController(
         private const val PAUSED_PREVIEW_MIN_INTERVAL_MS = 140L
         private const val PAUSED_PREVIEW_RECOVERY_DELAY_MS = 90L
         private const val PAUSED_PREVIEW_CONFIRM_DELAY_MS = 260L
-        private const val HIGH_TIER_PLAYBACK_SAMPLE_DELAY_MS = 16L
-        private const val MID_TIER_PLAYBACK_SAMPLE_DELAY_MS = 16L
-        private const val LOW_TIER_PLAYBACK_SAMPLE_DELAY_MS = 24L
+        private const val HIGH_TIER_PLAYBACK_SAMPLE_DELAY_MS = 0L
+        private const val MID_TIER_PLAYBACK_SAMPLE_DELAY_MS = 0L
+        private const val LOW_TIER_PLAYBACK_SAMPLE_DELAY_MS = 0L
         private const val HIGH_TIER_SCRUB_DISPATCH_INTERVAL_MS = 16L
         private const val MID_TIER_SCRUB_DISPATCH_INTERVAL_MS = 16L
         private const val LOW_TIER_SCRUB_DISPATCH_INTERVAL_MS = 24L

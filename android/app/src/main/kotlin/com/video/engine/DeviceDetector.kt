@@ -102,12 +102,12 @@ object DeviceDetector {
                 previewFps = 30,
                 exportBitrate = 2500,
                 maxExportFps = 30,
-                glTextureSize = 1024,
+                glTextureSize = 2048,
                 previewLongEdgePx = 720,
                 minPreviewFps = 24,
-                predictiveLookAroundMs = 320,
-                predictiveSampleStepMs = 220,
-                predictiveCacheMaxFrames = 4,
+                predictiveLookAroundMs = 200,
+                predictiveSampleStepMs = 300,
+                predictiveCacheMaxFrames = 3,
                 proxyLongEdgePx = 540,
             )
             DeviceTier.MID -> QualityProfile(
@@ -221,4 +221,33 @@ object DeviceDetector {
         val totalBytes = max(info.totalMem, memoryClassMb.toLong() * 1024L * 1024L)
         return ((totalBytes + GIGABYTE_BYTES - 1L) / GIGABYTE_BYTES).toInt().coerceAtLeast(1)
     }
+
+    /**
+     * Tier-adaptive thumbnail cache size — smaller on low RAM to avoid OOM.
+     */
+    fun getRecommendedThumbnailCacheBytes(): Int {
+        return when (deviceTier) {
+            DeviceTier.LOW -> 24 * 1024 * 1024
+            DeviceTier.MID -> 48 * 1024 * 1024
+            DeviceTier.HIGH -> 64 * 1024 * 1024
+        }
+    }
+
+    /**
+     * Whether device should use RGB_565 bitmaps for thumbnails (half memory).
+     */
+    fun shouldUseRgb565Thumbnails(): Boolean = deviceTier == DeviceTier.LOW
+
+    /**
+     * Whether the ActivityManager reports this as a low-RAM device.
+     */
+    fun isLowRamDevice(): Boolean {
+        return try {
+            activityManager.isLowRamDevice
+        } catch (_: Throwable) {
+            totalRamGb <= 2
+        }
+    }
+
+    fun getTotalRamGb(): Int = totalRamGb
 }

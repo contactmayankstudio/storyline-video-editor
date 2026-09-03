@@ -4979,6 +4979,29 @@ class VideoEditorActivity : ComponentActivity() {
         super.onStop()
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        when {
+            level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL -> {
+                // Critical memory — evict all caches immediately
+                TimelineThumbnailCache.evictAll()
+                TimelineThumbnailCache.suspendRequests(5_000L)
+                Log.w("[PERF]", "onTrimMemory CRITICAL: evicted thumbnail cache")
+            }
+            level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> {
+                // Low memory — evict and suspend thumbnail generation
+                TimelineThumbnailCache.evictAll()
+                TimelineThumbnailCache.suspendRequests(3_000L)
+                Log.w("[PERF]", "onTrimMemory LOW: evicted thumbnail cache")
+            }
+            level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE -> {
+                // Moderate pressure — suspend new thumbnail requests briefly
+                TimelineThumbnailCache.suspendRequests(1_500L)
+                Log.i("[PERF]", "onTrimMemory MODERATE: suspended thumbnail requests")
+            }
+        }
+    }
+
     override fun onDestroy() {
         stopHardwareTelemetryTicker()
         stopAppHealthHeartbeat()

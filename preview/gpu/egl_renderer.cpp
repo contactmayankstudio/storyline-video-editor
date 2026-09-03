@@ -169,14 +169,20 @@ void main() {
         color.a *= alpha;
         color.rgb *= alpha;
     }
-    // Brightness
-    color.rgb += uBrightness;
-    // Contrast
-    color.rgb = (color.rgb - 0.5) * uContrast + 0.5;
-    // Saturation
-    float luma = dot(color.rgb, vec3(0.299, 0.587, 0.114));
-    color.rgb = mix(vec3(luma), color.rgb, uSaturation);
-    color.rgb = clamp(color.rgb, 0.0, 1.0);
+    // Skip effect math when values are identity (saves GPU on low-end)
+    bool hasEffects = (abs(uBrightness) > 0.001) ||
+                      (abs(uContrast - 1.0) > 0.001) ||
+                      (abs(uSaturation - 1.0) > 0.001);
+    if (hasEffects) {
+        // Brightness
+        color.rgb += uBrightness;
+        // Contrast
+        color.rgb = (color.rgb - 0.5) * uContrast + 0.5;
+        // Saturation
+        float luma = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+        color.rgb = mix(vec3(luma), color.rgb, uSaturation);
+        color.rgb = clamp(color.rgb, 0.0, 1.0);
+    }
     color.a *= uOpacity;
     color.rgb *= uOpacity;
     outColor = color;
