@@ -79,7 +79,7 @@ jobs:
 
       - name: Upload debug APK
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: storyline-debug-apk
           path: android/app/build/outputs/apk/play/debug/*.apk
@@ -105,7 +105,7 @@ jobs:
       - name: Upload Play release APK
         if: github.event_name != 'pull_request'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: storyline-play-release-apk
           path: android/app/build/outputs/apk/play/release/*.apk
@@ -113,7 +113,7 @@ jobs:
       - name: Upload Play release AAB Bundle
         if: github.event_name != 'pull_request'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: storyline-play-release-aab
           path: android/app/build/outputs/bundle/playRelease/*.aab

@@ -229,14 +229,14 @@ jobs:
 
       - name: Upload Firebase Test Lab log
         if: steps.preflight.outputs.ready == 'true' && steps.service_apis.outputs.ready == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: firebase-test-lab-log
           path: firebase-test-lab.log
 
       - name: Upload Firebase Test Lab device catalog
         if: steps.preflight.outputs.ready == 'true' && steps.service_apis.outputs.ready == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: firebase-test-lab-models
           path: firebase-test-lab-models.txt
