@@ -79,7 +79,7 @@ jobs:
 
       - name: Set up JDK 17
         if: steps.preflight.outputs.ready == 'true'
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           java-version: "17"
           distribution: "temurin"

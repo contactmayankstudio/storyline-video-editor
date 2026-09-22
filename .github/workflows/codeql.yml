@@ -54,7 +54,7 @@ jobs:
 
       - name: Set up JDK 17
         if: steps.code_scanning.outputs.enabled == 'true' && matrix.language == 'java-kotlin'
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           java-version: "17"
           distribution: "temurin"
