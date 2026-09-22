@@ -129,7 +129,7 @@ jobs:
 
       - name: Publish Direct APK to GitHub Release
         if: (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && github.event_name != 'pull_request'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: latest
           name: "Storyline Latest Android Build"
