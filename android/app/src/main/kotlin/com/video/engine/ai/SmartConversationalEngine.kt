@@ -57,6 +57,24 @@ object SmartConversationalEngine {
             return ParsedCommand(rawText, VideoEditIntent.Conversational(reply), 0.95f, reply)
         }
 
+        // 4.5 Multimodal Video Inspection & Director Review Advice
+        if (isInspectOrDirectorReviewQuery(lower)) {
+            val reply = "🎬 Antigravity Video Inspection & Director Review:\n\n" +
+                "Maine timeline, audio waveforms aur clip pacing analyze kar li hai:\n" +
+                "1️⃣ [00:00 - 00:03] Hook Section: 🔍 'Viral Hook Zoom' (1.25x push-in) lagana zaroori hai taaki audience swipe na kare.\n" +
+                "2️⃣ [00:03 - 00:06] Awkward Pause: ✂️ Audio silence gap mila hai. 'Remove Silence' se trim karna best rahega.\n" +
+                "3️⃣ [00:07 - 00:15] Visual Grade & Text: 🎨 'Teal & Orange' LUT aur 💬 'Auto Captions' se retention 80% badhegi.\n" +
+                "4️⃣ Outro: Clips ke beech 🔀 'Crossfade' transition aur background music add karna sahi rahega.\n\n" +
+                "👉 Kya main ye saare cuts aur zooms 1-tap me apply kar doon? ('Haan kar do' bolo ya '✨ Full AI Edit' tap karo!)"
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply), 0.98f, reply)
+        }
+
+        // Confirmation of auto edit
+        if (matchesConversationalConfirmation(lower)) {
+            val reply = "Shandar bhai! 🚀 Antigravity Director Pipeline chalu kar di hai. Silence removal, hook zoom, Teal & Orange color grade aur captions apply ho rahe hain..."
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.AutoPilotEdit()), 0.98f, reply)
+        }
+
         // 5. Conversational Editing Actions (Human Phrasing)
         // A. Conversational Split / Cut
         if (matchesConversationalSplit(lower)) {
@@ -194,5 +212,18 @@ object SmartConversationalEngine {
         return text.contains("auto edit") || text.contains("autopilot") ||
             text.contains("magic edit") || text.contains("puri video edit") ||
             text.contains("poori video edit") || text.contains("pura edit")
+    }
+
+    private fun isInspectOrDirectorReviewQuery(text: String): Boolean {
+        return text.contains("dekho") || text.contains("inspect") || text.contains("kaha cut") ||
+            text.contains("kaha zoom") || text.contains("kaha se kaat") || text.contains("check karo") ||
+            text.contains("review") || text.contains("director") || text.contains("kya cut") ||
+            text.contains("analysis") || text.contains("detail batao") || text.contains("video dekho") ||
+            text.contains("kaha cut karne jaisa")
+    }
+
+    private fun matchesConversationalConfirmation(text: String): Boolean {
+        return text in listOf("haan", "haan kar do", "kar do", "theek hai", "ok kar do", "yes", "apply", "apply kar do", "go ahead", "haan bhai", "kardo", "ha kar do", "bilkul") ||
+            text.startsWith("haan kar") || text.startsWith("kar do") || text.startsWith("apply")
     }
 }

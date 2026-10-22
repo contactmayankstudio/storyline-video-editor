@@ -80,6 +80,8 @@ class AiVoiceCopilotSheet(
 
     private val suggestionChips = listOf(
         Pair("✨ Full AI Edit & Export", "pura video auto edit karke export karo"),
+        Pair("👀 Inspect Video & Cuts", "mera video dekho kaha cut aur zoom kare"),
+        Pair("🎬 Director Agent Review", "director review my video"),
         Pair("🚀 Export 1080p Video", "export 1080p"),
         Pair("📱 9:16 Reel / Shorts", "aspect ratio 9:16"),
         Pair("🎵 Add Trending BGM", "add music lofi chill"),

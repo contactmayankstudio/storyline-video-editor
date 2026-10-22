@@ -181,6 +181,8 @@
             android:layout_marginStart="12dp"
             android:layout_marginTop="12dp"
             android:background="@drawable/preview_info_chip_background"
+            android:clickable="true"
+            android:focusable="true"
             android:contentDescription="@string/editor_ai_status_desc"
             android:fontFamily="sans-serif-medium"
             android:importantForAccessibility="noHideDescendants"
@@ -188,11 +190,11 @@
             android:paddingTop="8dp"
             android:paddingEnd="12dp"
             android:paddingBottom="8dp"
-            android:text="@string/ai_status_pill_home"
-            android:textColor="@color/accent_blue"
+            android:text="⚡ Antigravity Copilot: Active"
+            android:textColor="@color/accent_cyan"
             android:textSize="10sp"
             android:textStyle="bold"
-            android:visibility="gone" />
+            android:visibility="visible" />
 
         <FrameLayout
             android:id="@+id/previewStageHost"
@@ -727,6 +729,61 @@
             android:layout_marginStart="10dp"
             android:layout_marginEnd="10dp"
             android:layout_marginBottom="0dp">
+
+            <!-- Persistent Direct Active AI Copilot & CLI Pill -->
+            <LinearLayout
+                android:id="@+id/editorAiDirectPill"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:layout_marginStart="2dp"
+                android:background="@drawable/ai_copilot_direct_pill_bg"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toStartOf="@id/playbackControlRail"
+                app:layout_constraintHorizontal_bias="0.0">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🪄"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/editorAiDirectPillLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:fontFamily="sans-serif-medium"
+                    android:text="Ask AI"
+                    android:textColor="#38BDF8"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/editorAiDirectCliBtn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/bg_cli_tag"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:fontFamily="monospace"
+                    android:paddingStart="4dp"
+                    android:paddingTop="1dp"
+                    android:paddingEnd="4dp"
+                    android:paddingBottom="1dp"
+                    android:text=">_ CLI"
+                    android:textColor="#34D399"
+                    android:textSize="8sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
             <androidx.constraintlayout.widget.ConstraintLayout
                 android:id="@+id/playbackControlRail"

@@ -703,6 +703,7 @@ class VideoEditorActivity : ComponentActivity() {
     private var editorTopBannerContainer: FrameLayout? = null
     private var startTopBannerContainer: FrameLayout? = null
     private var editorAiStatusPill: TextView? = null
+    private var editorAiDirectPill: View? = null
     private var clipToolbarContextLabel: TextView? = null
     private var clipToolbarScrollView: HorizontalScrollView? = null
     private var hardwareTelemetrySummaryText: TextView? = null
@@ -2054,13 +2055,14 @@ class VideoEditorActivity : ComponentActivity() {
                 getString(R.string.ai_status_open_update_action)
             }
 
+        editorAiStatusPill?.visibility = View.VISIBLE
         editorAiStatusPill?.text =
             when {
-                hosted?.updateAvailable == true -> getString(R.string.ai_status_pill_update)
-                screen == "crop" -> getString(R.string.ai_status_pill_crop)
-                isPlaying -> getString(R.string.ai_status_pill_playback)
-                screen == "home" -> getString(R.string.ai_status_pill_home)
-                else -> getString(R.string.ai_status_pill_editor)
+                hosted?.updateAvailable == true -> "⚡ Update: ${hosted.versionName}"
+                screen == "crop" -> "⚡ AI Copilot: Crop Mode"
+                isPlaying -> "⚡ AI Copilot: Playing"
+                screen == "home" -> "⚡ Antigravity Copilot"
+                else -> "⚡ Antigravity Copilot: Active"
             }
     }
 
@@ -2107,6 +2109,29 @@ class VideoEditorActivity : ComponentActivity() {
         editorTopBannerContainer = findViewById(R.id.editorTopBannerContainer)
         startTopBannerContainer = findViewById(R.id.startTopBannerContainer)
         editorAiStatusPill = findViewById(R.id.editorAiStatusPill)
+        editorAiStatusPill?.setOnClickListener {
+            noteUiButtonTap("ai_status_pill", "preview_stage")
+            showAiVoiceCopilotSheet()
+        }
+        editorAiStatusPill?.setOnLongClickListener {
+            noteUiButtonTap("ai_status_pill_cli", "preview_stage", mode = "long")
+            showAntigravityCli()
+            true
+        }
+        editorAiDirectPill = findViewById(R.id.editorAiDirectPill)
+        editorAiDirectPill?.setOnClickListener {
+            noteUiButtonTap("ai_direct_pill", "preview_rail")
+            showAiVoiceCopilotSheet()
+        }
+        editorAiDirectPill?.setOnLongClickListener {
+            noteUiButtonTap("ai_direct_pill_cli", "preview_rail", mode = "long")
+            showAntigravityCli()
+            true
+        }
+        findViewById<View>(R.id.editorAiDirectCliBtn)?.setOnClickListener {
+            noteUiButtonTap("ai_direct_cli_btn", "preview_rail")
+            showAntigravityCli()
+        }
         adsController = AdsController(this)
         if (storeAdsEnabled()) {
             adsController?.preloadPostExportInterstitial()
