@@ -125,6 +125,36 @@ interface AiCommandDispatcher {
     fun redo(): Boolean
 
     /**
+     * Synthesizes AI voiceover from text and imports to timeline.
+     */
+    fun generateTtsVoiceover(text: String, lang: String = "hi"): Boolean = false
+
+    /**
+     * Automatically syncs cuts and zooms to detected audio rhythm/beats.
+     */
+    fun autoBeatSync(bpm: Int = 125): Boolean = false
+
+    /**
+     * Toggles A/B Before/After split comparison screen.
+     */
+    fun toggleBeforeAfter(enable: Boolean? = null): Boolean = false
+
+    /**
+     * Assembles autonomous complete reel from a topic prompt.
+     */
+    fun topicToReel(topic: String): Boolean = false
+
+    /**
+     * Adds algorithmic studio sound effect (Whoosh, Pop, Ding, Glitch, Thud).
+     */
+    fun addSoundEffect(sfxType: String = "whoosh"): Boolean = false
+
+    /**
+     * Applies AI face-tracking centered dynamic zoom.
+     */
+    fun faceTrackingZoom(zoomFactor: Float = 1.25f): Boolean = false
+
+    /**
      * Dispatches a ParsedCommand to the appropriate action.
      * Returns a pair of (success: Boolean, feedbackMessage: String).
      */
@@ -149,6 +179,12 @@ interface AiCommandDispatcher {
             is VideoEditIntent.AutoCaptions -> autoCaptions()
             is VideoEditIntent.AddTitle -> addTitle(intent.text, intent.preset)
             is VideoEditIntent.SetSpeed -> setSpeed(intent.speed)
+            is VideoEditIntent.GenerateTtsVoiceover -> generateTtsVoiceover(intent.text, intent.lang)
+            is VideoEditIntent.AutoBeatSync -> autoBeatSync(intent.bpm)
+            is VideoEditIntent.ToggleBeforeAfter -> toggleBeforeAfter(intent.enable)
+            is VideoEditIntent.TopicToReel -> topicToReel(intent.topic)
+            is VideoEditIntent.AddSoundEffect -> addSoundEffect(intent.sfxType)
+            is VideoEditIntent.FaceTrackingZoom -> faceTrackingZoom(intent.zoomFactor)
             is VideoEditIntent.TogglePlayback -> togglePlayback()
             is VideoEditIntent.Conversational -> {
                 intent.executeIntent?.let { subIntent ->
@@ -172,6 +208,12 @@ interface AiCommandDispatcher {
                         is VideoEditIntent.AutoCaptions -> autoCaptions()
                         is VideoEditIntent.AddTitle -> addTitle(subIntent.text, subIntent.preset)
                         is VideoEditIntent.SetSpeed -> setSpeed(subIntent.speed)
+                        is VideoEditIntent.GenerateTtsVoiceover -> generateTtsVoiceover(subIntent.text, subIntent.lang)
+                        is VideoEditIntent.AutoBeatSync -> autoBeatSync(subIntent.bpm)
+                        is VideoEditIntent.ToggleBeforeAfter -> toggleBeforeAfter(subIntent.enable)
+                        is VideoEditIntent.TopicToReel -> topicToReel(subIntent.topic)
+                        is VideoEditIntent.AddSoundEffect -> addSoundEffect(subIntent.sfxType)
+                        is VideoEditIntent.FaceTrackingZoom -> faceTrackingZoom(subIntent.zoomFactor)
                         is VideoEditIntent.TogglePlayback -> togglePlayback()
                         is VideoEditIntent.Undo -> undo()
                         is VideoEditIntent.Redo -> redo()

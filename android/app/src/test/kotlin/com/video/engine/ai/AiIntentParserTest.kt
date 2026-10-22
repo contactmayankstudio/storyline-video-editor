@@ -343,6 +343,85 @@ class AiIntentParserTest {
     }
 
     @Test
+    fun parse_ttsVoiceover() {
+        val res1 = AiIntentParser.parse("ai voice: Namaste dosto kaise hain aap")
+        assertTrue("Expected GenerateTtsVoiceover, got ${res1.intent}", res1.intent is VideoEditIntent.GenerateTtsVoiceover)
+        assertEquals("Namaste dosto kaise hain aap", (res1.intent as VideoEditIntent.GenerateTtsVoiceover).text)
+
+        val res2 = AiIntentParser.parse("voiceover: Welcome back to my channel")
+        assertTrue(res2.intent is VideoEditIntent.GenerateTtsVoiceover)
+        assertEquals("Welcome back to my channel", (res2.intent as VideoEditIntent.GenerateTtsVoiceover).text)
+    }
+
+    @Test
+    fun parse_autoBeatSync() {
+        val cases = listOf(
+            "beat drop",
+            "beat sync",
+            "sync to beat",
+            "rhythm sync",
+            "music beat",
+        )
+        for (query in cases) {
+            val res = AiIntentParser.parse(query)
+            assertTrue("Expected AutoBeatSync for '$query', got ${res.intent}", res.intent is VideoEditIntent.AutoBeatSync)
+        }
+    }
+
+    @Test
+    fun parse_beforeAfter() {
+        val cases = listOf(
+            "before after",
+            "split screen compare",
+            "split view",
+            "pehle aur baad",
+        )
+        for (query in cases) {
+            val res = AiIntentParser.parse(query)
+            assertTrue("Expected ToggleBeforeAfter for '$query', got ${res.intent}", res.intent is VideoEditIntent.ToggleBeforeAfter)
+        }
+    }
+
+    @Test
+    fun parse_topicToReel() {
+        val res1 = AiIntentParser.parse("topic to reel: Top 5 AI tools in 2026")
+        assertTrue("Expected TopicToReel, got ${res1.intent}", res1.intent is VideoEditIntent.TopicToReel)
+        assertEquals("Top 5 AI tools in 2026", (res1.intent as VideoEditIntent.TopicToReel).topic)
+
+        val res2 = AiIntentParser.parse("make reel on fitness motivation")
+        assertTrue(res2.intent is VideoEditIntent.TopicToReel)
+        assertEquals("fitness motivation", (res2.intent as VideoEditIntent.TopicToReel).topic)
+    }
+
+    @Test
+    fun parse_soundEffect() {
+        val whooshRes = AiIntentParser.parse("whoosh sound effect dalo")
+        assertTrue(whooshRes.intent is VideoEditIntent.AddSoundEffect)
+        assertEquals("whoosh", (whooshRes.intent as VideoEditIntent.AddSoundEffect).sfxType)
+
+        val popRes = AiIntentParser.parse("pop sound")
+        assertTrue(popRes.intent is VideoEditIntent.AddSoundEffect)
+        assertEquals("pop", (popRes.intent as VideoEditIntent.AddSoundEffect).sfxType)
+
+        val dingRes = AiIntentParser.parse("ding bell sound")
+        assertTrue(dingRes.intent is VideoEditIntent.AddSoundEffect)
+        assertEquals("ding", (dingRes.intent as VideoEditIntent.AddSoundEffect).sfxType)
+    }
+
+    @Test
+    fun parse_faceTrackingZoom() {
+        val cases = listOf(
+            "face tracking",
+            "face zoom",
+            "chehre pe zoom",
+        )
+        for (query in cases) {
+            val res = AiIntentParser.parse(query)
+            assertTrue("Expected FaceTrackingZoom for '$query', got ${res.intent}", res.intent is VideoEditIntent.FaceTrackingZoom)
+        }
+    }
+
+    @Test
     fun parse_blankAndUnknown() {
         val emptyRes = AiIntentParser.parse("")
         assertTrue(emptyRes.intent is VideoEditIntent.Unknown)

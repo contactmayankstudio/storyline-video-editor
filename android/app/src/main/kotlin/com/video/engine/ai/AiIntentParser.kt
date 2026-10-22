@@ -26,6 +26,12 @@ sealed class VideoEditIntent {
     object AutoCaptions : VideoEditIntent()
     data class AddTitle(val text: String, val preset: String = "Title") : VideoEditIntent()
     data class SetSpeed(val speed: Float) : VideoEditIntent()
+    data class GenerateTtsVoiceover(val text: String, val lang: String = "hi") : VideoEditIntent()
+    data class AutoBeatSync(val bpm: Int = 125) : VideoEditIntent()
+    data class ToggleBeforeAfter(val enable: Boolean? = null) : VideoEditIntent()
+    data class TopicToReel(val topic: String) : VideoEditIntent()
+    data class AddSoundEffect(val sfxType: String = "whoosh") : VideoEditIntent()
+    data class FaceTrackingZoom(val zoomFactor: Float = 1.25f) : VideoEditIntent()
     object TogglePlayback : VideoEditIntent()
     object Undo : VideoEditIntent()
     object Redo : VideoEditIntent()
@@ -115,6 +121,69 @@ object AiIntentParser {
                 intent = VideoEditIntent.AutoPilotEdit(style),
                 confidence = 0.98f,
                 feedbackMessage = "✨ Auto-Pilot Magic Edit complete! Silence removed, dynamic hook zoom, Teal & Orange color grade, auto captions, and title added.",
+            )
+        }
+
+        // 0d. AI TTS Voiceover Generation
+        if (matchesTtsVoiceover(normalized)) {
+            val text = resolveTtsText(clean)
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.GenerateTtsVoiceover(text),
+                confidence = 0.98f,
+                feedbackMessage = "🎙️ AI Voiceover generate karke timeline audio track par add kar diya hai: \"$text\"",
+            )
+        }
+
+        // 0e. Audio Beat Drop & Rhythm Auto-Sync
+        if (matchesAutoBeatSync(normalized)) {
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.AutoBeatSync(),
+                confidence = 0.98f,
+                feedbackMessage = "🎵 Audio beats detect karke video cuts ko music ke rhythm ke saath sync kar diya hai!",
+            )
+        }
+
+        // 0f. Before / After Split Screen Toggle
+        if (matchesBeforeAfter(normalized)) {
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.ToggleBeforeAfter(),
+                confidence = 0.98f,
+                feedbackMessage = "🌓 Before / After interactive split-screen comparison preview active kar diya hai!",
+            )
+        }
+
+        // 0g. Topic to Reel AI Generator
+        if (matchesTopicToReel(normalized)) {
+            val topic = resolveTopicText(clean)
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.TopicToReel(topic),
+                confidence = 0.99f,
+                feedbackMessage = "📝 '$topic' par full viral reel assemble ho rahi hai: script, AI voiceover, title overlays, BGM aur cuts!",
+            )
+        }
+
+        // 0h. Sound Effects (SFX) on Cuts
+        if (matchesSoundEffect(normalized)) {
+            val sfx = resolveSfxType(normalized)
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.AddSoundEffect(sfx),
+                confidence = 0.97f,
+                feedbackMessage = "🔊 Studio SFX (${sfx.uppercase()}) transition cut par add kar diya hai!",
+            )
+        }
+
+        // 0i. Face Tracking Zoom
+        if (matchesFaceTrackingZoom(normalized)) {
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.FaceTrackingZoom(1.25f),
+                confidence = 0.97f,
+                feedbackMessage = "👤 AI Face-Tracking Dynamic Zoom apply kar diya hai (speaker face centered)!",
             )
         }
 
@@ -398,8 +467,7 @@ object AiIntentParser {
             text.contains("rhythmic cut") || text.contains("rhythmic cuts") ||
             text.contains("auto cut") || text.contains("auto cuts") ||
             text.contains("punchy cut") || text.contains("punchy cuts") ||
-            text.contains("fast cuts") || text.contains("fast cut") ||
-            text.contains("beat sync")) {
+            text.contains("fast cuts") || text.contains("fast cut")) {
             return true
         }
         // Hindi (Devanagari)
@@ -752,5 +820,75 @@ object AiIntentParser {
         }
         val fromStart = !text.contains("end") && !text.contains("last")
         return Pair(sec, fromStart)
+    }
+
+    private fun matchesTtsVoiceover(text: String): Boolean {
+        return text.contains("voiceover") || text.contains("ai voice") ||
+            text.contains("tts") || text.contains("bolkar sunao") ||
+            text.contains("speech add") || text.contains("awaz dalo")
+    }
+
+    private fun resolveTtsText(raw: String): String {
+        val parts = raw.split(":", limit = 2)
+        if (parts.size > 1 && parts[1].trim().isNotBlank()) {
+            return parts[1].trim()
+        }
+        val clean = raw.replace(Regex("(?i)^(?:ai\\s+voice|voiceover|tts|awaz\\s+dalo|lagao|add\\s+karo)\\s*"), "").trim()
+        return if (clean.isNotBlank()) clean else "Welcome to Storyline Video Editor!"
+    }
+
+    private fun matchesAutoBeatSync(text: String): Boolean {
+        if (text.contains("fast beat") || text.contains("beat cut") || text.contains("beat cuts") ||
+            text.contains("rhythmic cut") || text.contains("auto cut") || text.contains("beat pe kato") ||
+            text.contains("beat pe cut") || text.contains("बीट पर काटो") || text.contains("बीट कट")) {
+            return false
+        }
+        return text.contains("beat drop") || text.contains("beat sync") || text.contains("sync to beat") ||
+            text.contains("sync with beat") || text.contains("rhythm sync") || text.contains("beats pe sync") ||
+            text.contains("music beat") || text.contains("audio beat") || text.contains("beat detect") ||
+            text.contains("beats pe") || text.contains("beats par")
+    }
+
+    private fun matchesBeforeAfter(text: String): Boolean {
+        return text.contains("before after") || text.contains("split screen") ||
+            text.contains("compare") || text.contains("pehle aur baad") || text.contains("split view")
+    }
+
+    private fun matchesTopicToReel(text: String): Boolean {
+        return text.startsWith("topic to reel") || text.startsWith("make reel on") ||
+            text.startsWith("create reel on") || text.contains("par reel banao") ||
+            text.contains("pe reel banao") || text.startsWith("reel banao")
+    }
+
+    private fun resolveTopicText(raw: String): String {
+        val parts = raw.split(":", limit = 2)
+        if (parts.size > 1 && parts[1].trim().isNotBlank()) {
+            return parts[1].trim()
+        }
+        val clean = raw.replace(Regex("(?i)^(?:topic\\s+to\\s+reel|make\\s+reel\\s+on|create\\s+reel\\s+on|reel\\s+banao|par\\s+reel\\s+banao)\\s*"), "").trim()
+        return if (clean.isNotBlank()) clean else "Trending Viral Reel"
+    }
+
+    private fun matchesSoundEffect(text: String): Boolean {
+        return text.contains("whoosh") || text.contains("sfx") || text.contains("sound effect") ||
+            text.contains("sound fx") || text.contains("sound effects") ||
+            text.contains("pop sound") || text.contains("ding sound") || text.contains("glitch sound") ||
+            text.contains("thud sound") || text.contains("transition sound") ||
+            (text.contains("sound") && (text.contains("ding") || text.contains("bell") || text.contains("pop") || text.contains("glitch") || text.contains("thud") || text.contains("whoosh")))
+    }
+
+    private fun resolveSfxType(text: String): String {
+        return when {
+            text.contains("pop") -> "pop"
+            text.contains("ding") || text.contains("bell") -> "ding"
+            text.contains("glitch") -> "glitch"
+            text.contains("thud") || text.contains("bass") -> "thud"
+            else -> "whoosh"
+        }
+    }
+
+    private fun matchesFaceTrackingZoom(text: String): Boolean {
+        return text.contains("face tracking") || text.contains("chehre pe zoom") ||
+            text.contains("face zoom") || text.contains("smart face")
     }
 }
