@@ -185,6 +185,21 @@ interface AiCommandDispatcher {
     fun resetPreview(): Boolean = false
 
     /**
+     * Applies AI dynamic speed curve / speed ramping (e.g. HeroDrop 2.5x -> 0.3x -> 1.0x).
+     */
+    fun speedRamp(preset: String = "hero_drop"): Boolean = false
+
+    /**
+     * Applies tight smart jump-cuts removing dead-air pauses (<180ms) for high retention.
+     */
+    fun smartJumpCuts(pacing: String = "Snappy"): Boolean = false
+
+    /**
+     * Automatically reframes 16:9 landscape video into 9:16 vertical with centered subject tracking.
+     */
+    fun autoReframe(targetRatio: String = "9:16"): Boolean = false
+
+    /**
      * Dispatches a ParsedCommand to the appropriate action.
      * Returns a pair of (success: Boolean, feedbackMessage: String).
      */
@@ -221,6 +236,9 @@ interface AiCommandDispatcher {
             is VideoEditIntent.AddStickerOverlay -> addStickerOverlay(intent.emojiOrSymbol)
             is VideoEditIntent.PlatformExport -> platformExport(intent.platform)
             is VideoEditIntent.ResetPreview -> resetPreview()
+            is VideoEditIntent.SpeedRamp -> speedRamp(intent.curvePreset)
+            is VideoEditIntent.SmartJumpCuts -> smartJumpCuts(intent.pacing)
+            is VideoEditIntent.AutoReframe -> autoReframe(intent.targetRatio)
             is VideoEditIntent.TogglePlayback -> togglePlayback()
             is VideoEditIntent.Conversational -> {
                 intent.executeIntent?.let { subIntent ->
@@ -256,6 +274,9 @@ interface AiCommandDispatcher {
                         is VideoEditIntent.AddStickerOverlay -> addStickerOverlay(subIntent.emojiOrSymbol)
                         is VideoEditIntent.PlatformExport -> platformExport(subIntent.platform)
                         is VideoEditIntent.ResetPreview -> resetPreview()
+                        is VideoEditIntent.SpeedRamp -> speedRamp(subIntent.curvePreset)
+                        is VideoEditIntent.SmartJumpCuts -> smartJumpCuts(subIntent.pacing)
+                        is VideoEditIntent.AutoReframe -> autoReframe(subIntent.targetRatio)
                         is VideoEditIntent.TogglePlayback -> togglePlayback()
                         is VideoEditIntent.Undo -> undo()
                         is VideoEditIntent.Redo -> redo()

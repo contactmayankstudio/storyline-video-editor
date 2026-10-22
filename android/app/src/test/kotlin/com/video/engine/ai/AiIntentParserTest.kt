@@ -502,6 +502,63 @@ class AiIntentParserTest {
     }
 
     @Test
+    fun parse_speedRamp() {
+        val res1 = AiIntentParser.parse("speed ramp lagao")
+        assertTrue("Expected SpeedRamp, got ${res1.intent}", res1.intent is VideoEditIntent.SpeedRamp)
+
+        val res2 = AiIntentParser.parse("bullet time slow mo ramp")
+        assertTrue(res2.intent is VideoEditIntent.SpeedRamp)
+        assertEquals("bullet_time", (res2.intent as VideoEditIntent.SpeedRamp).curvePreset)
+    }
+
+    @Test
+    fun parse_smartJumpCuts() {
+        val cases = listOf(
+            "smart jump cuts lagao",
+            "fast pacing booster",
+            "talking head pacer",
+            "tight jump cuts",
+        )
+        for (query in cases) {
+            val res = AiIntentParser.parse(query)
+            assertTrue("Expected SmartJumpCuts for '$query', got ${res.intent}", res.intent is VideoEditIntent.SmartJumpCuts)
+        }
+    }
+
+    @Test
+    fun parse_autoReframe() {
+        val cases = listOf(
+            "auto reframe 9:16",
+            "smart reframe",
+            "center subject",
+        )
+        for (query in cases) {
+            val res = AiIntentParser.parse(query)
+            assertTrue("Expected AutoReframe for '$query', got ${res.intent}", res.intent is VideoEditIntent.AutoReframe)
+            assertEquals("9:16", (res.intent as VideoEditIntent.AutoReframe).targetRatio)
+        }
+    }
+
+    @Test
+    fun parse_hollywoodFilmGrade() {
+        val cyberRes = AiIntentParser.parse("cyberpunk look lagao")
+        assertTrue(cyberRes.intent is VideoEditIntent.ApplyColorGrade)
+        assertEquals("Cyberpunk", (cyberRes.intent as VideoEditIntent.ApplyColorGrade).lutName)
+
+        val vintageRes = AiIntentParser.parse("vintage 35mm film")
+        assertTrue(vintageRes.intent is VideoEditIntent.ApplyColorGrade)
+        assertEquals("Vintage 70s", (vintageRes.intent as VideoEditIntent.ApplyColorGrade).lutName)
+
+        val noirRes = AiIntentParser.parse("nolan noir look")
+        assertTrue(noirRes.intent is VideoEditIntent.ApplyColorGrade)
+        assertEquals("Retro B&W", (noirRes.intent as VideoEditIntent.ApplyColorGrade).lutName)
+
+        val goldenRes = AiIntentParser.parse("golden hour grade")
+        assertTrue(goldenRes.intent is VideoEditIntent.ApplyColorGrade)
+        assertEquals("Golden Hour", (goldenRes.intent as VideoEditIntent.ApplyColorGrade).lutName)
+    }
+
+    @Test
     fun parse_blankAndUnknown() {
         val emptyRes = AiIntentParser.parse("")
         assertTrue(emptyRes.intent is VideoEditIntent.Unknown)

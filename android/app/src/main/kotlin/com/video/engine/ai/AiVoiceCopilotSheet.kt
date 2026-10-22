@@ -81,6 +81,10 @@ class AiVoiceCopilotSheet(
 
     private val suggestionChips = listOf(
         Pair("✨ Full AI Edit & Export", "pura video auto edit karke export karo"),
+        Pair("⚡ Speed Ramp", "speed ramp lagao"),
+        Pair("✂️ Smart Jump-Cuts", "smart jump cuts lagao"),
+        Pair("🎯 Auto-Reframe 9:16", "auto reframe 9:16 karo"),
+        Pair("🎨 Cyberpunk Film Look", "cyberpunk look lagao"),
         Pair("🎤 Studio Voice Clarity", "background noise hatao studio voice karo"),
         Pair("✨ Hormozi Captions", "hormozi style dynamic captions lagao"),
         Pair("📸 Viral Thumbnail", "viral thumbnail banao"),
@@ -1114,6 +1118,10 @@ class AiVoiceCopilotSheet(
             is VideoEditIntent.GenerateThumbnail,
             is VideoEditIntent.AddStickerOverlay,
             is VideoEditIntent.PlatformExport,
+            is VideoEditIntent.ResetPreview,
+            is VideoEditIntent.SpeedRamp,
+            is VideoEditIntent.SmartJumpCuts,
+            is VideoEditIntent.AutoReframe,
             is VideoEditIntent.MuteClip -> listOf(
                 Pair("▶️ Play Preview") { handleUserCommand("play") },
                 Pair("🚀 Export 1080p") { handleUserCommand("export 1080p") },

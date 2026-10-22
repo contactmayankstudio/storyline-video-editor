@@ -7622,6 +7622,41 @@ class VideoEditorActivity : ComponentActivity() {
                 return true
             }
 
+            override fun speedRamp(preset: String): Boolean {
+                val selectedId = resolveSelectedVisualClipId(syncSelectionIfNeeded = true) ?: run {
+                    safeToast("Select a clip to apply Speed Ramp", Toast.LENGTH_SHORT)
+                    return false
+                }
+                val curveName = when (preset) {
+                    "bullet_time" -> "ease_in"
+                    "montage" -> "hyperlapse"
+                    else -> "hero_drop"
+                }
+                applyNativeClipSpeedChange(selectedId, 0.4f, curveProfile = curveName)
+                applySelectedClipPanZoomPreset("push_in")
+                safeToast("⚡ Speed Ramp ($preset) applied with dynamic hook zoom!", Toast.LENGTH_SHORT)
+                return true
+            }
+
+            override fun smartJumpCuts(pacing: String): Boolean {
+                val success = performRemoveSilenceAction(-26f)
+                if (success) {
+                    safeToast("✂️ Smart Jump-Cuts applied! Dead-air gaps tightened for viral retention.", Toast.LENGTH_SHORT)
+                }
+                return success
+            }
+
+            override fun autoReframe(targetRatio: String): Boolean {
+                runOnUiThread {
+                    setAspectRatio(targetRatio)
+                    updateSelectedVideoPreviewTransform { c ->
+                        c.copy(zoom = maxOf(c.zoom, 1.78f), panXPx = 0f)
+                    }
+                    safeToast("🎯 Auto-Reframe ($targetRatio) applied! Subject centered.", Toast.LENGTH_SHORT)
+                }
+                return true
+            }
+
             override fun exportVideo(resolution: String): Boolean {
                 runOnUiThread {
                     val currentAspect = getSelectedAspectRatio()

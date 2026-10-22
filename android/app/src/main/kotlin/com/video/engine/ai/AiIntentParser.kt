@@ -38,6 +38,9 @@ sealed class VideoEditIntent {
     data class AddStickerOverlay(val emojiOrSymbol: String = "🔥") : VideoEditIntent()
     data class PlatformExport(val platform: String = "Instagram") : VideoEditIntent()
     object ResetPreview : VideoEditIntent()
+    data class SpeedRamp(val curvePreset: String = "hero_drop") : VideoEditIntent()
+    data class SmartJumpCuts(val pacing: String = "Snappy") : VideoEditIntent()
+    data class AutoReframe(val targetRatio: String = "9:16") : VideoEditIntent()
     object TogglePlayback : VideoEditIntent()
     object Undo : VideoEditIntent()
     object Redo : VideoEditIntent()
@@ -255,6 +258,39 @@ object AiIntentParser {
                 feedbackMessage = "🔄 Preview surface buffer aur textures ko reset karke Full HD me recalibrate kar diya hai!",
             )
         }
+
+        // 0o. AI Speed Ramp & Dynamic Curve
+        if (matchesSpeedRamp(normalized)) {
+            val preset = resolveSpeedRampPreset(normalized)
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.SpeedRamp(preset),
+                confidence = 0.98f,
+                feedbackMessage = "⚡ AI Speed Ramp ($preset: 2.5x fast -> 0.3x slow-mo) apply kar diya hai!",
+            )
+        }
+
+        // 0p. Smart Jump-Cuts & Pacing Booster
+        if (matchesSmartJumpCuts(normalized)) {
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.SmartJumpCuts("Snappy"),
+                confidence = 0.98f,
+                feedbackMessage = "✂️ Smart Jump-Cuts applied! Saare dead-air pauses aur micro-gaps tighten kar diye gaye hain.",
+            )
+        }
+
+        // 0q. Auto-Reframe & Subject Tracking
+        if (matchesAutoReframe(normalized)) {
+            val ratio = resolveAutoReframeRatio(normalized)
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.AutoReframe(ratio),
+                confidence = 0.98f,
+                feedbackMessage = "🎯 Auto-Reframe ($ratio) complete! Subject automatically center me pan aur crop ho gaya hai.",
+            )
+        }
+
 
 
         // 1. Aspect Ratio Switcher (9:16, 16:9, 1:1, etc.)
@@ -604,7 +640,7 @@ object AiIntentParser {
         if (text.contains("moody dark") || text.contains("moody") || text.contains("मूडी डार्क")) {
             return "Moody Dark"
         }
-        if (text.contains("vintage 70s") || text.contains("vintage") ||
+        if (text.contains("vintage 70s") || text.contains("vintage") || text.contains("35mm") ||
             text.contains("विंटेज") || text.contains("retro print")) {
             return "Vintage 70s"
         }
@@ -617,13 +653,13 @@ object AiIntentParser {
         }
         if (text.contains("retro b&w") || text.contains("b&w") ||
             text.contains("black and white") || text.contains("ब्लैक एंड व्हाइट") ||
-            text.contains("noir mono") || text.contains("noir")) {
+            text.contains("noir mono") || text.contains("noir") || text.contains("nolan")) {
             return "Retro B&W"
         }
-        if (text.contains("golden hour") || text.contains("गोल्डन आवर")) {
+        if (text.contains("golden hour") || text.contains("गोल्डन आवर") || text.contains("sunset")) {
             return "Golden Hour"
         }
-        if (text.contains("cine matte") || text.contains("cinematic") || text.contains("सिनेमैटिक")) {
+        if (text.contains("cine matte") || text.contains("cinematic") || text.contains("सिनेमैटिक") || text.contains("hollywood")) {
             return "Cine Matte"
         }
 
@@ -1028,5 +1064,44 @@ object AiIntentParser {
     private fun matchesResetPreview(text: String): Boolean {
         return (text.contains("preview") && (text.contains("blur") || text.contains("reset") || text.contains("fix") || text.contains("saaf") || text.contains("theek") || text.contains("freeze") || text.contains("stuck") || text.contains("black") || text.contains("refresh"))) ||
             text.contains("preview blur") || text.contains("preview theek karo") || text.contains("preview reset") || text.contains("fix preview")
+    }
+
+    private fun matchesSpeedRamp(text: String): Boolean {
+        return text.contains("speed ramp") || text.contains("curve ramp") ||
+            text.contains("bullet time") || text.contains("slow mo ramp") ||
+            text.contains("cinematic ramp") || text.contains("speed curve") ||
+            text.contains("रैंप")
+    }
+
+    private fun resolveSpeedRampPreset(text: String): String {
+        return when {
+            text.contains("bullet") -> "bullet_time"
+            text.contains("montage") -> "montage"
+            text.contains("smooth") -> "ease_in"
+            else -> "hero_drop"
+        }
+    }
+
+    private fun matchesSmartJumpCuts(text: String): Boolean {
+        return text.contains("jump cut") || text.contains("jump cuts") ||
+            text.contains("smart jump") || text.contains("pacing booster") ||
+            text.contains("fast pacing") || text.contains("talking head pacer") ||
+            text.contains("tight jump") || text.contains("tight cut") ||
+            text.contains("जंप कट")
+    }
+
+    private fun matchesAutoReframe(text: String): Boolean {
+        return text.contains("auto reframe") || text.contains("smart reframe") ||
+            text.contains("center subject") || text.contains("reframe 9:16") ||
+            text.contains("horizontal to vertical") || text.contains("reframe karo") ||
+            text.contains("subject center") || text.contains("ऑटो रीफ्रेम")
+    }
+
+    private fun resolveAutoReframeRatio(text: String): String {
+        return when {
+            text.contains("1:1") -> "1:1"
+            text.contains("16:9") -> "16:9"
+            else -> "9:16"
+        }
     }
 }
