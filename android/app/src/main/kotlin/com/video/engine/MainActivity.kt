@@ -38,6 +38,9 @@ import android.widget.SeekBar
 import android.widget.TextView
 import com.video.engine.UiToast as Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.recyclerview.widget.RecyclerView
@@ -183,6 +186,12 @@ class VideoEditorActivity : ComponentActivity() {
 
     private fun activeMultiTrackTimelineView() =
         multiTrackTimelineView?.takeIf { it.visibility == View.VISIBLE }
+
+    private fun activeTimelineCurrentTimeMs(): Long =
+        activeCanvasTimelineView()?.currentTimeMs()
+            ?: timelineCanvasView()?.currentTimeMs()
+            ?: multiTrackTimelineView?.currentTimeMs()
+            ?: currentTimeMs
 
     private fun uiDp(value: Int): Int =
         (value * resources.displayMetrics.density).roundToInt()
@@ -1380,7 +1389,7 @@ class VideoEditorActivity : ComponentActivity() {
         val profile = DeviceDetector.getQualityProfile()
         NativeBridge.setPreviewPolicy(
             ghostPreviewEnabled = true,
-            ghostLongEdgePx = maxOf(DeviceDetector.getRecommendedGhostLongEdgePx(), 720),
+            ghostLongEdgePx = maxOf(DeviceDetector.getRecommendedGhostLongEdgePx(), 1080),
             adaptiveFrameDropEnabled = true,
             targetPreviewFps = profile.previewFps,
             minPreviewFps = DeviceDetector.getRecommendedMinPreviewFps(),
@@ -1392,6 +1401,7 @@ class VideoEditorActivity : ComponentActivity() {
             predictiveSampleStepMs = DeviceDetector.getRecommendedPredictiveSampleStepMs(),
             predictiveCacheMaxFrames = DeviceDetector.getRecommendedPredictiveCacheMaxFrames(),
         )
+        NativeBridge.setAudioMasterClockEnabled(true)
     }
 
     private fun setupStartScreen() {
@@ -2046,6 +2056,7 @@ class VideoEditorActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         if (shouldUseStartShell(savedInstanceState, intent)) {
             Log.d(TAG, "onCreate - redirecting direct MainActivity home to LaunchActivity")
@@ -2072,6 +2083,18 @@ class VideoEditorActivity : ComponentActivity() {
         Log.d(TAG, "onCreate - preparing shell")
 
         setContentView(R.layout.activity_main)
+        findViewById<View>(android.R.id.content)?.let { root ->
+            ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+                val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+                findViewById<View>(R.id.topBar)?.let { topBar ->
+                    topBar.setPadding(topBar.paddingLeft, systemBars.top, topBar.paddingRight, topBar.paddingBottom)
+                }
+                findViewById<View>(R.id.bottomContainer)?.let { bottom ->
+                    bottom.setPadding(bottom.paddingLeft, bottom.paddingTop, bottom.paddingRight, systemBars.bottom)
+                }
+                insets
+            }
+        }
         editorTopBannerContainer = findViewById(R.id.editorTopBannerContainer)
         startTopBannerContainer = findViewById(R.id.startTopBannerContainer)
         editorAiStatusPill = findViewById(R.id.editorAiStatusPill)
@@ -2412,6 +2435,9 @@ class VideoEditorActivity : ComponentActivity() {
                     sourceInMs = safeUpdate.sourceInMs,
                     sourceOutMs = safeUpdate.sourceOutMs,
                 )
+                if (safeUpdate.gestureKind == com.video.engine.pro.timeline.ClipGestureKind.MOVE) {
+                    currentTimeMs = safeUpdate.startTimeMs
+                }
                 lastLayoutFetchMs = 0L
                 refreshMainTimelineTracks()
                 scheduleTimelineIdleAutoSave("timeline_canvas_commit")
@@ -2645,6 +2671,7 @@ class VideoEditorActivity : ComponentActivity() {
         // Wire canvas playhead to playback time
         playbackController?.onPlaybackTimeChanged = { timeMs ->
             TimelineThumbnailCache.suspendRequests(750L)
+            AudioWaveformCache.suspendRequests(750L)
             activeCanvasTimelineView()
                 ?.takeIf { it.isShown }
                 ?.setPlayheadMs(timeMs)
@@ -3304,6 +3331,7 @@ class VideoEditorActivity : ComponentActivity() {
             onRemoveTransitionPreset = { removeToolbarTransitionPreset() },
             onVoiceoverRequested = { voiceoverController?.showPanel() },
             onShowTextComposer = { showAddTextDialog() },
+            onOpenAiCopilot = { showAiVoiceCopilotSheet() },
         )
         uiChromeController?.setupPlayPauseButton()
         uiChromeController?.setupExportButton()
@@ -3541,7 +3569,7 @@ class VideoEditorActivity : ComponentActivity() {
         val profile = DeviceDetector.getQualityProfile()
         NativeBridge.setPreviewPolicy(
             ghostPreviewEnabled = true,
-            ghostLongEdgePx = 720,
+            ghostLongEdgePx = 1080,
             adaptiveFrameDropEnabled = true,
             targetPreviewFps = maxOf(profile.previewFps, 60),
             minPreviewFps = maxOf(profile.minPreviewFps, 30),
@@ -3703,7 +3731,7 @@ class VideoEditorActivity : ComponentActivity() {
         val profile = DeviceDetector.getQualityProfile()
         NativeBridge.setPreviewPolicy(
             ghostPreviewEnabled = true,
-            ghostLongEdgePx = 720,
+            ghostLongEdgePx = 1080,
             adaptiveFrameDropEnabled = true,
             targetPreviewFps = maxOf(profile.previewFps, 45),
             minPreviewFps = maxOf(profile.minPreviewFps, 24),
@@ -4864,7 +4892,7 @@ class VideoEditorActivity : ComponentActivity() {
         Log.d(TAG, "onStart")
     }
 
-    override fun onNewIntent(intent: Intent?) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         maybeDismissStaleImportPicker(intent)
@@ -7035,7 +7063,7 @@ class VideoEditorActivity : ComponentActivity() {
         )
     }
 
-    private fun addTextOverlay(overlay: TextOverlay, message: String = "Text added") {
+    internal fun addTextOverlay(overlay: TextOverlay, message: String = "Text added") {
         val preview = previewView
         if (preview == null) {
             Log.e(TAG, "PreviewView not available")
@@ -7220,6 +7248,184 @@ class VideoEditorActivity : ComponentActivity() {
     private fun removeToolbarTransitionPreset(): Boolean {
         val (outgoing, _) = resolveToolbarTransitionPair() ?: return false
         transitionController?.removeTransitionByOutgoingClip(outgoing)
+        return true
+    }
+
+    fun showAiVoiceCopilotSheet() {
+        val dispatcher = createAiCommandDispatcher()
+        val sheet = com.video.engine.ai.AiVoiceCopilotSheet(this, dispatcher)
+        sheet.show()
+    }
+
+    private fun createAiCommandDispatcher(): com.video.engine.ai.AiCommandDispatcher {
+        return object : com.video.engine.ai.AiCommandDispatcher {
+            override fun fullAutoPilotEdit(style: String): Boolean {
+                removeSilence()
+                dynamicZoom("push_in")
+                applyColorGrade("Teal & Orange")
+                autoCaptions()
+                addTitle("Viral Video", "Title")
+                return true
+            }
+
+            override fun splitClip(): Boolean {
+                return performSelectedClipSplitAction()
+            }
+
+            override fun fastBeatCuts(preset: String): Boolean {
+                return runAiAutoCutOnSelection(preset)
+            }
+
+            override fun removeSilence(thresholdDb: Float): Boolean {
+                return performRemoveSilenceAction(thresholdDb)
+            }
+
+            override fun dynamicZoom(preset: String): Boolean {
+                return applySelectedClipPanZoomPreset(preset)
+            }
+
+            override fun applyColorGrade(lutName: String): Boolean {
+                return uiChromeController?.applyEffectPresetByName(lutName) == true
+            }
+
+            override fun autoCaptions(): Boolean {
+                performSelectedClipAiCaptionAction()
+                return true
+            }
+
+            override fun addTitle(text: String, preset: String): Boolean {
+                val titlePreset = textOverlayPresets.firstOrNull { it.label.equals(preset, ignoreCase = true) }
+                    ?: textOverlayPresets.firstOrNull { it.label == "Title" }
+                    ?: textOverlayPresets.firstOrNull()
+                if (titlePreset == null) {
+                    safeToast("Text tool not ready", Toast.LENGTH_SHORT)
+                    return false
+                }
+                val overlay = buildTextOverlayFromPreset(titlePreset, text)
+                addTextOverlay(overlay, "Title added: $text")
+                return true
+            }
+
+            override fun setSpeed(speed: Float): Boolean {
+                val selectedId = resolveSelectedVisualClipId(syncSelectionIfNeeded = true)
+                if (selectedId != null) {
+                    applyNativeClipSpeedChange(selectedId, speed, curveProfile = "linear")
+                    safeToast("Speed set to ${speed}x", Toast.LENGTH_SHORT)
+                    return true
+                }
+                safeToast("Select a clip to change speed", Toast.LENGTH_SHORT)
+                return false
+            }
+
+            override fun togglePlayback(): Boolean {
+                findViewById<View>(R.id.previewPlayPauseButton)?.performClick()
+                return true
+            }
+
+            override fun undo(): Boolean {
+                uiChromeController?.let {
+                    findViewById<ImageView>(R.id.undoButton)?.performClick()
+                    return true
+                }
+                return false
+            }
+
+            override fun redo(): Boolean {
+                uiChromeController?.let {
+                    findViewById<ImageView>(R.id.redoButton)?.performClick()
+                    return true
+                }
+                return false
+            }
+        }
+    }
+
+    private fun performRemoveSilenceAction(thresholdDb: Float = -30f): Boolean {
+        val audioId = selectedAudioClipId()
+            ?: resolveSelectedVisualClipId(syncSelectionIfNeeded = true)?.let { visualId ->
+                AudioClipStore.get(visualId)?.id
+            }
+            ?: AudioClipStore.all().firstOrNull { it.startTimeMs <= currentPlayheadMs() && currentPlayheadMs() <= it.startTimeMs + it.durationMs }?.id
+            ?: AudioClipStore.all().firstOrNull()?.id
+
+        if (audioId == null) {
+            safeToast("No audio clip found to remove silence", Toast.LENGTH_SHORT)
+            return false
+        }
+
+        val clip = AudioClipStore.get(audioId) ?: run {
+            safeToast("Audio clip unavailable", Toast.LENGTH_SHORT)
+            return false
+        }
+
+        val peaks = clip.peakLevels
+        if (peaks.isEmpty()) {
+            safeToast("Audio waveforms still generating or unavailable", Toast.LENGTH_SHORT)
+            return false
+        }
+
+        val bucketMs = clip.peakBucketMs.coerceAtLeast(10)
+        val minSilenceBuckets = (300 / bucketMs).coerceAtLeast(5)
+        val silenceThreshold = 8
+
+        var silenceCount = 0
+        var silenceStartBucket = -1
+        val silentRegions = mutableListOf<Pair<Long, Long>>()
+
+        for (i in peaks.indices) {
+            if (peaks[i] <= silenceThreshold) {
+                if (silenceStartBucket == -1) silenceStartBucket = i
+                silenceCount++
+            } else {
+                if (silenceCount >= minSilenceBuckets) {
+                    val startMs = clip.startTimeMs + (silenceStartBucket * bucketMs)
+                    val endMs = clip.startTimeMs + (i * bucketMs)
+                    silentRegions.add(Pair(startMs, endMs))
+                }
+                silenceStartBucket = -1
+                silenceCount = 0
+            }
+        }
+        if (silenceCount >= minSilenceBuckets) {
+            val startMs = clip.startTimeMs + (silenceStartBucket * bucketMs)
+            val endMs = clip.startTimeMs + (peaks.size * bucketMs)
+            silentRegions.add(Pair(startMs, endMs))
+        }
+
+        if (silentRegions.isEmpty()) {
+            safeToast("No silent intervals (>300ms) detected in audio", Toast.LENGTH_SHORT)
+            return true
+        }
+
+        recordUndoDomain(UndoDomain.TIMELINE)
+        AudioClipStore.batchUpdate {
+            val (silenceStart, silenceEnd) = silentRegions.first()
+            if (silenceStart <= clip.startTimeMs + 200L) {
+                val trimDuration = (silenceEnd - clip.startTimeMs).coerceAtMost(clip.durationMs - 200L)
+                clip.sourceInMs += trimDuration
+                clip.durationMs -= trimDuration
+                clip.startTimeMs += trimDuration
+                AudioClipStore.add(clip)
+            } else {
+                val nextSplitId = (AudioClipStore.all().maxOfOrNull { it.id } ?: 100) + 1
+                val splitResult = AudioClipStore.splitAt(clip.id, silenceStart, nextSplitId)
+                if (splitResult != null) {
+                    val (_, right) = splitResult
+                    val silenceDuration = (silenceEnd - silenceStart).coerceAtLeast(100L)
+                    val afterSilenceSplitId = nextSplitId + 1
+                    val secondSplit = AudioClipStore.splitAt(right.id, silenceEnd, afterSilenceSplitId)
+                    if (secondSplit != null) {
+                        val (silentSegment, remaining) = secondSplit
+                        AudioClipStore.remove(silentSegment.id)
+                        remaining.startTimeMs -= silenceDuration
+                        AudioClipStore.add(remaining)
+                    }
+                }
+            }
+        }
+        syncTimelineShellFromNative()
+        refreshMainTimelineTracks()
+        safeToast("Removed silence interval from audio", Toast.LENGTH_SHORT)
         return true
     }
 
@@ -7820,7 +8026,7 @@ class VideoEditorActivity : ComponentActivity() {
 
     override fun onRequestPermissionsResult(
         requestCode: Int,
-        permissions: Array<out String>,
+        permissions: Array<String>,
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
@@ -10960,7 +11166,7 @@ class VideoEditorActivity : ComponentActivity() {
     }
 
     private fun splitAudioAtPlayhead(): Boolean {
-        val requestedTimeMs = multiTrackTimelineView?.currentTimeMs() ?: currentTimeMs
+        val requestedTimeMs = activeTimelineCurrentTimeMs()
         val targetClip = resolveSplitTargetAudioClip(requestedTimeMs)
         if (targetClip == null) {
             recordTelemetryEvent(
@@ -11282,17 +11488,17 @@ class VideoEditorActivity : ComponentActivity() {
     }
 
     private fun performAudioSplitAction() {
-        Log.d(TAG, "Audio split requested at ${multiTrackTimelineView?.currentTimeMs() ?: currentTimeMs}ms selected=$selectedTimelineClipKey")
+        Log.d(TAG, "Audio split requested at ${activeTimelineCurrentTimeMs()}ms selected=$selectedTimelineClipKey")
         if (!splitAudioAtPlayhead()) {
             mainHandler.post {
                 safeToast("No audio clip at playhead to split", Toast.LENGTH_SHORT)
             }
-            Log.d(TAG, "Audio split rejected at ${multiTrackTimelineView?.currentTimeMs() ?: currentTimeMs}ms selected=$selectedTimelineClipKey")
+            Log.d(TAG, "Audio split rejected at ${activeTimelineCurrentTimeMs()}ms selected=$selectedTimelineClipKey")
         }
     }
 
     private fun splitSelectedTextAtPlayhead(): Boolean {
-        val targetTimeMs = (multiTrackTimelineView?.currentTimeMs() ?: currentTimeMs).toInt()
+        val targetTimeMs = activeTimelineCurrentTimeMs().toInt()
         val overlay = resolveSplitTargetTextOverlay(targetTimeMs)
         if (overlay == null) {
             recordTelemetryEvent(
@@ -11351,7 +11557,7 @@ class VideoEditorActivity : ComponentActivity() {
     }
 
     private fun splitSelectedStickerAtPlayhead(): Boolean {
-        val targetTimeMs = (multiTrackTimelineView?.currentTimeMs() ?: currentTimeMs).toInt()
+        val targetTimeMs = activeTimelineCurrentTimeMs().toInt()
         val clip = resolveSplitTargetStickerClip(targetTimeMs)
         if (clip == null) {
             recordTelemetryEvent(
@@ -11465,7 +11671,7 @@ class VideoEditorActivity : ComponentActivity() {
             ?.also { selectedTimelineClipKey = "sticker-${it.id}" }
     }
 
-    private fun performSelectedClipSplitAction(): Boolean {
+    internal fun performSelectedClipSplitAction(): Boolean {
         var playheadMs = currentPlayheadMs()
 
         // Sync selected clip from canvas view if not set
@@ -11617,7 +11823,7 @@ class VideoEditorActivity : ComponentActivity() {
         return cutTimes.distinct()
     }
 
-    private fun runAiAutoCutOnSelection(presetLabel: String): Boolean {
+    internal fun runAiAutoCutOnSelection(presetLabel: String): Boolean {
         val preset = resolveAiAutoCutPreset(presetLabel) ?: return false
         val selection = resolveSelectedClipForAiAutoCut() ?: run {
             safeToast("Select a video, overlay, or audio clip first", Toast.LENGTH_SHORT)
@@ -11743,7 +11949,7 @@ class VideoEditorActivity : ComponentActivity() {
             ?.let(::parseNativeClipId)
             ?: timelineManager?.getSelectedClipId()
             ?: return false
-        val targetTimeMs = multiTrackTimelineView?.currentTimeMs() ?: currentTimeMs
+        val targetTimeMs = activeTimelineCurrentTimeMs()
         execCmd(
             action = "TRIM_CLIP",
             params = mapOf(
@@ -11784,7 +11990,7 @@ class VideoEditorActivity : ComponentActivity() {
 
     private fun trimSelectedAudioAtPlayhead(edge: String): Boolean {
         val audioId = selectedAudioClipId() ?: return false
-        val targetTimeMs = multiTrackTimelineView?.currentTimeMs() ?: currentTimeMs
+        val targetTimeMs = activeTimelineCurrentTimeMs()
         execCmd(
             action = "TRIM_CLIP",
             params = mapOf(
@@ -14195,6 +14401,7 @@ class VideoEditorActivity : ComponentActivity() {
 
     private fun revealSelectedClipInPreview(force: Boolean = false) {
         if (isPlaying && !force) return
+        if (activeCanvasTimelineView()?.isInteracting() == true) return
         val range = selectedClipTimeRange() ?: return
         val current = currentPlayheadMs().coerceAtLeast(0L)
         if (!force && current >= range.first && current < range.second) return
@@ -15204,7 +15411,7 @@ class VideoEditorActivity : ComponentActivity() {
         return true
     }
 
-    private fun applySelectedClipPanZoomPreset(preset: String): Boolean {
+    internal fun applySelectedClipPanZoomPreset(preset: String): Boolean {
         val clipId = enableSelectedClipPanZoomMode(showToast = false) ?: return false
         val (viewportWidthPx, viewportHeightPx) = previewViewportSizePx()
         val minZoom = resolvePreviewMinZoom(clipId)
@@ -16436,7 +16643,7 @@ class VideoEditorActivity : ComponentActivity() {
         }
     }
 
-    private fun performSelectedClipAiCaptionAction() {
+    internal fun performSelectedClipAiCaptionAction() {
         if (!ensureTrackEditable(TrackType.TEXT, "captions")) return
         val sourcePath: String
         val clipStartMs: Long

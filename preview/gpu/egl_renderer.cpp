@@ -157,7 +157,7 @@ void main() {
 
     if (sampleCoord.x < 0.0 || sampleCoord.x > 1.0 ||
         sampleCoord.y < 0.0 || sampleCoord.y > 1.0) {
-        outColor = vec4(0.0, 0.0, 0.0, 1.0);
+        outColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
 
@@ -625,6 +625,11 @@ bool EGLRenderer::initialize(ANativeWindow* nativeWindow) {
         return false;
     }
 
+    if (m_nativeWindow) {
+        m_viewportWidth = ANativeWindow_getWidth(m_nativeWindow);
+        m_viewportHeight = ANativeWindow_getHeight(m_nativeWindow);
+    }
+
     // ========== OpenGL Setup ==========
 
     // Create shader programs
@@ -735,6 +740,17 @@ void EGLRenderer::resizeViewport(int width, int height) {
     }
 }
 
+void EGLRenderer::drawQuad() {
+    if (m_vao == 0) {
+        if (!createQuadMesh()) {
+            return;
+        }
+    }
+    glBindVertexArray(m_vao);
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
+    glBindVertexArray(0);
+}
+
 bool EGLRenderer::renderFrame(const GLTexture& texture) {
     return renderFrameRegion(texture, 0, 0, m_viewportWidth, m_viewportHeight);
 }
@@ -760,6 +776,10 @@ bool EGLRenderer::renderFrameRegion(
         return false;
     }
 
+    if ((m_viewportWidth <= 0 || m_viewportHeight <= 0) && m_nativeWindow) {
+        m_viewportWidth = ANativeWindow_getWidth(m_nativeWindow);
+        m_viewportHeight = ANativeWindow_getHeight(m_nativeWindow);
+    }
     if (m_viewportWidth > 0 && m_viewportHeight > 0) {
         glViewport(0, 0, m_viewportWidth, m_viewportHeight);
     }
@@ -835,12 +855,8 @@ bool EGLRenderer::renderFrameRegion(
     // Set texture uniform
     glUniform1i(m_uTextureSamplerLoc, 0);
 
-    // Bind and draw quad
-    glBindVertexArray(m_vao);
-    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
-
-    // Unbind
-    glBindVertexArray(0);
+    // Draw quad with direct attribute bindings (bypasses VAO corruption)
+    drawQuad();
     glUseProgram(0);
 
     if (!checkGLError("renderFrame")) {
@@ -872,17 +888,28 @@ bool EGLRenderer::renderLayers(const std::vector<Layer>& layers) {
         return false;
     }
 
+    if ((m_viewportWidth <= 0 || m_viewportHeight <= 0) && m_nativeWindow) {
+        m_viewportWidth = ANativeWindow_getWidth(m_nativeWindow);
+        m_viewportHeight = ANativeWindow_getHeight(m_nativeWindow);
+    }
     glViewport(0, 0, m_viewportWidth, m_viewportHeight);
     glDisable(GL_SCISSOR_TEST);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glClear(GL_COLOR_BUFFER_BIT);
     glUseProgram(m_programId);
 
     glUniform1i(m_uTextureSamplerLoc, 0);
 
-    for (const auto& layer : layers) {
+    for (size_t layerIdx = 0; layerIdx < layers.size(); ++layerIdx) {
+        const auto& layer = layers[layerIdx];
         if (!layer.texture || !layer.texture->isValid()) continue;
+
+        // Base layer (index 0) is opaque and writes directly; overlays blend on top.
+        if (layerIdx == 0) {
+            glDisable(GL_BLEND);
+        } else {
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        }
 
         if (m_uOpacityLoc >= 0)
             glUniform1f(m_uOpacityLoc, layer.opacity);
@@ -941,11 +968,9 @@ bool EGLRenderer::renderLayers(const std::vector<Layer>& layers) {
             glUniform1f(m_uSaturationLoc, layer.saturation);
 
         layer.texture->bind(0);
-        glBindVertexArray(m_vao);
-        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
+        drawQuad();
     }
 
-    glBindVertexArray(0);
     glUseProgram(0);
     glDisable(GL_BLEND);
 
@@ -1039,9 +1064,7 @@ bool EGLRenderer::renderTransition(
     applyLayerUniforms(m_transitionUniformsA, outgoing);
     applyLayerUniforms(m_transitionUniformsB, incoming);
 
-    glBindVertexArray(m_vao);
-    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
-    glBindVertexArray(0);
+    drawQuad();
     glUseProgram(0);
 
     if (!checkGLError("renderTransition")) {

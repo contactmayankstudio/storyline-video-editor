@@ -6,6 +6,10 @@
     <string name="start_create_label">नया बनाएं</string>
     <string name="start_primary_action">नया वीडियो प्रोजेक्ट</string>
     <string name="start_primary_caption">टाइमलाइन, ऑडियो, लेयर्स, इफ़ेक्ट्स और एक्सपोर्ट।</string>
+    <string name="start_status_maker_action">स्टेटस &amp; रील्स मेकर</string>
+    <string name="start_status_maker_caption">ट्रेंडिंग बीट सिंक और लिरिकल टेम्पलेट्स।</string>
+    <string name="start_fun_camera_action">फन कैमरा</string>
+    <string name="start_fun_camera_caption">स्नैपचैट फेस फिल्टर्स और फनी लेंसेस।</string>
     <string name="start_photo_editor_action">फोटो एडिट</string>
     <string name="start_photo_editor_caption">टेक्स्ट आर्ट, इमेज डिज़ाइन, और स्मार्ट AI रिमूवल।</string>
     <string name="start_quick_label">क्विक एक्शन</string>

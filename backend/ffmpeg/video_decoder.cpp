@@ -183,78 +183,74 @@ bool VideoDecoder::decodeNextFrame(DecodedFrame& out) {
     packet.data = nullptr;
     packet.size = 0;
 
-    bool frameDecoded = false;
-    const int64_t pendingSeekTargetMs = m_pendingSeekTargetMs;
+    bool demuxEof = false;
+    bool flushSent = false;
     AVStream* videoStream = m_formatContext->streams[m_videoStreamIndex];
 
-    // Read packets until we get a complete video frame
-    while (av_read_frame(m_formatContext, &packet) >= 0) {
-        if (packet.stream_index == m_videoStreamIndex) {
-            // Send packet to decoder
-            if (avcodec_send_packet(m_codecContext, &packet) < 0) {
-                setError("Error sending packet to decoder");
-                av_packet_unref(&packet);
+    while (true) {
+        const int receiveResult = avcodec_receive_frame(m_codecContext, m_decodedFrame);
+        if (receiveResult == 0) {
+            const int64_t framePtsMs = resolveFramePtsMs(m_decodedFrame, videoStream);
+            if (m_pendingSeekTargetMs >= 0 && framePtsMs < (m_pendingSeekTargetMs - 1)) {
+                // Keep draining decoded pre-roll frames before feeding more packets.
+                continue;
+            }
+
+            m_pendingSeekTargetMs = -1;
+            if (!convertToRGB24(m_decodedFrame, out)) {
+                return false;
+            }
+            out.ptsMs = framePtsMs;
+            return true;
+        }
+
+        if (receiveResult == AVERROR_EOF) {
+            return false;
+        }
+        if (receiveResult != AVERROR(EAGAIN)) {
+            setError("Error receiving decoded frame");
+            return false;
+        }
+
+        if (demuxEof) {
+            if (flushSent) {
                 return false;
             }
 
-            // Try to receive decoded frame
-            int ret = avcodec_receive_frame(m_codecContext, m_decodedFrame);
-            if (ret == 0) {
-                const int64_t framePtsMs =
-                    resolveFramePtsMs(m_decodedFrame, videoStream);
-                
-                // If we are seeking, skip frames until we are within 1ms of target or past it
-                if (pendingSeekTargetMs >= 0) {
-                    if (framePtsMs < (pendingSeekTargetMs - 1)) {
-                        av_packet_unref(&packet);
-                        continue;
-                    }
-                    // We found or passed the target!
-                    m_pendingSeekTargetMs = -1;
-                }
-
-                // Frame decoded successfully
-                if (convertToRGB24(m_decodedFrame, out)) {
-                    out.ptsMs = framePtsMs;
-                    frameDecoded = true;
-                }
-                av_packet_unref(&packet);
-                break;
-            } else if (ret == AVERROR(EAGAIN)) {
-                // More data needed, continue reading
-                av_packet_unref(&packet);
+            const int flushResult = avcodec_send_packet(m_codecContext, nullptr);
+            if (flushResult == AVERROR(EAGAIN)) {
                 continue;
-            } else if (ret == AVERROR_EOF) {
-                // End of stream
-                av_packet_unref(&packet);
-                break;
-            } else {
-                // Error
-                setError("Error decoding frame");
-                av_packet_unref(&packet);
-                break;
             }
+            if (flushResult < 0 && flushResult != AVERROR_EOF) {
+                setError("Error flushing decoder");
+                return false;
+            }
+            flushSent = true;
+            continue;
         }
 
+        int readResult = av_read_frame(m_formatContext, &packet);
+        while (readResult >= 0 && packet.stream_index != m_videoStreamIndex) {
+            av_packet_unref(&packet);
+            readResult = av_read_frame(m_formatContext, &packet);
+        }
+        if (readResult < 0) {
+            demuxEof = true;
+            continue;
+        }
+
+        const int sendResult = avcodec_send_packet(m_codecContext, &packet);
+        if (sendResult == AVERROR(EAGAIN)) {
+            av_packet_unref(&packet);
+            setError("Decoder backpressure while sending packet");
+            return false;
+        }
         av_packet_unref(&packet);
-    }
-
-    if (!frameDecoded) {
-        // Flush decoder on EOF
-        if (avcodec_send_packet(m_codecContext, nullptr) >= 0) {
-            if (avcodec_receive_frame(m_codecContext, m_decodedFrame) == 0) {
-                const int64_t framePtsMs =
-                    resolveFramePtsMs(m_decodedFrame, videoStream);
-                frameDecoded = convertToRGB24(m_decodedFrame, out);
-                if (frameDecoded) {
-                    out.ptsMs = framePtsMs;
-                    m_pendingSeekTargetMs = -1;
-                }
-            }
+        if (sendResult < 0) {
+            setError("Error sending packet to decoder");
+            return false;
         }
     }
-
-    return frameDecoded;
 }
 
 void VideoDecoder::close() {
@@ -320,6 +316,10 @@ bool VideoDecoder::initializeSwsContext(int srcWidth, int srcHeight, int srcPixe
             dstHeight = std::max(2, static_cast<int>(srcHeight * scale));
         }
     }
+
+    // Ensure even dimensions for SIMD / NEON sws_scale alignment
+    dstWidth = (dstWidth + 1) & ~1;
+    dstHeight = (dstHeight + 1) & ~1;
 
     m_swsContext = sws_getContext(
         srcWidth,

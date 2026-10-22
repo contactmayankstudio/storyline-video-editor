@@ -1,0 +1,48 @@
+{
+  "id": "tpl_talking_head_captions",
+  "title": "MrBeast / Hormozi Viral Hook",
+  "category": "Talking Head & Educational",
+  "aspect_ratio": "9:16",
+  "target_width": 1080,
+  "target_height": 1920,
+  "duration_ms": 20000,
+  "description": "Designed for talking-head videos with dynamic word-by-word animated subtitle styles and sticker pops.",
+  "lut": "vibrant_pop_reels.cube",
+  "font": "Bangers-Regular.ttf",
+  "default_sfx": [
+    "pop_click.wav",
+    "ding_bell.wav"
+  ],
+  "slots": [
+    {
+      "slot_id": 1,
+      "start_ms": 0,
+      "duration_ms": 20000,
+      "label": "Full Talking Head Video",
+      "transition_out": "none"
+    }
+  ],
+  "text_layers": [
+    {
+      "text": "THE SECRET TO 10X GROWTH",
+      "font": "Bangers-Regular.ttf",
+      "font_size_sp": 34,
+      "color": "#00FF66",
+      "stroke_color": "#111111",
+      "stroke_width_px": 8,
+      "start_ms": 0,
+      "duration_ms": 3500,
+      "position_y_percent": 0.3,
+      "animation": "pop_in"
+    }
+  ],
+  "sticker_layers": [
+    {
+      "sticker_file": "fire_trending.json",
+      "start_ms": 500,
+      "duration_ms": 2500,
+      "pos_x": 0.8,
+      "pos_y": 0.25
+    }
+  ]
+}

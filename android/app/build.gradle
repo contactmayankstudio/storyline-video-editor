@@ -55,8 +55,8 @@ android {
         applicationId = "com.storyline.videoeditor"
         minSdk = 21
         targetSdk = 36
-        versionCode = 18
-        versionName = "1.0"
+        versionCode = 19
+        versionName = "1.0.1"
         resValue "string", "aws_control_plane_url", stringResourceValue("")
         resValue "string", "aws_control_plane_device_key", stringResourceValue("")
         resValue "string", "release_portal_url", stringResourceValue("")
@@ -68,7 +68,8 @@ android {
         
         externalNativeBuild {
             cmake {
-                cppFlags "-std=c++17"
+                cppFlags "-std=c++17 -Wl,-z,max-page-size=16384"
+                arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "-DANDROID_STL=c++_static"
             }
         }
 
@@ -79,7 +80,7 @@ android {
 
     packagingOptions {
         jniLibs {
-            useLegacyPackaging = true
+            useLegacyPackaging = false
         }
     }
 
@@ -101,8 +102,8 @@ android {
     buildTypes {
         release {
             signingConfig signingConfigs.release
-            minifyEnabled = false
-            shrinkResources = false
+            minifyEnabled = true
+            shrinkResources = true
             debuggable = false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
@@ -115,8 +116,8 @@ android {
     productFlavors {
         play {
             dimension "store"
-            versionCode 18
-            versionName "1.0"
+            versionCode 19
+            versionName "1.0.1"
         }
     }
 
@@ -145,15 +146,13 @@ android {
 
 tasks.register("copyBundledRuntimeLibs") {
     def outputFiles = runtimeAbis.collectMany { abi ->
-        bundledRuntimeLibNames.collect { file("src/main/jniLibs/${abi}/${it}") } + [
-            file("src/main/jniLibs/${abi}/libc++_shared.so"),
-        ]
+        bundledRuntimeLibNames.collect { file("src/main/jniLibs/${abi}/${it}") }
     }
 
     inputs.files(
         files(
             runtimeAbis.collect { abi ->
-                fileTree("${rootProject.projectDir}/third_party/ffmpeg/${abi}/lib") {
+                fileTree("${rootProject.projectDir}/android/third_party/ffmpeg/${abi}/lib") {
                     include bundledRuntimeLibNames
                 }
             }
@@ -163,34 +162,31 @@ tasks.register("copyBundledRuntimeLibs") {
     inputs.property("ndkVersion", providers.provider { android.ndkVersion })
     outputs.files(outputFiles)
 
+    def baseDir = projectDir
+    def rootDir = rootProject.projectDir
+    def abis = runtimeAbis
+    def libNames = bundledRuntimeLibNames
+
     doLast {
-        def ndkRoot = android.ndkDirectory
-        runtimeAbis.each { abi ->
-            def destDir = file("src/main/jniLibs/${abi}")
+        abis.each { abi ->
+            def destDir = new File(baseDir, "src/main/jniLibs/${abi}")
             destDir.mkdirs()
 
-            def ffmpegLibDir = file("${rootProject.projectDir}/third_party/ffmpeg/${abi}/lib")
+            def ffmpegLibDir = new File(rootDir, "android/third_party/ffmpeg/${abi}/lib")
+            if (!ffmpegLibDir.exists()) {
+                ffmpegLibDir = new File(rootDir, "third_party/ffmpeg/${abi}/lib")
+            }
             if (ffmpegLibDir.exists()) {
-                copy {
-                    from ffmpegLibDir
-                    include bundledRuntimeLibNames
-                    into destDir
+                libNames.each { libName ->
+                    def src = new File(ffmpegLibDir, libName)
+                    if (src.exists()) {
+                        def dst = new File(destDir, libName)
+                        java.nio.file.Files.copy(src.toPath(), dst.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                    }
                 }
                 println "Synced FFmpeg shared libs ${ffmpegLibDir} -> ${destDir}"
             } else {
                 println "FFmpeg lib dir not found: ${ffmpegLibDir}"
-            }
-
-            def stlSubdir = abi == "arm64-v8a" ? "aarch64-linux-android" : "arm-linux-androideabi"
-            def cxxShared = file("${ndkRoot}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${stlSubdir}/libc++_shared.so")
-            if (cxxShared.exists()) {
-                copy {
-                    from cxxShared
-                    into destDir
-                }
-                println "Synced C++ runtime ${cxxShared} -> ${destDir}"
-            } else {
-                println "C++ runtime not found: ${cxxShared}"
             }
         }
     }
@@ -205,7 +201,8 @@ dependencies {
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
     implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.6.2"
 
-    // AndroidX
+    // AndroidX & Edge-to-Edge
+    implementation "androidx.activity:activity-ktx:1.9.0"
     implementation "androidx.appcompat:appcompat:1.6.1"
     implementation "androidx.core:core:1.12.0"
     implementation "androidx.core:core-ktx:1.12.0"
@@ -223,6 +220,9 @@ dependencies {
     implementation 'com.google.firebase:firebase-firestore-ktx'
     implementation 'com.google.android.gms:play-services-ads:23.6.0'
     implementation 'androidx.annotation:annotation:1.7.1'
+
+    // Google ML Kit Face Detection (On-device, offline, fast face tracking)
+    implementation 'com.google.mlkit:face-detection:16.1.7'
 
     // Testing
     testImplementation "junit:junit:4.13.2"

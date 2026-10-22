@@ -117,12 +117,12 @@ object DeviceDetector {
                 exportBitrate = 6000,
                 maxExportFps = 30,
                 glTextureSize = 2048,
-                previewLongEdgePx = 720,
+                previewLongEdgePx = 1080,
                 minPreviewFps = 24,
                 predictiveLookAroundMs = 900,
                 predictiveSampleStepMs = 110,
                 predictiveCacheMaxFrames = 16,
-                proxyLongEdgePx = 540,
+                proxyLongEdgePx = 720,
             )
             DeviceTier.HIGH -> QualityProfile(
                 previewWidth = HIGH_PREVIEW_WIDTH,
@@ -131,12 +131,12 @@ object DeviceDetector {
                 exportBitrate = 12000,
                 maxExportFps = 60,
                 glTextureSize = 4096,
-                previewLongEdgePx = 720,
+                previewLongEdgePx = 1440,
                 minPreviewFps = 24,
                 predictiveLookAroundMs = 1400,
                 predictiveSampleStepMs = 80,
                 predictiveCacheMaxFrames = 28,
-                proxyLongEdgePx = 720,
+                proxyLongEdgePx = 1080,
             )
         }
     }

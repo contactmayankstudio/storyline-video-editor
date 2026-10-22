@@ -230,6 +230,7 @@ public:
     void setAdaptiveFrameDropPolicy(bool enabled, int targetFps, int minFps);
     void setLoopingLiveTransitionsEnabled(bool enabled);
     void setAdaptiveProxyEnabled(bool enabled);
+    void prewarmClip(int clipId, const std::string& path);
 
     /**
      * Dirty-region redraw controls.
@@ -579,13 +580,14 @@ private:
     void applyPreviewScaleLimitLocked();
     void updateAdaptivePreviewScaleLocked(int64_t scrubVelocityMsPerSec);
     ClipPreviewTransform clipPreviewTransformLocked(int clipId) const;
-    bool hasClipPreviewTransformLocked(const std::shared_ptr<Clip>& clip) const;
+    bool clipRequiresPreviewCompositionLocked(const std::shared_ptr<Clip>& clip) const;
     float clipPreviewMinZoomLocked(int clipId) const;
     float clipPreviewMaxZoomLocked(int clipId) const;
     void normalizeClipPreviewTransformLocked(int clipId, ClipPreviewTransform& transform) const;
     void markVisualStateDirtyLocked();
     const ClipTransition* findActiveTransitionLocked(int64_t timelineMs) const;
     std::shared_ptr<Clip> findTimelineClipByIdLocked(int clipId) const;
+    void prewarmNextClipLocked(const std::shared_ptr<Clip>& currentClip, int64_t currentTimelineMs);
     bool uploadClipFrameToTextureLocked(
         ClipDecodeState& state,
         const Backend::DecodedFrame& frame,
@@ -595,6 +597,8 @@ private:
         GPU::GLTexture* texture) const;
 
     mutable std::mutex m_playbackMutex;
+    std::shared_ptr<std::atomic<bool>> m_isAlive;
+    std::atomic<int> m_prewarmingClipId{-1};
 
     bool m_dirtyRegionRedrawEnabled = true;
     bool m_predictiveCachingEnabled = true;

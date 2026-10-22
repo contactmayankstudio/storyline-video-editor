@@ -1,20 +1,29 @@
 package com.video.engine
 
-import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
+import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
-class SettingsActivity : Activity() {
+class SettingsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(24,24,24,24)
             gravity = Gravity.TOP
+        }
+
+        ViewCompat.setOnApplyWindowInsetsListener(container) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(24 + systemBars.left, 24 + systemBars.top, 24 + systemBars.right, 24 + systemBars.bottom)
+            insets
         }
 
         val privacyBtn = Button(this).apply {

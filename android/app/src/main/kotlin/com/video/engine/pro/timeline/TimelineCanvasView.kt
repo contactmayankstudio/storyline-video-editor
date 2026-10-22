@@ -227,12 +227,37 @@ class TimelineCanvasView @JvmOverloads constructor(
         val rect: RectF,
     )
 
-    // ── Long press state ──────────────────────────────────────────────────────
+    // ── Long press & Clip drag state ───────────────────────────────────────────
     private var longPressClipId: String? = null
     private val longPressHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var touchDownClipId: String? = null
+    private var touchDownClip: ClipSegment? = null
+    private var clipMoveArmed = false
+    private val clipMoveArmRunnable = Runnable {
+        val clip = touchDownClip ?: return@Runnable
+        if (trackLocked[clip.trackType] == true) return@Runnable
+        if (!gestureStarted) {
+            clipMoveArmed = true
+            gesture = GestureKind.MOVE
+            gestureClipId = clip.id
+            gestureClipSnapshot = clip
+            gestureStartScrollX = scrollX
+            gestureStartScrollY = scrollY
+            vibrate()
+            if (clip.id != selectedClipId) {
+                selectedClipId = clip.id
+                listener?.onClipSelected(clip.id)
+            }
+            invalidate()
+        }
+    }
     private val longPressRunnable = Runnable {
         longPressClipId?.let { showClipContextMenu(it) }
     }
+    private var pendingImportChipTrack: TrackState? = null
+    private var pendingImportChipDownX = 0f
+    private var pendingImportChipDownY = 0f
+    private var pendingImportChipDownTimeMs = 0L
     private var showPlayheadTooltip = false
 
     // ── Track visibility ──────────────────────────────────────────────────────
@@ -379,6 +404,8 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     fun getPlayheadMs(): Long = playheadMs
 
+    fun currentTimeMs(): Long = playheadMs
+
     fun setPlaybackActive(active: Boolean) {
         if (playbackActive == active) return
         playbackActive = active
@@ -416,10 +443,16 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     fun setPlayheadMs(ms: Long) {
         if (playbackActive) {
-            playbackAnchorTimelineMs = ms.coerceAtLeast(0L)
-            playbackAnchorRealtimeMs = SystemClock.uptimeMillis()
+            val safeMs = ms.coerceAtLeast(0L)
+            val now = SystemClock.uptimeMillis()
+            val currentPredicted = (playbackAnchorTimelineMs + (now - playbackAnchorRealtimeMs)).coerceAtLeast(0L)
+            val drift = abs(safeMs - currentPredicted)
+            if (drift >= 80L || safeMs > playbackAnchorTimelineMs) {
+                playbackAnchorTimelineMs = safeMs
+                playbackAnchorRealtimeMs = now
+            }
             if (!timelineInteractionActive()) {
-                renderPlaybackPosition(playbackAnchorTimelineMs)
+                renderPlaybackPosition(max(safeMs, currentPredicted))
             }
             startPlaybackTicker()
             return
@@ -442,6 +475,11 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     private fun renderPlaybackPosition(ms: Long) {
         val clampedMs = ms.coerceAtLeast(0L)
+        if (playbackActive && clampedMs < playheadMs && (playheadMs - clampedMs) < 80L) {
+            // Forward monotonicity guard: suppress minor backwards micro-jitter (<80ms)
+            // caused by discrete decoder frame timestamp arrivals vs continuous wall-clock prediction.
+            return
+        }
         val previousScrollX = scrollX
         val previousPlayheadMs = playheadMs
         playheadMs = clampedMs
@@ -507,6 +545,8 @@ class TimelineCanvasView @JvmOverloads constructor(
             DeviceDetector.DeviceTier.MID -> 220L
             DeviceDetector.DeviceTier.HIGH -> 120L
         }
+
+    fun isInteracting(): Boolean = timelineInteractionActive()
 
     private fun timelineInteractionActive(): Boolean =
         gesture != GestureKind.NONE ||
@@ -1219,7 +1259,9 @@ class TimelineCanvasView @JvmOverloads constructor(
         tracks.forEachIndexed { i, track ->
             populateTrackImportChipRect(i, track, tempTrackChipRect)
             tempHitRect.set(tempTrackChipRect)
-            tempHitRect.inset(-dp(8).toFloat(), -dp(8).toFloat())
+            // Expand vertically for comfortable tap touch target, but do not expand
+            // horizontally into the timeline scroll body so right-edge swiping is not hijacked.
+            tempHitRect.inset(0f, -dp(4).toFloat())
             if (tempHitRect.contains(x, y)) {
                 return track
             }
@@ -1467,6 +1509,12 @@ class TimelineCanvasView @JvmOverloads constructor(
         gestureClipSnapshot = null
         gestureStartScrollX = scrollX
         gestureStartScrollY = scrollY
+        clipMoveArmed = false
+        touchDownClipId = null
+        touchDownClip = null
+        pendingImportChipTrack = null
+        longPressHandler.removeCallbacks(longPressRunnable)
+        longPressHandler.removeCallbacks(clipMoveArmRunnable)
         stopEdgeAutoScroll()
 
         // Double tap → reset zoom
@@ -1484,15 +1532,14 @@ class TimelineCanvasView @JvmOverloads constructor(
         lastTapTimeMs = now
         lastTapX = event.x
 
-        trackImportChipHit(event.x, event.y)?.let { track ->
-            if (trackLocked[track.type] == true) {
-                listener?.onTrackSelected(track.type)
-                invalidate()
-                return
-            }
-            listener?.onTrackSelected(track.type)
-            listener?.onTrackImportRequested(track.type)
-            invalidate()
+        // Check if user touched an import chip button ('+')
+        // Do NOT open import immediately onDown — wait for onUp to verify clean tap!
+        val hitTrack = trackImportChipHit(event.x, event.y)
+        if (hitTrack != null) {
+            pendingImportChipTrack = hitTrack
+            pendingImportChipDownX = event.x
+            pendingImportChipDownY = event.y
+            pendingImportChipDownTimeMs = SystemClock.uptimeMillis()
             return
         }
 
@@ -1525,15 +1572,8 @@ class TimelineCanvasView @JvmOverloads constructor(
         // Find clip under touch
         val clip = findClipAt(event.x, event.y)
         if (clip == null) {
-            val videoTrackIndex = tracks.indexOfFirst { it.type == TrackType.VIDEO }
-            if (videoTrackIndex >= 0 && tracks[videoTrackIndex].clips.isEmpty()) {
-                val top = trackTop(videoTrackIndex).toFloat()
-                val bottom = top + trackVisualHeightPx(videoTrackIndex)
-                if (event.y in top..bottom) {
-                    listener?.onTrackImportRequested(TrackType.VIDEO)
-                    return
-                }
-            }
+            // Touch in empty timeline space — intended for scrolling,
+            // never open import sheet from empty track space!
             return
         }
         val left = msToX(clip.startTimeMs)
@@ -1541,35 +1581,38 @@ class TimelineCanvasView @JvmOverloads constructor(
 
         val isTrackLocked = trackLocked[clip.trackType] == true
         if (isTrackLocked) {
-            if (clip.id != selectedClipId) {
-                selectedClipId = clip.id
-                listener?.onClipSelected(clip.id)
-                invalidate()
-            }
+            touchDownClipId = clip.id
+            touchDownClip = clip
             return
         }
 
         val handleTouchMargin = dp(8).toFloat()
-        gesture = when {
-            clip.id == selectedClipId && event.x <= left + handleWidthPx + handleTouchMargin -> GestureKind.TRIM_START
-            clip.id == selectedClipId && event.x >= right - handleWidthPx - handleTouchMargin -> GestureKind.TRIM_END
-            else -> GestureKind.MOVE
-        }
-        gestureClipId = clip.id
-        gestureClipSnapshot = clip
+        val clipWidth = right - left
+        // Ensure trim handles on small clips do not completely cover the clip body and hijack scroll gestures.
+        // Cap handle reach to at most 28% of clip width so at least 44% in the middle is reserved for clip body.
+        val maxHandleReach = if (clipWidth > 0f) {
+            (handleWidthPx + handleTouchMargin).coerceAtMost(clipWidth * 0.28f)
+        } else 0f
 
-        if (onClipLongPress != null) {
-            longPressClipId = clip.id
-            longPressHandler.postDelayed(longPressRunnable, 500L)
-        } else {
-            longPressClipId = null
+        if (clip.id == selectedClipId && maxHandleReach > 0f) {
+            if (event.x <= left + maxHandleReach) {
+                gesture = GestureKind.TRIM_START
+                gestureClipId = clip.id
+                gestureClipSnapshot = clip
+                return
+            }
+            if (event.x >= right - maxHandleReach) {
+                gesture = GestureKind.TRIM_END
+                gestureClipId = clip.id
+                gestureClipSnapshot = clip
+                return
+            }
         }
 
-        if (clip.id != selectedClipId) {
-            selectedClipId = clip.id
-            listener?.onClipSelected(clip.id)
-            invalidate()
-        }
+        // Touch is on clip body: default to scrolling unless long-press is held
+        touchDownClipId = clip.id
+        touchDownClip = clip
+        longPressHandler.postDelayed(clipMoveArmRunnable, 250L)
     }
 
     private fun onMove(event: MotionEvent) {
@@ -1582,10 +1625,20 @@ class TimelineCanvasView @JvmOverloads constructor(
         gestureCurrentX = event.x
         gestureCurrentY = event.y
 
+        // Cancel pending import chip tracking if movement exceeds touch slop
+        if (pendingImportChipTrack != null) {
+            val chipMoveDist = kotlin.math.hypot(event.x - pendingImportChipDownX, event.y - pendingImportChipDownY)
+            if (chipMoveDist > touchSlop) {
+                pendingImportChipTrack = null
+            }
+        }
+
         if (!gestureStarted) {
             if (abs(dx) < touchSlop && abs(dy) < touchSlop) return
             gestureStarted = true
             longPressHandler.removeCallbacks(longPressRunnable) // cancel long press on move
+            longPressHandler.removeCallbacks(clipMoveArmRunnable)
+            pendingImportChipTrack = null
             if (lockedScrollAxis == ScrollAxis.NONE) {
                 lockedScrollAxis = if (abs(dx) >= abs(dy)) ScrollAxis.HORIZONTAL else ScrollAxis.VERTICAL
             }
@@ -1622,8 +1675,8 @@ class TimelineCanvasView @JvmOverloads constructor(
                 postInvalidateOnAnimation()
             }
             GestureKind.NONE -> {
-                // Decide: scroll or clip gesture
-                if (gestureClipId == null) {
+                // Decide: scroll or clip gesture (only move if explicitly long-press armed)
+                if (gestureClipId == null || !clipMoveArmed) {
                     gesture = GestureKind.SCROLL
                     if (lockedScrollAxis == ScrollAxis.NONE) {
                         lockedScrollAxis = if (abs(dx) >= abs(dy)) ScrollAxis.HORIZONTAL else ScrollAxis.VERTICAL
@@ -1648,31 +1701,77 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     private fun onUp(event: MotionEvent) {
         longPressHandler.removeCallbacks(longPressRunnable)
+        longPressHandler.removeCallbacks(clipMoveArmRunnable)
         longPressClipId = null
         showPlayheadTooltip = false
         stopEdgeAutoScroll()
         flushPendingGestureApply()
+
+        // 1. Check if user tapped an import chip ('+') button
+        val importTrack = pendingImportChipTrack
+        pendingImportChipTrack = null
+        if (importTrack != null && !gestureStarted) {
+            val dist = kotlin.math.hypot(event.x - pendingImportChipDownX, event.y - pendingImportChipDownY)
+            val durationMs = SystemClock.uptimeMillis() - pendingImportChipDownTimeMs
+            val tapMaxDist = touchSlop
+            if (dist <= tapMaxDist && durationMs in 30L..600L && trackImportChipHit(event.x, event.y)?.type == importTrack.type) {
+                if (trackLocked[importTrack.type] == true) {
+                    listener?.onTrackSelected(importTrack.type)
+                } else {
+                    listener?.onTrackSelected(importTrack.type)
+                    listener?.onTrackImportRequested(importTrack.type)
+                }
+                invalidate()
+                cleanupGestureState()
+                return
+            }
+        }
+
+        // 2. Active gesture commit (TRIM or deliberate MOVE)
         if (gestureStarted && gesture in listOf(GestureKind.TRIM_START, GestureKind.TRIM_END, GestureKind.MOVE)) {
             gestureClipId?.let { commitGesture(it, event.x - touchDownX, event.y - touchDownY) }
-        } else if (!gestureStarted && gesture == GestureKind.NONE && gestureClipId == null) {
-            if (event.y < rulerHeightPx) {
+        } else if (!gestureStarted) {
+            // Touch released without dragging (Tap)
+            val clip = touchDownClip
+            if (clip != null) {
+                // Tapped on a clip -> select it
+                if (clip.id != selectedClipId) {
+                    selectedClipId = clip.id
+                    listener?.onClipSelected(clip.id)
+                    invalidate()
+                }
+            } else if (event.y < rulerHeightPx) {
                 val ms = xToMs(event.x)
                 updatePlayheadWithHaptics(ms)
                 scrollX = scrollForPlayhead(ms)
+                listener?.onPlayheadScrub(ms)
+            } else if (pendingImportChipTrack == null) {
+                // Tapped on empty area -> deselect clip
+                if (selectedClipId != null) {
+                    selectedClipId = null
+                    listener?.onClipSelected(null)
+                    invalidate()
+                }
             }
-            // Tap on empty area → deselect clip without jumping playhead
-            selectedClipId = null
-            listener?.onClipSelected(null)
-            invalidate()
         }
+
+        cleanupGestureState()
+        scheduleAssetRequests(deferForInteraction = true)
+        invalidate()
+    }
+
+    private fun cleanupGestureState() {
         snapTimeMs = null
         lockedScrollAxis = ScrollAxis.NONE
         gesture = GestureKind.NONE
         gestureClipId = null
         gestureClipSnapshot = null
         gestureStarted = false
-        scheduleAssetRequests(deferForInteraction = true)
-        invalidate()
+        touchDownClipId = null
+        touchDownClip = null
+        clipMoveArmed = false
+        pendingImportChipTrack = null
+        pendingImportChipDownTimeMs = 0L
     }
 
     private fun updatePlayheadWithHaptics(newMs: Long) {

@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/quickExportRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0A0C10">
+
+    <!-- Main Content Container -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Top Header Bar -->
+        <LinearLayout
+            android:id="@+id/quickExportTopBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingTop="16dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="12dp">
+
+            <FrameLayout
+                android:id="@+id/quickExportBackBtn"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="@drawable/launch_secondary_icon_chip"
+                android:clickable="true"
+                android:focusable="true">
+
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_gravity="center"
+                    android:contentDescription="@string/back_label"
+                    android:src="@drawable/ic_back_toolbar"
+                    app:tint="#FFFFFF" />
+            </FrameLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/quickExportTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Status Video Preview"
+                    android:textColor="#FFFFFF"
+                    android:textSize="17sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/quickExportSubtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Tap Export to save directly to Gallery"
+                    android:textColor="#8A99AD"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/quickExportDurationBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/launch_count_chip_background"
+                android:paddingStart="10dp"
+                android:paddingTop="5dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="5dp"
+                android:text="14s HD"
+                android:textColor="#388BFD"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- Video Preview Container (Vertical 9:16 Frame) -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_margin="12dp">
+
+            <FrameLayout
+                android:id="@+id/previewSurfaceContainer"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_gravity="center"
+                android:background="#161B22" />
+
+            <!-- Play / Pause Overlay Icon -->
+            <ImageView
+                android:id="@+id/quickExportPlayPauseIcon"
+                android:layout_width="64dp"
+                android:layout_height="64dp"
+                android:layout_gravity="center"
+                android:background="@drawable/launch_count_chip_background"
+                android:padding="16dp"
+                android:src="@drawable/ic_play_toolbar"
+                android:visibility="gone"
+                app:tint="#FFFFFF" />
+        </FrameLayout>
+
+        <!-- Bottom Action Bar (1-Click Export) -->
+        <LinearLayout
+            android:id="@+id/quickExportBottomBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#161B22"
+            android:orientation="vertical"
+            android:paddingStart="20dp"
+            android:paddingTop="16dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="24dp">
+
+            <!-- Primary 1-Click Export Button -->
+            <FrameLayout
+                android:id="@+id/quickExportButton"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:background="@drawable/home_primary_card_bg"
+                android:clickable="true"
+                android:focusable="true">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="⚡"
+                        android:textSize="20sp" />
+
+                    <TextView
+                        android:id="@+id/quickExportButtonText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="1-CLICK EXPORT TO GALLERY"
+                        android:textColor="#FFFFFF"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </FrameLayout>
+
+            <!-- Secondary Timeline Editor Button -->
+            <TextView
+                android:id="@+id/openAdvancedEditorBtn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="12dp"
+                android:padding="6dp"
+                android:text="Want to add voiceover or cut clips? Open in Advanced Editor ✂️"
+                android:textColor="#8A99AD"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Translucent Export Progress Overlay -->
+    <FrameLayout
+        android:id="@+id/exportProgressOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#CC0A0C10"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:background="@drawable/home_secondary_card_bg"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="28dp">
+
+            <ProgressBar
+                android:id="@+id/exportProgressBar"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:indeterminate="false"
+                android:max="100"
+                android:progress="0"
+                android:progressDrawable="@drawable/launch_status_icon_chip" />
+
+            <TextView
+                android:id="@+id/exportPercentText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="Exporting Status Video... 0%"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Rendering effects, music &amp; lyrics"
+                android:textColor="#8A99AD"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </FrameLayout>
+
+</FrameLayout>

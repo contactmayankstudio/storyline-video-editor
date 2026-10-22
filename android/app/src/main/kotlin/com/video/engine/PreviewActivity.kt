@@ -1,38 +1,31 @@
 package com.video.engine
 
 
+import android.app.PictureInPictureParams
 import android.content.Context
+import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
-import androidx.appcompat.app.AppCompatActivity
-import android.widget.FrameLayout
-import android.widget.SeekBar
-import android.widget.LinearLayout
-import android.widget.TextView
-import android.view.ViewGroup
 import android.util.Log
+import android.util.Rational
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.SeekBar
+import android.widget.TextView
+import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 /**
- * Video Preview Activity with Timeline Scrubbing.
+ * Video Preview Activity with Timeline Scrubbing and Picture-in-Picture.
  * 
- * Demonstrates real-time frame preview while scrubbing through a video timeline.
- * 
- * Features:
- * - SurfaceView GPU preview
- * - SeekBar for timeline scrubbing
- * - Real-time frame render on drag (no playback)
- * - Touch feedback with time display
- * 
- * Architecture:
- * - UI SeekBar → onProgressChanged() → nativeRenderFrame(timeMs)
- * - No playback thread spawned
- * - One EGL context (reused from preview)
- * - GPU rendering only
- * 
- * Scrubbing vs Playback:
- * - Scrubbing: User drag → single frame render → instant preview
- * - Playback: Continuous loop → frame-by-frame at video FPS
- * 
- * This keeps preview scrubbing efficient without starting full playback.
+ * Demonstrates real-time frame preview while scrubbing through a video timeline,
+ * with edge-to-edge display and Picture-in-Picture (PiP) support.
  */
 class PreviewActivity : AppCompatActivity() {
     companion object {
@@ -42,10 +35,12 @@ class PreviewActivity : AppCompatActivity() {
     private lateinit var previewView: VideoPreviewView
     private lateinit var seekBar: SeekBar
     private lateinit var timeTextView: TextView
+    private var controlsLayout: LinearLayout? = null
     private var videoDurationMs: Long = 0L
     private var isScrubbingActive = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         
         // Create layout programmatically
@@ -55,6 +50,12 @@ class PreviewActivity : AppCompatActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
+        }
+
+        ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+            insets
         }
 
         // Preview view (takes most of space)
@@ -67,17 +68,48 @@ class PreviewActivity : AppCompatActivity() {
         }
         rootLayout.addView(previewView)
 
-        // Time display
-        timeTextView = TextView(this).apply {
-            text = "0:00 / 0:00"
-            textSize = 14f
+        val bottomControls = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+        controlsLayout = bottomControls
+
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             setPadding(16, 8, 16, 8)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
         }
-        rootLayout.addView(timeTextView)
+
+        // Time display
+        timeTextView = TextView(this).apply {
+            text = "0:00 / 0:00"
+            textSize = 14f
+            layoutParams = LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        }
+        headerRow.addView(timeTextView)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val pipButton = Button(this).apply {
+                text = "PiP"
+                textSize = 12f
+                setOnClickListener {
+                    enterPipMode()
+                }
+            }
+            headerRow.addView(pipButton)
+        }
+        bottomControls.addView(headerRow)
 
         // SeekBar for scrubbing
         seekBar = SeekBar(this).apply {
@@ -93,7 +125,6 @@ class PreviewActivity : AppCompatActivity() {
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
                     if (fromUser) {
-                        // User dragging seekbar
                         handleScrubbing(progress)
                     }
                 }
@@ -101,7 +132,6 @@ class PreviewActivity : AppCompatActivity() {
                 override fun onStartTrackingTouch(seekBar: SeekBar) {
                     Log.d(TAG, "[Scrub] Start dragging")
                     isScrubbingActive = true
-                    // Stop any playback
                     if (::previewView.isInitialized) {
                         previewView.stopPlayback()
                     }
@@ -110,7 +140,6 @@ class PreviewActivity : AppCompatActivity() {
                 override fun onStopTrackingTouch(seekBar: SeekBar) {
                     Log.d(TAG, "[Scrub] Stop dragging")
                     isScrubbingActive = false
-                    // Render final frame and stay there
                     if (::previewView.isInitialized) {
                         val currentProgress = seekBar.progress
                         val timeMs = (currentProgress.toLong() * videoDurationMs) / 1000L
@@ -120,12 +149,34 @@ class PreviewActivity : AppCompatActivity() {
                 }
             })
         }
-        rootLayout.addView(seekBar)
+        bottomControls.addView(seekBar)
+        rootLayout.addView(bottomControls)
 
         setContentView(rootLayout)
 
         // Load video
         loadVideo()
+    }
+
+    fun enterPipMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val params = PictureInPictureParams.Builder()
+                .setAspectRatio(Rational(16, 9))
+                .build()
+            enterPictureInPictureMode(params)
+        }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && videoDurationMs > 0) {
+            enterPipMode()
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        controlsLayout?.visibility = if (isInPictureInPictureMode) View.GONE else View.VISIBLE
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {

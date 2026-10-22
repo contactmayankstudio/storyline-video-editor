@@ -1,0 +1,60 @@
+{
+  "id": "tpl_cyberpunk_neon_gaming",
+  "title": "Cyberpunk Neon Gaming Montage",
+  "category": "Gaming & YouTube",
+  "aspect_ratio": "16:9",
+  "target_width": 1920,
+  "target_height": 1080,
+  "duration_ms": 14000,
+  "description": "Electric cyan & magenta gaming montage with glitch transitions, sound effects, and impact drops.",
+  "lut": "cyberpunk_neon.cube",
+  "font": "Bangers-Regular.ttf",
+  "default_sfx": [
+    "glitch_sfx.wav",
+    "bass_drop_808.wav"
+  ],
+  "slots": [
+    {
+      "slot_id": 1,
+      "start_ms": 0,
+      "duration_ms": 3000,
+      "label": "Gameplay Highlight 1",
+      "transition_out": "glitch"
+    },
+    {
+      "slot_id": 2,
+      "start_ms": 3000,
+      "duration_ms": 2500,
+      "label": "Headshot / Kill moment",
+      "transition_out": "shake_zoom"
+    },
+    {
+      "slot_id": 3,
+      "start_ms": 5500,
+      "duration_ms": 4000,
+      "label": "Clutch Plays",
+      "transition_out": "rgb_split"
+    },
+    {
+      "slot_id": 4,
+      "start_ms": 9500,
+      "duration_ms": 4500,
+      "label": "Victory Finale",
+      "transition_out": "fade_black"
+    }
+  ],
+  "text_layers": [
+    {
+      "text": "INSANE CLUTCH 1v5",
+      "font": "Bangers-Regular.ttf",
+      "font_size_sp": 38,
+      "color": "#00F0FF",
+      "stroke_color": "#FF0077",
+      "stroke_width_px": 8,
+      "start_ms": 0,
+      "duration_ms": 3000,
+      "position_y_percent": 0.18,
+      "animation": "glitch_in"
+    }
+  ]
+}

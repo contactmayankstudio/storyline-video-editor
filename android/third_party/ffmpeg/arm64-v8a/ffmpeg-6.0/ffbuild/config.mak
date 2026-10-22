@@ -41,7 +41,7 @@ NM_CMD=/home/am/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86
 METALCC=xcrun -sdk macosx metal
 METALLIB=xcrun -sdk macosx metallib
 RANLIB=/home/am/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-ranlib
-STRIP=/home/am/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-strip
+STRIP=/home/am/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip
 STRIPTYPE=direct
 NVCC=clang
 CP=cp -p
@@ -71,10 +71,10 @@ LD_PATH=-L
 DLLTOOL=
 WINDRES=/home/am/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-windres
 DOXYGEN=doxygen
-LDFLAGS= -L/home/am/storyline/android/third_party/ffmpeg/arm64-v8a/lib -landroid  --sysroot=/home/am/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Wl,--as-needed -Wl,-z,noexecstack -Wl,--warn-common -Wl,-rpath-link=:libpostproc:libswresample:libswscale:libavfilter:libavdevice:libavformat:libavcodec:libavutil -Qunused-arguments
+LDFLAGS= -Wl,-z,max-page-size=16384 -L/home/am/storyline/android/third_party/ffmpeg/arm64-v8a/lib -landroid  --sysroot=/home/am/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Wl,--as-needed -Wl,-z,noexecstack -Wl,--warn-common -Wl,-rpath-link=:libpostproc:libswresample:libswscale:libavfilter:libavdevice:libavformat:libavcodec:libavutil -Qunused-arguments
 LDEXEFLAGS= -fPIE -pie
 LDSOFLAGS=
-SHFLAGS=-shared -Wl,-soname,$(SLIBNAME) -Wl,-Bsymbolic -Wl,--version-script,$(SUBDIR)lib$(NAME).ver
+SHFLAGS=-shared -Wl,-z,max-page-size=16384 -Wl,-soname,$(SLIBNAME) -Wl,-Bsymbolic -Wl,--version-script,$(SUBDIR)lib$(NAME).ver
 ASMSTRIPFLAGS=
 X86ASMFLAGS=
 MSAFLAGS=

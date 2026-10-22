@@ -9,6 +9,10 @@ import android.view.View
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.widget.NestedScrollView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -19,7 +23,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class LaunchActivity : Activity() {
+class LaunchActivity : ComponentActivity() {
     private var homeScrollView: NestedScrollView? = null
     private var recentProjectsList: RecyclerView? = null
     private var emptyProjectsContainer: View? = null
@@ -29,8 +33,22 @@ class LaunchActivity : Activity() {
     private var navProjectsLabel: TextView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_start_shell)
+
+        findViewById<View>(R.id.startScreenOverlay)?.let { root ->
+            ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+                val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+                findViewById<View>(R.id.startHeaderRow)?.let { header ->
+                    header.setPadding(header.paddingLeft, systemBars.top, header.paddingRight, header.paddingBottom)
+                }
+                findViewById<View>(R.id.homeBottomNav)?.let { nav ->
+                    nav.setPadding(nav.paddingLeft, nav.paddingTop, nav.paddingRight, systemBars.bottom)
+                }
+                insets
+            }
+        }
 
         homeScrollView = findViewById(R.id.homeScrollView)
         emptyProjectsContainer = findViewById(R.id.startRecentProjectsEmptyContainer)
@@ -47,6 +65,12 @@ class LaunchActivity : Activity() {
         // Main Create Actions
         findViewById<View>(R.id.startNewProjectButton).setOnClickListener {
             openEditor(EditorLaunchIntents.START_ACTION_NEW)
+        }
+        findViewById<View>(R.id.startStatusMakerButton)?.setOnClickListener {
+            startActivity(Intent(this, com.video.engine.status.StatusMakerActivity::class.java))
+        }
+        findViewById<View>(R.id.startFunCameraButton)?.setOnClickListener {
+            startActivity(Intent(this, com.video.engine.camera.FunCameraActivity::class.java))
         }
         findViewById<View>(R.id.startPhotoEditorButton).setOnClickListener {
             openPhotoEditor(resume = false)
@@ -224,6 +248,8 @@ class LaunchActivity : Activity() {
 
     private fun setStartActionsEnabled(enabled: Boolean) {
         findViewById<View?>(R.id.startNewProjectButton)?.isEnabled = enabled
+        findViewById<View?>(R.id.startStatusMakerButton)?.isEnabled = enabled
+        findViewById<View?>(R.id.startFunCameraButton)?.isEnabled = enabled
         findViewById<View?>(R.id.startPhotoEditorButton)?.isEnabled = enabled
     }
 }

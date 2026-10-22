@@ -189,6 +189,7 @@ private:
     EGLDisplay m_eglDisplay;
     EGLContext m_eglContext;
     EGLSurface m_eglSurface;
+    void* m_eglConfig = nullptr;
     ANativeWindow* m_nativeWindow;
 
     // Render state
@@ -254,6 +255,11 @@ private:
      * @return true on success
      */
     bool createQuadMesh();
+
+    /**
+     * Internal: Direct vertex attribute pointer draw to avoid VAO state corruption.
+     */
+    void drawQuad();
 
     /**
      * Internal: Make EGL context current on this thread.

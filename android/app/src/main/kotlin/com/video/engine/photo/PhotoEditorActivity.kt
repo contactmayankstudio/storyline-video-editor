@@ -29,6 +29,10 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.video.engine.AdsController
 import com.video.engine.R
 import java.io.File
@@ -37,7 +41,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.max
 
-class PhotoEditorActivity : Activity() {
+class PhotoEditorActivity : ComponentActivity() {
     private enum class PhotoStudioTab { CANVAS, PRESETS, EDIT, MAGIC, TEXT, ELEMENTS, LAYERS }
 
     companion object {
@@ -91,8 +95,15 @@ class PhotoEditorActivity : Activity() {
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        setContentView(buildLayout())
+        val root = buildLayout()
+        setContentView(root)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+            insets
+        }
         adsController = AdsController(this)
         projectNameEdit.setText(getPreferences(MODE_PRIVATE).getString(PROJECT_NAME_PREF, "Untitled Photo"))
         val requestedProjectFile = intent.getStringExtra(EXTRA_PHOTO_PROJECT_PATH)

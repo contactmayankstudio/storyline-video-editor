@@ -4083,33 +4083,44 @@ transcode_clip_done:
                 g_currentTimeMs.store(currentTimeMs, std::memory_order_release);
 
                 if (!rendered) {
-                    const char* lastError = preview->getLastError();
-                    if (shouldRecoverPreviewRendererLocked(lastError)) {
-                        const int64_t resumeTimeMs = std::max<int64_t>(0, currentTimeMs);
-                        bool recovered = false;
-                        {
-                            std::lock_guard<std::mutex> lock(g_mutex);
-                            recovered = recoverPreviewRendererSurfaceLocked("[RenderRecover]");
-                        }
-                        if (recovered && preview->playFrom(resumeTimeMs)) {
-                            g_currentTimeMs.store(
-                                preview->getPlaybackTimelineTimeMs(),
-                                std::memory_order_release);
-                            g_isRenderingActive.store(true, std::memory_order_release);
-                            sleepMs = std::max<int64_t>(4, preview->preferredRenderSleepMs());
-                            continue;
-                        }
-                        lastError = preview->getLastError();
-                    }
-                    g_isRenderingActive.store(false, std::memory_order_release);
-                    preview->stop();
-                    if (lastError && lastError[0] != '\0') {
-                        LOGE("[Preview] playback render failed at %lld ms: %s",
-                             static_cast<long long>(currentTimeMs),
-                             lastError);
+                    const int64_t timelineDuration = preview->getVideoDurationMs();
+                    const bool atEndOfTimeline = (timelineDuration > 0 && currentTimeMs >= (timelineDuration - 100));
+
+                    if (!atEndOfTimeline && preview->isPlaying()) {
+                        // Transient drop during active playback: keep playing.
+                        // Fall through to preciseRenderWait for proper vsync pacing
+                        // instead of spinning the CPU.
+                        sleepMs = adjustedPlaybackSleepMs(preview, renderCostMs);
                     } else {
-                        LOGI("[Preview] playback reached end at %lld ms",
-                             static_cast<long long>(currentTimeMs));
+                        // Real render failure or end-of-timeline: attempt recovery or stop.
+                        const char* lastError = preview->getLastError();
+                        if (shouldRecoverPreviewRendererLocked(lastError)) {
+                            const int64_t resumeTimeMs = std::max<int64_t>(0, currentTimeMs);
+                            bool recovered = false;
+                            {
+                                std::lock_guard<std::mutex> lock(g_mutex);
+                                recovered = recoverPreviewRendererSurfaceLocked("[RenderRecover]");
+                            }
+                            if (recovered && preview->playFrom(resumeTimeMs)) {
+                                g_currentTimeMs.store(
+                                    preview->getPlaybackTimelineTimeMs(),
+                                    std::memory_order_release);
+                                g_isRenderingActive.store(true, std::memory_order_release);
+                                sleepMs = std::max<int64_t>(4, preview->preferredRenderSleepMs());
+                                continue;
+                            }
+                            lastError = preview->getLastError();
+                        }
+                        g_isRenderingActive.store(false, std::memory_order_release);
+                        preview->stop();
+                        if (lastError && lastError[0] != '\0') {
+                            LOGE("[Preview] playback render failed at %lld ms: %s",
+                                 static_cast<long long>(currentTimeMs),
+                                 lastError);
+                        } else {
+                            LOGI("[Preview] playback reached end at %lld ms",
+                                 static_cast<long long>(currentTimeMs));
+                        }
                     }
                 }
 
@@ -4698,6 +4709,10 @@ Java_com_video_engine_VideoPreviewView_nativeAddClip(
         static_cast<int>(clip->getId()),
         videoPath,
         clip->getDuration());
+
+    if (!isAudioClip && g_preview) {
+        g_preview->prewarmClip(static_cast<int>(clip->getId()), videoPath);
+    }
 
     LOGI("[Timeline] Added clip id=%d path=%s track=%s start=%lld lane=%d z=%d", 
          clip->getId(), videoPath.c_str(), trackType.c_str(), (long long)actualStartMs, trackLane, zOrder);

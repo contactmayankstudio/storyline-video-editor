@@ -1,0 +1,58 @@
+{
+  "id": "tpl_cinematic_travel_vlog",
+  "title": "Moody Cinematic Travel Vlog",
+  "category": "Cinematic & Travel",
+  "aspect_ratio": "9:16",
+  "target_width": 1080,
+  "target_height": 1920,
+  "duration_ms": 15000,
+  "description": "Smooth slow-motion travel moments with blockbuster Teal & Orange color grade and elegant title cards.",
+  "lut": "cinematic_teal_and_orange.cube",
+  "font": "Montserrat-Variable.ttf",
+  "default_sfx": [
+    "swoosh_transition.wav"
+  ],
+  "slots": [
+    {
+      "slot_id": 1,
+      "start_ms": 0,
+      "duration_ms": 4000,
+      "label": "Wide Landscape Intro",
+      "transition_out": "cross_dissolve"
+    },
+    {
+      "slot_id": 2,
+      "start_ms": 4000,
+      "duration_ms": 3500,
+      "label": "Detail / Portrait Shot",
+      "transition_out": "smooth_blur"
+    },
+    {
+      "slot_id": 3,
+      "start_ms": 7500,
+      "duration_ms": 4000,
+      "label": "Golden Hour Motion",
+      "transition_out": "film_fade"
+    },
+    {
+      "slot_id": 4,
+      "start_ms": 11500,
+      "duration_ms": 3500,
+      "label": "Sunset Finale",
+      "transition_out": "fade_black"
+    }
+  ],
+  "text_layers": [
+    {
+      "text": "EXPLORING THE UNKNOWN",
+      "font": "Montserrat-Variable.ttf",
+      "font_size_sp": 22,
+      "letter_spacing": 0.25,
+      "color": "#F0F0F0",
+      "start_ms": 800,
+      "duration_ms": 3200,
+      "position_y_percent": 0.5,
+      "animation": "slow_reveal"
+    }
+  ]
+}

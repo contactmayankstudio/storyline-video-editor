@@ -11,7 +11,8 @@
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/topBar"
         android:layout_width="match_parent"
-        android:layout_height="46dp"
+        android:layout_height="wrap_content"
+        android:minHeight="46dp"
         android:layoutDirection="ltr"
         android:background="@drawable/top_bar_background"
         android:paddingStart="8dp"
@@ -955,6 +956,12 @@
                 android:paddingStart="8dp"
                 android:paddingEnd="8dp">
 
+                <LinearLayout android:id="@+id/aiCopilotButton"
+                    style="@style/ToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_magic_wand" android:tint="@color/accent_cyan"/>
+                    <TextView style="@style/ToolbarLabel" android:text="AI Copilot" android:textColor="@color/accent_cyan"/>
+                </LinearLayout>
+
                 <LinearLayout android:id="@+id/cutButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_video_clip"/>
@@ -1065,6 +1072,11 @@
                     android:maxWidth="220dp"
                     android:singleLine="true"
                     android:visibility="gone"/>
+
+                <LinearLayout android:id="@+id/clipAiCopilotButton" style="@style/ClipToolbarItem">
+                    <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_magic_wand" android:tint="@color/accent_cyan"/>
+                    <TextView android:id="@+id/clipAiCopilotLabel" style="@style/ClipToolbarLabel" android:text="AI Copilot" android:textColor="@color/accent_cyan"/>
+                </LinearLayout>
 
                 <LinearLayout android:id="@+id/clipDeleteButton" style="@style/ClipToolbarItem.Delete">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_delete" android:tint="@color/semantic_destructive"/>

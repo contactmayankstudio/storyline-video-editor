@@ -887,12 +887,60 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                 gravity = Gravity.END or Gravity.CENTER_VERTICAL
                 marginEnd = dp(4)
             }
-            addView(importButton, importParams)
+            var importDownRawX = 0f
+            var importDownRawY = 0f
+            var importDragging = false
+            val importTouchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+
+            importButton.setOnTouchListener { v, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        importDownRawX = event.rawX
+                        importDownRawY = event.rawY
+                        importDragging = false
+                        false
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = event.rawX - importDownRawX
+                        val dy = event.rawY - importDownRawY
+                        if (!importDragging && (abs(dx) > importTouchSlop || abs(dy) > importTouchSlop)) {
+                            importDragging = true
+                            v.isPressed = false
+                            val cancelEvent = MotionEvent.obtain(event)
+                            cancelEvent.action = MotionEvent.ACTION_CANCEL
+                            v.onTouchEvent(cancelEvent)
+                            cancelEvent.recycle()
+                        }
+                        if (importDragging) {
+                            recyclerView.scrollBy((-dx).toInt(), 0)
+                            importDownRawX = event.rawX
+                            importDownRawY = event.rawY
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (importDragging) {
+                            importDragging = false
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    MotionEvent.ACTION_CANCEL -> {
+                        importDragging = false
+                        false
+                    }
+                    else -> false
+                }
+            }
 
             importButton.setOnClickListener {
                 onTrackSelected?.invoke(trackType)
                 onTrackImportRequested?.invoke(trackType)
             }
+            addView(importButton, importParams)
             
             updateHeaderState()
         }
@@ -1416,9 +1464,9 @@ class MultiTrackTimelineView @JvmOverloads constructor(
             var edgeAutoScrollAccumPx = 0f
             var edgeAutoScrollRunning = false
             val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
-            val longPressTimeoutMs = ViewConfiguration.getLongPressTimeout().toLong()
+            val longPressTimeoutMs = 400L
             // Keep trim hit-zone narrow so casual timeline scroll does not become trim.
-            val handleZonePx = minOf(dpPx(28).toFloat(), width * 0.4f)
+            val handleZonePx = minOf(dpPx(20).toFloat(), width * 0.28f)
             val previewWidthMinPx = dpPx(MIN_CLIP_WIDTH_DP)
             var activeGestureKind: ClipGestureKind? = null
             var pendingTrimKind: ClipGestureKind? = null
@@ -1514,7 +1562,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                 }
             }
             val moveArmRunnable = Runnable {
-                if (!isTrackLocked && isSelected && pendingTrimKind == null) {
+                if (!isTrackLocked && pendingTrimKind == null) {
                     moveLongPressArmed = true
                     activeGestureKind = ClipGestureKind.MOVE
                     parent?.requestDisallowInterceptTouchEvent(true)
@@ -1550,7 +1598,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                         if (pendingTrimKind != null) {
                             parent?.requestDisallowInterceptTouchEvent(true)
                         }
-                        if (isSelected && !isTrackLocked && pendingTrimKind == null) {
+                        if (!isTrackLocked && pendingTrimKind == null) {
                             postDelayed(moveArmRunnable, longPressTimeoutMs)
                         }
                         true
@@ -1588,17 +1636,6 @@ class MultiTrackTimelineView @JvmOverloads constructor(
                                 // Vertical drag — release intercept so parent can scroll
                                 pendingTrimKind = null
                                 parent?.requestDisallowInterceptTouchEvent(false)
-                            } else if (isSelected &&
-                                !isTrackLocked &&
-                                pendingTrimKind == null &&
-                                kotlin.math.abs(deltaPx) >= touchSlop &&
-                                kotlin.math.abs(deltaPx) >= kotlin.math.abs(deltaYPx)
-                            ) {
-                                removeCallbacks(moveArmRunnable)
-                                activeGestureKind = ClipGestureKind.MOVE
-                                parent?.requestDisallowInterceptTouchEvent(true)
-                                onClipSelected?.invoke(clip.id)
-                                alpha = 0.92f
                             } else if (moveLongPressArmed) {
                                 activeGestureKind = ClipGestureKind.MOVE
                             } else {

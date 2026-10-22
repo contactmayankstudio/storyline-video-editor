@@ -51,3 +51,5 @@ target_link_libraries(
     ${gles-lib}
     ${opensles-lib}
 )
+
+target_link_options(video_engine PRIVATE "-Wl,-z,max-page-size=16384")

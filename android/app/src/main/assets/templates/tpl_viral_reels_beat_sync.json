@@ -1,0 +1,85 @@
+{
+  "id": "tpl_viral_reels_beat_sync",
+  "title": "Viral Reels Fast Beat Sync",
+  "category": "Trending Reels / Shorts",
+  "aspect_ratio": "9:16",
+  "target_width": 1080,
+  "target_height": 1920,
+  "duration_ms": 12000,
+  "bpm": 128,
+  "description": "High-energy fast cuts synced to heavy bass beats with zoom-in transitions.",
+  "lut": "vibrant_pop_reels.cube",
+  "font": "Anton-Regular.ttf",
+  "default_sfx": [
+    "whoosh_fast.wav",
+    "bass_drop_808.wav"
+  ],
+  "slots": [
+    {
+      "slot_id": 1,
+      "start_ms": 0,
+      "duration_ms": 2500,
+      "label": "Hook (Intro Clip)",
+      "transition_out": "flash"
+    },
+    {
+      "slot_id": 2,
+      "start_ms": 2500,
+      "duration_ms": 937,
+      "label": "Beat 1",
+      "transition_out": "zoom_in"
+    },
+    {
+      "slot_id": 3,
+      "start_ms": 3437,
+      "duration_ms": 937,
+      "label": "Beat 2",
+      "transition_out": "whip_right"
+    },
+    {
+      "slot_id": 4,
+      "start_ms": 4374,
+      "duration_ms": 1876,
+      "label": "Drop Impact",
+      "transition_out": "glitch"
+    },
+    {
+      "slot_id": 5,
+      "start_ms": 6250,
+      "duration_ms": 2812,
+      "label": "Action Sequence",
+      "transition_out": "whoosh"
+    },
+    {
+      "slot_id": 6,
+      "start_ms": 9062,
+      "duration_ms": 2938,
+      "label": "Outro CTA",
+      "transition_out": "fade_black"
+    }
+  ],
+  "text_layers": [
+    {
+      "text": "WAIT FOR THE DROP \ud83d\udd25",
+      "font": "Anton-Regular.ttf",
+      "font_size_sp": 32,
+      "color": "#FFE500",
+      "stroke_color": "#000000",
+      "stroke_width_px": 6,
+      "start_ms": 0,
+      "duration_ms": 2500,
+      "position_y_percent": 0.22,
+      "animation": "bounce_in"
+    },
+    {
+      "text": "@YOURNAME",
+      "font": "Montserrat-Variable.ttf",
+      "font_size_sp": 16,
+      "color": "#FFFFFF",
+      "start_ms": 9500,
+      "duration_ms": 2500,
+      "position_y_percent": 0.85,
+      "animation": "fade_in"
+    }
+  ]
+}

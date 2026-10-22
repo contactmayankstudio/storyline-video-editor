@@ -157,6 +157,7 @@ PreviewController::PreviewController()
     , m_lastScrubRequestWallClock(std::chrono::steady_clock::now())
 {
     m_timeline = std::make_shared<Timeline>();
+    m_isAlive = std::make_shared<std::atomic<bool>>(true);
     m_audioSyncEngine = std::make_unique<VideoEngine::DeepPro::AudioEnginePro>();
     m_frameBudgetController = std::make_unique<VideoEngine::Performance::FrameBudgetController>();
     m_framePrefetcher = std::make_unique<VideoEngine::Performance::FramePrefetcher>();
@@ -300,8 +301,11 @@ bool PreviewController::attachSurface(ANativeWindow* window) {
         releasePrimaryTextureLocked();
         return false;
     }
-    const int texW = m_videoWidth > 0 ? m_videoWidth : 1280;
-    const int texH = m_videoHeight > 0 ? m_videoHeight : 720;
+    // Round to even dimensions to match decoder's SIMD alignment (video_decoder.cpp).
+    // Without this, odd-dimension videos create a size mismatch between the decoded
+    // RGB buffer and the GPU texture, causing pixel-row misalignment and blur.
+    const int texW = ((m_videoWidth > 0 ? m_videoWidth : 1280) + 1) & ~1;
+    const int texH = ((m_videoHeight > 0 ? m_videoHeight : 720) + 1) & ~1;
     if (!ensurePrimaryTripleBufferLocked(texW, texH)) {
         setError("Texture initialization failed");
         m_renderer->releaseContext();
@@ -545,6 +549,14 @@ bool PreviewController::processFrame() {
         renderFinishedAt - renderStartedAt).count();
     updateAdaptiveOverloadScoreLocked(renderCostMs);
     if (!rendered) {
+        if (m_isPlaying.load()) {
+            if (m_texture && m_texture->isValid()) {
+                redrawTextureLocked(0, 0, m_surfaceWidth, m_surfaceHeight, false);
+            }
+            m_currentTimeMs.store(targetTimelineMs);
+            m_lastRenderTimeMs = targetTimelineMs;
+            return true;
+        }
         return false;
     }
     clearError();
@@ -584,6 +596,9 @@ int64_t PreviewController::preferredRenderSleepMs() const {
 }
 
 void PreviewController::destroy() {
+    if (m_isAlive) {
+        m_isAlive->store(false);
+    }
     m_isPlaying.store(false);
     stopPredictivePrefetchWorker();
     if (m_smartCache) {
@@ -885,19 +900,47 @@ bool PreviewController::switchDecoderSourceLocked(const std::shared_ptr<Clip>& c
         return true;
     }
 
-    stopDecodeWorkerLocked();
-    clearQueuedFramesLocked();
+    const int clipId = static_cast<int>(clip->getId());
 
-    if (m_decoder) {
+    // Cache outgoing decoder into m_clipDecoders for instant return
+    if (m_lastRenderedClipId > 0 && m_decoder && !m_openVideoPath.empty()) {
+        auto& oldState = m_clipDecoders[m_lastRenderedClipId];
+        oldState.openPath = m_openVideoPath;
+        oldState.decoder = std::move(m_decoder);
+    } else if (m_decoder) {
         m_decoder->close();
         m_decoder.reset();
     }
-    m_converter = std::make_unique<FrameConverter>();
-    m_decoder = std::make_unique<VideoDecoder>();
-    if (!m_decoder->open(decoderPath)) {
-        setError("Failed to open video: %s", m_decoder->getLastError());
-        m_decoder.reset();
-        return false;
+
+    stopDecodeWorkerLocked();
+    clearQueuedFramesLocked();
+
+    // Check if target clip already has an open decoder in m_clipDecoders
+    auto it = m_clipDecoders.find(clipId);
+    if (it != m_clipDecoders.end() && it->second.decoder && it->second.openPath == decoderPath) {
+        m_decoder = std::move(it->second.decoder);
+        m_converter = std::make_unique<FrameConverter>();
+    } else {
+        m_converter = std::make_unique<FrameConverter>();
+        m_decoder = std::make_unique<VideoDecoder>();
+        if (!m_decoder->open(decoderPath)) {
+            setError("Failed to open video: %s", m_decoder->getLastError());
+            m_decoder.reset();
+            return false;
+        }
+    }
+
+    // Keep at most 4 open decoders in m_clipDecoders to conserve memory
+    while (m_clipDecoders.size() > 4) {
+        auto oldest = m_clipDecoders.begin();
+        if (oldest->first == clipId || oldest->first == m_lastRenderedClipId) {
+            oldest = std::next(oldest);
+            if (oldest == m_clipDecoders.end()) break;
+        }
+        if (oldest->second.decoder) {
+            oldest->second.decoder->close();
+        }
+        m_clipDecoders.erase(oldest);
     }
 
     m_openVideoPath = decoderPath;
@@ -929,7 +972,10 @@ bool PreviewController::switchDecoderSourceLocked(const std::shared_ptr<Clip>& c
             setError("Render context acquire failed while switching source");
             return false;
         }
-        const bool ok = ensurePrimaryTripleBufferLocked(m_videoWidth, m_videoHeight);
+        // Round to even dimensions to align with decoder output and avoid pixel stride corruption
+        const int texW = ((m_videoWidth > 0 ? m_videoWidth : 1280) + 1) & ~1;
+        const int texH = ((m_videoHeight > 0 ? m_videoHeight : 720) + 1) & ~1;
+        const bool ok = ensurePrimaryTripleBufferLocked(texW, texH);
         m_renderer->releaseContext();
         if (!ok) {
             setError("Texture resize failed while switching source");
@@ -937,6 +983,111 @@ bool PreviewController::switchDecoderSourceLocked(const std::shared_ptr<Clip>& c
         }
     }
     return true;
+}
+
+void PreviewController::prewarmClip(int clipId, const std::string& path) {
+    if (clipId <= 0 || path.empty() || !m_isAlive || !m_isAlive->load()) {
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(m_playbackMutex);
+        auto it = m_clipDecoders.find(clipId);
+        if (it != m_clipDecoders.end() && it->second.decoder) {
+            return;
+        }
+        if (m_clipDecoders.size() >= 4) {
+            return;
+        }
+    }
+
+    if (m_prewarmingClipId.load() == clipId) {
+        return;
+    }
+    m_prewarmingClipId.store(clipId);
+
+    auto alive = m_isAlive;
+    std::thread([this, alive, clipId, path]() {
+        if (!alive || !alive->load()) {
+            return;
+        }
+        auto dec = std::make_unique<Backend::VideoDecoder>();
+        if (dec->open(path)) {
+            if (!alive || !alive->load()) return;
+            dec->seekForPreview(0);
+            if (!alive || !alive->load()) return;
+            std::lock_guard<std::mutex> lock(m_playbackMutex);
+            if (!alive || !alive->load()) return;
+            auto& state = m_clipDecoders[clipId];
+            state.openPath = path;
+            state.decoder = std::move(dec);
+            state.lastRenderedSourceMs = -1;
+        }
+        m_prewarmingClipId.store(-1);
+    }).detach();
+}
+
+void PreviewController::prewarmNextClipLocked(const std::shared_ptr<Clip>& currentClip, int64_t currentTimelineMs) {
+    (void)currentTimelineMs;
+    if (!m_timeline || !currentClip || !m_isAlive || !m_isAlive->load()) {
+        return;
+    }
+    const int64_t currentClipEnd = currentClip->getStartTime() + currentClip->getDuration();
+    std::shared_ptr<Clip> nextClip = nullptr;
+    int64_t minStartDelta = std::numeric_limits<int64_t>::max();
+
+    for (const auto& clip : m_timeline->clips()) {
+        if (!clip || !clip->getProperties().enabled) continue;
+        if (clip->getId() == currentClip->getId()) continue;
+        const auto role = clip->getTrackRole();
+        if (role != Clip::TrackRole::MainVideo && role != Clip::TrackRole::Overlay) continue;
+        const int64_t start = clip->getStartTime();
+        if (start >= currentClip->getStartTime() && start <= (currentClipEnd + 500)) {
+            const int64_t delta = std::llabs(start - currentClipEnd);
+            if (delta < minStartDelta) {
+                minStartDelta = delta;
+                nextClip = clip;
+            }
+        }
+    }
+
+    if (!nextClip || nextClip->getMediaType() != Clip::MediaType::Video) {
+        return;
+    }
+    const int nextClipId = static_cast<int>(nextClip->getId());
+    auto it = m_clipDecoders.find(nextClipId);
+    if (it != m_clipDecoders.end() && it->second.decoder) {
+        return;
+    }
+    if (m_prewarmingClipId.load() == nextClipId) {
+        return;
+    }
+
+    syncClipProxyPathLocked(nextClip);
+    const std::string path = resolvePreviewDecoderPath(nextClip.get(), m_adaptiveProxyEnabled);
+    if (path.empty()) {
+        return;
+    }
+
+    m_prewarmingClipId.store(nextClipId);
+    auto alive = m_isAlive;
+    std::thread([this, alive, nextClipId, path]() {
+        if (!alive || !alive->load()) {
+            return;
+        }
+        auto dec = std::make_unique<Backend::VideoDecoder>();
+        if (dec->open(path)) {
+            if (!alive || !alive->load()) return;
+            dec->seekForPreview(0);
+            if (!alive || !alive->load()) return;
+            std::lock_guard<std::mutex> lock(m_playbackMutex);
+            if (!alive || !alive->load()) return;
+            auto& state = m_clipDecoders[nextClipId];
+            state.openPath = path;
+            state.decoder = std::move(dec);
+            state.lastRenderedSourceMs = -1;
+        }
+        m_prewarmingClipId.store(-1);
+    }).detach();
 }
 
 const PreviewController::ClipTransition* PreviewController::findActiveTransitionLocked(int64_t timelineMs) const {
@@ -1212,8 +1363,11 @@ bool PreviewController::renderTimelineFrameLocked(
         }
     };
 
-    std::vector<std::shared_ptr<Clip>> activeVisualClips;
+    std::shared_ptr<Clip> activeMainClip = nullptr;
+    std::vector<std::shared_ptr<Clip>> activeCompositeClips;
+
     if (m_timeline) {
+        std::vector<std::shared_ptr<Clip>> candidateMainClips;
         for (const auto& clip : m_timeline->clips()) {
             if (!clip || !clip->getProperties().enabled) continue;
             const auto trackRole = clip->getTrackRole();
@@ -1224,47 +1378,64 @@ bool PreviewController::renderTimelineFrameLocked(
             const int64_t startMs = clip->getStartTime();
             const int64_t endMs = startMs + std::max<int64_t>(1, clip->getDuration());
             if (clampedTimelineMs < startMs || clampedTimelineMs >= endMs) continue;
-            activeVisualClips.push_back(clip);
+
+            if (trackRole == Clip::TrackRole::Overlay) {
+                activeCompositeClips.push_back(clip);
+            } else {
+                candidateMainClips.push_back(clip);
+            }
         }
 
+        // Sort overlay clips by Z-order
         std::sort(
-            activeVisualClips.begin(),
-            activeVisualClips.end(),
-            [&](const std::shared_ptr<Clip>& a, const std::shared_ptr<Clip>& b) {
-                if (!a || !b) return static_cast<bool>(a);
+            activeCompositeClips.begin(),
+            activeCompositeClips.end(),
+            [](const std::shared_ptr<Clip>& a, const std::shared_ptr<Clip>& b) {
                 if (a->getTrackZOrder() != b->getTrackZOrder()) {
                     return a->getTrackZOrder() < b->getTrackZOrder();
-                }
-                const int priorityA = visualTrackPriority(a->getTrackRole());
-                const int priorityB = visualTrackPriority(b->getTrackRole());
-                if (priorityA != priorityB) {
-                    return priorityA < priorityB;
                 }
                 if (a->getTrackLane() != b->getTrackLane()) {
                     return a->getTrackLane() < b->getTrackLane();
                 }
-                if (a->getStartTime() != b->getStartTime()) {
-                    return a->getStartTime() < b->getStartTime();
-                }
                 return a->getId() < b->getId();
             });
 
-        if (!activeVisualClips.empty()) {
-            activeClip = activeVisualClips.front();
+        if (!candidateMainClips.empty()) {
+            // If playing and the current active clip is one of the candidates, stick with it
+            for (const auto& c : candidateMainClips) {
+                if (m_lastRenderedClipId > 0 && static_cast<int>(c->getId()) == m_lastRenderedClipId) {
+                    activeMainClip = c;
+                    break;
+                }
+            }
+            if (!activeMainClip) {
+                // Otherwise pick the clip with the latest start time (most specific for the current position)
+                std::sort(
+                    candidateMainClips.begin(),
+                    candidateMainClips.end(),
+                    [](const std::shared_ptr<Clip>& a, const std::shared_ptr<Clip>& b) {
+                        if (a->getStartTime() != b->getStartTime()) {
+                            return a->getStartTime() > b->getStartTime();
+                        }
+                        return a->getId() > b->getId();
+                    });
+                activeMainClip = candidateMainClips.front();
+            }
         }
-
     }
 
-    std::vector<std::shared_ptr<Clip>> activeCompositeClips;
-    if (activeVisualClips.size() > 1) {
-        activeCompositeClips.assign(activeVisualClips.begin() + 1, activeVisualClips.end());
+    activeClip = activeMainClip;
+    if (!activeClip && !activeCompositeClips.empty()) {
+        activeClip = activeCompositeClips.front();
+        activeCompositeClips.erase(activeCompositeClips.begin());
     }
+
     const bool hasTransformComposition =
-        hasClipPreviewTransformLocked(activeClip) ||
+        clipRequiresPreviewCompositionLocked(activeClip) ||
         std::any_of(
             activeCompositeClips.begin(),
             activeCompositeClips.end(),
-            [&](const std::shared_ptr<Clip>& clip) { return hasClipPreviewTransformLocked(clip); });
+            [&](const std::shared_ptr<Clip>& clip) { return clipRequiresPreviewCompositionLocked(clip); });
     const bool shouldCompositeAdditionalLayers =
         (!activeCompositeClips.empty() || hasTransformComposition) &&
         (!shouldBypassOverlayCompositionLocked() || hasTransformComposition);
@@ -1414,6 +1585,9 @@ bool PreviewController::renderTimelineFrameLocked(
                 return redrawTextureLocked(0, 0, m_surfaceWidth, m_surfaceHeight, false);
             }
         }
+        // Bypass m_framePrefetcher during playback: it returns stale/unscaled frames that cause
+        // horizontal stripe artifacts. The sequential decode pipeline below handles smooth playback.
+        /*
         if (!renderedFromPredictiveCache && predictiveAllowed) {
             if (m_isPlaying.load() && m_framePrefetcher) {
                 if (const auto prefetchedFrame = m_framePrefetcher->getFrame(static_cast<uint32_t>(activeClipId), clampedTimelineMs)) {
@@ -1421,13 +1595,14 @@ bool PreviewController::renderTimelineFrameLocked(
                     if (!renderDecodedFrame(
                             prefetchedFrame->frame,
                             clampedTimelineMs,
-                            /*presentFrame=*/!shouldCompositeAdditionalLayers)) {
+                            !shouldCompositeAdditionalLayers)) {
                         return false;
                     }
                     renderedFromPredictiveCache = true;
                 }
             }
         }
+        */
 
         if (!renderedFromPredictiveCache && predictiveAllowed) {
             renderedFromPredictiveCache =
@@ -1446,12 +1621,13 @@ bool PreviewController::renderTimelineFrameLocked(
             ? std::max<int64_t>(1800, approximateFrameMs * 48)
             : 420;
         const int64_t forwardDeltaMs = sourceSeekMs - m_lastRenderedSourceMs;
+        const bool sameSourceMedia = (m_openVideoPath == resolvePreviewDecoderPath(activeClip.get(), m_adaptiveProxyEnabled));
         const bool allowSequentialDecode =
             !renderedFromPredictiveCache &&
             !keyframeOnlyScrub &&
             activeClipId > 0 &&
             linearForwardMapping &&
-            m_lastRenderedClipId == activeClipId &&
+            (m_lastRenderedClipId == activeClipId || sameSourceMedia) &&
             m_lastRenderedSourceMs >= 0 &&
             forwardDeltaMs >= 0 &&
             forwardDeltaMs <= sequentialDecodeWindowMs;
@@ -1504,6 +1680,16 @@ bool PreviewController::renderTimelineFrameLocked(
                 ? m_decoder->seekToKeyframeForPreview(sourceSeekMs)
                 : m_decoder->seekForPreview(sourceSeekMs);
             if (!seekOk) {
+                if (m_isPlaying.load() && m_texture && m_texture->isValid()) {
+                    if (!shouldCompositeAdditionalLayers) {
+                        redrawTextureLocked(0, 0, m_surfaceWidth, m_surfaceHeight, false);
+                    }
+                    renderedSourceMs = m_lastRenderedSourceMs >= 0 ? m_lastRenderedSourceMs : sourceSeekMs;
+                    if (renderedTimelineMs) {
+                        *renderedTimelineMs = requestedTimelineMs;
+                    }
+                    return true;
+                }
                 setError(
                     "Preview seek failed at timeline %lld ms (source %lld ms)",
                     static_cast<long long>(clampedTimelineMs),
@@ -1513,6 +1699,16 @@ bool PreviewController::renderTimelineFrameLocked(
 
             DecodedFrame decodedFrame;
             if (!m_decoder->decodeNextFrame(decodedFrame)) {
+                if (m_isPlaying.load() && m_texture && m_texture->isValid()) {
+                    if (!shouldCompositeAdditionalLayers) {
+                        redrawTextureLocked(0, 0, m_surfaceWidth, m_surfaceHeight, false);
+                    }
+                    renderedSourceMs = m_lastRenderedSourceMs >= 0 ? m_lastRenderedSourceMs : sourceSeekMs;
+                    if (renderedTimelineMs) {
+                        *renderedTimelineMs = requestedTimelineMs;
+                    }
+                    return true;
+                }
                 if (keyframeOnlyScrub &&
                     m_decoder->seekForPreview(sourceSeekMs) &&
                     m_decoder->decodeNextFrame(decodedFrame)) {
@@ -1557,6 +1753,14 @@ bool PreviewController::renderTimelineFrameLocked(
     }
     if (renderedTimelineMs) {
         *renderedTimelineMs = requestedTimelineMs;
+    }
+
+    if (m_isPlaying.load() && activeClip && m_timeline) {
+        const int64_t clipEndMs = activeClip->getStartTime() + activeClip->getDuration();
+        const int64_t msRemaining = clipEndMs - clampedTimelineMs;
+        if (msRemaining <= 1500 && msRemaining >= 0) {
+            prewarmNextClipLocked(activeClip, clampedTimelineMs);
+        }
     }
 
     // ---- Multi-track compositing: render remaining visual clips on top ----
@@ -1814,7 +2018,6 @@ bool PreviewController::renderDecodedFrame(
         m_tripleBuffer->presentBackTexture();
         refreshPrimaryTextureAliasLocked();
     }
-
     if (!presentFrame) {
         m_renderer->releaseContext();
         m_hasDecodedFrame = true;
@@ -2468,11 +2671,20 @@ PreviewController::ClipPreviewTransform PreviewController::clipPreviewTransformL
     return m_transformEngine.getPersistedTransform(clipId);
 }
 
-bool PreviewController::hasClipPreviewTransformLocked(const std::shared_ptr<Clip>& clip) const {
+bool PreviewController::clipRequiresPreviewCompositionLocked(const std::shared_ptr<Clip>& clip) const {
     if (!clip) {
         return false;
     }
-    return m_transformEngine.hasPersistedTransform(static_cast<int>(clip->getId()));
+    if (!clipPreviewTransformLocked(static_cast<int>(clip->getId())).isIdentity()) {
+        return true;
+    }
+
+    const auto& properties = clip->getProperties();
+    const auto& effects = clip->getEffects();
+    return std::fabs(properties.opacity - 1.0f) > 0.001f ||
+        std::fabs(effects.brightness) > 0.001f ||
+        std::fabs(effects.contrast - 1.0f) > 0.001f ||
+        std::fabs(effects.saturation - 1.0f) > 0.001f;
 }
 
 void PreviewController::markVisualStateDirtyLocked() {

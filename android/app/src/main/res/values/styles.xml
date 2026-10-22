@@ -9,7 +9,10 @@
         <item name="android:windowFullscreen">false</item>
         <item name="android:windowActionBar">false</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:statusBarColor">@color/surface_darker</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
         <item name="android:textColorPrimary">@color/text_primary</item>
         <item name="android:textColorSecondary">@color/text_secondary</item>
         <item name="android:buttonStyle">@style/Widget.Button</item>
@@ -50,8 +53,10 @@
         <item name="android:windowBackground">#071014</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowActionBar">false</item>
-        <item name="android:statusBarColor">#071014</item>
-        <item name="android:navigationBarColor">#071014</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
 

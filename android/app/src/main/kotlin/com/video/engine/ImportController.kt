@@ -909,10 +909,10 @@ class ImportController(
     private fun resolveImportPath(uri: Uri, trackType: TrackType, importDisplayName: String): String? {
         if (uri.scheme == "file") return uri.path
 
-        if (uri.scheme == "content" && trackType == TrackType.VIDEO) {
+        if (uri.scheme == "content") {
             val directPath = ContentUriImportResolver.findDirectReadablePath(activity.contentResolver, uri)
             if (directPath != null) {
-                Log.d(TAG, "Using direct readable file path for video import: $directPath")
+                Log.d(TAG, "Using direct readable file path for $trackType import: $directPath")
                 return directPath
             }
         }

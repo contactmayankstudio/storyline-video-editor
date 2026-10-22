@@ -111,6 +111,11 @@ object MediaPickerSheet {
         }
     }
 
+    private val queryExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "MediaPickerQuery").apply {
+            priority = Thread.NORM_PRIORITY
+        }
+    }
     private val thumbnailExecutor = Executors.newFixedThreadPool(2) { runnable ->
         Thread(runnable, "MediaPickerThumbnail").apply {
             priority = Thread.MIN_PRIORITY
@@ -462,7 +467,7 @@ object MediaPickerSheet {
             emptyStateView.visibility = View.GONE
             recyclerView.visibility = View.VISIBLE
 
-            thumbnailExecutor.execute {
+            queryExecutor.execute {
                 val loaded = queryMediaStore(activity, tab)
                 mainHandler.post {
                     mediaItems.clear()

@@ -6,6 +6,10 @@
     <string name="start_create_label">Create</string>
     <string name="start_primary_action">New Video Project</string>
     <string name="start_primary_caption">Start editing a new video</string>
+    <string name="start_status_maker_action">Status &amp; Reels Maker</string>
+    <string name="start_status_maker_caption">Trending beat sync &amp; lyrical templates</string>
+    <string name="start_fun_camera_action">Fun Camera</string>
+    <string name="start_fun_camera_caption">Snapchat-style face filters &amp; funny lenses</string>
     <string name="start_photo_editor_action">Photo Edit</string>
     <string name="start_photo_editor_caption">Create and edit images</string>
     <string name="start_quick_label">Quick Actions</string>

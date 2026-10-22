@@ -55,6 +55,7 @@ class UiChromeController(
     private val onApplyTransitionPreset: (TransitionType, Int) -> Boolean = { _, _ -> false },
     private val onRemoveTransitionPreset: () -> Boolean = { false },
     private val onVoiceoverRequested: () -> Unit = {},
+    private val onOpenAiCopilot: () -> Unit = {},
 ) {
     private data class ChromaPanelState(
         val enabled: Boolean = false,
@@ -208,7 +209,7 @@ class UiChromeController(
         return true
     }
 
-    private fun applyEffectPresetByName(name: String): Boolean {
+    fun applyEffectPresetByName(name: String): Boolean {
         val previewView = previewViewProvider() ?: run {
             Toast.makeText(activity, "Preview not ready", Toast.LENGTH_SHORT).show()
             return false
@@ -748,6 +749,15 @@ class UiChromeController(
             }
         } catch (e: Exception) {
             Log.d(TAG, "Undo/redo buttons not found: ${e.message}")
+        }
+
+        bindOptionalLinearButton("aiCopilotButton", "AI Copilot button not found") {
+            onUiButtonTap("ai_copilot", "main_toolbar", "tap")
+            onOpenAiCopilot()
+        }
+        bindOptionalLinearButton("clipAiCopilotButton", "Clip AI Copilot button not found") {
+            onUiButtonTap("ai_copilot", "clip_toolbar", "tap")
+            onOpenAiCopilot()
         }
 
         val cutButton = activity.findViewById<LinearLayout>(R.id.cutButton)

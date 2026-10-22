@@ -1,0 +1,58 @@
+{
+  "version": "1.0",
+  "total_templates": 5,
+  "categories": [
+    "Trending Reels / Shorts",
+    "Cinematic & Travel",
+    "Talking Head & Educational",
+    "Aesthetic & Retro",
+    "Gaming & YouTube"
+  ],
+  "templates": [
+    {
+      "id": "tpl_viral_reels_beat_sync",
+      "title": "Viral Reels Fast Beat Sync",
+      "category": "Trending Reels / Shorts",
+      "aspect_ratio": "9:16",
+      "duration_ms": 12000,
+      "slots_count": 6,
+      "file": "tpl_viral_reels_beat_sync.json"
+    },
+    {
+      "id": "tpl_cinematic_travel_vlog",
+      "title": "Moody Cinematic Travel Vlog",
+      "category": "Cinematic & Travel",
+      "aspect_ratio": "9:16",
+      "duration_ms": 15000,
+      "slots_count": 4,
+      "file": "tpl_cinematic_travel_vlog.json"
+    },
+    {
+      "id": "tpl_talking_head_captions",
+      "title": "MrBeast / Hormozi Viral Hook",
+      "category": "Talking Head & Educational",
+      "aspect_ratio": "9:16",
+      "duration_ms": 20000,
+      "slots_count": 1,
+      "file": "tpl_talking_head_captions.json"
+    },
+    {
+      "id": "tpl_retro_vintage_70s",
+      "title": "70s Super-8 Nostalgia Memories",
+      "category": "Aesthetic & Retro",
+      "aspect_ratio": "9:16",
+      "duration_ms": 11000,
+      "slots_count": 3,
+      "file": "tpl_retro_vintage_70s.json"
+    },
+    {
+      "id": "tpl_cyberpunk_neon_gaming",
+      "title": "Cyberpunk Neon Gaming Montage",
+      "category": "Gaming & YouTube",
+      "aspect_ratio": "16:9",
+      "duration_ms": 14000,
+      "slots_count": 4,
+      "file": "tpl_cyberpunk_neon_gaming.json"
+    }
+  ]
+}

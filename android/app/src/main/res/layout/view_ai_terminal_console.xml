@@ -1,0 +1,285 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/aiTerminalRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#0D1117"
+    android:clickable="true"
+    android:focusable="true">
+
+    <!-- ── TERMINAL HEADER ── -->
+    <LinearLayout
+        android:id="@+id/terminalHeaderLayout"
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#161B22"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp">
+
+        <TextView
+            android:id="@+id/terminalTitleText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="AI VIDEO EDITOR CONSOLE // v2.0"
+            android:textColor="#58A6FF"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace" />
+
+        <TextView
+            android:id="@+id/terminalStatusBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="● READY"
+            android:textColor="#3FB950"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/terminalClearButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:text="[CLEAR]"
+            android:textColor="#8B949E"
+            android:textSize="10sp"
+            android:fontFamily="monospace"
+            android:clickable="true"
+            android:focusable="true"
+            android:padding="4dp" />
+
+        <TextView
+            android:id="@+id/terminalHistoryButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="6dp"
+            android:text="[HISTORY]"
+            android:textColor="#8B949E"
+            android:textSize="10sp"
+            android:fontFamily="monospace"
+            android:clickable="true"
+            android:focusable="true"
+            android:padding="4dp" />
+
+        <TextView
+            android:id="@+id/terminalCloseButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="[✕]"
+            android:textColor="#8B949E"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:clickable="true"
+            android:focusable="true"
+            android:padding="4dp" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#30363D" />
+
+    <!-- ── SCROLLABLE LOG STREAM ── -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/terminalLogRecyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="#0D1117"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:clipToPadding="false"
+        android:scrollbars="vertical" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#21262D" />
+
+    <!-- ── CLI QUICK SUGGESTION CHIPS ── -->
+    <HorizontalScrollView
+        android:id="@+id/terminalChipsScroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#161B22"
+        android:scrollbars="none"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp">
+
+        <LinearLayout
+            android:id="@+id/terminalChipsContainer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/chipAutopilot"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:text="[$ autopilot --viral]"
+                android:textColor="#79C0FF"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp" />
+
+            <TextView
+                android:id="@+id/chipSilence"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:text="[$ trim --silence]"
+                android:textColor="#79C0FF"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp" />
+
+            <TextView
+                android:id="@+id/chipLut"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:text="[$ lut --teal-orange]"
+                android:textColor="#79C0FF"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp" />
+
+            <TextView
+                android:id="@+id/chipBeatcut"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:text="[$ beatcut --punchy]"
+                android:textColor="#79C0FF"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp" />
+
+            <TextView
+                android:id="@+id/chipCaptions"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:text="[$ captions --auto]"
+                android:textColor="#79C0FF"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp" />
+
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#30363D" />
+
+    <!-- ── TEXT-ONLY CHAT INPUT BAR ── -->
+    <LinearLayout
+        android:id="@+id/terminalInputBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="48dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#161B22"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp">
+
+        <TextView
+            android:id="@+id/terminalPromptPrefix"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="&gt; "
+            android:textColor="#00E5FF"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:layout_marginEnd="4dp" />
+
+        <EditText
+            android:id="@+id/terminalInputEditText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:minHeight="38dp"
+            android:hint="Type editing command in English / Hindi / Hinglish..."
+            android:textColorHint="#6E7681"
+            android:textColor="#F0F6FC"
+            android:textSize="13sp"
+            android:fontFamily="monospace"
+            android:background="@null"
+            android:imeOptions="actionSend"
+            android:inputType="textCapSentences|textMultiLine"
+            android:maxLines="3"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp" />
+
+        <TextView
+            android:id="@+id/terminalRunButton"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:text="RUN"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:gravity="center"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="#1F6FEB" />
+    </LinearLayout>
+
+</LinearLayout>

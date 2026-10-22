@@ -502,9 +502,8 @@ object NativeBridge {
         minPreviewFps: Int = 15,
     ): Boolean {
         val lockedGhostLongEdgePx =
-            ghostLongEdgePx
-                .coerceAtMost(DeviceDetector.getRecommendedGhostLongEdgePx())
-                .coerceAtLeast(240)
+            maxOf(ghostLongEdgePx, DeviceDetector.getRecommendedGhostLongEdgePx())
+                .coerceIn(720, 1920)
         val lockedTargetPreviewFps = targetPreviewFps.coerceAtMost(DeviceDetector.getRecommendedPreviewFps()).coerceAtLeast(12)
         val lockedMinPreviewFps = minPreviewFps.coerceAtMost(lockedTargetPreviewFps).coerceAtLeast(12)
         val result = runCatching {
