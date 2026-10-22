@@ -570,10 +570,16 @@ class CameraFilterOverlayView @JvmOverloads constructor(
             val mouth = face.mouthCenter ?: return
             val tongueW = (face.bounds.width() * w * 0.32f)
             val tongueH = tongueW * 1.25f
+            val tx = mouth.x * w
+            val ty = mouth.y * h + tongueH * 0.15f
+            val rot = if (face.leftEye != null && face.rightEye != null) {
+                Math.toDegrees(atan2((face.rightEye!!.y - face.leftEye!!.y).toDouble(), (face.rightEye!!.x - face.leftEye!!.x).toDouble())).toFloat()
+            } else face.headEulerZ
+
+            canvas.save()
+            canvas.rotate(rot, tx, mouth.y * h)
             paint.color = Color.parseColor("#FF6B8B")
             paint.style = Paint.Style.FILL
-            val tx = mouth.x * w
-            val ty = mouth.y * h + tongueH * 0.3f
             reusableRect.set(tx - tongueW / 2f, ty, tx + tongueW / 2f, ty + tongueH)
             canvas.drawRoundRect(reusableRect, tongueW / 2f, tongueW / 2f, paint)
             // Tongue center crease
@@ -581,6 +587,7 @@ class CameraFilterOverlayView @JvmOverloads constructor(
             paint.strokeWidth = 3f
             paint.style = Paint.Style.STROKE
             canvas.drawLine(tx, ty + tongueH * 0.15f, tx, ty + tongueH * 0.75f, paint)
+            canvas.restore()
         }
     }
 
@@ -960,15 +967,49 @@ class CameraFilterOverlayView @JvmOverloads constructor(
         val bmp = getLensBitmap(assetPath) ?: return
         val face = faceData
         val nose = face.noseBase
-        val nx = (nose?.x ?: face.bounds.centerX()) * w
-        val ny = (nose?.y ?: (face.bounds.top + face.bounds.height() * 0.55f)) * h
-        val propW = face.bounds.width() * w * scaleFactor
-        val scale = propW / bmp.width.toFloat()
+        val leftEye = face.leftEye
+        val rightEye = face.rightEye
 
+        val nx: Float
+        val ny: Float
+        val propW: Float
+        val rotation: Float
+
+        if (leftEye != null && rightEye != null) {
+            val lx = leftEye.x * w
+            val ly = leftEye.y * h
+            val rx = rightEye.x * w
+            val ry = rightEye.y * h
+
+            val dx = rx - lx
+            val dy = ry - ly
+            val eyeDist = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat().coerceAtLeast(10f)
+            val upX = dy / eyeDist
+            val upY = -dx / eyeDist
+
+            val baseX = (nose?.x ?: ((lx + rx) / 2f / w)) * w
+            val baseY = (nose?.y ?: (((ly + ry) / 2f + eyeDist * 0.85f) / h)) * h
+
+            // Shift slightly towards nose tip / bridge along face normal
+            val noseTipShift = eyeDist * 0.10f
+            nx = baseX + upX * noseTipShift
+            ny = baseY + upY * noseTipShift
+
+            propW = (eyeDist * 1.15f * scaleFactor).coerceIn(w * 0.15f, w * 0.70f)
+            val rawRot = Math.toDegrees(kotlin.math.atan2(dy.toDouble(), dx.toDouble())).toFloat()
+            rotation = if (kotlin.math.abs(rawRot) < 0.8f) 0f else rawRot
+        } else {
+            nx = (nose?.x ?: face.bounds.centerX()) * w
+            ny = (nose?.y ?: (face.bounds.top + face.bounds.height() * 0.55f)) * h
+            propW = face.bounds.width() * w * scaleFactor
+            rotation = face.headEulerZ
+        }
+
+        val scale = propW / bmp.width.toFloat()
         matrix.reset()
         matrix.postTranslate(-bmp.width / 2f, -bmp.height / 2f)
         matrix.postScale(scale, scale)
-        matrix.postRotate(face.headEulerZ)
+        matrix.postRotate(rotation)
         matrix.postTranslate(nx, ny)
         canvas.drawBitmap(bmp, matrix, paint)
     }
@@ -981,10 +1022,10 @@ class CameraFilterOverlayView @JvmOverloads constructor(
         val leftEye = face.leftEye
         val rightEye = face.rightEye
 
-        var centerX = w * 0.5f
-        var centerY = h * 0.38f
-        var glassesWidth = w * 0.65f
-        var rotation = face.headEulerZ
+        val centerX: Float
+        val centerY: Float
+        val glassesWidth: Float
+        val rotation: Float
 
         if (leftEye != null && rightEye != null) {
             val lx = leftEye.x * w
@@ -992,20 +1033,28 @@ class CameraFilterOverlayView @JvmOverloads constructor(
             val rx = rightEye.x * w
             val ry = rightEye.y * h
 
-            centerX = (lx + rx) / 2f
-            centerY = (ly + ry) / 2f
-
             val dx = rx - lx
             val dy = ry - ly
-            val eyeDist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
-            glassesWidth = (eyeDist * 2.35f).coerceIn(w * 0.35f, w * 0.95f)
-            val rawRot = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
+            val eyeDist = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat().coerceAtLeast(10f)
+
+            // Center right on nasal bridge between the two eyes
+            val eyeCx = (lx + rx) / 2f
+            val eyeCy = (ly + ry) / 2f
+
+            // 3D parallax shift when head turns horizontally
+            val yawShift = (face.headEulerY / 45f) * (eyeDist * 0.12f)
+            centerX = eyeCx + (dx / eyeDist) * yawShift
+            centerY = eyeCy + (dy / eyeDist) * yawShift
+
+            glassesWidth = (eyeDist * 2.30f).coerceIn(w * 0.35f, w * 0.95f)
+            val rawRot = Math.toDegrees(kotlin.math.atan2(dy.toDouble(), dx.toDouble())).toFloat()
             rotation = if (kotlin.math.abs(rawRot) < 0.8f) 0f else rawRot
         } else {
             val fb = face.bounds
             centerX = fb.centerX() * w
             centerY = (fb.top + fb.height() * 0.35f) * h
             glassesWidth = (fb.width() * w * 1.05f).coerceIn(w * 0.35f, w * 0.95f)
+            rotation = face.headEulerZ
         }
 
         val scale = glassesWidth / bmp.width.toFloat()
@@ -1023,17 +1072,56 @@ class CameraFilterOverlayView @JvmOverloads constructor(
         if (!face.hasFace) return
         val bmp = getLensBitmap(lens.assetPath) ?: return
 
-        val fb = face.bounds
-        val centerX = fb.centerX() * w
-        val hatWidth = (fb.width() * w * 1.15f).coerceIn(w * 0.35f, w * 0.95f)
-        val hatHeight = hatWidth * (bmp.height.toFloat() / bmp.width.toFloat())
-        val centerY = (fb.top * h) - (hatHeight * 0.35f)
+        val leftEye = face.leftEye
+        val rightEye = face.rightEye
+
+        val centerX: Float
+        val centerY: Float
+        val hatWidth: Float
+        val rotation: Float
+
+        if (leftEye != null && rightEye != null) {
+            val lx = leftEye.x * w
+            val ly = leftEye.y * h
+            val rx = rightEye.x * w
+            val ry = rightEye.y * h
+
+            val eyeCx = (lx + rx) / 2f
+            val eyeCy = (ly + ry) / 2f
+            val dx = rx - lx
+            val dy = ry - ly
+            val eyeDist = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat().coerceAtLeast(10f)
+
+            // Perpendicular up-vector pointing from eye line towards crown of head
+            val upX = dy / eyeDist
+            val upY = -dx / eyeDist
+
+            // Anatomical head offset: eye-to-crown is ~1.30x eye distance
+            val headHeightOffset = eyeDist * 1.30f
+            // 3D perspective shift on head yaw
+            val yawOffset = (face.headEulerY / 45f) * (eyeDist * 0.18f)
+
+            centerX = eyeCx + upX * headHeightOffset + (dx / eyeDist) * yawOffset
+            centerY = eyeCy + upY * headHeightOffset + (dy / eyeDist) * yawOffset
+
+            hatWidth = (eyeDist * 2.75f).coerceIn(w * 0.30f, w * 0.98f)
+            val rawRot = Math.toDegrees(kotlin.math.atan2(dy.toDouble(), dx.toDouble())).toFloat()
+            rotation = if (kotlin.math.abs(rawRot) < 0.8f) 0f else rawRot
+        } else {
+            val fb = face.bounds
+            centerX = fb.centerX() * w
+            hatWidth = (fb.width() * w * 1.15f).coerceIn(w * 0.35f, w * 0.95f)
+            val hatHeight = hatWidth * (bmp.height.toFloat() / bmp.width.toFloat())
+            centerY = (fb.top * h) - (hatHeight * 0.35f)
+            rotation = face.headEulerZ
+        }
 
         val scale = hatWidth / bmp.width.toFloat()
         matrix.reset()
-        matrix.postTranslate(-bmp.width / 2f, -bmp.height / 2f)
+        // Anchor at bottom of hat / ear base so it locks onto the top of the skull
+        matrix.postTranslate(-bmp.width / 2f, -bmp.height * 0.72f)
         matrix.postScale(scale, scale)
-        matrix.postRotate(face.headEulerZ)
+        matrix.postRotate(rotation)
         matrix.postTranslate(centerX, centerY)
 
         canvas.drawBitmap(bmp, matrix, paint)
@@ -1044,16 +1132,50 @@ class CameraFilterOverlayView @JvmOverloads constructor(
         if (!face.hasFace) return
         val bmp = getLensBitmap(lens.assetPath) ?: return
 
-        val fb = face.bounds
-        val centerX = fb.centerX() * w
-        val centerY = fb.centerY() * h
-        val faceWidth = (fb.width() * w * 1.25f).coerceIn(w * 0.4f, w * 0.98f)
+        val leftEye = face.leftEye
+        val rightEye = face.rightEye
+
+        val centerX: Float
+        val centerY: Float
+        val faceWidth: Float
+        val rotation: Float
+
+        if (leftEye != null && rightEye != null) {
+            val lx = leftEye.x * w
+            val ly = leftEye.y * h
+            val rx = rightEye.x * w
+            val ry = rightEye.y * h
+
+            val dx = rx - lx
+            val dy = ry - ly
+            val eyeDist = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat().coerceAtLeast(10f)
+            val upX = dy / eyeDist
+            val upY = -dx / eyeDist
+
+            val eyeCx = (lx + rx) / 2f
+            val eyeCy = (ly + ry) / 2f
+
+            // Full face mask center sits between eye line and mouth
+            val maskCenterDown = eyeDist * 0.40f
+            centerX = eyeCx - upX * maskCenterDown
+            centerY = eyeCy - upY * maskCenterDown
+
+            faceWidth = (eyeDist * 3.35f).coerceIn(w * 0.35f, w * 0.98f)
+            val rawRot = Math.toDegrees(kotlin.math.atan2(dy.toDouble(), dx.toDouble())).toFloat()
+            rotation = if (kotlin.math.abs(rawRot) < 0.8f) 0f else rawRot
+        } else {
+            val fb = face.bounds
+            centerX = fb.centerX() * w
+            centerY = fb.centerY() * h
+            faceWidth = (fb.width() * w * 1.25f).coerceIn(w * 0.4f, w * 0.98f)
+            rotation = face.headEulerZ
+        }
 
         val scale = faceWidth / bmp.width.toFloat()
         matrix.reset()
         matrix.postTranslate(-bmp.width / 2f, -bmp.height / 2f)
         matrix.postScale(scale, scale)
-        matrix.postRotate(face.headEulerZ)
+        matrix.postRotate(rotation)
         matrix.postTranslate(centerX, centerY)
 
         canvas.drawBitmap(bmp, matrix, paint)

@@ -23,6 +23,7 @@
         android:id="@+id/cameraTopBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:background="@drawable/camera_top_scrim"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="16dp"
@@ -32,9 +33,9 @@
 
         <FrameLayout
             android:id="@+id/cameraBackBtn"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@drawable/launch_secondary_icon_chip"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:background="@drawable/camera_glass_button_bg"
             android:clickable="true"
             android:focusable="true">
 
@@ -50,10 +51,10 @@
         <!-- Night Flash Toggle -->
         <TextView
             android:id="@+id/cameraNightFlashBtn"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
             android:layout_marginStart="8dp"
-            android:background="@drawable/launch_secondary_icon_chip"
+            android:background="@drawable/camera_glass_button_bg"
             android:gravity="center"
             android:text="💡"
             android:textSize="18sp"
@@ -63,10 +64,10 @@
         <!-- Grid Toggle -->
         <TextView
             android:id="@+id/cameraGridBtn"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
             android:layout_marginStart="8dp"
-            android:background="@drawable/launch_secondary_icon_chip"
+            android:background="@drawable/camera_glass_button_bg"
             android:gravity="center"
             android:text="▦"
             android:textColor="#FFFFFF"
@@ -78,12 +79,12 @@
         <TextView
             android:id="@+id/cameraFilterStyleBtn"
             android:layout_width="wrap_content"
-            android:layout_height="40dp"
+            android:layout_height="42dp"
             android:layout_marginStart="8dp"
-            android:background="@drawable/launch_secondary_icon_chip"
+            android:background="@drawable/camera_mode_pill_bg"
             android:gravity="center"
-            android:paddingStart="10dp"
-            android:paddingEnd="10dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
             android:text="🎨 FX"
             android:textColor="#FFFFFF"
             android:textSize="12sp"
@@ -129,10 +130,10 @@
 
         <FrameLayout
             android:id="@+id/cameraFlipBtn"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
             android:layout_marginStart="8dp"
-            android:background="@drawable/launch_secondary_icon_chip"
+            android:background="@drawable/camera_glass_button_bg"
             android:clickable="true"
             android:focusable="true">
 
@@ -152,10 +153,10 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:background="#88000000"
+        android:background="@drawable/camera_bottom_scrim"
         android:gravity="center_horizontal"
         android:orientation="vertical"
-        android:paddingTop="10dp"
+        android:paddingTop="16dp"
         android:paddingBottom="24dp">
 
         <!-- Category Filter Pills (All, Comedy, Glasses, Hats, Animals, Effects) -->
@@ -201,8 +202,10 @@
             android:layout_height="wrap_content"
             android:gravity="center"
             android:orientation="horizontal"
-            android:layout_marginTop="2dp"
-            android:layout_marginBottom="8dp">
+            android:background="@drawable/camera_mode_pill_bg"
+            android:padding="3dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="10dp">
 
             <TextView
                 android:id="@+id/cameraPhotoModeBtn"
@@ -211,12 +214,12 @@
                 android:text="📸 PHOTO"
                 android:textSize="12sp"
                 android:textStyle="bold"
-                android:textColor="#388BFD"
-                android:paddingStart="14dp"
-                android:paddingTop="5dp"
-                android:paddingEnd="14dp"
-                android:paddingBottom="5dp"
-                android:background="@drawable/launch_count_chip_background"
+                android:textColor="#FFFFFF"
+                android:paddingStart="16dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="6dp"
+                android:background="@drawable/camera_active_mode_chip"
                 android:clickable="true"
                 android:focusable="true" />
 
@@ -227,12 +230,12 @@
                 android:text="🎥 VIDEO"
                 android:textSize="12sp"
                 android:textStyle="bold"
-                android:textColor="#8A99AD"
-                android:paddingStart="14dp"
-                android:paddingTop="5dp"
-                android:paddingEnd="14dp"
-                android:paddingBottom="5dp"
-                android:layout_marginStart="8dp"
+                android:textColor="#C8D1DC"
+                android:paddingStart="16dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="6dp"
+                android:background="@null"
                 android:clickable="true"
                 android:focusable="true" />
         </LinearLayout>

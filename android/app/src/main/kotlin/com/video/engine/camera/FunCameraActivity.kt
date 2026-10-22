@@ -175,6 +175,7 @@ class FunCameraActivity : ComponentActivity() {
 
         findViewById<FrameLayout>(R.id.cameraFlipBtn)?.setOnClickListener {
             if (!isRecordingVideo) {
+                it.animate().rotationBy(180f).setDuration(280L).start()
                 flipCamera()
             }
         }
@@ -272,14 +273,14 @@ class FunCameraActivity : ComponentActivity() {
 
     private fun updateModeUi() {
         if (!isVideoMode) {
-            photoModeBtn.setTextColor(Color.parseColor("#388BFD"))
-            photoModeBtn.setBackgroundResource(R.drawable.launch_count_chip_background)
-            videoModeBtn.setTextColor(Color.parseColor("#8A99AD"))
+            photoModeBtn.setTextColor(Color.WHITE)
+            photoModeBtn.setBackgroundResource(R.drawable.camera_active_mode_chip)
+            videoModeBtn.setTextColor(Color.parseColor("#C8D1DC"))
             videoModeBtn.background = null
         } else {
-            videoModeBtn.setTextColor(Color.parseColor("#FF4444"))
-            videoModeBtn.setBackgroundResource(R.drawable.launch_count_chip_background)
-            photoModeBtn.setTextColor(Color.parseColor("#8A99AD"))
+            videoModeBtn.setTextColor(Color.WHITE)
+            videoModeBtn.setBackgroundResource(R.drawable.camera_active_video_chip)
+            photoModeBtn.setTextColor(Color.parseColor("#C8D1DC"))
             photoModeBtn.background = null
         }
     }
@@ -645,7 +646,7 @@ class FunCameraActivity : ComponentActivity() {
 
                 // Circle Container
                 val circleFrame = FrameLayout(context).apply {
-                    val circleSize = if (isSelected) 58.dpToPx(context) else 50.dpToPx(context)
+                    val circleSize = if (isSelected) 60.dpToPx(context) else 50.dpToPx(context)
                     layoutParams = LinearLayout.LayoutParams(circleSize, circleSize).apply {
                         bottomMargin = 4.dpToPx(context)
                     }
@@ -653,11 +654,11 @@ class FunCameraActivity : ComponentActivity() {
                     val bg = GradientDrawable().apply {
                         shape = GradientDrawable.OVAL
                         if (isSelected) {
-                            setColor(Color.parseColor("#44388BFD"))
-                            setStroke(3.dpToPx(context), Color.parseColor("#388BFD"))
+                            setColor(Color.parseColor("#5500F2FE"))
+                            setStroke(3.dpToPx(context), Color.parseColor("#00F2FE"))
                         } else {
                             setColor(Color.parseColor("#44000000"))
-                            setStroke(1.dpToPx(context), Color.parseColor("#44FFFFFF"))
+                            setStroke(1.dpToPx(context), Color.parseColor("#33FFFFFF"))
                         }
                     }
                     background = bg
@@ -665,7 +666,7 @@ class FunCameraActivity : ComponentActivity() {
                     val iconPath = if (lens.iconAssetPath.isNotEmpty()) lens.iconAssetPath else lens.assetPath
                     if (iconPath.isNotEmpty()) {
                         val iconIv = ImageView(context).apply {
-                            val imgSize = if (isSelected) 42.dpToPx(context) else 36.dpToPx(context)
+                            val imgSize = if (isSelected) 44.dpToPx(context) else 36.dpToPx(context)
                             layoutParams = FrameLayout.LayoutParams(imgSize, imgSize).apply {
                                 gravity = android.view.Gravity.CENTER
                             }
@@ -694,8 +695,8 @@ class FunCameraActivity : ComponentActivity() {
                 // Name label
                 val labelTv = TextView(context).apply {
                     text = lens.name
-                    textSize = 10f
-                    setTextColor(if (isSelected) Color.parseColor("#388BFD") else Color.parseColor("#9AA4B2"))
+                    textSize = 10.5f
+                    setTextColor(if (isSelected) Color.parseColor("#00F2FE") else Color.parseColor("#B0BCC8"))
                     gravity = android.view.Gravity.CENTER
                 }
 
@@ -706,6 +707,9 @@ class FunCameraActivity : ComponentActivity() {
                 isFocusable = true
                 setOnClickListener {
                     it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    it.animate().scaleX(0.92f).scaleY(0.92f).setDuration(60L).withEndAction {
+                        it.animate().scaleX(1.0f).scaleY(1.0f).setDuration(100L).start()
+                    }.start()
                     selectedLens = lens
                     overlayView.currentLens = lens
                     updateLensBadge(lens)
@@ -1039,19 +1043,23 @@ class FunCameraActivity : ComponentActivity() {
     }
 
     private fun setupTopBarControls() {
-        findViewById<View>(R.id.cameraNightFlashBtn)?.setOnClickListener {
+        val nightFlashBtn = findViewById<TextView>(R.id.cameraNightFlashBtn)
+        nightFlashBtn?.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             val newState = !overlayView.isNightFlashEnabled
             overlayView.isNightFlashEnabled = newState
-            it.alpha = if (newState) 1.0f else 0.5f
 
             // Front Screen Night Flash brightness integration
             val windowParams = window.attributes
             if (newState) {
                 previousScreenBrightness = windowParams.screenBrightness
                 windowParams.screenBrightness = 1.0f
+                nightFlashBtn.setTextColor(Color.parseColor("#FFD700"))
+                nightFlashBtn.setBackgroundColor(Color.parseColor("#55FFD700"))
             } else {
                 windowParams.screenBrightness = if (previousScreenBrightness >= 0f) previousScreenBrightness else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                nightFlashBtn.setTextColor(Color.WHITE)
+                nightFlashBtn.setBackgroundResource(R.drawable.camera_glass_button_bg)
             }
             window.attributes = windowParams
 
@@ -1059,19 +1067,34 @@ class FunCameraActivity : ComponentActivity() {
             showSwipeToast(msg)
         }
 
-        findViewById<View>(R.id.cameraGridBtn)?.setOnClickListener {
+        val gridBtn = findViewById<TextView>(R.id.cameraGridBtn)
+        gridBtn?.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             overlayView.isGridEnabled = !overlayView.isGridEnabled
-            it.alpha = if (overlayView.isGridEnabled) 1.0f else 0.5f
+            if (overlayView.isGridEnabled) {
+                gridBtn.setTextColor(Color.parseColor("#00F2FE"))
+                gridBtn.setBackgroundColor(Color.parseColor("#5500F2FE"))
+            } else {
+                gridBtn.setTextColor(Color.WHITE)
+                gridBtn.setBackgroundResource(R.drawable.camera_glass_button_bg)
+            }
             showSwipeToast(if (overlayView.isGridEnabled) "▦ 3x3 Grid ON" else "▦ Grid OFF")
         }
 
-        findViewById<View>(R.id.cameraFilterStyleBtn)?.setOnClickListener {
+        val styleBtn = findViewById<TextView>(R.id.cameraFilterStyleBtn)
+        styleBtn?.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             val styles = listOf("NORMAL", "BEAUTY", "VHS_90S", "CYBERPUNK", "WARM_SUNSET")
             val currIdx = styles.indexOf(overlayView.filterStyle).coerceAtLeast(0)
             val nextIdx = (currIdx + 1) % styles.size
             overlayView.filterStyle = styles[nextIdx]
+            styleBtn.text = when (styles[nextIdx]) {
+                "BEAUTY" -> "🌸 BEAUTY"
+                "VHS_90S" -> "📼 VHS"
+                "CYBERPUNK" -> "⚡ CYBER"
+                "WARM_SUNSET" -> "🌅 SUNSET"
+                else -> "🎨 FX"
+            }
             val labels = mapOf(
                 "NORMAL" to "🎨 Normal Lens",
                 "BEAUTY" to "🌸 Beauty Soft Glow",
