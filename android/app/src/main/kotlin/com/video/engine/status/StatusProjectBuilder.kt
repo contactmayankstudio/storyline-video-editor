@@ -181,7 +181,8 @@ object StatusProjectBuilder {
                 put("transitions", transitionsArray)
             }
 
-            projectFile.writeText(rootJson.toString(2))
+            val cleanJson = rootJson.toString(2).replace("\\/", "/")
+            projectFile.writeText(cleanJson)
             Log.i(TAG, "Status project generated successfully: ${projectFile.absolutePath}")
             return projectFile
         } catch (e: Exception) {

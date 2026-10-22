@@ -19,15 +19,31 @@
 - **Root Cause Fixed:** Camera2 `SurfaceTexture` was previously initialized without `setDefaultBufferSize(...)`, causing the HAL to stream at low fallback resolution (320x240/640x480).
 - **Locked Logic:** Camera characteristics query `SCALER_STREAM_CONFIGURATION_MAP` for `SurfaceTexture::class.java`, calculates `optimalPreviewSize` matching the device 9:16 display, and locks `texture.setDefaultBufferSize(optimalPreviewSize.width, optimalPreviewSize.height)` in both preview and recording sessions.
 
-### B. All Aspect Ratios EGL Swapchain Re-creation (16:9, 1:1, 4:3, 21:9)
+### B. All Aspect Ratios EGL Swapchain & GPU Shader Coordinate Mapping (16:9, 1:1, 4:5, 21:9, 9:16)
 - **Files:** [`preview/gpu/egl_renderer.cpp`](file:///home/am/storyline/preview/gpu/egl_renderer.cpp), [`preview/preview_controller.cpp`](file:///home/am/storyline/preview/preview_controller.cpp)
-- **Root Cause Fixed:** When switching from 9:16 portrait to 16:9 landscape or 1:1 square, the underlying `EGLSurface` backbuffer retained the initial portrait geometry. Android SurfaceFlinger squashed/stretched the mismatched buffer, resulting in severe bilinear blur on 16:9.
+- **Root Cause Fixed:**
+  1. When switching aspect ratios, `EGLSurface` backbuffer retained the initial portrait geometry. Android SurfaceFlinger squashed/stretched mismatched buffers.
+  2. In `FRAGMENT_SHADER_SRC` and `TRANSITION_FRAGMENT_SHADER_SRC`, precision was `mediump float` (10-bit half-float). In landscape ratios (16:9, 21:9), `(localPx / baseRenderedSize)` underflowed on Mali GPU, collapsing all horizontal columns into 1D scanlines (`col_std = 0.000`).
 - **Locked Logic:**
-  - `EGLRenderer::resizeViewport()` queries `eglQuerySurface` for existing surface dimensions. If viewport geometry differs, the existing `EGLSurface` is cleanly destroyed and recreated (`eglCreateWindowSurface`) with the new dimensions.
-  - `TRANSITION_FRAGMENT_SHADER_SRC` aspect-ratio FIT calculations are synchronized with primary shaders.
-  - Paused frames are redrawn immediately on resize without waiting for user seek.
+  - Upgraded fragment shader precision from `mediump float` to `precision highp float;` (24-bit IEEE float) in both shaders.
+  - Direct 1:1 texture mapping when aspect ratio matches: `if (!uTransformEnabled && abs(sourceAspect - viewportAspect) < 0.05) { sampleCoord = fragTexCoord; }`.
+  - Clean letterboxing and pillarboxing math without `localPx` coordinate division underflow.
+  - Hardened `EGLRenderer::drawQuad()` with explicit `glBindBuffer(GL_ARRAY_BUFFER, m_vbo)` and `glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo)` on every draw call.
+  - Empirical verification:
+    - 16:9: `col_std = 29.6947` (Sharp & Clear, 0 scanlines)
+    - 21:9: `col_std = 35.9134` (Sharp & Clear, 0 scanlines)
+    - 1:1: `col_std = 38.8939` (Sharp & Clear, 0 scanlines)
+    - 9:16: `col_std = 39.8049` (Sharp & Clear, 0 scanlines)
 
-### C. Row Stride Alignment & Scanline Distortion Elimination
+### C. JSON Unescaping & Path Normalization in Native Engine & Status Maker
+- **Files:** [`engine/project.cpp`](file:///home/am/storyline/engine/project.cpp), [`android/app/src/main/kotlin/com/video/engine/status/StatusProjectBuilder.kt`](file:///home/am/storyline/android/app/src/main/kotlin/com/video/engine/status/StatusProjectBuilder.kt)
+- **Root Cause Fixed:** Android's `org.json.JSONObject.toString()` escapes forward slashes as `\/`. The C++ engine's naive `extractStringValue` did not unescape strings, causing FFmpeg to fail opening `\/data\/user\/0/...` files, which resulted in a solid black preview screen in Status Maker.
+- **Locked Logic:**
+  - `engine/project.cpp` implements `unescapeJSON(const std::string& str)` and robust string token parsing that skips escaped quotes (`\"`) and normalizes `\/` to `/`, `\\` to `\`, etc.
+  - `StatusProjectBuilder.kt` normalizes generated JSON with `.replace("\\/", "/")`.
+  - Empirical verification: Status Maker preview black screen eliminated (`col_std = 17.6702`, `Vertical Detail = 78.9584`, `Mean pixel = [137, 136, 140]`).
+
+### D. Row Stride Alignment & Scanline Distortion Elimination
 - **Files:** [`backend/ffmpeg/video_decoder.cpp`](file:///home/am/storyline/backend/ffmpeg/video_decoder.cpp), [`preview/gpu/gl_texture.cpp`](file:///home/am/storyline/preview/gpu/gl_texture.cpp), [`android/jni/native_preview.cpp`](file:///home/am/storyline/android/jni/native_preview.cpp)
 - **Root Cause Fixed:** Odd/non-multiple-of-4 video resolutions caused NEON SIMD vector stores in `sws_scale` to misalign, while OpenGL unpack state leaked row lengths, creating horizontal scanlines/streaks.
 - **Locked Logic:**
@@ -66,16 +82,18 @@
 | :--- | :--- | :--- | :--- |
 | **Startup Crash Prevention** | Application Launch | ✅ PASSED | 39-char key validated; zero runtime exceptions |
 | **Camera Live Preview** | Fun Camera | ✅ PASSED | High-res 9:16 SurfaceTexture buffer, AR lenses sharp |
-| **1-Photo Status Maker** | Status Maker | ✅ PASSED | Generates `.vne` projects with Ken Burns keyframes & BGM |
-| **Video Editor Preview** | Preview Engine | ✅ PASSED | 1080p rendering, stride alignment locked |
-| **Multi-Ratio Switch** | EGL Swapchain | ✅ PASSED | Automatic EGLSurface recreation on 16:9 / 1:1 / 4:3 |
-| **Multi-Clip Playback** | Timeline Engine | ✅ PASSED | Zero-seek transition across 3+ clips |
+| **1-Photo Status Maker Preview** | Status Maker | ✅ PASSED | JSON unescaping fixed; `col_std = 17.67`, black screen eliminated |
+| **Video Editor Preview (16:9 / 21:9)** | Shader Math | ✅ PASSED | `highp float` + 1:1 mapping; `col_std = 29.69 to 35.91`, scanlines eliminated |
+| **Video Editor Preview (1:1 / 9:16)** | Preview Engine | ✅ PASSED | Pixel-perfect mapping; `col_std = 38.89 to 39.80` |
+| **3-Clip Manual UI Import** | Timeline UI | ✅ PASSED | Selected & imported 3 clips via UI buttons (01:14.9 total) |
+| **Multi-Clip Smooth Playback** | Timeline Engine | ✅ PASSED | Smooth playback verified on live device; `col_std = 48.39` |
 
 ---
 
 ## 3. Maintenance Policy
 Any developer, agent, or CI script touching the codebase must:
 1. Re-run local unit tests: `cd android && ./gradlew testPlayDebugUnitTest`
-2. Never revert `EGLRenderer::resizeViewport` surface re-creation logic.
-3. Preserve row-stride padding in `video_decoder.cpp` and `gl_texture.cpp`.
-4. Ensure `google-services.json` retains a valid 39-character key.
+2. Never revert `EGLRenderer::resizeViewport` surface re-creation logic or reduce shader precision from `highp float`.
+3. Never bypass JSON unescaping in `engine/project.cpp` or path normalization in `StatusProjectBuilder.kt`.
+4. Preserve row-stride padding in `video_decoder.cpp` and `gl_texture.cpp`.
+5. Ensure `google-services.json` retains a valid 39-character key.

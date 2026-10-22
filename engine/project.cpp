@@ -348,17 +348,54 @@ std::string Project::toJSON() const {
 // Simple JSON parsing helpers (no external library)
 namespace {
 
+std::string unescapeJSON(const std::string& str) {
+    std::string result;
+    result.reserve(str.size());
+    for (size_t i = 0; i < str.size(); ++i) {
+        if (str[i] == '\\' && i + 1 < str.size()) {
+            char next = str[i + 1];
+            switch (next) {
+                case '"': result += '"'; ++i; break;
+                case '\\': result += '\\'; ++i; break;
+                case '/': result += '/'; ++i; break;
+                case 'b': result += '\b'; ++i; break;
+                case 'f': result += '\f'; ++i; break;
+                case 'n': result += '\n'; ++i; break;
+                case 'r': result += '\r'; ++i; break;
+                case 't': result += '\t'; ++i; break;
+                default: result += next; ++i; break;
+            }
+        } else {
+            result += str[i];
+        }
+    }
+    return result;
+}
+
 // Extract string value from JSON (e.g., "key": "value")
 std::string extractStringValue(const std::string& json, const std::string& key) {
     std::string pattern = "\"" + key + "\": \"";
     size_t pos = json.find(pattern);
-    if (pos == std::string::npos) return "";
+    if (pos == std::string::npos) {
+        pattern = "\"" + key + "\":\"";
+        pos = json.find(pattern);
+        if (pos == std::string::npos) return "";
+    }
     
     pos += pattern.length();
-    size_t endPos = json.find("\"", pos);
-    if (endPos == std::string::npos) return "";
-    
-    return json.substr(pos, endPos - pos);
+    size_t i = pos;
+    while (i < json.length()) {
+        if (json[i] == '\\' && i + 1 < json.length()) {
+            i += 2;
+            continue;
+        }
+        if (json[i] == '"') {
+            break;
+        }
+        ++i;
+    }
+    if (i > json.length()) i = json.length();
+    return unescapeJSON(json.substr(pos, i - pos));
 }
 
 // Extract number value from JSON (e.g., "key": 123)
