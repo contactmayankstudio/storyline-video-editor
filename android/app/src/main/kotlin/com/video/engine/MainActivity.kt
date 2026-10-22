@@ -7267,6 +7267,12 @@ class VideoEditorActivity : ComponentActivity() {
         sheet.show()
     }
 
+    fun showAntigravityCli() {
+        val dispatcher = createAiCommandDispatcher()
+        val sheet = com.video.engine.ai.AiVoiceCopilotSheet(this, dispatcher, startInCliMode = true)
+        sheet.show()
+    }
+
     private fun createAiCommandDispatcher(): com.video.engine.ai.AiCommandDispatcher {
         return object : com.video.engine.ai.AiCommandDispatcher {
             override fun fullAutoPilotEdit(style: String): Boolean {

@@ -74,8 +74,9 @@ object OnlineGeminiClient {
                     setRequestProperty("Content-Type", "application/json; charset=UTF-8")
                 }
 
-                // Construct Gemini API Payload
-                val systemInstruction = "You are Storyline AI Copilot, a brilliant, friendly, human-like AI video editing assistant and world-knowledge expert. You speak natural, warm Hinglish (Hindi written in English letters) with video creators. When users ask general questions (news, world events, science, storytelling, scripts, ideas), answer intelligently, concisely, and accurately in 2-4 sentences. If they ask about video editing, guide them and suggest actions like 'cut clip', 'remove silence', 'teal and orange', 'speed 2x', etc."
+                // Construct Gemini API Payload with Antigravity Device Telemetry
+                val telemetry = DeviceTelemetryProvider.buildSystemContextPrompt(context)
+                val systemInstruction = "You are Storyline AI Copilot (powered by Antigravity Mobile Engine & Gemini 1.5 Flash), an elite autonomous video editing assistant. You speak natural, warm Hinglish (Hindi in English letters) or English. You have full access to host device hardware telemetry and timeline state.\n\n$telemetry\n\nWhen users ask questions, give creator advice, suggest cuts, zooms, aspect ratios, or exports tuned specifically to their phone's hardware capabilities. Keep answers concise (2-4 sentences)."
 
                 val body = JSONObject().apply {
                     put("system_instruction", JSONObject().apply {

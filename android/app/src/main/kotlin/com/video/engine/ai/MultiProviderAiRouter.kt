@@ -42,33 +42,41 @@ object MultiProviderAiRouter {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     /**
-     * Query AI with automatic multi-tier fallback.
+     * Query AI with automatic multi-tier fallback and Antigravity Device Telemetry.
      */
     fun query(
         prompt: String,
+        context: android.content.Context? = null,
         onResponse: (String) -> Unit,
     ) {
+        val systemPrompt = if (context != null) {
+            val telemetry = DeviceTelemetryProvider.buildSystemContextPrompt(context)
+            "$SYSTEM_PROMPT\n\n$telemetry"
+        } else {
+            SYSTEM_PROMPT
+        }
+
         executor.execute {
             // Tier 1: Groq (Fastest)
-            tryGroq(prompt)?.let { reply ->
+            tryGroq(prompt, systemPrompt)?.let { reply ->
                 mainHandler.post { onResponse(reply) }
                 return@execute
             }
 
             // Tier 2: Gemini (Deep Knowledge)
-            tryGemini(prompt)?.let { reply ->
+            tryGemini(prompt, systemPrompt)?.let { reply ->
                 mainHandler.post { onResponse(reply) }
                 return@execute
             }
 
             // Tier 3: Cerebras
-            tryCerebras(prompt)?.let { reply ->
+            tryCerebras(prompt, systemPrompt)?.let { reply ->
                 mainHandler.post { onResponse(reply) }
                 return@execute
             }
 
             // Tier 4: Mistral
-            tryMistral(prompt)?.let { reply ->
+            tryMistral(prompt, systemPrompt)?.let { reply ->
                 mainHandler.post { onResponse(reply) }
                 return@execute
             }
@@ -79,7 +87,12 @@ object MultiProviderAiRouter {
         }
     }
 
-    private fun tryGroq(prompt: String): String? {
+    fun query(
+        prompt: String,
+        onResponse: (String) -> Unit,
+    ) = query(prompt, null, onResponse)
+
+    private fun tryGroq(prompt: String, systemPrompt: String): String? {
         return try {
             val url = URL("https://api.groq.com/openai/v1/chat/completions")
             val conn = (url.openConnection() as HttpURLConnection).apply {
@@ -97,7 +110,7 @@ object MultiProviderAiRouter {
                 put("messages", JSONArray().apply {
                     put(JSONObject().apply {
                         put("role", "system")
-                        put("content", SYSTEM_PROMPT)
+                        put("content", systemPrompt)
                     })
                     put(JSONObject().apply {
                         put("role", "user")
@@ -128,7 +141,7 @@ object MultiProviderAiRouter {
         }
     }
 
-    private fun tryGemini(prompt: String): String? {
+    private fun tryGemini(prompt: String, systemPrompt: String): String? {
         return try {
             val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$KEY_GEMINI")
             val conn = (url.openConnection() as HttpURLConnection).apply {
@@ -143,7 +156,7 @@ object MultiProviderAiRouter {
             val body = JSONObject().apply {
                 put("system_instruction", JSONObject().apply {
                     put("parts", JSONArray().apply {
-                        put(JSONObject().apply { put("text", SYSTEM_PROMPT) })
+                        put(JSONObject().apply { put("text", systemPrompt) })
                     })
                 })
                 put("contents", JSONArray().apply {
@@ -180,7 +193,7 @@ object MultiProviderAiRouter {
         }
     }
 
-    private fun tryCerebras(prompt: String): String? {
+    private fun tryCerebras(prompt: String, systemPrompt: String): String? {
         return try {
             val url = URL("https://api.cerebras.ai/v1/chat/completions")
             val conn = (url.openConnection() as HttpURLConnection).apply {
@@ -198,7 +211,7 @@ object MultiProviderAiRouter {
                 put("messages", JSONArray().apply {
                     put(JSONObject().apply {
                         put("role", "system")
-                        put("content", SYSTEM_PROMPT)
+                        put("content", systemPrompt)
                     })
                     put(JSONObject().apply {
                         put("role", "user")
@@ -229,7 +242,7 @@ object MultiProviderAiRouter {
         }
     }
 
-    private fun tryMistral(prompt: String): String? {
+    private fun tryMistral(prompt: String, systemPrompt: String): String? {
         return try {
             val url = URL("https://api.mistral.ai/v1/chat/completions")
             val conn = (url.openConnection() as HttpURLConnection).apply {
@@ -247,7 +260,7 @@ object MultiProviderAiRouter {
                 put("messages", JSONArray().apply {
                     put(JSONObject().apply {
                         put("role", "system")
-                        put("content", SYSTEM_PROMPT)
+                        put("content", systemPrompt)
                     })
                     put(JSONObject().apply {
                         put("role", "user")

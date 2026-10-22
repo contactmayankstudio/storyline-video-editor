@@ -19,6 +19,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.video.engine.DesignSystem
 import com.video.engine.ModernSheet
 import com.video.engine.R
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
@@ -33,6 +34,7 @@ import kotlin.math.roundToInt
 class AiVoiceCopilotSheet(
     private val activity: Activity,
     private val dispatcher: AiCommandDispatcher,
+    private val startInCliMode: Boolean = false,
 ) {
     companion object {
         const val REQUEST_CODE_AUDIO_PERMISSION = 4101
@@ -65,6 +67,13 @@ class AiVoiceCopilotSheet(
     private lateinit var listeningStatusContainer: LinearLayout
     private lateinit var statusTextView: TextView
     private lateinit var waveBars: List<View>
+
+    private var isCliMode: Boolean = false
+    private var cliPanel: AiTerminalConsolePanel? = null
+    private var chatModeContainer: LinearLayout? = null
+    private var cliToggleButton: TextView? = null
+    private var titleViewRef: TextView? = null
+    private var localeControlRef: View? = null
 
     private var speechRecognizerManager: SpeechRecognizerManager? = null
     private var isListening: Boolean = false
@@ -125,6 +134,11 @@ class AiVoiceCopilotSheet(
 
         initSpeechRecognizer()
         sheetDialog.show()
+        if (startInCliMode) {
+            mainHandler.post {
+                toggleCliMode(true)
+            }
+        }
     }
 
     private fun initSpeechRecognizer() {
@@ -254,10 +268,38 @@ class AiVoiceCopilotSheet(
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
         }
         header.addView(titleView)
+        titleViewRef = titleView
+
+        // Antigravity CLI Toggle Pill: [>_ CLI]
+        val cliToggle = TextView(activity).apply {
+            text = ">_ CLI"
+            textSize = 11.5f
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            setTextColor(COLOR_ACCENT_CYAN)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(999).toFloat()
+                setColor(Color.parseColor("#1B293A"))
+                setStroke(dp(1), COLOR_ACCENT_CYAN)
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                marginEnd = dp(6)
+            }
+            setOnClickListener {
+                toggleCliMode()
+            }
+        }
+        header.addView(cliToggle)
+        cliToggleButton = cliToggle
 
         // Locale Segmented Control Pill: [EN | HI | Hinglish]
         val localeControl = createLocaleSegmentedControl()
         header.addView(localeControl)
+        localeControlRef = localeControl
 
         val closeButton = ImageView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(dp(28), dp(28)).apply {
@@ -270,9 +312,20 @@ class AiVoiceCopilotSheet(
         header.addView(closeButton)
         root.addView(header)
 
+        // Chat Mode Container (Holds chat history, chips, waveform, and voice/text input bar)
+        val chatBox = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1.0f,
+            )
+        }
+        chatModeContainer = chatBox
+
         // 3. Listening Status & Waveform Bar Indicator
         listeningStatusContainer = createListeningStatusView()
-        root.addView(listeningStatusContainer)
+        chatBox.addView(listeningStatusContainer)
 
         // 4. Chat Messages Scroll Area
         chatScrollView = ScrollView(activity).apply {
@@ -293,7 +346,7 @@ class AiVoiceCopilotSheet(
             )
         }
         chatScrollView.addView(chatContainer)
-        root.addView(chatScrollView)
+        chatBox.addView(chatScrollView)
 
         // Initial Assistant Welcome Bubble
         addAssistantBubble(
@@ -329,11 +382,31 @@ class AiVoiceCopilotSheet(
             chipsContainer.addView(chipView)
         }
         chipsScroll.addView(chipsContainer)
-        root.addView(chipsScroll)
+        chatBox.addView(chipsScroll)
 
         // 6. Voice & Text Input Bar
         val inputBar = createInputBar()
-        root.addView(inputBar)
+        chatBox.addView(inputBar)
+
+        root.addView(chatBox)
+
+        // 7. Embedded Antigravity CLI Terminal Console Panel
+        val cli = AiTerminalConsolePanel(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1.0f,
+            )
+            visibility = View.GONE
+            setCommandListener { cmd ->
+                handleUserCommand(cmd)
+            }
+            onCloseListener = {
+                toggleCliMode(false)
+            }
+        }
+        root.addView(cli)
+        cliPanel = cli
 
         return root
     }
@@ -657,12 +730,59 @@ class AiVoiceCopilotSheet(
         }
     }
 
+    private fun toggleCliMode(forceCli: Boolean? = null) {
+        isCliMode = forceCli ?: !isCliMode
+        val cli = cliPanel ?: return
+        val chat = chatModeContainer ?: return
+        val btn = cliToggleButton ?: return
+        val title = titleViewRef ?: return
+        val locale = localeControlRef ?: return
+
+        if (isCliMode) {
+            chat.visibility = View.GONE
+            cli.visibility = View.VISIBLE
+            title.text = "Antigravity CLI // v2.5"
+            btn.text = "💬 Chat"
+            btn.background = createPillDrawable(COLOR_ACCENT_CYAN)
+            btn.setTextColor(Color.parseColor("#090B0F"))
+            locale.visibility = View.GONE
+
+            if (cli.getLogCount() == 0) {
+                val t = DeviceTelemetryProvider.getTelemetry(activity)
+                cli.appendLog("[SYS]", "ANTIGRAVITY MOBILE AGENT v2.5 // ONLINE")
+                cli.appendLog("[SYS]", "Host: ${t.manufacturer} ${t.model} (Android ${t.androidRelease}, API ${t.sdkInt})")
+                cli.appendLog("[SYS]", String.format(Locale.US, "Memory: %.1fGB Free / %.1fGB Total (Tier: %s)", t.freeRamGb, t.totalRamGb, t.deviceTier))
+                cli.appendLog("[SYS]", String.format(Locale.US, "Storage: %.1fGB Free | Battery: %d%%", t.freeStorageGb, t.batteryPercent))
+                cli.appendLog("[SYS]", "Codecs: H.264/AVC: ${if (t.hasAvcEncoder) "YES" else "NO"} | H.265/HEVC: ${if (t.hasHevcEncoder) "YES (4K/60fps capable)" else "NO"}")
+                cli.appendLog("[SYS]", "Agent Ready. Type natural language or CLI commands below.")
+                cli.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
+            }
+        } else {
+            chat.visibility = View.VISIBLE
+            cli.visibility = View.GONE
+            title.text = "AI Voice Copilot"
+            btn.text = ">_ CLI"
+            btn.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(999).toFloat()
+                setColor(Color.parseColor("#1B293A"))
+                setStroke(dp(1), COLOR_ACCENT_CYAN)
+            }
+            btn.setTextColor(COLOR_ACCENT_CYAN)
+            locale.visibility = View.VISIBLE
+        }
+    }
+
     private fun handleUserCommand(rawCommand: String) {
         val query = rawCommand.trim()
         if (query.isBlank()) return
 
-        // 1. Render User Message Bubble
+        // 1. Render User Message Bubble & mirror to CLI console
         addUserBubble(query)
+        cliPanel?.let { cli ->
+            cli.appendLog("[$]", query)
+            cli.setStatus(AiTerminalConsolePanel.STATUS_RUNNING, "#00E5FF")
+        }
 
         // 2. Parse Intent
         val parsed = AiIntentParser.parse(query)
@@ -674,8 +794,10 @@ class AiVoiceCopilotSheet(
         if (isPureConversational || isUnknown) {
             val thinkingBubble = addAssistantBubble("Thinking... ⏳", isSuccess = true)
             chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
-            MultiProviderAiRouter.query(query) { reply ->
+            MultiProviderAiRouter.query(query, activity) { reply ->
                 thinkingBubble.text = reply
+                cliPanel?.appendLog("[AI]", reply)
+                cliPanel?.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
                 chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
             }
             return
@@ -700,6 +822,13 @@ class AiVoiceCopilotSheet(
 
         // 4. Dispatch to timeline actions
         val (success, feedback) = dispatcher.dispatch(parsed)
+        cliPanel?.let { cli ->
+            cli.appendLog(if (success) "[✓]" else "[!]", feedback)
+            cli.setStatus(
+                if (success) AiTerminalConsolePanel.STATUS_READY else AiTerminalConsolePanel.STATUS_ERROR,
+                if (success) "#3FB950" else "#F85149",
+            )
+        }
 
         // 5. Render Assistant Feedback Bubble with context-aware action pills
         val pills = if (success) resolveActionPillsForIntent(parsed.intent) else emptyList()
@@ -723,12 +852,14 @@ class AiVoiceCopilotSheet(
 
         val bubble = addAssistantBubble("🚀 Full AI Auto-Pilot Edit & Export initiated ($style, $resolution)...\n\n⏳ [1/6] Removing audio silence & dead pauses...")
         chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+        cliPanel?.appendLog("> [1/6]", "Auto-Pilot: Removing audio silence & dead pauses...")
 
         mainHandler.postDelayed({
             bubble.text = "🤖 Full AI Auto-Pilot ($style, $resolution):\n\n" +
                 "✅ [1/6] Silence & dead pauses trimmed\n" +
                 "⏳ [2/6] Applying dynamic viral hook zoom..."
             chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+            cliPanel?.appendLog("> [2/6]", "Auto-Pilot: Applying dynamic viral hook zoom...")
         }, 400)
 
         mainHandler.postDelayed({
@@ -737,6 +868,7 @@ class AiVoiceCopilotSheet(
                 "✅ [2/6] Dynamic viral hook zoom active\n" +
                 "⏳ [3/6] Applying Teal & Orange cinematic color grade..."
             chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+            cliPanel?.appendLog("> [3/6]", "Auto-Pilot: Applying Teal & Orange color grade...")
         }, 800)
 
         mainHandler.postDelayed({
@@ -746,6 +878,7 @@ class AiVoiceCopilotSheet(
                 "✅ [3/6] Cinematic color grade applied\n" +
                 "⏳ [4/6] Adding background score & music mastering..."
             chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+            cliPanel?.appendLog("> [4/6]", "Auto-Pilot: Adding background score & music mastering...")
         }, 1200)
 
         mainHandler.postDelayed({
@@ -756,11 +889,14 @@ class AiVoiceCopilotSheet(
                 "✅ [4/6] Royalty-free BGM added\n" +
                 "⏳ [5/6] Generating AI subtitles & title overlay..."
             chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+            cliPanel?.appendLog("> [5/6]", "Auto-Pilot: Generating AI subtitles & title overlay...")
         }, 1600)
 
         mainHandler.postDelayed({
             val (success, feedback) = dispatcher.dispatch(command)
             if (success) {
+                cliPanel?.appendLog("[✓]", "Auto-Pilot Complete! Exporting video in $resolution")
+                cliPanel?.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
                 bubble.text = "🎉 **Full AI Video Edit & Export Started!** 🚀\n\n" +
                     "✅ Dead pauses cut & trimmed\n" +
                     "✅ Viral hook zoom & motion active\n" +
@@ -780,6 +916,8 @@ class AiVoiceCopilotSheet(
                     ),
                 )
             } else {
+                cliPanel?.appendLog("[!]", "Auto-Pilot failed: $feedback")
+                cliPanel?.setStatus(AiTerminalConsolePanel.STATUS_ERROR, "#F85149")
                 bubble.text = "⚠️ Auto-Pilot edit failed: $feedback\nTimeline par media clip add karein aur fir try karein."
             }
             chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
@@ -795,10 +933,13 @@ class AiVoiceCopilotSheet(
 
         val bubble = addAssistantBubble("🚀 Auto-Pilot Magic Edit initiated ($style)...\n\n⏳ [1/5] Removing audio silence & dead pauses...")
         chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+        cliPanel?.appendLog("> [1/5]", "Auto-Pilot: Removing audio silence & dead pauses...")
 
         // Execute dispatch to perform full autonomous auto pilot edit
         val (success, _) = dispatcher.dispatch(command)
         if (!success) {
+            cliPanel?.appendLog("[!]", "Auto-Pilot failed: No media or clip selected")
+            cliPanel?.setStatus(AiTerminalConsolePanel.STATUS_ERROR, "#F85149")
             bubble.text = "⚠️ Auto-Pilot edit could not complete. Please ensure media or a clip is selected on the timeline."
             return
         }
@@ -809,6 +950,7 @@ class AiVoiceCopilotSheet(
                 "✅ [1/5] Silence & dead pauses trimmed\n" +
                 "⏳ [2/5] Applying viral hook zoom (push_in)..."
             chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+            cliPanel?.appendLog("> [2/5]", "Auto-Pilot: Applying viral hook zoom (push_in)...")
         }, 450)
 
         mainHandler.postDelayed({
@@ -817,6 +959,7 @@ class AiVoiceCopilotSheet(
                 "✅ [2/5] Viral hook zoom applied\n" +
                 "⏳ [3/5] Applying Teal & Orange color grade..."
             chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+            cliPanel?.appendLog("> [3/5]", "Auto-Pilot: Applying Teal & Orange color grade...")
         }, 900)
 
         mainHandler.postDelayed({
@@ -826,6 +969,7 @@ class AiVoiceCopilotSheet(
                 "✅ [3/5] Cinematic Teal & Orange grade active\n" +
                 "⏳ [4/5] Generating AI auto-captions..."
             chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+            cliPanel?.appendLog("> [4/5]", "Auto-Pilot: Generating AI auto-captions...")
         }, 1350)
 
         mainHandler.postDelayed({
@@ -836,9 +980,12 @@ class AiVoiceCopilotSheet(
                 "✅ [4/5] AI auto-captions generated\n" +
                 "⏳ [5/5] Adding 'Viral Video' hook title..."
             chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+            cliPanel?.appendLog("> [5/5]", "Auto-Pilot: Adding 'Viral Video' hook title...")
         }, 1800)
 
         mainHandler.postDelayed({
+            cliPanel?.appendLog("[✓]", "Auto-Pilot: Magic edit complete! Timeline ready for preview/export.")
+            cliPanel?.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
             bubble.text = "✨ **Auto-Pilot Magic Edit Complete!** 🚀\n\n" +
                 "✅ Audio silence trimmed for fast pacing\n" +
                 "✅ Dynamic hook zoom (push-in)\n" +
