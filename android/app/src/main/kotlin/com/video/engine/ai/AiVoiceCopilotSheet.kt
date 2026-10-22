@@ -81,6 +81,11 @@ class AiVoiceCopilotSheet(
 
     private val suggestionChips = listOf(
         Pair("✨ Full AI Edit & Export", "pura video auto edit karke export karo"),
+        Pair("⏩ 2x Fast Preview", "2x speed par play karo"),
+        Pair("🔁 Loop Playback", "loop playback chalu karo"),
+        Pair("🎯 +1 Frame Nudge", "1 frame aage badhao"),
+        Pair("⏭️ Next Cut Jump", "agle cut par jao"),
+        Pair("⏪ Replay 5s", "last 5 second play karo"),
         Pair("🧠 AI Video Critic", "meri video check karo aur kya kami hai batao"),
         Pair("🎞️ Viral Highlight Finder", "video se 30 second ka viral part nikalo"),
         Pair("🖼️ Auto B-Roll & Visuals", "auto b-roll aur smart visuals overlay dalo"),
@@ -1129,6 +1134,11 @@ class AiVoiceCopilotSheet(
             is VideoEditIntent.ExtractViralHighlight,
             is VideoEditIntent.AutoBrollOverlay,
             is VideoEditIntent.Compound,
+            is VideoEditIntent.SetPlaybackPreviewSpeed,
+            is VideoEditIntent.ToggleLoopPlayback,
+            is VideoEditIntent.NudgeFrame,
+            is VideoEditIntent.JumpToCut,
+            is VideoEditIntent.ReplayLastSeconds,
             is VideoEditIntent.MuteClip -> listOf(
                 Pair("▶️ Play Preview") { handleUserCommand("play") },
                 Pair("🚀 Export 1080p") { handleUserCommand("export 1080p") },

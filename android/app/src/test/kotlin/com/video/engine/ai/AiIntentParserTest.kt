@@ -1,6 +1,7 @@
 package com.video.engine.ai
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -607,6 +608,60 @@ class AiIntentParserTest {
             val res = AiIntentParser.parse(query)
             assertTrue("Expected InspectTimelineCritic for '$query', got ${res.intent}", res.intent is VideoEditIntent.InspectTimelineCritic)
         }
+    }
+
+    @Test
+    fun parse_playbackPreviewSpeed() {
+        val res1 = AiIntentParser.parse("2x speed par play karo")
+        assertTrue("Expected SetPlaybackPreviewSpeed, got ${res1.intent}", res1.intent is VideoEditIntent.SetPlaybackPreviewSpeed)
+        assertEquals(2.0f, (res1.intent as VideoEditIntent.SetPlaybackPreviewSpeed).speed)
+
+        val res2 = AiIntentParser.parse("0.5x slow motion preview")
+        assertTrue(res2.intent is VideoEditIntent.SetPlaybackPreviewSpeed)
+        assertEquals(0.5f, (res2.intent as VideoEditIntent.SetPlaybackPreviewSpeed).speed)
+    }
+
+    @Test
+    fun parse_toggleLoopPlayback() {
+        val cases = listOf(
+            "loop playback chalu karo",
+            "loop me chalao",
+            "repeat playback",
+            "a/b loop",
+        )
+        for (query in cases) {
+            val res = AiIntentParser.parse(query)
+            assertTrue("Expected ToggleLoopPlayback for '$query', got ${res.intent}", res.intent is VideoEditIntent.ToggleLoopPlayback)
+        }
+    }
+
+    @Test
+    fun parse_nudgeFrame() {
+        val fwdRes = AiIntentParser.parse("1 frame aage badhao")
+        assertTrue(fwdRes.intent is VideoEditIntent.NudgeFrame)
+        assertTrue((fwdRes.intent as VideoEditIntent.NudgeFrame).forward)
+
+        val backRes = AiIntentParser.parse("1 frame piche karo")
+        assertTrue(backRes.intent is VideoEditIntent.NudgeFrame)
+        assertFalse((backRes.intent as VideoEditIntent.NudgeFrame).forward)
+    }
+
+    @Test
+    fun parse_jumpToCut() {
+        val nextRes = AiIntentParser.parse("agle cut par jao")
+        assertTrue(nextRes.intent is VideoEditIntent.JumpToCut)
+        assertTrue((nextRes.intent as VideoEditIntent.JumpToCut).forward)
+
+        val prevRes = AiIntentParser.parse("pichle cut par jao")
+        assertTrue(prevRes.intent is VideoEditIntent.JumpToCut)
+        assertFalse((prevRes.intent as VideoEditIntent.JumpToCut).forward)
+    }
+
+    @Test
+    fun parse_replayLastSeconds() {
+        val res = AiIntentParser.parse("last 5 second play karo")
+        assertTrue("Expected ReplayLastSeconds, got ${res.intent}", res.intent is VideoEditIntent.ReplayLastSeconds)
+        assertEquals(5, (res.intent as VideoEditIntent.ReplayLastSeconds).seconds)
     }
 
     @Test

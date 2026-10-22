@@ -363,6 +363,55 @@ class PlaybackController(
         }
     }
 
+    var isLooping: Boolean = false
+        private set
+
+    fun toggleLooping(enable: Boolean? = null): Boolean {
+        isLooping = enable ?: !isLooping
+        Log.d(TAG, "Loop playback is now: $isLooping")
+        return isLooping
+    }
+
+    var playbackSpeedMultiplier: Float = 1.0f
+        private set
+
+    fun setPlaybackSpeed(speed: Float) {
+        playbackSpeedMultiplier = speed.coerceIn(0.25f, 4.0f)
+        Log.d(TAG, "Playback preview speed set to ${playbackSpeedMultiplier}x")
+    }
+
+    fun nudgeFrame(forward: Boolean, fps: Int = 30) {
+        val frameDurationMs = (1000L / fps.coerceAtLeast(1)).coerceAtLeast(1L)
+        val currentMs = currentTimeMsProvider()
+        val totalMs = totalDurationMsProvider().coerceAtLeast(1L)
+        val targetMs = if (forward) {
+            (currentMs + frameDurationMs).coerceAtMost(totalMs)
+        } else {
+            (currentMs - frameDurationMs).coerceAtLeast(0L)
+        }
+        scrubTo(targetMs, syncTimelineUi = true)
+    }
+
+    fun jumpToCut(forward: Boolean, cutPointsMs: List<Long>) {
+        if (cutPointsMs.isEmpty()) return
+        val currentMs = currentTimeMsProvider()
+        val targetMs = if (forward) {
+            cutPointsMs.firstOrNull { it > currentMs + 50L } ?: cutPointsMs.last()
+        } else {
+            cutPointsMs.lastOrNull { it < currentMs - 50L } ?: cutPointsMs.first()
+        }
+        scrubTo(targetMs, syncTimelineUi = true)
+    }
+
+    fun replayLastSeconds(seconds: Int = 5) {
+        val currentMs = currentTimeMsProvider()
+        val targetMs = (currentMs - seconds * 1000L).coerceAtLeast(0L)
+        scrubTo(targetMs, syncTimelineUi = true)
+        mainHandler.postDelayed({
+            nativePlay()
+        }, 100L)
+    }
+
     private fun resolvePlaybackTimeMs(previewView: VideoPreviewView): Long {
         val nativeTimeMs = NativeBridge.getCurrentPlaybackTime(previewView).coerceAtLeast(0L)
         if (nativeTimeMs > 0L) {
@@ -373,6 +422,13 @@ class PlaybackController(
     }
 
     private fun handleNativePlaybackStopped(previewView: VideoPreviewView) {
+        if (isLooping) {
+            scrubTo(0L, syncTimelineUi = true)
+            mainHandler.postDelayed({
+                nativePlay()
+            }, 60L)
+            return
+        }
         cancelPendingSmoothPlay()
         val stoppedTimeMs = NativeBridge.getCurrentPlaybackTime(previewView).coerceAtLeast(0L)
         setIsPlaying(false)

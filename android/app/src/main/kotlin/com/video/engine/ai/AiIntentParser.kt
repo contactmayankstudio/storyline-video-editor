@@ -45,6 +45,11 @@ sealed class VideoEditIntent {
     data class ExtractViralHighlight(val targetDurationSec: Int = 30) : VideoEditIntent()
     data class AutoBrollOverlay(val style: String = "StickersAndText") : VideoEditIntent()
     object InspectTimelineCritic : VideoEditIntent()
+    data class SetPlaybackPreviewSpeed(val speed: Float = 1.0f) : VideoEditIntent()
+    data class ToggleLoopPlayback(val enable: Boolean? = null) : VideoEditIntent()
+    data class NudgeFrame(val forward: Boolean = true) : VideoEditIntent()
+    data class JumpToCut(val forward: Boolean = true) : VideoEditIntent()
+    data class ReplayLastSeconds(val seconds: Int = 5) : VideoEditIntent()
     object TogglePlayback : VideoEditIntent()
     object Undo : VideoEditIntent()
     object Redo : VideoEditIntent()
@@ -531,6 +536,57 @@ object AiIntentParser {
                 intent = VideoEditIntent.AutoCaptions,
                 confidence = 0.95f,
                 feedbackMessage = "Generating AI captions and subtitles",
+            )
+        }
+
+        // 14. Advanced Timeline Track Playback Controls
+        if (matchesPlaybackPreviewSpeed(normalized)) {
+            val speed = resolvePlaybackPreviewSpeed(normalized)
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.SetPlaybackPreviewSpeed(speed),
+                confidence = 0.95f,
+                feedbackMessage = "⏩ Setting timeline preview playback speed to ${speed}x",
+            )
+        }
+
+        if (matchesLoopPlayback(normalized)) {
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.ToggleLoopPlayback(),
+                confidence = 0.95f,
+                feedbackMessage = "🔁 Toggling A/B loop playback mode",
+            )
+        }
+
+        if (matchesNudgeFrame(normalized)) {
+            val fwd = resolveNudgeDirection(normalized)
+            val label = if (fwd) "+1 frame forward" else "-1 frame backward"
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.NudgeFrame(fwd),
+                confidence = 0.95f,
+                feedbackMessage = "🎯 Nudging playhead $label (33ms precision)",
+            )
+        }
+
+        if (matchesJumpToCut(normalized)) {
+            val fwd = resolveCutJumpDirection(normalized)
+            val label = if (fwd) "next cut" else "previous cut"
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.JumpToCut(fwd),
+                confidence = 0.95f,
+                feedbackMessage = "⏭️ Jumping playhead to $label point",
+            )
+        }
+
+        if (matchesReplayLastSeconds(normalized)) {
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.ReplayLastSeconds(5),
+                confidence = 0.95f,
+                feedbackMessage = "⏪ Quick Replay: Playing last 5 seconds of timeline",
             )
         }
 
@@ -1310,5 +1366,63 @@ object AiIntentParser {
             confidence = 0.98f,
             feedbackMessage = summary,
         )
+    }
+
+    private fun matchesReplayLastSeconds(text: String): Boolean {
+        return text.contains("replay") || text.contains("rewind") ||
+            text.contains("5 second") || text.contains("5s") ||
+            text.contains("5 सेक") || text.contains("फिर से चलाओ") ||
+            text.contains("dobara chalao") || text.contains("dubara chalao") ||
+            text.contains("piche se play") || text.contains("piche se chalao")
+    }
+
+    private fun matchesLoopPlayback(text: String): Boolean {
+        return text.contains("loop playback") || text.contains("loop play") ||
+            text.contains("loop me chalao") || text.contains("loop chalu") ||
+            text.contains("repeat playback") || text.contains("a/b loop") ||
+            text.contains("loop video") || text.contains("लूप प्ले") ||
+            text.contains("लूप में चलाओ") || text == "loop" || text == "लूप"
+    }
+
+    private fun matchesNudgeFrame(text: String): Boolean {
+        return text.contains("frame aage") || text.contains("frame piche") ||
+            text.contains("next frame") || text.contains("prev frame") ||
+            text.contains("previous frame") || text.contains("frame forward") ||
+            text.contains("frame back") || text.contains("step forward") ||
+            text.contains("step back") || text.contains("nudge forward") ||
+            text.contains("nudge back") || text.contains("अगला फ्रेम") ||
+            text.contains("पिछला फ्रेम") || text.contains("1 frame")
+    }
+
+    private fun resolveNudgeDirection(text: String): Boolean {
+        return !(text.contains("piche") || text.contains("back") || text.contains("prev") || text.contains("पिछला"))
+    }
+
+    private fun matchesJumpToCut(text: String): Boolean {
+        return text.contains("cut par jao") || text.contains("cut pe jao") ||
+            text.contains("next cut") || text.contains("prev cut") ||
+            text.contains("previous cut") || text.contains("next split") ||
+            text.contains("prev split") || text.contains("jump next cut") ||
+            text.contains("jump prev cut") || text.contains("agle cut") ||
+            text.contains("pichle cut") || text.contains("अगले कट") ||
+            text.contains("पिछले कट")
+    }
+
+    private fun resolveCutJumpDirection(text: String): Boolean {
+        return !(text.contains("pichle") || text.contains("prev") || text.contains("back") || text.contains("पिछला"))
+    }
+
+    private fun matchesPlaybackPreviewSpeed(text: String): Boolean {
+        return (text.contains("play") || text.contains("chalao") || text.contains("preview") || text.contains("playback")) &&
+            (text.contains("2x") || text.contains("1.5x") || text.contains("0.5x") || text.contains("fast preview") || text.contains("slow preview") || text.contains("slow mo"))
+    }
+
+    private fun resolvePlaybackPreviewSpeed(text: String): Float {
+        return when {
+            text.contains("2x") -> 2.0f
+            text.contains("1.5x") -> 1.5f
+            text.contains("0.5x") || text.contains("slow") -> 0.5f
+            else -> 2.0f
+        }
     }
 }

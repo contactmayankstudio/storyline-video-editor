@@ -7725,6 +7725,55 @@ class VideoEditorActivity : ComponentActivity() {
                 return report.toString()
             }
 
+            override fun setPlaybackPreviewSpeed(speed: Float): Boolean {
+                runOnUiThread {
+                    playbackController?.setPlaybackSpeed(speed)
+                    safeToast("⏩ Preview playback speed set to ${speed}x!", Toast.LENGTH_SHORT)
+                }
+                return true
+            }
+
+            override fun toggleLoopPlayback(enable: Boolean?): Boolean {
+                runOnUiThread {
+                    val isLooping = playbackController?.toggleLooping(enable) ?: true
+                    safeToast(if (isLooping) "🔁 A/B Loop playback ON" else "🔁 Loop playback OFF", Toast.LENGTH_SHORT)
+                }
+                return true
+            }
+
+            override fun nudgeFrame(forward: Boolean): Boolean {
+                runOnUiThread {
+                    playbackController?.nudgeFrame(forward, fps = 30)
+                    val label = if (forward) "+1 frame (+33ms)" else "-1 frame (-33ms)"
+                    safeToast("🎯 Nudge: $label", Toast.LENGTH_SHORT)
+                }
+                return true
+            }
+
+            override fun jumpToCut(forward: Boolean): Boolean {
+                runOnUiThread {
+                    val cutPoints = mutableSetOf(0L, currentProjectDurationMs())
+                    timelineManager?.getClips()?.forEach { clip ->
+                        val startMs = (nativeClipStartMs[clip.id] ?: 0L).coerceAtLeast(0L)
+                        val durMs = (nativeClipDurationMs[clip.id] ?: clip.durationMs).coerceAtLeast(1L)
+                        cutPoints.add(startMs)
+                        cutPoints.add(startMs + durMs)
+                    }
+                    val sortedCuts = cutPoints.toList().sorted()
+                    playbackController?.jumpToCut(forward, sortedCuts)
+                    safeToast("⏭️ Jumped to ${if (forward) "next" else "previous"} cut point", Toast.LENGTH_SHORT)
+                }
+                return true
+            }
+
+            override fun replayLastSeconds(seconds: Int): Boolean {
+                runOnUiThread {
+                    playbackController?.replayLastSeconds(seconds)
+                    safeToast("⏪ Replaying last ${seconds}s", Toast.LENGTH_SHORT)
+                }
+                return true
+            }
+
             override fun exportVideo(resolution: String): Boolean {
                 runOnUiThread {
                     val currentAspect = getSelectedAspectRatio()

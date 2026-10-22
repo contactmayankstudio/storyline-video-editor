@@ -220,6 +220,31 @@ interface AiCommandDispatcher {
     fun getTimelineCriticReport(): String = "Timeline is ready for editing."
 
     /**
+     * Sets preview playback speed (0.25x - 4.0x) for fast or slow-motion review.
+     */
+    fun setPlaybackPreviewSpeed(speed: Float = 1.0f): Boolean = false
+
+    /**
+     * Toggles A/B seamless loop playback mode.
+     */
+    fun toggleLoopPlayback(enable: Boolean? = null): Boolean = false
+
+    /**
+     * Nudges playhead by exact 1 frame (+33ms / -33ms).
+     */
+    fun nudgeFrame(forward: Boolean = true): Boolean = false
+
+    /**
+     * Jumps playhead to the next or previous clip cut / boundary.
+     */
+    fun jumpToCut(forward: Boolean = true): Boolean = false
+
+    /**
+     * Rewinds and replays the last N seconds of timeline.
+     */
+    fun replayLastSeconds(seconds: Int = 5): Boolean = false
+
+    /**
      * Dispatches a ParsedCommand to the appropriate action.
      * Returns a pair of (success: Boolean, feedbackMessage: String).
      */
@@ -293,6 +318,11 @@ interface AiCommandDispatcher {
             is VideoEditIntent.AutoBrollOverlay -> autoBrollOverlay(intent.style)
             is VideoEditIntent.InspectTimelineCritic -> true
             is VideoEditIntent.Compound -> compound(intent.steps)
+            is VideoEditIntent.SetPlaybackPreviewSpeed -> setPlaybackPreviewSpeed(intent.speed)
+            is VideoEditIntent.ToggleLoopPlayback -> toggleLoopPlayback(intent.enable)
+            is VideoEditIntent.NudgeFrame -> nudgeFrame(intent.forward)
+            is VideoEditIntent.JumpToCut -> jumpToCut(intent.forward)
+            is VideoEditIntent.ReplayLastSeconds -> replayLastSeconds(intent.seconds)
             is VideoEditIntent.TogglePlayback -> togglePlayback()
             is VideoEditIntent.Undo -> undo()
             is VideoEditIntent.Redo -> redo()
