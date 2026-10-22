@@ -995,7 +995,7 @@ class CameraFilterOverlayView @JvmOverloads constructor(
             nx = baseX + upX * noseTipShift
             ny = baseY + upY * noseTipShift
 
-            propW = (eyeDist * 1.15f * scaleFactor).coerceIn(w * 0.15f, w * 0.70f)
+            propW = (eyeDist * 1.15f * scaleFactor).coerceIn(12f * density, w * 0.70f)
             val rawRot = Math.toDegrees(kotlin.math.atan2(dy.toDouble(), dx.toDouble())).toFloat()
             rotation = if (kotlin.math.abs(rawRot) < 0.8f) 0f else rawRot
         } else {
@@ -1046,14 +1046,14 @@ class CameraFilterOverlayView @JvmOverloads constructor(
             centerX = eyeCx + (dx / eyeDist) * yawShift
             centerY = eyeCy + (dy / eyeDist) * yawShift
 
-            glassesWidth = (eyeDist * 2.30f).coerceIn(w * 0.35f, w * 0.95f)
+            glassesWidth = (eyeDist * 2.30f).coerceIn(24f * density, w * 0.98f)
             val rawRot = Math.toDegrees(kotlin.math.atan2(dy.toDouble(), dx.toDouble())).toFloat()
             rotation = if (kotlin.math.abs(rawRot) < 0.8f) 0f else rawRot
         } else {
             val fb = face.bounds
             centerX = fb.centerX() * w
             centerY = (fb.top + fb.height() * 0.35f) * h
-            glassesWidth = (fb.width() * w * 1.05f).coerceIn(w * 0.35f, w * 0.95f)
+            glassesWidth = (fb.width() * w * 1.05f).coerceIn(24f * density, w * 0.98f)
             rotation = face.headEulerZ
         }
 
@@ -1104,13 +1104,13 @@ class CameraFilterOverlayView @JvmOverloads constructor(
             centerX = eyeCx + upX * headHeightOffset + (dx / eyeDist) * yawOffset
             centerY = eyeCy + upY * headHeightOffset + (dy / eyeDist) * yawOffset
 
-            hatWidth = (eyeDist * 2.75f).coerceIn(w * 0.30f, w * 0.98f)
+            hatWidth = (eyeDist * 2.75f).coerceIn(32f * density, w * 1.15f)
             val rawRot = Math.toDegrees(kotlin.math.atan2(dy.toDouble(), dx.toDouble())).toFloat()
             rotation = if (kotlin.math.abs(rawRot) < 0.8f) 0f else rawRot
         } else {
             val fb = face.bounds
             centerX = fb.centerX() * w
-            hatWidth = (fb.width() * w * 1.15f).coerceIn(w * 0.35f, w * 0.95f)
+            hatWidth = (fb.width() * w * 1.15f).coerceIn(32f * density, w * 1.15f)
             val hatHeight = hatWidth * (bmp.height.toFloat() / bmp.width.toFloat())
             centerY = (fb.top * h) - (hatHeight * 0.35f)
             rotation = face.headEulerZ
@@ -1160,14 +1160,14 @@ class CameraFilterOverlayView @JvmOverloads constructor(
             centerX = eyeCx - upX * maskCenterDown
             centerY = eyeCy - upY * maskCenterDown
 
-            faceWidth = (eyeDist * 3.35f).coerceIn(w * 0.35f, w * 0.98f)
+            faceWidth = (eyeDist * 3.35f).coerceIn(40f * density, w * 1.15f)
             val rawRot = Math.toDegrees(kotlin.math.atan2(dy.toDouble(), dx.toDouble())).toFloat()
             rotation = if (kotlin.math.abs(rawRot) < 0.8f) 0f else rawRot
         } else {
             val fb = face.bounds
             centerX = fb.centerX() * w
             centerY = fb.centerY() * h
-            faceWidth = (fb.width() * w * 1.25f).coerceIn(w * 0.4f, w * 0.98f)
+            faceWidth = (fb.width() * w * 1.25f).coerceIn(40f * density, w * 1.15f)
             rotation = face.headEulerZ
         }
 

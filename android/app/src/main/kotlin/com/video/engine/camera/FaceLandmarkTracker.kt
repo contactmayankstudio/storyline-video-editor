@@ -39,6 +39,7 @@ class FaceLandmarkTracker {
 
     // Smoothing state
     private var smoothedData: SmoothedFaceData = SmoothedFaceData(hasFace = false)
+    private var lostFaceFrames: Int = 0
 
     @Volatile
     private var isProcessing = false
@@ -48,7 +49,7 @@ class FaceLandmarkTracker {
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
             .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
             .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
-            .setMinFaceSize(0.12f)
+            .setMinFaceSize(0.08f)
             .enableTracking()
             .build()
 
@@ -70,15 +71,21 @@ class FaceLandmarkTracker {
                     try {
                         val primaryFace = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
                         if (primaryFace != null) {
+                            lostFaceFrames = 0
                             val frameWidth = bitmap.width.toFloat()
                             val frameHeight = bitmap.height.toFloat()
                             val updated = mapAndSmoothFace(primaryFace, frameWidth, frameHeight, isFrontCamera)
                             smoothedData = updated
                             onResult(updated)
                         } else {
-                            // Gradual fade out
-                            smoothedData = smoothedData.copy(hasFace = false)
-                            onResult(smoothedData)
+                            lostFaceFrames++
+                            if (lostFaceFrames >= 4) {
+                                smoothedData = smoothedData.copy(hasFace = false)
+                                onResult(smoothedData)
+                            } else {
+                                // Grace period: maintain last smoothed face position across single dropped frames
+                                onResult(smoothedData)
+                            }
                         }
                     } finally {
                         isProcessing = false
@@ -103,28 +110,16 @@ class FaceLandmarkTracker {
         frameH: Float,
         isFrontCamera: Boolean
     ): SmoothedFaceData {
-        // Raw bounding box normalized [0..1]
+        // Raw bounding box normalized [0..1] directly from screen-space bitmap
         val rawBox = face.boundingBox
-        var left = rawBox.left.toFloat() / frameW
-        var right = rawBox.right.toFloat() / frameW
-        val top = rawBox.top.toFloat() / frameH
-        val bottom = rawBox.bottom.toFloat() / frameH
-
-        // Mirror X for front camera
-        if (isFrontCamera) {
-            val origLeft = left
-            left = 1f - right
-            right = 1f - origLeft
-        }
-
         val targetBounds = RectF(
-            left.coerceIn(0f, 1f),
-            top.coerceIn(0f, 1f),
-            right.coerceIn(0f, 1f),
-            bottom.coerceIn(0f, 1f)
+            (rawBox.left.toFloat() / frameW).coerceIn(0f, 1f),
+            (rawBox.top.toFloat() / frameH).coerceIn(0f, 1f),
+            (rawBox.right.toFloat() / frameW).coerceIn(0f, 1f),
+            (rawBox.bottom.toFloat() / frameH).coerceIn(0f, 1f)
         )
 
-        // Landmarks
+        // Landmarks in screen-space normalized coordinates
         val rawLeftEye = face.getLandmark(FaceLandmark.LEFT_EYE)?.position
         val rawRightEye = face.getLandmark(FaceLandmark.RIGHT_EYE)?.position
         val rawNose = face.getLandmark(FaceLandmark.NOSE_BASE)?.position
@@ -136,28 +131,52 @@ class FaceLandmarkTracker {
 
         val mapPoint = { p: PointF? ->
             if (p != null) {
-                var px = p.x / frameW
-                if (isFrontCamera) {
-                    px = 1f - px
-                }
-                PointF(px.coerceIn(0f, 1f), (p.y / frameH).coerceIn(0f, 1f))
+                PointF((p.x / frameW).coerceIn(0f, 1f), (p.y / frameH).coerceIn(0f, 1f))
             } else null
         }
 
-        // mapPoint already reflects X (1f - px) on front camera.
-        // Direct assignment keeps targetLeftEye on screen-left (x ~ 0.30) and targetRightEye on screen-right (x ~ 0.70)
-        val targetLeftEye = mapPoint(rawLeftEye)
-        val targetRightEye = mapPoint(rawRightEye)
+        // CRITICAL: Sort eyes so targetLeftEye is ALWAYS on Screen-Left (smaller x)
+        // and targetRightEye is ALWAYS on Screen-Right (larger x).
+        // This guarantees glasses, hats, and ears NEVER flip upside down or rotate 180°!
+        val eyeA = mapPoint(rawLeftEye)
+        val eyeB = mapPoint(rawRightEye)
+        val targetLeftEye: PointF?
+        val targetRightEye: PointF?
+        if (eyeA != null && eyeB != null) {
+            if (eyeA.x <= eyeB.x) {
+                targetLeftEye = eyeA
+                targetRightEye = eyeB
+            } else {
+                targetLeftEye = eyeB
+                targetRightEye = eyeA
+            }
+        } else {
+            targetLeftEye = eyeA ?: eyeB
+            targetRightEye = eyeB ?: eyeA
+        }
+
         val targetNose = mapPoint(rawNose)
         val targetMouthBottom = mapPoint(rawMouthBottom)
 
-        // Cheeks
-        var targetLeftCheek = mapPoint(rawLeftCheek)
-        var targetRightCheek = mapPoint(rawRightCheek)
+        // Cheeks sorted screen-left and screen-right
+        val cheekA = mapPoint(rawLeftCheek)
+        val cheekB = mapPoint(rawRightCheek)
+        var targetLeftCheek = if (cheekA != null && cheekB != null) {
+            if (cheekA.x <= cheekB.x) cheekA else cheekB
+        } else (cheekA ?: cheekB)
+        var targetRightCheek = if (cheekA != null && cheekB != null) {
+            if (cheekA.x >= cheekB.x) cheekA else cheekB
+        } else (cheekB ?: cheekA)
 
-        // Mouth corners
-        val targetMouthLeft = mapPoint(rawMouthLeft)
-        val targetMouthRight = mapPoint(rawMouthRight)
+        // Mouth corners sorted screen-left and screen-right
+        val mouthA = mapPoint(rawMouthLeft)
+        val mouthB = mapPoint(rawMouthRight)
+        val targetMouthLeft = if (mouthA != null && mouthB != null) {
+            if (mouthA.x <= mouthB.x) mouthA else mouthB
+        } else (mouthA ?: mouthB)
+        val targetMouthRight = if (mouthA != null && mouthB != null) {
+            if (mouthA.x >= mouthB.x) mouthA else mouthB
+        } else (mouthB ?: mouthA)
 
         // Fallbacks for cheeks if ML Kit didn't detect them
         if (targetLeftCheek == null && targetLeftEye != null) {
@@ -177,13 +196,20 @@ class FaceLandmarkTracker {
         }
         val targetMouthCenterY = when {
             targetNose != null && targetMouthBottom != null -> (targetNose.y + targetMouthBottom.y * 2f) / 3f
-            targetMouthBottom != null -> targetMouthBottom.y - 0.03f
+            targetMouthBottom != null -> targetMouthBottom.y - 0.02f
             targetNose != null -> targetNose.y + 0.08f
             else -> targetBounds.top + targetBounds.height() * 0.72f
         }
         val targetMouthCenter = PointF(targetMouthCenterX.coerceIn(0f, 1f), targetMouthCenterY.coerceIn(0f, 1f))
 
-        val targetEulerZ = if (isFrontCamera) -face.headEulerAngleZ else face.headEulerAngleZ
+        // True screen-space head roll angle directly derived from the eye line
+        val targetEulerZ = if (targetLeftEye != null && targetRightEye != null) {
+            val dX = (targetRightEye.x - targetLeftEye.x) * frameW
+            val dY = (targetRightEye.y - targetLeftEye.y) * frameH
+            Math.toDegrees(kotlin.math.atan2(dY.toDouble(), dX.toDouble())).toFloat()
+        } else {
+            face.headEulerAngleZ
+        }
         val targetEulerY = face.headEulerAngleY
         val targetEulerX = face.headEulerAngleX
 
@@ -335,6 +361,7 @@ class FaceLandmarkTracker {
     }
 
     fun reset() {
+        lostFaceFrames = 0
         smoothedData = SmoothedFaceData(hasFace = false)
     }
 

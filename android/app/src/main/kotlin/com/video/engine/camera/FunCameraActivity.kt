@@ -21,9 +21,11 @@ import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.params.MeteringRectangle
 import android.media.MediaPlayer
 import android.media.MediaRecorder
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
@@ -81,6 +83,8 @@ class FunCameraActivity : ComponentActivity() {
     private var floatingLensPill: TextView? = null
     private var zoomPill: TextView? = null
     private var swipeToast: TextView? = null
+    private var shutterFlashView: View? = null
+    private var cameraLensScrollView: android.widget.HorizontalScrollView? = null
 
     private var cameraDevice: CameraDevice? = null
     private var captureSession: CameraCaptureSession? = null
@@ -164,12 +168,14 @@ class FunCameraActivity : ComponentActivity() {
         recordingTimerBadge = findViewById(R.id.cameraRecordingTimer)
         categoryContainer = findViewById(R.id.cameraCategoryContainer)
         filterContainer = findViewById(R.id.cameraFilterChipsContainer)
+        cameraLensScrollView = findViewById(R.id.cameraLensScrollView)
         photoModeBtn = findViewById(R.id.cameraPhotoModeBtn)
         videoModeBtn = findViewById(R.id.cameraVideoModeBtn)
         shutterButton = findViewById(R.id.cameraShutterButton)
         floatingLensPill = findViewById(R.id.floatingLensPill)
         zoomPill = findViewById(R.id.cameraZoomPill)
         swipeToast = findViewById(R.id.cameraLensSwipeToast)
+        shutterFlashView = findViewById(R.id.cameraShutterFlash)
 
         findViewById<FrameLayout>(R.id.cameraBackBtn)?.setOnClickListener { finish() }
 
@@ -185,9 +191,12 @@ class FunCameraActivity : ComponentActivity() {
         setupModeSelector()
         setupShutterControl()
 
-        // Load lenses
+        // Load lenses (default to popular fun puppy or aviator lens so face sync is immediately active)
         allLenses = LensRepository.getLenses(this)
-        selectedLens = allLenses.firstOrNull { it.id == "beauty" } ?: allLenses.firstOrNull()
+        selectedLens = allLenses.firstOrNull { it.id == "lens_animal_puppy" }
+            ?: allLenses.firstOrNull { it.id == "lens_glasses_aviator" }
+            ?: allLenses.firstOrNull { it.id != "none" }
+            ?: allLenses.firstOrNull()
         selectedLens?.let {
             overlayView.currentLens = it
             updateLensBadge(it)
@@ -318,12 +327,13 @@ class FunCameraActivity : ComponentActivity() {
     private fun startVideoRecording() {
         if (isRecordingVideo) return
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(this, "Microphone permission needed for video audio", Toast.LENGTH_SHORT).show()
+        val hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        if (!hasAudio) {
+            Toast.makeText(this, "Microphone permission not granted, recording video without audio", Toast.LENGTH_SHORT).show()
         }
 
         if (!prepareMediaRecorder()) {
-            Toast.makeText(this, "Failed to start video recorder", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Failed to initialize video recorder", Toast.LENGTH_SHORT).show()
             if (shutterButton.isRecording) {
                 shutterButton.stopRecording()
             }
@@ -337,6 +347,15 @@ class FunCameraActivity : ComponentActivity() {
         val recorderSurface = mediaRecorder?.surface ?: return
 
         try {
+            // Gracefully stop repeating on current session before starting recording session
+            try {
+                captureSession?.stopRepeating()
+                captureSession?.close()
+                captureSession = null
+            } catch (e: Exception) {
+                Log.w(TAG, "Error closing previous preview session", e)
+            }
+
             val surfaces = listOf(previewSurface, recorderSurface)
             val recordBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
                 addTarget(previewSurface)
@@ -349,6 +368,7 @@ class FunCameraActivity : ComponentActivity() {
 
             camera.createCaptureSession(surfaces, object : CameraCaptureSession.StateCallback() {
                 override fun onConfigured(session: CameraCaptureSession) {
+                    if (cameraDevice == null) return
                     captureSession = session
                     try {
                         session.setRepeatingRequest(recordBuilder.build(), null, backgroundHandler)
@@ -364,6 +384,9 @@ class FunCameraActivity : ComponentActivity() {
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to start repeating recording request", e)
+                        runOnUiThread {
+                            stopVideoRecording()
+                        }
                     }
                 }
                 override fun onConfigureFailed(session: CameraCaptureSession) {
@@ -372,11 +395,13 @@ class FunCameraActivity : ComponentActivity() {
                         if (shutterButton.isRecording) {
                             shutterButton.stopRecording()
                         }
+                        createCameraPreview()
                     }
                 }
             }, backgroundHandler)
         } catch (e: Exception) {
             Log.e(TAG, "startVideoRecording error", e)
+            createCameraPreview()
         }
     }
 
@@ -393,19 +418,46 @@ class FunCameraActivity : ComponentActivity() {
         currentVideoFile = File(cameraDir, "Storyline_Video_${timeStamp}.mp4")
 
         return try {
-            try {
-                mr.setAudioSource(MediaRecorder.AudioSource.MIC)
-            } catch (_: Exception) {}
+            val hasAudioPermission = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+
+            var audioConfigured = false
+            if (hasAudioPermission) {
+                try {
+                    mr.setAudioSource(MediaRecorder.AudioSource.MIC)
+                    audioConfigured = true
+                } catch (e: Exception) {
+                    Log.w(TAG, "setAudioSource failed, continuing without audio", e)
+                }
+            }
+
             mr.setVideoSource(MediaRecorder.VideoSource.SURFACE)
             mr.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             mr.setOutputFile(currentVideoFile!!.absolutePath)
-            mr.setVideoEncodingBitRate(8_000_000)
+            mr.setVideoEncodingBitRate(10_000_000)
             mr.setVideoFrameRate(30)
-            mr.setVideoSize(720, 1280) // 720p 9:16 vertical video for maximum hardware compatibility
+
+            // Landscape-aligned dimensions for hardware encoder (e.g. 1280x720) with 16-pixel multiples
+            val pWidth = optimalPreviewSize.width
+            val pHeight = optimalPreviewSize.height
+            val recW = maxOf(pWidth, pHeight).coerceAtMost(1920)
+            val recH = minOf(pWidth, pHeight).coerceAtMost(1080)
+            val alignedW = (recW / 16) * 16
+            val alignedH = (recH / 16) * 16
+            mr.setVideoSize(alignedW, alignedH)
             mr.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-            try {
-                mr.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            } catch (_: Exception) {}
+
+            if (audioConfigured) {
+                try {
+                    mr.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                    mr.setAudioEncodingBitRate(128_000)
+                    mr.setAudioSamplingRate(44100)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Audio encoder setup failed", e)
+                }
+            }
 
             // Calculate precise orientation hint matching sensor and display rotation
             val deviceRotation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -430,6 +482,11 @@ class FunCameraActivity : ComponentActivity() {
             true
         } catch (e: Exception) {
             Log.e(TAG, "prepareMediaRecorder failed", e)
+            try {
+                mr.reset()
+                mr.release()
+            } catch (_: Exception) {}
+            mediaRecorder = null
             false
         }
     }
@@ -443,19 +500,31 @@ class FunCameraActivity : ComponentActivity() {
         }
 
         try {
+            captureSession?.stopRepeating()
+            captureSession?.abortCaptures()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error aborting captureSession", e)
+        }
+
+        try {
             mediaRecorder?.stop()
-            mediaRecorder?.reset()
-            mediaRecorder?.release()
-            mediaRecorder = null
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping mediaRecorder", e)
         }
+
+        try {
+            mediaRecorder?.reset()
+            mediaRecorder?.release()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error releasing mediaRecorder", e)
+        }
+        mediaRecorder = null
 
         setRecordingUiState(false)
         createCameraPreview()
 
         val recorded = currentVideoFile
-        if (recorded != null && recorded.exists() && recorded.length() > 1024) {
+        if (recorded != null && recorded.exists() && recorded.length() > 4096) {
             Thread {
                 val saved = saveVideoToGallery(recorded)
                 runOnUiThread {
@@ -505,25 +574,70 @@ class FunCameraActivity : ComponentActivity() {
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val fileName = "Storyline_Fun_${timeStamp}.mp4"
 
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val contentValues = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                    put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, "Movies/Storyline_Camera")
-                }
-                val uri = contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues)
-                if (uri != null) {
-                    contentResolver.openOutputStream(uri)?.use { out ->
-                        FileInputStream(videoFile).use { it.copyTo(out) }
-                    }
+        // 1. Write to public Movies/Storyline_Camera or DCIM/Camera directory
+        val publicMoviesDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "Storyline_Camera")
+        if (!publicMoviesDir.exists()) publicMoviesDir.mkdirs()
+        val targetFile = if (publicMoviesDir.canWrite()) {
+            File(publicMoviesDir, fileName)
+        } else {
+            val dcimDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM), "Camera")
+            if (!dcimDir.exists()) dcimDir.mkdirs()
+            File(dcimDir, fileName)
+        }
+
+        var copied = false
+        try {
+            FileInputStream(videoFile).use { input ->
+                FileOutputStream(targetFile).use { output ->
+                    input.copyTo(output)
                 }
             }
-            videoFile
+            copied = true
         } catch (e: Exception) {
-            e.printStackTrace()
-            null
+            Log.w(TAG, "Direct public save failed for video", e)
         }
+
+        val fileToReturn = if (copied && targetFile.exists() && targetFile.length() > 0) targetFile else videoFile
+
+        // 2. Insert into Android MediaStore with IS_PENDING handling
+        try {
+            val contentValues = ContentValues().apply {
+                put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
+                put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/Storyline_Camera")
+                    put(MediaStore.Video.Media.IS_PENDING, 1)
+                }
+            }
+            val uri = contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues)
+            if (uri != null) {
+                contentResolver.openOutputStream(uri)?.use { out ->
+                    FileInputStream(videoFile).use { it.copyTo(out) }
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    contentValues.clear()
+                    contentValues.put(MediaStore.Video.Media.IS_PENDING, 0)
+                    contentResolver.update(uri, contentValues, null, null)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "MediaStore video insert failed", e)
+        }
+
+        // 3. Trigger system MediaScanner so Gallery apps instantly display the recorded video
+        try {
+            MediaScannerConnection.scanFile(
+                this,
+                arrayOf(fileToReturn.absolutePath),
+                arrayOf("video/mp4")
+            ) { path, scannedUri ->
+                Log.d(TAG, "Scanned video $path -> $scannedUri")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "MediaScanner video failed", e)
+        }
+
+        return fileToReturn
     }
 
     private fun showVideoSavedDialog(videoFile: File) {
@@ -714,10 +828,19 @@ class FunCameraActivity : ComponentActivity() {
                     overlayView.currentLens = lens
                     updateLensBadge(lens)
                     setupLensCarousel()
+                    showFloatingLensPill(lens)
                 }
             }
 
             filterContainer.addView(lensItemView)
+
+            if (isSelected) {
+                lensItemView.post {
+                    val scroll = cameraLensScrollView ?: return@post
+                    val scrollX = lensItemView.left - (scroll.width - lensItemView.width) / 2
+                    scroll.smoothScrollTo(scrollX.coerceAtLeast(0), 0)
+                }
+            }
         }
     }
 
@@ -855,6 +978,7 @@ class FunCameraActivity : ComponentActivity() {
 
     private fun capturePhoto() {
         playShutterSound()
+        triggerShutterFlashAnimation()
         val rawBitmap = textureView.bitmap ?: return
 
         // Bake all active AR props, gesture particles, and visual filter styles onto captured photo
@@ -877,33 +1001,79 @@ class FunCameraActivity : ComponentActivity() {
 
     private fun saveBitmapToGallery(bitmap: Bitmap): File? {
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val fileName = "Storyline_Fun_${timeStamp}.jpg"
+        val fileName = "Storyline_Photo_${timeStamp}.jpg"
 
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val contentValues = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                    put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/Storyline_Camera")
-                }
-                val uri: Uri? = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-                if (uri != null) {
-                    contentResolver.openOutputStream(uri)?.use { out ->
-                        bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
-                    }
-                }
-            }
-            // Also store a reliable local file copy
-            val cameraDir = File(getExternalFilesDir(null), "fun_photos").also { it.mkdirs() }
-            val localFile = File(cameraDir, fileName)
-            FileOutputStream(localFile).use { out ->
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
-            }
-            localFile
-        } catch (e: Exception) {
-            Log.e(TAG, "Error saving photo", e)
-            null
+        // 1. Create public file in DCIM/Camera or Pictures/Storyline_Camera
+        val publicDcimDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM), "Camera")
+        if (!publicDcimDir.exists()) publicDcimDir.mkdirs()
+        val targetFile = if (publicDcimDir.canWrite()) {
+            File(publicDcimDir, fileName)
+        } else {
+            val picturesDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "Storyline_Camera")
+            if (!picturesDir.exists()) picturesDir.mkdirs()
+            File(picturesDir, fileName)
         }
+
+        var success = false
+        try {
+            FileOutputStream(targetFile).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 96, out)
+            }
+            success = true
+        } catch (e: Exception) {
+            Log.w(TAG, "Direct public save failed, falling back to app dir", e)
+        }
+
+        val fileToReturn = if (success && targetFile.exists() && targetFile.length() > 0) {
+            targetFile
+        } else {
+            val cameraDir = File(getExternalFilesDir(null), "fun_photos").also { it.mkdirs() }
+            val fallback = File(cameraDir, fileName)
+            FileOutputStream(fallback).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 96, out)
+            }
+            fallback
+        }
+
+        // 2. Insert into Android MediaStore with IS_PENDING handling for instant gallery visibility
+        try {
+            val contentValues = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/Camera")
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
+                }
+            }
+            val uri: Uri? = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+            if (uri != null) {
+                contentResolver.openOutputStream(uri)?.use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 96, out)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    contentValues.clear()
+                    contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+                    contentResolver.update(uri, contentValues, null, null)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "MediaStore photo insert failed", e)
+        }
+
+        // 3. Trigger system MediaScanner so Gallery apps immediately pick up the new photo
+        try {
+            MediaScannerConnection.scanFile(
+                this,
+                arrayOf(fileToReturn.absolutePath),
+                arrayOf("image/jpeg")
+            ) { path, scannedUri ->
+                Log.d(TAG, "Scanned photo $path -> $scannedUri")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "MediaScanner photo failed", e)
+        }
+
+        return fileToReturn
     }
 
     private fun showPhotoSavedDialog(photoFile: File) {
@@ -959,6 +1129,18 @@ class FunCameraActivity : ComponentActivity() {
             }
             .setCancelable(true)
             .show()
+    }
+
+    private fun triggerShutterFlashAnimation() {
+        val flash = shutterFlashView ?: return
+        flash.alpha = 0.85f
+        flash.visibility = View.VISIBLE
+        flash.animate()?.cancel()
+        flash.animate()
+            ?.alpha(0f)
+            ?.setDuration(160L)
+            ?.withEndAction { flash.visibility = View.GONE }
+            ?.start()
     }
 
     private fun playShutterSound() {

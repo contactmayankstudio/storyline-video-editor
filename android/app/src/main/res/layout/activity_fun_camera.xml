@@ -303,4 +303,12 @@
         android:elevation="10dp"
         android:visibility="gone" />
 
+    <!-- Instant Photo Shutter Flash Feedback -->
+    <View
+        android:id="@+id/cameraShutterFlash"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#FFFFFF"
+        android:visibility="gone" />
+
 </FrameLayout>
