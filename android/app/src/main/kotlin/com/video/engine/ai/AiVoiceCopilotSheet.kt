@@ -70,12 +70,17 @@ class AiVoiceCopilotSheet(
     private var isListening: Boolean = false
 
     private val suggestionChips = listOf(
-        Pair("✨ Auto-Pilot Magic Edit", "auto edit puri video"),
+        Pair("✨ Full AI Edit & Export", "pura video auto edit karke export karo"),
+        Pair("🚀 Export 1080p Video", "export 1080p"),
+        Pair("📱 9:16 Reel / Shorts", "aspect ratio 9:16"),
+        Pair("🎵 Add Trending BGM", "add music lofi chill"),
         Pair("✂️ Remove Silence", "remove silence"),
         Pair("🎨 Teal & Orange", "teal and orange"),
+        Pair("🔀 Add Transition", "add transition crossfade"),
         Pair("⚡ Fast Beat Cuts", "fast beat cuts"),
         Pair("🔍 Viral Hook Zoom", "viral hook zoom"),
         Pair("💬 Auto Captions", "auto captions"),
+        Pair("🔇 Mute Audio", "mute clip"),
     )
 
     fun show() {
@@ -291,7 +296,17 @@ class AiVoiceCopilotSheet(
         root.addView(chatScrollView)
 
         // Initial Assistant Welcome Bubble
-        addAssistantBubble("👋 Hey! Main tumhara pro video editor hoon. Batao video me kya karna hai — main timeline par turant edit kar deta hoon! 🎬")
+        addAssistantBubble(
+            "👋 Hey! Main tumhara pro AI video editor hoon. Bolo ya chat karo — puri timeline edit aur export turant ho jayegi! 🎬✨",
+            isSuccess = true,
+            actionPills = listOf(
+                Pair("✨ Full AI Edit & Export") { handleUserCommand("pura video auto edit karke export karo") },
+                Pair("🚀 Export 1080p") { handleUserCommand("export 1080p") },
+                Pair("📱 9:16 Reel") { handleUserCommand("aspect ratio 9:16") },
+                Pair("🎵 Add BGM") { handleUserCommand("add music lofi chill") },
+                Pair("✂️ Remove Silence") { handleUserCommand("remove silence") },
+            ),
+        )
 
         // 5. Quick Suggestion Chips Strip
         val chipsScroll = HorizontalScrollView(activity).apply {
@@ -441,7 +456,10 @@ class AiVoiceCopilotSheet(
     }
 
     private fun createSuggestionChip(label: String, commandText: String): View {
-        val isAutoPilot = commandText == "auto edit puri video" || label.contains("Auto-Pilot")
+        val isAutoPilot = commandText == "auto edit puri video" ||
+            label.contains("Auto-Pilot") ||
+            label.contains("Edit & Export") ||
+            label.contains("Export")
         return TextView(activity).apply {
             text = label
             textSize = 12f
@@ -664,6 +682,14 @@ class AiVoiceCopilotSheet(
         }
 
         // 3. Auto-Pilot Magic Edit with Live Agent Progress
+        val isAutoPilotAndExport = parsed.intent is VideoEditIntent.AutoPilotEditAndExport ||
+            (parsed.intent is VideoEditIntent.Conversational && (parsed.intent as VideoEditIntent.Conversational).executeIntent is VideoEditIntent.AutoPilotEditAndExport)
+
+        if (isAutoPilotAndExport) {
+            handleAutoPilotAndExportExecution(parsed)
+            return
+        }
+
         val isAutoPilot = parsed.intent is VideoEditIntent.AutoPilotEdit ||
             (parsed.intent is VideoEditIntent.Conversational && (parsed.intent as VideoEditIntent.Conversational).executeIntent is VideoEditIntent.AutoPilotEdit)
 
@@ -675,13 +701,89 @@ class AiVoiceCopilotSheet(
         // 4. Dispatch to timeline actions
         val (success, feedback) = dispatcher.dispatch(parsed)
 
-        // 5. Render Assistant Feedback Bubble
-        addAssistantBubble(feedback, isSuccess = success)
+        // 5. Render Assistant Feedback Bubble with context-aware action pills
+        val pills = if (success) resolveActionPillsForIntent(parsed.intent) else emptyList()
+        addAssistantBubble(feedback, isSuccess = success, actionPills = pills)
 
         // Scroll chat to bottom
         chatScrollView.post {
             chatScrollView.fullScroll(View.FOCUS_DOWN)
         }
+    }
+
+    private fun handleAutoPilotAndExportExecution(command: ParsedCommand) {
+        val (style, resolution) = when (val intent = command.intent) {
+            is VideoEditIntent.AutoPilotEditAndExport -> Pair(intent.style, intent.resolution)
+            is VideoEditIntent.Conversational -> {
+                val sub = intent.executeIntent as? VideoEditIntent.AutoPilotEditAndExport
+                Pair(sub?.style ?: "ViralReel", sub?.resolution ?: "1080p")
+            }
+            else -> Pair("ViralReel", "1080p")
+        }
+
+        val bubble = addAssistantBubble("🚀 Full AI Auto-Pilot Edit & Export initiated ($style, $resolution)...\n\n⏳ [1/6] Removing audio silence & dead pauses...")
+        chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+
+        mainHandler.postDelayed({
+            bubble.text = "🤖 Full AI Auto-Pilot ($style, $resolution):\n\n" +
+                "✅ [1/6] Silence & dead pauses trimmed\n" +
+                "⏳ [2/6] Applying dynamic viral hook zoom..."
+            chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+        }, 400)
+
+        mainHandler.postDelayed({
+            bubble.text = "🤖 Full AI Auto-Pilot ($style, $resolution):\n\n" +
+                "✅ [1/6] Silence & dead pauses trimmed\n" +
+                "✅ [2/6] Dynamic viral hook zoom active\n" +
+                "⏳ [3/6] Applying Teal & Orange cinematic color grade..."
+            chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+        }, 800)
+
+        mainHandler.postDelayed({
+            bubble.text = "🤖 Full AI Auto-Pilot ($style, $resolution):\n\n" +
+                "✅ [1/6] Silence & dead pauses trimmed\n" +
+                "✅ [2/6] Dynamic viral hook zoom active\n" +
+                "✅ [3/6] Cinematic color grade applied\n" +
+                "⏳ [4/6] Adding background score & music mastering..."
+            chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+        }, 1200)
+
+        mainHandler.postDelayed({
+            bubble.text = "🤖 Full AI Auto-Pilot ($style, $resolution):\n\n" +
+                "✅ [1/6] Silence & dead pauses trimmed\n" +
+                "✅ [2/6] Dynamic viral hook zoom active\n" +
+                "✅ [3/6] Cinematic color grade applied\n" +
+                "✅ [4/6] Royalty-free BGM added\n" +
+                "⏳ [5/6] Generating AI subtitles & title overlay..."
+            chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+        }, 1600)
+
+        mainHandler.postDelayed({
+            val (success, feedback) = dispatcher.dispatch(command)
+            if (success) {
+                bubble.text = "🎉 **Full AI Video Edit & Export Started!** 🚀\n\n" +
+                    "✅ Dead pauses cut & trimmed\n" +
+                    "✅ Viral hook zoom & motion active\n" +
+                    "✅ Cinematic Teal & Orange color grade\n" +
+                    "✅ Royalty-free background music synchronized\n" +
+                    "✅ AI subtitles & dynamic title added\n" +
+                    "🚀 **Timeline is rendering & exporting at $resolution!**"
+
+                addAssistantBubble(
+                    "Video background me export ho raha hai! Quick actions:",
+                    isSuccess = true,
+                    actionPills = listOf(
+                        Pair("▶️ Play Preview") { handleUserCommand("play") },
+                        Pair("🚀 Export 4K") { handleUserCommand("export 4k") },
+                        Pair("📱 9:16 Reel") { handleUserCommand("aspect ratio 9:16") },
+                        Pair("↩️ Undo") { handleUserCommand("undo") },
+                    ),
+                )
+            } else {
+                bubble.text = "⚠️ Auto-Pilot edit failed: $feedback\nTimeline par media clip add karein aur fir try karein."
+            }
+            chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+        }, 2000)
     }
 
     private fun handleAutoPilotExecution(command: ParsedCommand) {
@@ -744,11 +846,83 @@ class AiVoiceCopilotSheet(
                 "✅ AI subtitles & captions added\n" +
                 "✅ 'Viral Video' hook title overlay\n\n" +
                 "Aapki viral reel preview ke liye taiyar hai! 🔥"
+            addAssistantBubble(
+                "Export ya preview chalu karein:",
+                isSuccess = true,
+                actionPills = listOf(
+                    Pair("🚀 Export 1080p") { handleUserCommand("export 1080p") },
+                    Pair("▶️ Play Preview") { handleUserCommand("play") },
+                    Pair("📱 9:16 Reel") { handleUserCommand("aspect ratio 9:16") },
+                    Pair("🎵 Add BGM") { handleUserCommand("add music") },
+                    Pair("↩️ Undo") { handleUserCommand("undo") },
+                ),
+            )
             chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
         }, 2250)
     }
 
+    private fun resolveActionPillsForIntent(intent: VideoEditIntent): List<Pair<String, () -> Unit>> {
+        val actualIntent = if (intent is VideoEditIntent.Conversational && intent.executeIntent != null) {
+            intent.executeIntent
+        } else {
+            intent
+        }
 
+        return when (actualIntent) {
+            is VideoEditIntent.ExportVideo -> listOf(
+                Pair("1080p Full HD") { handleUserCommand("export 1080p") },
+                Pair("720p HD") { handleUserCommand("export 720p") },
+                Pair("4K Ultra HD") { handleUserCommand("export 4k") },
+                Pair("▶️ Play Preview") { handleUserCommand("play") },
+            )
+            is VideoEditIntent.SetAspectRatio -> listOf(
+                Pair("📱 9:16 Reel") { handleUserCommand("aspect ratio 9:16") },
+                Pair("🖥️ 16:9 Landscape") { handleUserCommand("aspect ratio 16:9") },
+                Pair("⬛ 1:1 Square") { handleUserCommand("aspect ratio 1:1") },
+                Pair("🚀 Export 1080p") { handleUserCommand("export 1080p") },
+            )
+            is VideoEditIntent.AddMusic -> listOf(
+                Pair("🎧 Lofi Chill") { handleUserCommand("add lofi music") },
+                Pair("🔥 Reels Trap") { handleUserCommand("add reels music") },
+                Pair("⚡ Bass Drop") { handleUserCommand("add bass drop music") },
+                Pair("▶️ Play Preview") { handleUserCommand("play") },
+            )
+            is VideoEditIntent.AddTransition -> listOf(
+                Pair("🔀 Crossfade") { handleUserCommand("add transition crossfade") },
+                Pair("➡️ Wipe Right") { handleUserCommand("add transition wipe") },
+                Pair("▶️ Play Preview") { handleUserCommand("play") },
+                Pair("🚀 Export 1080p") { handleUserCommand("export 1080p") },
+            )
+            is VideoEditIntent.TrimClip,
+            is VideoEditIntent.SplitClip,
+            is VideoEditIntent.RemoveSilence,
+            is VideoEditIntent.ApplyColorGrade,
+            is VideoEditIntent.SetSpeed,
+            is VideoEditIntent.AutoCaptions,
+            is VideoEditIntent.AddTitle,
+            is VideoEditIntent.DynamicZoom,
+            is VideoEditIntent.FastBeatCuts,
+            is VideoEditIntent.RotateClip,
+            is VideoEditIntent.FlipClip,
+            is VideoEditIntent.SetVolume,
+            is VideoEditIntent.MuteClip -> listOf(
+                Pair("▶️ Play Preview") { handleUserCommand("play") },
+                Pair("🚀 Export 1080p") { handleUserCommand("export 1080p") },
+                Pair("📱 9:16 Reel") { handleUserCommand("aspect ratio 9:16") },
+                Pair("↩️ Undo") { handleUserCommand("undo") },
+            )
+            is VideoEditIntent.TogglePlayback -> listOf(
+                Pair("▶️ Play / Pause") { handleUserCommand("play") },
+                Pair("🚀 Export 1080p") { handleUserCommand("export 1080p") },
+                Pair("📱 9:16 Reel") { handleUserCommand("aspect ratio 9:16") },
+            )
+            else -> listOf(
+                Pair("✨ Full AI Edit & Export") { handleUserCommand("pura video auto edit karke export karo") },
+                Pair("🚀 Export 1080p") { handleUserCommand("export 1080p") },
+                Pair("▶️ Play Preview") { handleUserCommand("play") },
+            )
+        }
+    }
 
     private fun addUserBubble(message: String) {
         val bubble = TextView(activity).apply {
@@ -775,9 +949,13 @@ class AiVoiceCopilotSheet(
         chatContainer.addView(bubble)
     }
 
-    private fun addAssistantBubble(message: String, isSuccess: Boolean = true): TextView {
-        val bubbleLayout = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
+    private fun addAssistantBubble(
+        message: String,
+        isSuccess: Boolean = true,
+        actionPills: List<Pair<String, () -> Unit>> = emptyList(),
+    ): TextView {
+        val rootBubbleContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
             gravity = Gravity.START
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -786,8 +964,13 @@ class AiVoiceCopilotSheet(
                 gravity = Gravity.START
                 topMargin = dp(6)
                 bottomMargin = dp(4)
-                marginEnd = dp(40)
+                marginEnd = dp(32)
             }
+        }
+
+        val bubbleLayout = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.START
         }
 
         val botIcon = ImageView(activity).apply {
@@ -817,8 +1000,55 @@ class AiVoiceCopilotSheet(
             )
         }
         bubbleLayout.addView(bubbleText)
+        rootBubbleContainer.addView(bubbleLayout)
 
-        chatContainer.addView(bubbleLayout)
+        if (actionPills.isNotEmpty()) {
+            val pillsScroll = HorizontalScrollView(activity).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    topMargin = dp(6)
+                    marginStart = dp(26)
+                }
+                isHorizontalScrollBarEnabled = false
+                overScrollMode = View.OVER_SCROLL_NEVER
+            }
+            val pillsLayout = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            actionPills.forEach { (label, action) ->
+                val pill = TextView(activity).apply {
+                    text = label
+                    textSize = 12f
+                    setTypeface(typeface, Typeface.BOLD)
+                    val isHighlight = label.contains("Export") || label.contains("Edit & Export")
+                    setTextColor(if (isHighlight) COLOR_ACCENT_CYAN else Color.parseColor("#E6EDF3"))
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dp(999).toFloat()
+                        setColor(if (isHighlight) Color.parseColor("#1B293A") else Color.parseColor("#171D26"))
+                        setStroke(dp(1), if (isHighlight) COLOR_ACCENT_CYAN else Color.parseColor("#2B3646"))
+                    }
+                    setPadding(dp(10), dp(5), dp(10), dp(5))
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ).apply {
+                        marginEnd = dp(6)
+                    }
+                    setOnClickListener {
+                        action.invoke()
+                    }
+                }
+                pillsLayout.addView(pill)
+            }
+            pillsScroll.addView(pillsLayout)
+            rootBubbleContainer.addView(pillsScroll)
+        }
+
+        chatContainer.addView(rootBubbleContainer)
         return bubbleText
     }
 

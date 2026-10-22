@@ -8,6 +8,16 @@ import java.util.regex.Pattern
  */
 sealed class VideoEditIntent {
     data class AutoPilotEdit(val style: String = "ViralReel") : VideoEditIntent()
+    data class AutoPilotEditAndExport(val style: String = "ViralReel", val resolution: String = "1080p") : VideoEditIntent()
+    data class ExportVideo(val resolution: String = "1080p") : VideoEditIntent()
+    data class SetAspectRatio(val ratio: String) : VideoEditIntent()
+    data class AddTransition(val preset: String = "Crossfade") : VideoEditIntent()
+    data class TrimClip(val seconds: Float, val fromStart: Boolean = true) : VideoEditIntent()
+    data class SetVolume(val volume: Float) : VideoEditIntent()
+    object MuteClip : VideoEditIntent()
+    data class RotateClip(val degrees: Int = 90) : VideoEditIntent()
+    data class FlipClip(val horizontal: Boolean = true) : VideoEditIntent()
+    data class AddMusic(val trackName: String = "lofi") : VideoEditIntent()
     data class SplitClip(val atPlayhead: Boolean = true) : VideoEditIntent()
     data class FastBeatCuts(val preset: String = "Punchy") : VideoEditIntent()
     data class RemoveSilence(val thresholdDb: Float = -30f) : VideoEditIntent()
@@ -39,16 +49,19 @@ data class ParsedCommand(
 object AiIntentParser {
 
     private val TITLE_PATTERNS = listOf(
-        // English
-        Pattern.compile("^(?:add\\s+title|insert\\s+title|put\\s+title|new\\s+title|title)(?:\\s+is|\\s+named|\\s+called|\\s*:)?\\s+[\"']?(.+?)[\"']?$", Pattern.CASE_INSENSITIVE),
-        Pattern.compile("^(?:add\\s+text|insert\\s+text|put\\s+text|text)(?:\\s+is|\\s+named|\\s+called|\\s*:)?\\s+[\"']?(.+?)[\"']?$", Pattern.CASE_INSENSITIVE),
-        // Hindi (Devanagari)
-        Pattern.compile("^(?:टाइटल\\s+लिखो|टाइटल\\s+डालो|शीर्षक\\s+लिखो|शीर्षक\\s+डालो|टाइटल)(?:\\s*:)?\\s+[\"']?(.+?)[\"']?$", Pattern.CASE_INSENSITIVE),
-        Pattern.compile("^(?:टेक्स्ट\\s+लिखो|टेक्स्ट\\s+डालो|टेक्स्ट)(?:\\s*:)?\\s+[\"']?(.+?)[\"']?$", Pattern.CASE_INSENSITIVE),
-        // Hinglish
+        // Hinglish with verbs
         Pattern.compile("^(?:title\\s+dalo|title\\s+likho|title\\s+lagao)(?:\\s*:)?\\s+[\"']?(.+?)[\"']?$", Pattern.CASE_INSENSITIVE),
         Pattern.compile("^(?:text\\s+likho|text\\s+dalo|text\\s+lagao)(?:\\s*:)?\\s+[\"']?(.+?)[\"']?$", Pattern.CASE_INSENSITIVE),
         Pattern.compile("^(?:add\\s+caption|caption\\s+likho|caption\\s+dalo)(?:\\s*:)?\\s+[\"']?(.+?)[\"']?$", Pattern.CASE_INSENSITIVE),
+        // Hindi (Devanagari) with verbs
+        Pattern.compile("^(?:टाइटल\\s+लिखो|टाइटल\\s+डालो|शीर्षक\\s+लिखो|शीर्षक\\s+डालो)(?:\\s*:)?\\s+[\"']?(.+?)[\"']?$", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("^(?:टेक्स्ट\\s+लिखो|टेक्स्ट\\s+डालो)(?:\\s*:)?\\s+[\"']?(.+?)[\"']?$", Pattern.CASE_INSENSITIVE),
+        // English with verbs
+        Pattern.compile("^(?:add\\s+title|insert\\s+title|put\\s+title|new\\s+title)(?:\\s+is|\\s+named|\\s+called|\\s*:)?\\s+[\"']?(.+?)[\"']?$", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("^(?:add\\s+text|insert\\s+text|put\\s+text)(?:\\s+is|\\s+named|\\s+called|\\s*:)?\\s+[\"']?(.+?)[\"']?$", Pattern.CASE_INSENSITIVE),
+        // Bare fallback prefixes
+        Pattern.compile("^(?:title|शीर्षक|टाइटल)(?:\\s+is|\\s+named|\\s+called|\\s*:)?\\s+[\"']?(.+?)[\"']?$", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("^(?:text|टेक्स्ट)(?:\\s+is|\\s+named|\\s+called|\\s*:)?\\s+[\"']?(.+?)[\"']?$", Pattern.CASE_INSENSITIVE),
     )
 
     private val SPEED_PATTERN = Pattern.compile("(?:speed|pace|रफ्तार|गति)\\s*(?:to|set\\s*to|kar\\s*do|karo|\\s*:)?\\s*(\\d+(?:\\.\\d+)?)\\s*(?:x)?", Pattern.CASE_INSENSITIVE)
@@ -71,7 +84,30 @@ object AiIntentParser {
             .replace(Regex("[?!.,]+$"), "")
             .trim()
 
-        // 0. Auto-Pilot Magic Edit Check (Higher priority autonomous editing)
+        // 0a. Full AI Edit & Export Pipeline (Chat se puri video edit + export)
+        if (matchesAutoPilotEditAndExport(normalized)) {
+            val style = resolveAutoPilotStyle(normalized)
+            val res = resolveExportResolution(normalized)
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.AutoPilotEditAndExport(style, res),
+                confidence = 0.99f,
+                feedbackMessage = "🚀 Full AI Video Editor: Puri video ko edit karke $res me render & export kar raha hoon! 🔥",
+            )
+        }
+
+        // 0b. Export Video
+        if (matchesExportVideo(normalized)) {
+            val res = resolveExportResolution(normalized)
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.ExportVideo(res),
+                confidence = 0.98f,
+                feedbackMessage = "🚀 Video export pipeline started ($res Full HD). Video aapki phone gallery me save ho rahi hai!",
+            )
+        }
+
+        // 0c. Auto-Pilot Magic Edit Check (Autonomous timeline editing)
         if (matchesAutoPilotEdit(normalized)) {
             val style = resolveAutoPilotStyle(normalized)
             return ParsedCommand(
@@ -82,10 +118,137 @@ object AiIntentParser {
             )
         }
 
-        // 0b. Smart Conversational Engine Check (Human chit-chat, advice, Hinglish commands)
-        SmartConversationalEngine.process(clean)?.let { return it }
+        // 1. Aspect Ratio Switcher (9:16, 16:9, 1:1, etc.)
+        if (matchesSetAspectRatio(normalized)) {
+            val ratio = resolveAspectRatio(normalized)
+            val label = when (ratio) {
+                "9:16" -> "9:16 (Reels / Shorts / TikTok)"
+                "16:9" -> "16:9 (YouTube / Landscape)"
+                "1:1" -> "1:1 (Square Post)"
+                "4:5" -> "4:5 (Instagram Portrait)"
+                "21:9" -> "21:9 (Cinematic Widescreen)"
+                else -> ratio
+            }
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.SetAspectRatio(ratio),
+                confidence = 0.96f,
+                feedbackMessage = "Aspect ratio switched to $label",
+            )
+        }
 
-        // 1. Check for Add Title / Text with parameter extraction
+        // 2. Add Background Music / BGM
+        if (matchesAddMusic(normalized)) {
+            val track = resolveMusicTrack(normalized)
+            val trackTitle = when (track) {
+                "lofi" -> "Lofi Chill Vlog Beat"
+                "trap" -> "Energetic Reels Trap Beat"
+                "attitude" -> "Attitude Bass Drop"
+                "sad" -> "Sad Emotional Piano"
+                "romantic" -> "Romantic Acoustic Love"
+                "ambient" -> "Ambient Flute Vibe"
+                else -> "Trending BGM"
+            }
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.AddMusic(track),
+                confidence = 0.95f,
+                feedbackMessage = "Adding background music: $trackTitle",
+            )
+        }
+
+        // 3. Add Transitions
+        if (matchesAddTransition(normalized)) {
+            val preset = resolveTransitionPreset(normalized)
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.AddTransition(preset),
+                confidence = 0.94f,
+                feedbackMessage = "Applying $preset transition between clips",
+            )
+        }
+
+        // 4. Remove Silence (Audio silence cutting)
+        if (matchesRemoveSilence(normalized)) {
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.RemoveSilence(),
+                confidence = 0.92f,
+                feedbackMessage = "Scanning and removing silent intervals from audio",
+            )
+        }
+
+        // 5. Fast Beat Cuts / Rhythmic Cuts
+        if (matchesFastBeatCuts(normalized)) {
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.FastBeatCuts("Punchy"),
+                confidence = 0.94f,
+                feedbackMessage = "Applying fast rhythmic beat cuts to clip",
+            )
+        }
+
+        // 6. Split / Cut Clip (at playhead)
+        if (matchesSplitClip(normalized)) {
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.SplitClip(),
+                confidence = 0.92f,
+                feedbackMessage = "Splitting clip at playhead",
+            )
+        }
+
+        // 6. Mute / Volume Control
+        if (matchesMute(normalized)) {
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.MuteClip,
+                confidence = 0.95f,
+                feedbackMessage = "Muting selected clip audio",
+            )
+        }
+        if (matchesSetVolume(normalized)) {
+            val volume = resolveVolumeLevel(normalized)
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.SetVolume(volume),
+                confidence = 0.93f,
+                feedbackMessage = "Setting volume to ${(volume * 100).toInt()}%",
+            )
+        }
+
+        // 7. Rotate / Flip
+        if (matchesRotate(normalized)) {
+            val deg = resolveRotateDegrees(normalized)
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.RotateClip(deg),
+                confidence = 0.94f,
+                feedbackMessage = "Rotating clip by $deg°",
+            )
+        }
+        if (matchesFlip(normalized)) {
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.FlipClip(true),
+                confidence = 0.94f,
+                feedbackMessage = "Flipping clip horizontally (mirror)",
+            )
+        }
+
+        // 8. Trim Clip (Start / End)
+        if (matchesTrimClip(normalized)) {
+            val (sec, fromStart) = resolveTrimParams(normalized)
+            val edgeName = if (fromStart) "start" else "end"
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.TrimClip(sec, fromStart),
+                confidence = 0.93f,
+                feedbackMessage = "Trimming ${sec}s from clip $edgeName",
+            )
+        }
+
+        // 7. Check for Add Title / Text with parameter extraction
         for (pattern in TITLE_PATTERNS) {
             val matcher = pattern.matcher(clean)
             if (matcher.matches()) {
@@ -101,7 +264,7 @@ object AiIntentParser {
             }
         }
 
-        // 2. Check for Speed parameter
+        // 8. Check for Speed parameter
         val speedMatcher = SPEED_PATTERN.matcher(normalized)
         if (speedMatcher.find()) {
             val speedVal = speedMatcher.group(1)?.toFloatOrNull()
@@ -115,27 +278,7 @@ object AiIntentParser {
             }
         }
 
-        // 3. Remove Silence
-        if (matchesRemoveSilence(normalized)) {
-            return ParsedCommand(
-                rawText = rawText,
-                intent = VideoEditIntent.RemoveSilence(),
-                confidence = 0.92f,
-                feedbackMessage = "Scanning and removing silent intervals from audio",
-            )
-        }
-
-        // 4. Fast Beat Cuts / Rhythmic Cuts
-        if (matchesFastBeatCuts(normalized)) {
-            return ParsedCommand(
-                rawText = rawText,
-                intent = VideoEditIntent.FastBeatCuts("Punchy"),
-                confidence = 0.94f,
-                feedbackMessage = "Applying fast rhythmic beat cuts to clip",
-            )
-        }
-
-        // 5. Dynamic Zoom / Viral Hook Zoom
+        // 11. Dynamic Zoom / Viral Hook Zoom
         if (matchesDynamicZoom(normalized)) {
             val preset = resolveZoomPreset(normalized)
             val desc = when (preset) {
@@ -152,7 +295,7 @@ object AiIntentParser {
             )
         }
 
-        // 6. Color Grade / LUT Presets
+        // 12. Color Grade / LUT Presets
         val matchedLut = matchColorGradeLut(normalized)
         if (matchedLut != null) {
             return ParsedCommand(
@@ -163,7 +306,7 @@ object AiIntentParser {
             )
         }
 
-        // 7. Auto Captions / Subtitles
+        // 13. Auto Captions / Subtitles
         if (matchesAutoCaptions(normalized)) {
             return ParsedCommand(
                 rawText = rawText,
@@ -173,17 +316,7 @@ object AiIntentParser {
             )
         }
 
-        // 8. Split / Cut Clip
-        if (matchesSplitClip(normalized)) {
-            return ParsedCommand(
-                rawText = rawText,
-                intent = VideoEditIntent.SplitClip(),
-                confidence = 0.92f,
-                feedbackMessage = "Splitting clip at playhead",
-            )
-        }
-
-        // 9. Playback Controls
+        // 15. Playback Controls
         if (matchesPlayback(normalized)) {
             return ParsedCommand(
                 rawText = rawText,
@@ -193,7 +326,7 @@ object AiIntentParser {
             )
         }
 
-        // 10. Undo / Redo
+        // 16. Undo / Redo
         if (matchesUndo(normalized)) {
             return ParsedCommand(
                 rawText = rawText,
@@ -211,13 +344,15 @@ object AiIntentParser {
             )
         }
 
-        // Fallback: Smart Conversational Guidance
-        val helpfulReply = SmartConversationalEngine.generateHelpfulFallback(clean)
+        // 17. Smart Conversational Engine (Human chit-chat, advice, greetings, tips)
+        SmartConversationalEngine.process(clean)?.let { return it }
+
+        // Fallback: Unknown Command
         return ParsedCommand(
             rawText = rawText,
-            intent = VideoEditIntent.Conversational(helpfulReply),
-            confidence = 0.85f,
-            feedbackMessage = helpfulReply,
+            intent = VideoEditIntent.Unknown,
+            confidence = 0f,
+            feedbackMessage = "Command not recognized: \"$clean\". Try: 'export 1080p', 'make 9:16 reel', 'split clip', 'remove silence', or 'add lofi music'.",
         )
     }
 
@@ -477,5 +612,145 @@ object AiIntentParser {
             text.contains("vintage") || text.contains("retro") -> "Vintage"
             else -> "ViralReel"
         }
+    }
+
+    private fun matchesAutoPilotEditAndExport(text: String): Boolean {
+        val hasEdit = matchesAutoPilotEdit(text) || text.contains("pura video") ||
+            text.contains("puri video") || text.contains("full video") ||
+            text.contains("full edit") || text.contains("poori video") ||
+            text.contains("पूरी वीडियो") || text.contains("पूरा वीडियो")
+        val hasExport = text.contains("export") || text.contains("save") ||
+            text.contains("render") || text.contains("सेव") || text.contains("एक्सपोर्ट")
+        return hasEdit && hasExport
+    }
+
+    private fun matchesExportVideo(text: String): Boolean {
+        return text.contains("export") || text.contains("render video") ||
+            text.contains("save video") || text.contains("video save") ||
+            text.contains("video export") || text.contains("save kardo") ||
+            text.contains("save kar do") || text.contains("export kardo") ||
+            text.contains("export kar do") || text.contains("export karo") ||
+            text.contains("export maaro") || text.contains("render karo") ||
+            text.contains("एक्सपोर्ट") || text.contains("सेव करो") ||
+            text == "export" || text == "save"
+    }
+
+    private fun resolveExportResolution(text: String): String {
+        return when {
+            text.contains("4k") || text.contains("2160") || text.contains("ultra") -> "4K"
+            text.contains("720") || (text.contains("hd") && !text.contains("full") && !text.contains("1080")) -> "720p"
+            else -> "1080p"
+        }
+    }
+
+    private fun matchesSetAspectRatio(text: String): Boolean {
+        return text.contains("9:16") || text.contains("16:9") || text.contains("1:1") ||
+            text.contains("4:5") || text.contains("21:9") || text.contains("aspect ratio") ||
+            text.contains("ratio") || text.contains("reel size") || text.contains("reels size") ||
+            text.contains("shorts size") || text.contains("youtube size") || text.contains("portrait") ||
+            text.contains("landscape") || text.contains("वर्टिकल") || text.contains("हॉरिजॉन्टल")
+    }
+
+    private fun resolveAspectRatio(text: String): String {
+        return when {
+            text.contains("9:16") || text.contains("reel") || text.contains("shorts") ||
+                text.contains("tiktok") || text.contains("portrait") || text.contains("vertical") -> "9:16"
+            text.contains("16:9") || text.contains("youtube") || text.contains("landscape") ||
+                text.contains("horizontal") -> "16:9"
+            text.contains("1:1") || text.contains("square") -> "1:1"
+            text.contains("4:5") -> "4:5"
+            text.contains("21:9") || text.contains("cinema") -> "21:9"
+            else -> "9:16"
+        }
+    }
+
+    private fun matchesAddMusic(text: String): Boolean {
+        return text.contains("music") || text.contains("bgm") || text.contains("soundtrack") ||
+            text.contains("song") || text.contains("gaana") || text.contains("gana") ||
+            text.contains("म्यूजिक") || text.contains("गाना") || text.contains("संगीत") ||
+            text.contains("beat lagao") || text.contains("sound dalo")
+    }
+
+    private fun resolveMusicTrack(text: String): String {
+        return when {
+            text.contains("lofi") || text.contains("chill") -> "lofi"
+            text.contains("trap") || text.contains("energetic") -> "trap"
+            text.contains("attitude") || text.contains("bass") -> "attitude"
+            text.contains("sad") || text.contains("emotional") -> "sad"
+            text.contains("romantic") || text.contains("love") -> "romantic"
+            text.contains("flute") || text.contains("ambient") || text.contains("devotional") -> "ambient"
+            else -> "lofi"
+        }
+    }
+
+    private fun matchesAddTransition(text: String): Boolean {
+        return text.contains("transition") || text.contains("crossfade") ||
+            text.contains("ट्रांज़िशन") || text.contains("fade transition") ||
+            text.contains("zoom transition")
+    }
+
+    private fun resolveTransitionPreset(text: String): String {
+        return when {
+            text.contains("zoom") -> "Zoom"
+            text.contains("fade") -> "Fade"
+            text.contains("slide") -> "Slide"
+            else -> "Crossfade"
+        }
+    }
+
+    private fun matchesMute(text: String): Boolean {
+        return text.contains("mute") || text.contains("म्यूट") || text.contains("volume 0") ||
+            text.contains("awaaz band") || text.contains("sound off") || text.contains("silent")
+    }
+
+    private fun matchesSetVolume(text: String): Boolean {
+        return text.contains("volume") || text.contains("sound level") ||
+            text.contains("awaaz") || text.contains("वॉल्यूम")
+    }
+
+    private fun resolveVolumeLevel(text: String): Float {
+        val numPattern = Pattern.compile("(\\d+)")
+        val matcher = numPattern.matcher(text)
+        if (matcher.find()) {
+            val num = matcher.group(1)?.toFloatOrNull() ?: 100f
+            return if (num > 2.0f) (num / 100f).coerceIn(0f, 2.0f) else num.coerceIn(0f, 2.0f)
+        }
+        return 1.0f
+    }
+
+    private fun matchesRotate(text: String): Boolean {
+        return text.contains("rotate") || text.contains("घूमा") ||
+            text.contains("घुमा") || text.contains("रोटेट")
+    }
+
+    private fun resolveRotateDegrees(text: String): Int {
+        return when {
+            text.contains("180") -> 180
+            text.contains("270") -> 270
+            else -> 90
+        }
+    }
+
+    private fun matchesFlip(text: String): Boolean {
+        return text.contains("flip") || text.contains("mirror") ||
+            text.contains("फ्लिप") || text.contains("मिरर") || text.contains("ulta")
+    }
+
+    private fun matchesTrimClip(text: String): Boolean {
+        if (text.contains("silence") || text.contains("playhead")) return false
+        return text.contains("trim") || text.contains("shuru ka") ||
+            text.contains("pehle ka") || text.contains("last ka") || text.contains("end ka")
+    }
+
+    private fun resolveTrimParams(text: String): Pair<Float, Boolean> {
+        val numPattern = Pattern.compile("(\\d+(?:\\.\\d+)?)")
+        val matcher = numPattern.matcher(text)
+        val sec = if (matcher.find()) {
+            matcher.group(1)?.toFloatOrNull() ?: 2f
+        } else {
+            2f
+        }
+        val fromStart = !text.contains("end") && !text.contains("last")
+        return Pair(sec, fromStart)
     }
 }

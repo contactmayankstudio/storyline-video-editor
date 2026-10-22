@@ -13,6 +13,63 @@ interface AiCommandDispatcher {
     }
 
     /**
+     * Executes autonomous full auto-pilot edit pipeline AND immediately launches video export.
+     */
+    fun fullAutoPilotEditAndExport(style: String = "ViralReel", resolution: String = "1080p"): Boolean {
+        val editSuccess = fullAutoPilotEdit(style)
+        return if (editSuccess) {
+            exportVideo(resolution)
+        } else {
+            false
+        }
+    }
+
+    /**
+     * Triggers video export with requested resolution profile (e.g. 1080p, 4K, 720p).
+     */
+    fun exportVideo(resolution: String = "1080p"): Boolean = false
+
+    /**
+     * Changes project preview and export aspect ratio (e.g. 9:16, 16:9, 1:1, 4:5).
+     */
+    fun setAspectRatio(ratio: String): Boolean = false
+
+    /**
+     * Adds a transition preset (e.g. Crossfade, Zoom, Fade) between clips.
+     */
+    fun addTransition(preset: String = "Crossfade"): Boolean = false
+
+    /**
+     * Trims active/selected clip from start or end by specified seconds.
+     */
+    fun trimClip(seconds: Float, fromStart: Boolean = true): Boolean = false
+
+    /**
+     * Sets volume level for selected clip (0.0f to 2.0f).
+     */
+    fun setVolume(volume: Float): Boolean = false
+
+    /**
+     * Mutes selected audio/video clip.
+     */
+    fun muteClip(): Boolean = setVolume(0f)
+
+    /**
+     * Rotates selected video/overlay clip clockwise by degrees (90, 180, 270).
+     */
+    fun rotateClip(degrees: Int = 90): Boolean = false
+
+    /**
+     * Flips or mirrors selected clip horizontally.
+     */
+    fun flipClip(horizontal: Boolean = true): Boolean = false
+
+    /**
+     * Adds background music/beat track to timeline.
+     */
+    fun addMusic(trackName: String = "lofi"): Boolean = false
+
+    /**
      * Splits the active or selected clip at playhead.
      */
     fun splitClip(): Boolean
@@ -74,6 +131,16 @@ interface AiCommandDispatcher {
     fun dispatch(command: ParsedCommand): Pair<Boolean, String> {
         val success = when (val intent = command.intent) {
             is VideoEditIntent.AutoPilotEdit -> fullAutoPilotEdit(intent.style)
+            is VideoEditIntent.AutoPilotEditAndExport -> fullAutoPilotEditAndExport(intent.style, intent.resolution)
+            is VideoEditIntent.ExportVideo -> exportVideo(intent.resolution)
+            is VideoEditIntent.SetAspectRatio -> setAspectRatio(intent.ratio)
+            is VideoEditIntent.AddTransition -> addTransition(intent.preset)
+            is VideoEditIntent.TrimClip -> trimClip(intent.seconds, intent.fromStart)
+            is VideoEditIntent.SetVolume -> setVolume(intent.volume)
+            is VideoEditIntent.MuteClip -> muteClip()
+            is VideoEditIntent.RotateClip -> rotateClip(intent.degrees)
+            is VideoEditIntent.FlipClip -> flipClip(intent.horizontal)
+            is VideoEditIntent.AddMusic -> addMusic(intent.trackName)
             is VideoEditIntent.SplitClip -> splitClip()
             is VideoEditIntent.FastBeatCuts -> fastBeatCuts(intent.preset)
             is VideoEditIntent.RemoveSilence -> removeSilence(intent.thresholdDb)
@@ -87,6 +154,16 @@ interface AiCommandDispatcher {
                 intent.executeIntent?.let { subIntent ->
                     when (subIntent) {
                         is VideoEditIntent.AutoPilotEdit -> fullAutoPilotEdit(subIntent.style)
+                        is VideoEditIntent.AutoPilotEditAndExport -> fullAutoPilotEditAndExport(subIntent.style, subIntent.resolution)
+                        is VideoEditIntent.ExportVideo -> exportVideo(subIntent.resolution)
+                        is VideoEditIntent.SetAspectRatio -> setAspectRatio(subIntent.ratio)
+                        is VideoEditIntent.AddTransition -> addTransition(subIntent.preset)
+                        is VideoEditIntent.TrimClip -> trimClip(subIntent.seconds, subIntent.fromStart)
+                        is VideoEditIntent.SetVolume -> setVolume(subIntent.volume)
+                        is VideoEditIntent.MuteClip -> muteClip()
+                        is VideoEditIntent.RotateClip -> rotateClip(subIntent.degrees)
+                        is VideoEditIntent.FlipClip -> flipClip(subIntent.horizontal)
+                        is VideoEditIntent.AddMusic -> addMusic(subIntent.trackName)
                         is VideoEditIntent.SplitClip -> splitClip()
                         is VideoEditIntent.FastBeatCuts -> fastBeatCuts(subIntent.preset)
                         is VideoEditIntent.RemoveSilence -> removeSilence(subIntent.thresholdDb)

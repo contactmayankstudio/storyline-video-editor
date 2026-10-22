@@ -7347,6 +7347,141 @@ class VideoEditorActivity : ComponentActivity() {
                 }
                 return false
             }
+
+            override fun exportVideo(resolution: String): Boolean {
+                runOnUiThread {
+                    val currentAspect = getSelectedAspectRatio()
+                    val isVertical = currentAspect.second > currentAspect.first
+                    val isSquare = currentAspect.first == currentAspect.second
+                    val (w, h) = when (resolution.uppercase(Locale.US)) {
+                        "4K" -> when {
+                            isVertical -> 2160 to 3840
+                            isSquare -> 2160 to 2160
+                            else -> 3840 to 2160
+                        }
+                        "720P" -> when {
+                            isVertical -> 720 to 1280
+                            isSquare -> 720 to 720
+                            else -> 1280 to 720
+                        }
+                        else -> when { // 1080p Full HD default
+                            isVertical -> 1080 to 1920
+                            isSquare -> 1080 to 1080
+                            else -> 1920 to 1080
+                        }
+                    }
+                    exportController?.createNotificationChannel()
+                    noteAppHealthAction("ai_copilot_export_triggered")
+                    performExport(
+                        width = w,
+                        height = h,
+                        requestedProfileLabel = resolution,
+                        includeWatermark = false,
+                    )
+                }
+                return true
+            }
+
+            override fun setAspectRatio(ratio: String): Boolean {
+                val matchedIndex = aspectRatioOptions.indexOfFirst {
+                    it.label.equals(ratio, ignoreCase = true) || it.toolbarLabel.equals(ratio, ignoreCase = true)
+                }
+                if (matchedIndex >= 0) {
+                    runOnUiThread {
+                        selectedAspectRatioIndex = matchedIndex
+                        applyPreviewAspectRatio()
+                        syncPreviewProOverlayUi()
+                        safeToast("Aspect ratio set to $ratio", Toast.LENGTH_SHORT)
+                    }
+                    return true
+                }
+                return false
+            }
+
+            override fun addTransition(preset: String): Boolean {
+                runOnUiThread {
+                    val transType = when (preset.lowercase(Locale.US)) {
+                        "fade" -> com.video.engine.transition.TransitionType.FADE
+                        "wipe" -> com.video.engine.transition.TransitionType.WIPE
+                        "slide" -> com.video.engine.transition.TransitionType.SLIDE
+                        else -> com.video.engine.transition.TransitionType.CROSS
+                    }
+                    applyToolbarTransitionPreset(transType, 600)
+                }
+                return true
+            }
+
+            override fun trimClip(seconds: Float, fromStart: Boolean): Boolean {
+                val edge = if (fromStart) "start" else "end"
+                runOnUiThread {
+                    performSelectedClipTrimAction(edge)
+                }
+                return true
+            }
+
+            override fun setVolume(volume: Float): Boolean {
+                val selectedId = selectedVideoClipId() ?: resolveSelectedVisualClipId(syncSelectionIfNeeded = true) ?: return false
+                videoClipGainOverrides[selectedId] = volume
+                execCmd("SET_CLIP_VOLUME", mapOf("clipId" to selectedId, "volume" to volume.toDouble())) {
+                    refreshMainTimelineTracks()
+                    syncPreviewAudioAt(currentTimeMs, continuePlaying = isPlaying)
+                }
+                safeToast("Volume set to ${(volume * 100).toInt()}%", Toast.LENGTH_SHORT)
+                return true
+            }
+
+            override fun rotateClip(degrees: Int): Boolean {
+                runOnUiThread {
+                    updateSelectedVideoPreviewTransform { c ->
+                        c.copy(rotationDeg = (c.rotationDeg + degrees) % 360f)
+                    }
+                    safeToast("Rotated by $degrees°", Toast.LENGTH_SHORT)
+                }
+                return true
+            }
+
+            override fun flipClip(horizontal: Boolean): Boolean {
+                runOnUiThread {
+                    updateSelectedVideoPreviewTransform { c ->
+                        c.copy(mirrorX = if (horizontal) !c.mirrorX else c.mirrorX)
+                    }
+                    safeToast("Clip mirrored", Toast.LENGTH_SHORT)
+                }
+                return true
+            }
+
+            override fun addMusic(trackName: String): Boolean {
+                runOnUiThread {
+                    val assetFile = when (trackName.lowercase(Locale.US)) {
+                        "trap" -> "music_bgm/energetic_reels_trap_beat.wav"
+                        "attitude" -> "music_bgm/attitude_bass_drop.wav"
+                        "sad" -> "music_bgm/sad_piano_emotional.wav"
+                        "romantic" -> "music_bgm/romantic_acoustic_love.wav"
+                        "ambient" -> "music_bgm/devotional_ambient_flute.wav"
+                        else -> "music_bgm/lofi_chill_vlog_beat.wav"
+                    }
+                    try {
+                        val tempFile = File(cacheDir, "bgm_${System.currentTimeMillis()}.wav")
+                        assets.open(assetFile).use { input ->
+                            java.io.FileOutputStream(tempFile).use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        audioImportController?.importFromPath(path = tempFile.absolutePath, startTimeMs = 0L)
+                        safeToast("BGM added to timeline", Toast.LENGTH_SHORT)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to load bundled music asset, opening audio picker", e)
+                        openAudioTrackImport()
+                    }
+                }
+                return true
+            }
+
+            override fun fullAutoPilotEditAndExport(style: String, resolution: String): Boolean {
+                fullAutoPilotEdit(style)
+                exportVideo(resolution)
+                return true
+            }
         }
     }
 

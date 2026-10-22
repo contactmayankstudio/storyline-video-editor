@@ -610,10 +610,8 @@ class AutoPilotCoordinator(
      * Cancels an ongoing autonomous editing pipeline run.
      */
     fun cancel() {
-        if (isRunning.get()) {
-            isCancelled.set(true)
-            safeLogD(TAG, "AutoPilot cancelled by caller")
-        }
+        isCancelled.set(true)
+        safeLogD(TAG, "AutoPilot cancelled by caller")
     }
 
     /**
@@ -627,11 +625,16 @@ class AutoPilotCoordinator(
         progressListener: AgentProgressListener? = null,
         onComplete: (AutoPilotResult) -> Unit,
     ) {
+        if (isCancelled.get()) {
+            dispatchToMain {
+                onComplete(buildCancelledResult(style, System.currentTimeMillis()))
+            }
+            return
+        }
         if (isRunning.getAndSet(true)) {
             safeLogW(TAG, "AutoPilot is already running")
             return
         }
-        isCancelled.set(false)
 
         executor.execute {
             try {
@@ -681,8 +684,10 @@ class AutoPilotCoordinator(
         userNotes: String? = null,
         progressListener: AgentProgressListener? = null,
     ): AutoPilotResult {
+        if (isCancelled.get()) {
+            return buildCancelledResult(style, System.currentTimeMillis())
+        }
         isRunning.set(true)
-        isCancelled.set(false)
         try {
             return executeSequentialPipeline(style, customTitle, userNotes, progressListener)
         } finally {
