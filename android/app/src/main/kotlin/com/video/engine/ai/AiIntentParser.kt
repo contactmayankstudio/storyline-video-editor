@@ -41,6 +41,10 @@ sealed class VideoEditIntent {
     data class SpeedRamp(val curvePreset: String = "hero_drop") : VideoEditIntent()
     data class SmartJumpCuts(val pacing: String = "Snappy") : VideoEditIntent()
     data class AutoReframe(val targetRatio: String = "9:16") : VideoEditIntent()
+    data class Compound(val steps: List<VideoEditIntent>) : VideoEditIntent()
+    data class ExtractViralHighlight(val targetDurationSec: Int = 30) : VideoEditIntent()
+    data class AutoBrollOverlay(val style: String = "StickersAndText") : VideoEditIntent()
+    object InspectTimelineCritic : VideoEditIntent()
     object TogglePlayback : VideoEditIntent()
     object Undo : VideoEditIntent()
     object Redo : VideoEditIntent()
@@ -95,6 +99,14 @@ object AiIntentParser {
             )
         }
 
+        // 0. Check for compound chained commands (e.g. "pehle silence kato fir cyberpunk filter lagao aur 9:16 karo")
+        tryParseCompound(clean)?.let { return it }
+
+        return parseSingle(clean)
+    }
+
+    private fun parseSingle(rawText: String): ParsedCommand {
+        val clean = rawText.trim()
         val normalized = clean.lowercase(Locale.ROOT)
             .replace(Regex("[?!.,]+$"), "")
             .trim()
@@ -288,6 +300,37 @@ object AiIntentParser {
                 intent = VideoEditIntent.AutoReframe(ratio),
                 confidence = 0.98f,
                 feedbackMessage = "🎯 Auto-Reframe ($ratio) complete! Subject automatically center me pan aur crop ho gaya hai.",
+            )
+        }
+
+        // 0r. AI Video Critic & Timeline Inspector
+        if (matchesInspectTimelineCritic(normalized)) {
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.InspectTimelineCritic,
+                confidence = 0.98f,
+                feedbackMessage = "🎬 Analyzing timeline and generating AI Video Critic audit report...",
+            )
+        }
+
+        // 0s. AI Viral Highlight Finder (Opus Clip Style)
+        if (matchesExtractViralHighlight(normalized)) {
+            val dur = resolveViralHighlightDuration(normalized)
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.ExtractViralHighlight(dur),
+                confidence = 0.98f,
+                feedbackMessage = "🎞️ Opus Clip AI: Long video se best ${dur}s high-retention viral short extract kiya ja raha hai!",
+            )
+        }
+
+        // 0t. AI Auto B-Roll & Visual Overlays
+        if (matchesAutoBrollOverlay(normalized)) {
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.AutoBrollOverlay("StickersAndText"),
+                confidence = 0.98f,
+                feedbackMessage = "🖼️ AI B-Roll & Visual Overlays: Dynamic retention stickers aur visual cues timeline par insert kar diye gaye hain!",
             )
         }
 
@@ -559,7 +602,8 @@ object AiIntentParser {
             text.contains("silence nikalo") || text.contains("silence remove") ||
             text.contains("sannata hatao") || text.contains("sannata cut") ||
             text.contains("khali part hata") || text.contains("khali space hata") ||
-            text.contains("quiet part remove") || text.contains("silence kaat")) {
+            text.contains("quiet part remove") || text.contains("silence kaat") ||
+            text.contains("silence kato") || text.contains("silence kaato")) {
             return true
         }
         // Single keyword exact or chip match
@@ -1103,5 +1147,168 @@ object AiIntentParser {
             text.contains("16:9") -> "16:9"
             else -> "9:16"
         }
+    }
+
+    private fun matchesInspectTimelineCritic(text: String): Boolean {
+        // English
+        if (text.contains("review my video") || text.contains("inspect video") ||
+            text.contains("video critic") || text.contains("how is my video") ||
+            text.contains("check my timeline") || text.contains("analyze video") ||
+            text.contains("audit video") || text.contains("timeline audit") ||
+            text.contains("critique video") || text.contains("video feedback") ||
+            text.contains("check video") || text.contains("review video") ||
+            text.contains("inspect timeline") || text.contains("director review")) {
+            return true
+        }
+        // Hindi / Hinglish
+        return text.contains("video check") || text.contains("video kaisi") ||
+            text.contains("kya kami hai") || text.contains("kya kami h") ||
+            text.contains("video analyze") || text.contains("timeline check") ||
+            text.contains("kya sudhar") || text.contains("feedback do") ||
+            text.contains("video dekho") || text.contains("video kaisa") ||
+            text.contains("कैसी लग रही") || text.contains("वीडियो चेक") ||
+            text.contains("कमी बताओ") || text.contains("फीडबैक दो")
+    }
+
+    private fun matchesExtractViralHighlight(text: String): Boolean {
+        // English
+        if (text.contains("viral highlight") || text.contains("viral clip") ||
+            text.contains("extract highlight") || text.contains("find highlight") ||
+            text.contains("highlight finder") || text.contains("opus clip") ||
+            text.contains("viral moment") || text.contains("best part") ||
+            text.contains("best moment") || text.contains("best 30") ||
+            text.contains("best 60") || text.contains("auto highlight")) {
+            return true
+        }
+        // Hindi / Hinglish
+        return text.contains("viral part") || text.contains("viral clip") ||
+            text.contains("highlight nikalo") || text.contains("highlight nikal") ||
+            text.contains("best part cut") || text.contains("best part nikalo") ||
+            text.contains("sabse accha part") || text.contains("viral cut") ||
+            text.contains("वायरल पार्ट") || text.contains("हाइलाइट") ||
+            text.contains("बेस्ट पार्ट")
+    }
+
+    private fun resolveViralHighlightDuration(text: String): Int {
+        return if (text.contains("60") || text.contains("minute") || text.contains("मिनट")) 60 else 30
+    }
+
+    private fun matchesAutoBrollOverlay(text: String): Boolean {
+        // English
+        if (text.contains("auto b-roll") || text.contains("auto broll") ||
+            text.contains("add b-roll") || text.contains("add broll") ||
+            text.contains("b-roll overlay") || text.contains("broll overlay") ||
+            text.contains("smart overlay") || text.contains("smart overlays") ||
+            text.contains("visual overlay") || text.contains("visual overlays") ||
+            text.contains("auto visuals") || text.contains("b-roll") ||
+            text.contains("b roll") || text.contains("broll")) {
+            return true
+        }
+        // Hindi / Hinglish
+        return text.contains("b roll lagao") || text.contains("broll lagao") ||
+            text.contains("b roll dalo") || text.contains("broll dalo") ||
+            text.contains("auto overlay") || text.contains("smart visuals") ||
+            text.contains("visuals dalo") || text.contains("visuals lagao") ||
+            text.contains("बी रोल") || text.contains("स्मार्ट ओवरले")
+    }
+
+    private fun tryParseCompound(clean: String): ParsedCommand? {
+        val lower = clean.lowercase(Locale.ROOT)
+
+        // Protect text/title/voiceover generation commands from being split
+        if (lower.startsWith("title") || lower.startsWith("text") || lower.startsWith("शीर्षक") ||
+            lower.startsWith("voiceover") || lower.startsWith("tts") || lower.startsWith("topic to reel") ||
+            TITLE_PATTERNS.any { it.matcher(clean).find() }) {
+            return null
+        }
+
+        // Check if query contains compound conjunctions
+        val hasConjunction = lower.contains(" aur ") || lower.contains(" and ") ||
+            lower.contains(" fir ") || lower.contains(" phir ") || lower.contains(" then ") ||
+            lower.contains(" uske baad ") || lower.contains(" ke baad ") ||
+            (lower.contains(",") && !lower.contains("1080p,") && !lower.contains("4k,"))
+
+        if (!hasConjunction) return null
+
+        // Protect known phrases that contain "and" or similar conjunction words
+        var masked = clean
+        val protectedPhrases = listOf(
+            "teal and orange" to "teal__AND__orange",
+            "teal & orange" to "teal__AND__orange",
+            "black and white" to "black__AND__white",
+            "black & white" to "black__AND__white",
+            "before and after" to "before__AND__after",
+            "before & after" to "before__AND__after",
+            "edit and export" to "edit__AND__export",
+            "edit & export" to "edit__AND__export",
+            "b & w" to "b__AND__w",
+            "b&w" to "b__AND__w",
+        )
+
+        for ((phrase, mask) in protectedPhrases) {
+            masked = masked.replace(Regex("(?i)" + Pattern.quote(phrase)), mask)
+        }
+
+        // Split on conjunction regex
+        val regex = Regex("(?i)\\s+(?:and|aur|fir|phir|then|uske baad|ke baad)\\s+|\\s*,\\s*")
+        val rawParts = masked.split(regex)
+            .map { part ->
+                var restored = part.trim()
+                for ((phrase, mask) in protectedPhrases) {
+                    restored = restored.replace(mask, phrase)
+                }
+                restored
+            }
+            .filter { it.isNotBlank() }
+
+        if (rawParts.size < 2) return null
+
+        val parsedSteps = mutableListOf<VideoEditIntent>()
+
+        for (part in rawParts) {
+            // Strip leading conversational fillers if any: "pehle", "bhai", "please"
+            val trimmedPart = part
+                .replace(Regex("(?i)^(?:pehle|bhai|bhaiya|please|plz|first|ab|fir|phir)\\s+"), "")
+                .trim()
+            if (trimmedPart.isBlank()) continue
+
+            val cmd = parseSingle(trimmedPart)
+            if (cmd.intent !is VideoEditIntent.Unknown && cmd.intent !is VideoEditIntent.Conversational) {
+                parsedSteps.add(cmd.intent)
+            }
+        }
+
+        if (parsedSteps.size < 2) return null
+
+        val summary = "🚀 AI Compound Pipeline (${parsedSteps.size} actions):\n" +
+            parsedSteps.mapIndexed { i, intent ->
+                val desc = when (intent) {
+                    is VideoEditIntent.RemoveSilence -> "✂️ Cut silence & tightened dead-air"
+                    is VideoEditIntent.ApplyColorGrade -> "🎨 Applied ${intent.lutName} color grade"
+                    is VideoEditIntent.SetAspectRatio -> "📱 Changed aspect ratio to ${intent.ratio}"
+                    is VideoEditIntent.AddMusic -> "🎵 Added ${intent.trackName} background music"
+                    is VideoEditIntent.AutoCaptions -> "💬 Generated auto captions"
+                    is VideoEditIntent.DynamicCaptions -> "✨ Added ${intent.style} dynamic captions"
+                    is VideoEditIntent.DynamicZoom -> "🔍 Added dynamic hook zoom"
+                    is VideoEditIntent.SpeedRamp -> "⚡ Applied speed ramp (${intent.curvePreset})"
+                    is VideoEditIntent.SmartJumpCuts -> "✂️ Applied smart jump-cuts"
+                    is VideoEditIntent.AutoReframe -> "🎯 Auto-reframed to ${intent.targetRatio}"
+                    is VideoEditIntent.StudioVoiceClarity -> "🎤 Studio voice clarity applied"
+                    is VideoEditIntent.AddTransition -> "🔀 Added ${intent.preset} transition"
+                    is VideoEditIntent.AddStickerOverlay -> "🔥 Added sticker overlay"
+                    is VideoEditIntent.AutoBrollOverlay -> "🖼️ Added AI B-Roll & Visual Overlays"
+                    is VideoEditIntent.ExtractViralHighlight -> "🎞️ Extracted ${intent.targetDurationSec}s viral highlight"
+                    is VideoEditIntent.ExportVideo -> "🚀 Exported video (${intent.resolution})"
+                    else -> "Action executed"
+                }
+                "${i + 1}. $desc"
+            }.joinToString("\n")
+
+        return ParsedCommand(
+            rawText = clean,
+            intent = VideoEditIntent.Compound(parsedSteps),
+            confidence = 0.98f,
+            feedbackMessage = summary,
+        )
     }
 }

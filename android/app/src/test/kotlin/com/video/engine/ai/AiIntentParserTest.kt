@@ -559,6 +559,57 @@ class AiIntentParserTest {
     }
 
     @Test
+    fun parse_compoundPipeline() {
+        val res = AiIntentParser.parse("silence kato fir cyberpunk look lagao aur 9:16 karo")
+        assertTrue("Expected Compound intent, got ${res.intent}", res.intent is VideoEditIntent.Compound)
+        val compound = res.intent as VideoEditIntent.Compound
+        assertEquals(3, compound.steps.size)
+        assertTrue(compound.steps[0] is VideoEditIntent.RemoveSilence)
+        assertTrue(compound.steps[1] is VideoEditIntent.ApplyColorGrade)
+        assertEquals("Cyberpunk", (compound.steps[1] as VideoEditIntent.ApplyColorGrade).lutName)
+        assertTrue(compound.steps[2] is VideoEditIntent.SetAspectRatio)
+        assertEquals("9:16", (compound.steps[2] as VideoEditIntent.SetAspectRatio).ratio)
+    }
+
+    @Test
+    fun parse_extractViralHighlight() {
+        val res1 = AiIntentParser.parse("video se best 30 second viral part nikalo")
+        assertTrue("Expected ExtractViralHighlight, got ${res1.intent}", res1.intent is VideoEditIntent.ExtractViralHighlight)
+        assertEquals(30, (res1.intent as VideoEditIntent.ExtractViralHighlight).targetDurationSec)
+
+        val res2 = AiIntentParser.parse("extract viral highlight 60 seconds")
+        assertTrue(res2.intent is VideoEditIntent.ExtractViralHighlight)
+        assertEquals(60, (res2.intent as VideoEditIntent.ExtractViralHighlight).targetDurationSec)
+    }
+
+    @Test
+    fun parse_autoBrollOverlay() {
+        val cases = listOf(
+            "auto b-roll aur visuals overlay dalo",
+            "smart overlays lagao",
+            "add broll overlay",
+        )
+        for (query in cases) {
+            val res = AiIntentParser.parse(query)
+            assertTrue("Expected AutoBrollOverlay for '$query', got ${res.intent}", res.intent is VideoEditIntent.AutoBrollOverlay)
+        }
+    }
+
+    @Test
+    fun parse_inspectTimelineCritic() {
+        val cases = listOf(
+            "meri video check karo kya kami hai",
+            "review my video",
+            "inspect timeline",
+            "director review my video",
+        )
+        for (query in cases) {
+            val res = AiIntentParser.parse(query)
+            assertTrue("Expected InspectTimelineCritic for '$query', got ${res.intent}", res.intent is VideoEditIntent.InspectTimelineCritic)
+        }
+    }
+
+    @Test
     fun parse_blankAndUnknown() {
         val emptyRes = AiIntentParser.parse("")
         assertTrue(emptyRes.intent is VideoEditIntent.Unknown)

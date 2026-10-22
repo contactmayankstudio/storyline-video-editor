@@ -81,6 +81,10 @@ class AiVoiceCopilotSheet(
 
     private val suggestionChips = listOf(
         Pair("✨ Full AI Edit & Export", "pura video auto edit karke export karo"),
+        Pair("🧠 AI Video Critic", "meri video check karo aur kya kami hai batao"),
+        Pair("🎞️ Viral Highlight Finder", "video se 30 second ka viral part nikalo"),
+        Pair("🖼️ Auto B-Roll & Visuals", "auto b-roll aur smart visuals overlay dalo"),
+        Pair("🔗 Compound Pipeline", "silence kato fir cyberpunk look lagao aur 9:16 karo"),
         Pair("⚡ Speed Ramp", "speed ramp lagao"),
         Pair("✂️ Smart Jump-Cuts", "smart jump cuts lagao"),
         Pair("🎯 Auto-Reframe 9:16", "auto reframe 9:16 karo"),
@@ -1122,11 +1126,20 @@ class AiVoiceCopilotSheet(
             is VideoEditIntent.SpeedRamp,
             is VideoEditIntent.SmartJumpCuts,
             is VideoEditIntent.AutoReframe,
+            is VideoEditIntent.ExtractViralHighlight,
+            is VideoEditIntent.AutoBrollOverlay,
+            is VideoEditIntent.Compound,
             is VideoEditIntent.MuteClip -> listOf(
                 Pair("▶️ Play Preview") { handleUserCommand("play") },
                 Pair("🚀 Export 1080p") { handleUserCommand("export 1080p") },
                 Pair("📱 9:16 Reel") { handleUserCommand("aspect ratio 9:16") },
                 Pair("↩️ Undo") { handleUserCommand("undo") },
+            )
+            is VideoEditIntent.InspectTimelineCritic -> listOf(
+                Pair("✨ Full AI Edit") { handleUserCommand("pura video auto edit karke export karo") },
+                Pair("📱 9:16 Reel") { handleUserCommand("auto reframe 9:16") },
+                Pair("✂️ Smart Jump-Cuts") { handleUserCommand("smart jump cuts") },
+                Pair("🎵 Add Lofi BGM") { handleUserCommand("add music lofi") },
             )
             is VideoEditIntent.TogglePlayback -> listOf(
                 Pair("▶️ Play / Pause") { handleUserCommand("play") },

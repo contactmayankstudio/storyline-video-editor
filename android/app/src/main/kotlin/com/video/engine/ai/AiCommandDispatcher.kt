@@ -200,11 +200,61 @@ interface AiCommandDispatcher {
     fun autoReframe(targetRatio: String = "9:16"): Boolean = false
 
     /**
+     * Executes multiple editing intents sequentially in a compound pipeline.
+     */
+    fun compound(steps: List<VideoEditIntent>): Boolean = false
+
+    /**
+     * Extracts the most engaging viral highlight (e.g. 30s/60s) from long video.
+     */
+    fun extractViralHighlight(targetDurationSec: Int = 30): Boolean = false
+
+    /**
+     * Inserts dynamic visual B-Roll stickers & retention overlays at key timeline intervals.
+     */
+    fun autoBrollOverlay(style: String = "StickersAndText"): Boolean = false
+
+    /**
+     * Inspects timeline and generates an intelligent AI Video Critic / Diagnostic audit report.
+     */
+    fun getTimelineCriticReport(): String = "Timeline is ready for editing."
+
+    /**
      * Dispatches a ParsedCommand to the appropriate action.
      * Returns a pair of (success: Boolean, feedbackMessage: String).
      */
     fun dispatch(command: ParsedCommand): Pair<Boolean, String> {
+        if (command.intent is VideoEditIntent.InspectTimelineCritic) {
+            val report = getTimelineCriticReport()
+            return Pair(true, report)
+        }
         val success = when (val intent = command.intent) {
+            is VideoEditIntent.Compound -> {
+                var allSuccess = true
+                for (step in intent.steps) {
+                    val stepSuccess = dispatchSingle(step)
+                    if (!stepSuccess) allSuccess = false
+                }
+                allSuccess
+            }
+            else -> dispatchSingle(intent)
+        }
+        val feedback = if (success) {
+            when (val intent = command.intent) {
+                is VideoEditIntent.Conversational -> intent.reply
+                else -> command.feedbackMessage
+            }
+        } else {
+            when (command.intent) {
+                is VideoEditIntent.Unknown -> command.feedbackMessage
+                else -> "Could not execute '${command.rawText}'. Please ensure media or a clip is selected on the timeline."
+            }
+        }
+        return Pair(success, feedback)
+    }
+
+    private fun dispatchSingle(intent: VideoEditIntent): Boolean {
+        return when (intent) {
             is VideoEditIntent.AutoPilotEdit -> fullAutoPilotEdit(intent.style)
             is VideoEditIntent.AutoPilotEditAndExport -> fullAutoPilotEditAndExport(intent.style, intent.resolution)
             is VideoEditIntent.ExportVideo -> exportVideo(intent.resolution)
@@ -239,66 +289,17 @@ interface AiCommandDispatcher {
             is VideoEditIntent.SpeedRamp -> speedRamp(intent.curvePreset)
             is VideoEditIntent.SmartJumpCuts -> smartJumpCuts(intent.pacing)
             is VideoEditIntent.AutoReframe -> autoReframe(intent.targetRatio)
+            is VideoEditIntent.ExtractViralHighlight -> extractViralHighlight(intent.targetDurationSec)
+            is VideoEditIntent.AutoBrollOverlay -> autoBrollOverlay(intent.style)
+            is VideoEditIntent.InspectTimelineCritic -> true
+            is VideoEditIntent.Compound -> compound(intent.steps)
             is VideoEditIntent.TogglePlayback -> togglePlayback()
-            is VideoEditIntent.Conversational -> {
-                intent.executeIntent?.let { subIntent ->
-                    when (subIntent) {
-                        is VideoEditIntent.AutoPilotEdit -> fullAutoPilotEdit(subIntent.style)
-                        is VideoEditIntent.AutoPilotEditAndExport -> fullAutoPilotEditAndExport(subIntent.style, subIntent.resolution)
-                        is VideoEditIntent.ExportVideo -> exportVideo(subIntent.resolution)
-                        is VideoEditIntent.SetAspectRatio -> setAspectRatio(subIntent.ratio)
-                        is VideoEditIntent.AddTransition -> addTransition(subIntent.preset)
-                        is VideoEditIntent.TrimClip -> trimClip(subIntent.seconds, subIntent.fromStart)
-                        is VideoEditIntent.SetVolume -> setVolume(subIntent.volume)
-                        is VideoEditIntent.MuteClip -> muteClip()
-                        is VideoEditIntent.RotateClip -> rotateClip(subIntent.degrees)
-                        is VideoEditIntent.FlipClip -> flipClip(subIntent.horizontal)
-                        is VideoEditIntent.AddMusic -> addMusic(subIntent.trackName)
-                        is VideoEditIntent.SplitClip -> splitClip()
-                        is VideoEditIntent.FastBeatCuts -> fastBeatCuts(subIntent.preset)
-                        is VideoEditIntent.RemoveSilence -> removeSilence(subIntent.thresholdDb)
-                        is VideoEditIntent.DynamicZoom -> dynamicZoom(subIntent.preset)
-                        is VideoEditIntent.ApplyColorGrade -> applyColorGrade(subIntent.lutName)
-                        is VideoEditIntent.AutoCaptions -> autoCaptions()
-                        is VideoEditIntent.AddTitle -> addTitle(subIntent.text, subIntent.preset)
-                        is VideoEditIntent.SetSpeed -> setSpeed(subIntent.speed)
-                        is VideoEditIntent.GenerateTtsVoiceover -> generateTtsVoiceover(subIntent.text, subIntent.lang)
-                        is VideoEditIntent.AutoBeatSync -> autoBeatSync(subIntent.bpm)
-                        is VideoEditIntent.ToggleBeforeAfter -> toggleBeforeAfter(subIntent.enable)
-                        is VideoEditIntent.TopicToReel -> topicToReel(subIntent.topic)
-                        is VideoEditIntent.AddSoundEffect -> addSoundEffect(subIntent.sfxType)
-                        is VideoEditIntent.FaceTrackingZoom -> faceTrackingZoom(subIntent.zoomFactor)
-                        is VideoEditIntent.StudioVoiceClarity -> studioVoiceClarity(subIntent.level)
-                        is VideoEditIntent.DynamicCaptions -> dynamicCaptions(subIntent.style)
-                        is VideoEditIntent.GenerateThumbnail -> generateThumbnail(subIntent.headline)
-                        is VideoEditIntent.AddStickerOverlay -> addStickerOverlay(subIntent.emojiOrSymbol)
-                        is VideoEditIntent.PlatformExport -> platformExport(subIntent.platform)
-                        is VideoEditIntent.ResetPreview -> resetPreview()
-                        is VideoEditIntent.SpeedRamp -> speedRamp(subIntent.curvePreset)
-                        is VideoEditIntent.SmartJumpCuts -> smartJumpCuts(subIntent.pacing)
-                        is VideoEditIntent.AutoReframe -> autoReframe(subIntent.targetRatio)
-                        is VideoEditIntent.TogglePlayback -> togglePlayback()
-                        is VideoEditIntent.Undo -> undo()
-                        is VideoEditIntent.Redo -> redo()
-                        else -> true
-                    }
-                } ?: true
-            }
             is VideoEditIntent.Undo -> undo()
             is VideoEditIntent.Redo -> redo()
+            is VideoEditIntent.Conversational -> {
+                intent.executeIntent?.let { dispatchSingle(it) } ?: true
+            }
             is VideoEditIntent.Unknown -> false
         }
-        val feedback = if (success) {
-            when (val intent = command.intent) {
-                is VideoEditIntent.Conversational -> intent.reply
-                else -> command.feedbackMessage
-            }
-        } else {
-            when (command.intent) {
-                is VideoEditIntent.Unknown -> command.feedbackMessage
-                else -> "Could not execute '${command.rawText}'. Please ensure media or a clip is selected on the timeline."
-            }
-        }
-        return Pair(success, feedback)
     }
 }
