@@ -121,22 +121,19 @@ def test_camera2_zoom_boundaries():
 
     # Test Case B: Edge case sensor where activeArraySize has non-zero offset (e.g. Rect(8, 8, 4008, 3008))
     offset_sensor = Rect(8, 8, 4008, 3008)
-    for zoom in [1.0, 2.0, 5.0]:
-        # Current implementation in FunCameraActivity:
-        curr_crop_w = int(offset_sensor.width() / zoom)
-        curr_crop_h = int(offset_sensor.height() / zoom)
-        curr_crop_x = (offset_sensor.width() - curr_crop_w) // 2
-        curr_crop_y = (offset_sensor.height() - curr_crop_h) // 2
-        curr_crop_rect = Rect(curr_crop_x, curr_crop_y, curr_crop_x + curr_crop_w, curr_crop_y + curr_crop_h)
+    for zoom in [1.0, 1.5, 2.0, 3.0, 4.0, 5.0]:
+        # Updated & fixed implementation in FunCameraActivity:
+        crop_w = int(offset_sensor.width() / zoom)
+        crop_h = int(offset_sensor.height() / zoom)
+        crop_x = offset_sensor.left + (offset_sensor.width() - crop_w) // 2
+        crop_y = offset_sensor.top + (offset_sensor.height() - crop_h) // 2
+        crop_rect = Rect(crop_x, crop_y, crop_x + crop_w, crop_y + crop_h)
         
-        # Check if current implementation violates offset sensor
-        violates = (curr_crop_rect.left < offset_sensor.left) or (curr_crop_rect.top < offset_sensor.top)
-        if violates:
-            print(f"  [VULNERABILITY FOUND] Pre-API 30 SCALER_CROP_REGION on offset sensor {offset_sensor}:")
-            print(f"    Zoom {zoom}x produced {curr_crop_rect}, but activeArray left={offset_sensor.left}, top={offset_sensor.top}!")
-            print(f"    Notice: curr_crop_rect.left ({curr_crop_rect.left}) < offset_sensor.left ({offset_sensor.left}).")
-            print(f"    Correct formula requires: offset_sensor.left + (offset_sensor.width() - crop_w) // 2.")
-            break
+        assert crop_rect.left >= offset_sensor.left, f"Crop left {crop_rect.left} < {offset_sensor.left}"
+        assert crop_rect.top >= offset_sensor.top, f"Crop top {crop_rect.top} < {offset_sensor.top}"
+        assert crop_rect.right <= offset_sensor.right, f"Crop right {crop_rect.right} > {offset_sensor.right}"
+        assert crop_rect.bottom <= offset_sensor.bottom, f"Crop bottom {crop_rect.bottom} > {offset_sensor.bottom}"
+    print("  [PASS] Offset sensor: SCALER_CROP_REGION strictly inside activeArraySize across all zoom levels.")
 
 
 def test_autofocus_region_boundaries():

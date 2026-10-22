@@ -42,6 +42,9 @@ class CameraShutterButton @JvmOverloads constructor(
     var isRecording: Boolean = false
         private set
 
+    var isLocked: Boolean = false
+        private set
+
     var maxRecordingDurationMs: Long = 15_000L
     private var recordingStartTime: Long = 0L
 
@@ -56,9 +59,11 @@ class CameraShutterButton @JvmOverloads constructor(
     var onPhotoCapture: (() -> Unit)? = null
     var onRecordStart: (() -> Unit)? = null
     var onRecordStop: (() -> Unit)? = null
+    var onRecordLock: (() -> Unit)? = null
     var onDragZoom: ((zoomFraction: Float) -> Unit)? = null
 
-    // Touch tracking for Drag-to-Zoom
+    // Touch tracking for Drag-to-Zoom & Slide-to-Lock
+    private var initialTouchX: Float = 0f
     private var initialTouchY: Float = 0f
     private var isDraggingZoom: Boolean = false
     private val maxDragDistancePx: Float = 320f * resources.displayMetrics.density
@@ -78,6 +83,11 @@ class CameraShutterButton @JvmOverloads constructor(
 
     private val innerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
+    }
+
+    private val lockPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        strokeCap = Paint.Cap.ROUND
     }
 
     private val ringBounds = RectF()
@@ -165,15 +175,43 @@ class CameraShutterButton @JvmOverloads constructor(
         innerPaint.color = Color.rgb(r, g, b)
 
         canvas.drawRoundRect(innerBounds, cornerRadius, cornerRadius, innerPaint)
+
+        // Draw Lock emblem if Hands-Free locked
+        if (isRecording && isLocked) {
+            val density = resources.displayMetrics.density
+            val lockW = 12f * density
+            val lockH = 9f * density
+            val shackleR = 4f * density
+            val lx = cx
+            val ly = cy + 2f * density
+
+            // Lock body
+            lockPaint.style = Paint.Style.FILL
+            val bodyRect = RectF(lx - lockW / 2f, ly - lockH / 2f, lx + lockW / 2f, ly + lockH / 2f)
+            canvas.drawRoundRect(bodyRect, 2f * density, 2f * density, lockPaint)
+
+            // Lock shackle
+            lockPaint.style = Paint.Style.STROKE
+            lockPaint.strokeWidth = 1.8f * density
+            val shackleRect = RectF(lx - shackleR, ly - lockH / 2f - shackleR * 1.5f, lx + shackleR, ly - lockH / 2f + shackleR * 0.5f)
+            canvas.drawArc(shackleRect, 180f, 180f, false, lockPaint)
+        }
     }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
+                initialTouchX = event.rawX
                 initialTouchY = event.rawY
                 isDraggingZoom = false
                 performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+
+                if (isRecording && isLocked) {
+                    // Tap to stop hands-free recording
+                    stopRecording()
+                    return true
+                }
 
                 if (mode == Mode.VIDEO) {
                     if (!isRecording) {
@@ -188,9 +226,18 @@ class CameraShutterButton @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                if (isRecording) {
+                if (isRecording && !isLocked) {
                     val deltaY = initialTouchY - event.rawY
-                    if (deltaY > 15f) {
+                    val deltaX = initialTouchX - event.rawX
+
+                    // Slide to the left (>= 45dp) to lock recording hands-free (Snapchat style)
+                    val lockThreshold = 45f * resources.displayMetrics.density
+                    if (deltaX >= lockThreshold) {
+                        isLocked = true
+                        performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                        onRecordLock?.invoke()
+                        invalidate()
+                    } else if (deltaY > 15f) {
                         isDraggingZoom = true
                         val fraction = (deltaY / maxDragDistancePx).coerceIn(0f, 1f)
                         onDragZoom?.invoke(fraction)
@@ -202,7 +249,9 @@ class CameraShutterButton @JvmOverloads constructor(
                 removeCallbacks(holdToRecordRunnable)
                 if (mode == Mode.PHOTO) {
                     if (isRecording) {
-                        stopRecording()
+                        if (!isLocked) {
+                            stopRecording()
+                        }
                     } else {
                         // Quick Tap: Take photo with bounce animation
                         animateTapBounce()
@@ -222,6 +271,7 @@ class CameraShutterButton @JvmOverloads constructor(
     fun startRecording() {
         if (isRecording) return
         isRecording = true
+        isLocked = false
         recordingStartTime = SystemClock.uptimeMillis()
         progress = 0f
         animateMorph(1f)
@@ -232,6 +282,7 @@ class CameraShutterButton @JvmOverloads constructor(
     fun stopRecording() {
         if (!isRecording) return
         isRecording = false
+        isLocked = false
         progress = 0f
         removeCallbacks(progressRunnable)
         animateMorph(0f)

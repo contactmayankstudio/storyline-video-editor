@@ -101,6 +101,7 @@ class FunCameraActivity : ComponentActivity() {
     // Camera2 Zoom Characteristics & State
     private var optimalPreviewSize = Size(1280, 720)
     private var activeArraySize: Rect? = null
+    private var sensorOrientation: Int = 90
     private var maxDigitalZoom: Float = 5.0f
     private var currentZoomRatio: Float = 1.0f
     private var currentZoom = 1.0f
@@ -202,20 +203,26 @@ class FunCameraActivity : ComponentActivity() {
             override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean = true
             override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {
                 val now = SystemClock.uptimeMillis()
-                // Process face detection every 90ms on low-res frame
-                if (now - lastTrackingTimestamp > 90L) {
+                // Process face detection every 33ms (~30 FPS) with aspect-ratio-matched frame
+                if (now - lastTrackingTimestamp > 33L) {
                     lastTrackingTimestamp = now
                     var bmp: Bitmap? = null
                     try {
-                        bmp = textureView.getBitmap(360, 480)
-                        if (bmp != null) {
-                            val accepted = faceTracker.processFrame(bmp, isFrontFacing) { faceData ->
-                                runOnUiThread {
-                                    overlayView.faceData = faceData
+                        val vw = textureView.width
+                        val vh = textureView.height
+                        if (vw > 0 && vh > 0) {
+                            val targetW = 360
+                            val targetH = (360 * vh / vw).coerceIn(360, 800)
+                            bmp = textureView.getBitmap(targetW, targetH)
+                            if (bmp != null) {
+                                val accepted = faceTracker.processFrame(bmp, isFrontFacing) { faceData ->
+                                    runOnUiThread {
+                                        overlayView.faceData = faceData
+                                    }
                                 }
-                            }
-                            if (!accepted) {
-                                bmp.recycle()
+                                if (!accepted) {
+                                    bmp.recycle()
+                                }
                             }
                         }
                     } catch (_: Exception) {
@@ -290,6 +297,10 @@ class FunCameraActivity : ComponentActivity() {
 
         shutterButton.onRecordStop = {
             stopVideoRecording()
+        }
+
+        shutterButton.onRecordLock = {
+            showSwipeToast("🔒 Recording Locked")
         }
 
         shutterButton.onDragZoom = { zoomFraction ->
@@ -394,6 +405,26 @@ class FunCameraActivity : ComponentActivity() {
             try {
                 mr.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             } catch (_: Exception) {}
+
+            // Calculate precise orientation hint matching sensor and display rotation
+            val deviceRotation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                display?.rotation ?: Surface.ROTATION_0
+            } else {
+                @Suppress("DEPRECATION")
+                windowManager.defaultDisplay.rotation
+            }
+            val deviceDegrees = when (deviceRotation) {
+                Surface.ROTATION_90 -> 90
+                Surface.ROTATION_180 -> 180
+                Surface.ROTATION_270 -> 270
+                else -> 0
+            }
+            val orientationHint = if (isFrontFacing) {
+                (sensorOrientation + deviceDegrees) % 360
+            } else {
+                (sensorOrientation - deviceDegrees + 360) % 360
+            }
+            mr.setOrientationHint(orientationHint)
             mr.prepare()
             true
         } catch (e: Exception) {
@@ -519,7 +550,13 @@ class FunCameraActivity : ComponentActivity() {
                         val nextIntent = com.video.engine.EditorLaunchIntents.markForEditorBoot(
                             this,
                             Intent(this, com.video.engine.VideoEditorActivity::class.java)
-                        ).putExtra(com.video.engine.EditorLaunchIntents.EXTRA_START_SHELL_ACTION, com.video.engine.EditorLaunchIntents.START_ACTION_IMPORT)
+                        ).putExtra(
+                            com.video.engine.EditorLaunchIntents.EXTRA_START_SHELL_ACTION,
+                            com.video.engine.EditorLaunchIntents.START_ACTION_IMPORT
+                        ).putExtra(
+                            com.video.engine.EditorLaunchIntents.EXTRA_START_MEDIA_PATH,
+                            videoFile.absolutePath
+                        )
                         startActivity(nextIntent)
                     }
                     2 -> {
@@ -688,6 +725,17 @@ class FunCameraActivity : ComponentActivity() {
         isFrontFacing = !isFrontFacing
         currentZoomRatio = 1.0f
         currentZoom = 1.0f
+        faceTracker.reset()
+        overlayView.faceData = SmoothedFaceData(hasFace = false)
+
+        // Silky smooth 3D flip transition animation (Snapchat / Instagram style)
+        textureView.animate().rotationYBy(180f).setDuration(280L).withEndAction {
+            textureView.rotationY = 0f
+        }.start()
+        overlayView.animate().rotationYBy(180f).setDuration(280L).withEndAction {
+            overlayView.rotationY = 0f
+        }.start()
+
         closeCamera()
         openCamera()
     }
@@ -739,6 +787,7 @@ class FunCameraActivity : ComponentActivity() {
 
     private fun setupCameraCharacteristics(characteristics: CameraCharacteristics) {
         activeArraySize = characteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+        sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: (if (isFrontFacing) 270 else 90)
         val map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
         val sizes = map?.getOutputSizes(SurfaceTexture::class.java)
         if (!sizes.isNullOrEmpty()) {
@@ -856,6 +905,7 @@ class FunCameraActivity : ComponentActivity() {
     private fun showPhotoSavedDialog(photoFile: File) {
         val options = arrayOf(
             "Take Another 📸",
+            "Edit in Storyline Video Editor ✂️",
             "Edit in Photo Editor 🎨",
             "Make Status Video ⚡",
             "Share Photo 🚀"
@@ -866,16 +916,29 @@ class FunCameraActivity : ComponentActivity() {
                 when (which) {
                     0 -> { /* Resume camera */ }
                     1 -> {
+                        val nextIntent = com.video.engine.EditorLaunchIntents.markForEditorBoot(
+                            this,
+                            Intent(this, com.video.engine.VideoEditorActivity::class.java)
+                        ).putExtra(
+                            com.video.engine.EditorLaunchIntents.EXTRA_START_SHELL_ACTION,
+                            com.video.engine.EditorLaunchIntents.START_ACTION_IMPORT
+                        ).putExtra(
+                            com.video.engine.EditorLaunchIntents.EXTRA_START_MEDIA_PATH,
+                            photoFile.absolutePath
+                        )
+                        startActivity(nextIntent)
+                    }
+                    2 -> {
                         val intent = Intent(this, PhotoEditorActivity::class.java).apply {
                             putExtra(PhotoEditorActivity.EXTRA_RESUME_PHOTO, false)
                             putExtra(PhotoEditorActivity.EXTRA_PHOTO_PROJECT_PATH, photoFile.absolutePath)
                         }
                         startActivity(intent)
                     }
-                    2 -> {
+                    3 -> {
                         startActivity(Intent(this, StatusMakerActivity::class.java))
                     }
-                    3 -> {
+                    4 -> {
                         val uri = FileProvider.getUriForFile(
                             this,
                             "${applicationContext.packageName}.fileprovider",
@@ -1149,8 +1212,8 @@ class FunCameraActivity : ComponentActivity() {
             val sensorRect = activeArraySize ?: Rect(0, 0, 1920, 1080)
             val cropW = (sensorRect.width() / clampedZoom).toInt()
             val cropH = (sensorRect.height() / clampedZoom).toInt()
-            val cropX = (sensorRect.width() - cropW) / 2
-            val cropY = (sensorRect.height() - cropH) / 2
+            val cropX = sensorRect.left + (sensorRect.width() - cropW) / 2
+            val cropY = sensorRect.top + (sensorRect.height() - cropH) / 2
             builder.set(CaptureRequest.SCALER_CROP_REGION, Rect(cropX, cropY, cropX + cropW, cropY + cropH))
         }
     }

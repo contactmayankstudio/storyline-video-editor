@@ -39,7 +39,6 @@ class FaceLandmarkTracker {
 
     // Smoothing state
     private var smoothedData: SmoothedFaceData = SmoothedFaceData(hasFace = false)
-    private val smoothingFactor = 0.35f // 0 = previous, 1 = instant
 
     @Volatile
     private var isProcessing = false
@@ -209,7 +208,7 @@ class FaceLandmarkTracker {
         val isMouthOpen = mouthDistRatio > 0.31f
         val mouthOpenRatio = ((mouthDistRatio - 0.22f) / 0.18f).coerceIn(0f, 1f)
 
-        // Apply smoothing
+        // Apply velocity-adaptive temporal smoothing (Snapchat / 1€ filter tier)
         val prev = smoothedData
         if (!prev.hasFace) {
             return SmoothedFaceData(
@@ -236,45 +235,107 @@ class FaceLandmarkTracker {
             )
         }
 
-        val smoothF = { curr: Float, target: Float -> curr + (target - curr) * smoothingFactor }
-        val smoothPoint = { prevP: PointF?, targetP: PointF? ->
-            if (prevP != null && targetP != null) {
-                PointF(smoothF(prevP.x, targetP.x), smoothF(prevP.y, targetP.y))
-            } else targetP ?: prevP
+        val smoothedBounds = adaptiveSmoothBounds(prev.bounds, targetBounds)
+        val smoothedMouthRatio = adaptiveSmooth(prev.mouthOpenRatio, mouthOpenRatio, 0.18f, 0.85f, 0.05f)
+        val smoothedSmilingProb = adaptiveSmooth(prev.smilingProbability, rawSmilingProb, 0.18f, 0.85f, 0.05f)
+
+        // Hysteresis thresholding to prevent edge flickering
+        val activeSmiling = if (prev.isSmiling) rawSmilingProb > 0.45f else isSmiling
+        val activeMouthOpen = if (prev.isMouthOpen) mouthDistRatio > 0.24f else isMouthOpen
+        val activeWinking = if (prev.isWinking) {
+            isWinking || (leftOpen < 0.32f && rightOpen > 0.60f) || (rightOpen < 0.32f && leftOpen > 0.60f)
+        } else {
+            isWinking
         }
-
-        val smoothedBounds = RectF(
-            smoothF(prev.bounds.left, targetBounds.left),
-            smoothF(prev.bounds.top, targetBounds.top),
-            smoothF(prev.bounds.right, targetBounds.right),
-            smoothF(prev.bounds.bottom, targetBounds.bottom)
-        )
-
-        val smoothedMouthRatio = smoothF(prev.mouthOpenRatio, mouthOpenRatio)
-        val smoothedSmilingProb = smoothF(prev.smilingProbability, rawSmilingProb)
 
         return SmoothedFaceData(
             hasFace = true,
             bounds = smoothedBounds,
-            leftEye = smoothPoint(prev.leftEye, targetLeftEye),
-            rightEye = smoothPoint(prev.rightEye, targetRightEye),
-            noseBase = smoothPoint(prev.noseBase, targetNose),
-            mouthCenter = smoothPoint(prev.mouthCenter, targetMouthCenter),
-            leftCheek = smoothPoint(prev.leftCheek, targetLeftCheek),
-            rightCheek = smoothPoint(prev.rightCheek, targetRightCheek),
-            mouthLeft = smoothPoint(prev.mouthLeft, targetMouthLeft),
-            mouthRight = smoothPoint(prev.mouthRight, targetMouthRight),
-            headEulerZ = smoothF(prev.headEulerZ, targetEulerZ),
-            headEulerY = smoothF(prev.headEulerY, targetEulerY),
-            headEulerX = smoothF(prev.headEulerX, targetEulerX),
-            isSmiling = smoothedSmilingProb > 0.60f || isSmiling,
+            leftEye = adaptiveSmoothPoint(prev.leftEye, targetLeftEye),
+            rightEye = adaptiveSmoothPoint(prev.rightEye, targetRightEye),
+            noseBase = adaptiveSmoothPoint(prev.noseBase, targetNose),
+            mouthCenter = adaptiveSmoothPoint(prev.mouthCenter, targetMouthCenter),
+            leftCheek = adaptiveSmoothPoint(prev.leftCheek, targetLeftCheek),
+            rightCheek = adaptiveSmoothPoint(prev.rightCheek, targetRightCheek),
+            mouthLeft = adaptiveSmoothPoint(prev.mouthLeft, targetMouthLeft),
+            mouthRight = adaptiveSmoothPoint(prev.mouthRight, targetMouthRight),
+            headEulerZ = adaptiveSmoothAngle(prev.headEulerZ, targetEulerZ),
+            headEulerY = adaptiveSmoothAngle(prev.headEulerY, targetEulerY),
+            headEulerX = adaptiveSmoothAngle(prev.headEulerX, targetEulerX),
+            isSmiling = activeSmiling,
             smilingProbability = smoothedSmilingProb,
-            isWinking = isWinking,
+            isWinking = activeWinking,
             isLeftEyeWinking = isLeftEyeWinking,
             isRightEyeWinking = isRightEyeWinking,
-            isMouthOpen = smoothedMouthRatio > 0.38f || isMouthOpen,
+            isMouthOpen = activeMouthOpen,
             mouthOpenRatio = smoothedMouthRatio
         )
+    }
+
+    private fun adaptiveSmooth(
+        curr: Float,
+        target: Float,
+        minAlpha: Float = 0.12f,
+        maxAlpha: Float = 0.85f,
+        threshold: Float = 0.04f
+    ): Float {
+        val delta = kotlin.math.abs(target - curr)
+        val factor = (delta / threshold).coerceIn(0f, 1f)
+        val alpha = minAlpha + (maxAlpha - minAlpha) * factor
+        return curr + (target - curr) * alpha
+    }
+
+    private fun adaptiveSmoothPoint(
+        prevP: PointF?,
+        targetP: PointF?,
+        minAlpha: Float = 0.12f,
+        maxAlpha: Float = 0.85f,
+        threshold: Float = 0.035f
+    ): PointF? {
+        if (prevP == null) return targetP
+        if (targetP == null) return prevP
+        val dx = targetP.x - prevP.x
+        val dy = targetP.y - prevP.y
+        val dist = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
+        val factor = (dist / threshold).coerceIn(0f, 1f)
+        val alpha = minAlpha + (maxAlpha - minAlpha) * factor
+        return PointF(prevP.x + dx * alpha, prevP.y + dy * alpha)
+    }
+
+    private fun adaptiveSmoothBounds(
+        curr: RectF,
+        target: RectF,
+        minAlpha: Float = 0.12f,
+        maxAlpha: Float = 0.85f,
+        threshold: Float = 0.045f
+    ): RectF {
+        val dL = target.left - curr.left
+        val dT = target.top - curr.top
+        val dR = target.right - curr.right
+        val dB = target.bottom - curr.bottom
+        val dist = (kotlin.math.hypot(dL.toDouble(), dT.toDouble()) + kotlin.math.hypot(dR.toDouble(), dB.toDouble())).toFloat()
+        val factor = (dist / threshold).coerceIn(0f, 1f)
+        val alpha = minAlpha + (maxAlpha - minAlpha) * factor
+        return RectF(
+            curr.left + dL * alpha,
+            curr.top + dT * alpha,
+            curr.right + dR * alpha,
+            curr.bottom + dB * alpha
+        )
+    }
+
+    private fun adaptiveSmoothAngle(curr: Float, target: Float): Float {
+        var diff = (target - curr) % 360f
+        if (diff > 180f) diff -= 360f
+        if (diff < -180f) diff += 360f
+        val delta = kotlin.math.abs(diff)
+        val factor = (delta / 8.0f).coerceIn(0f, 1f)
+        val alpha = 0.14f + (0.85f - 0.14f) * factor
+        return curr + diff * alpha
+    }
+
+    fun reset() {
+        smoothedData = SmoothedFaceData(hasFace = false)
     }
 
     fun release() {

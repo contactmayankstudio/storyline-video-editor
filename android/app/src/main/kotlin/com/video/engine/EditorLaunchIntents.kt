@@ -8,6 +8,7 @@ object EditorLaunchIntents {
     const val EXTRA_FORCE_EDITOR_BOOT = "com.video.engine.extra.FORCE_EDITOR_BOOT"
     const val EXTRA_START_SHELL_ACTION = "com.video.engine.extra.START_SHELL_ACTION"
     const val EXTRA_START_PROJECT_PATH = "com.video.engine.extra.START_PROJECT_PATH"
+    const val EXTRA_START_MEDIA_PATH = "com.video.engine.extra.START_MEDIA_PATH"
     const val START_ACTION_NEW = "new"
     const val START_ACTION_OPEN = "open"
     const val START_ACTION_IMPORT = "import"

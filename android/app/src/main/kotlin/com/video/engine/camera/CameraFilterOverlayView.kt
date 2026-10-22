@@ -999,7 +999,8 @@ class CameraFilterOverlayView @JvmOverloads constructor(
             val dy = ry - ly
             val eyeDist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
             glassesWidth = (eyeDist * 2.35f).coerceIn(w * 0.35f, w * 0.95f)
-            rotation = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
+            val rawRot = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
+            rotation = if (kotlin.math.abs(rawRot) < 0.8f) 0f else rawRot
         } else {
             val fb = face.bounds
             centerX = fb.centerX() * w
@@ -1322,12 +1323,67 @@ class CameraFilterOverlayView @JvmOverloads constructor(
     private fun drawFocusRing(canvas: Canvas) {
         if (!isFocusActive()) return
         val elapsed = SystemClock.uptimeMillis() - focusStartTime
-        val progress = (elapsed / 1200f).coerceIn(0f, 1f)
-        val ringR = (1f - progress * 0.35f) * 45f * density
-        focusRingPaint.color = Color.argb(((1f - progress) * 255).toInt(), 255, 235, 59)
-        focusRingPaint.strokeWidth = 2.5f * density
+
+        // Elastic snap scale: 1.35x down to 1.0x in first 250ms
+        val scale = if (elapsed < 250L) {
+            val t = elapsed / 250f
+            1.0f + (1f - t) * 0.35f
+        } else {
+            1.0f
+        }
+
+        // Smooth fade out during last 350ms
+        val alphaProgress = if (elapsed > 850L) {
+            (1200L - elapsed) / 350f
+        } else {
+            1.0f
+        }.coerceIn(0f, 1f)
+
+        val alphaInt = (alphaProgress * 255).toInt()
+        val ringR = 36f * density * scale
+        val stroke = 2.0f * density
+
+        focusRingPaint.color = Color.argb(alphaInt, 255, 220, 40)
+        focusRingPaint.strokeWidth = stroke
         focusRingPaint.style = Paint.Style.STROKE
+
+        // 1. Sleek Precision Reticle Ring
         canvas.drawCircle(focusX, focusY, ringR, focusRingPaint)
+
+        // 2. Reticle Crosshair Ticks (Top, Bottom, Left, Right)
+        val tickLen = 6f * density
+        canvas.drawLine(focusX, focusY - ringR - tickLen, focusX, focusY - ringR, focusRingPaint)
+        canvas.drawLine(focusX, focusY + ringR, focusX, focusY + ringR + tickLen, focusRingPaint)
+        canvas.drawLine(focusX - ringR - tickLen, focusY, focusX - ringR, focusY, focusRingPaint)
+        canvas.drawLine(focusX + ringR, focusY, focusX + ringR + tickLen, focusY, focusRingPaint)
+
+        // 3. Pro Auto-Exposure Metering Sun Indicator
+        val sunX = focusX + ringR + 14f * density
+        val sunY = focusY
+        val sunR = 3.5f * density
+        focusRingPaint.style = Paint.Style.FILL
+        canvas.drawCircle(sunX, sunY, sunR, focusRingPaint)
+
+        // 8 radiating sun rays
+        focusRingPaint.style = Paint.Style.STROKE
+        focusRingPaint.strokeWidth = 1.2f * density
+        val rayDistInner = sunR + 2.0f * density
+        val rayDistOuter = sunR + 4.5f * density
+        for (i in 0 until 8) {
+            val angleRad = Math.toRadians((i * 45).toDouble())
+            val x1 = sunX + (cos(angleRad) * rayDistInner).toFloat()
+            val y1 = sunY + (sin(angleRad) * rayDistInner).toFloat()
+            val x2 = sunX + (cos(angleRad) * rayDistOuter).toFloat()
+            val y2 = sunY + (sin(angleRad) * rayDistOuter).toFloat()
+            canvas.drawLine(x1, y1, x2, y2, focusRingPaint)
+        }
+
+        // Vertical exposure slider rail
+        val railLen = 16f * density
+        focusRingPaint.strokeWidth = 1.0f * density
+        focusRingPaint.color = Color.argb((alphaInt * 0.45f).toInt(), 255, 220, 40)
+        canvas.drawLine(sunX, sunY - railLen, sunX, sunY - rayDistOuter - 2f * density, focusRingPaint)
+        canvas.drawLine(sunX, sunY + rayDistOuter + 2f * density, sunX, sunY + railLen, focusRingPaint)
     }
 
     private fun isFocusActive(): Boolean {
@@ -1335,13 +1391,13 @@ class CameraFilterOverlayView @JvmOverloads constructor(
     }
 
     private fun drawNightFlashBorder(canvas: Canvas, w: Float, h: Float) {
-        val borderWidth = 40f * density
-        nightFlashPaint.color = Color.argb(235, 255, 250, 235)
+        val borderWidth = 44f * density
+        nightFlashPaint.color = Color.argb(240, 255, 248, 225)
         nightFlashPaint.style = Paint.Style.FILL
         canvas.drawRect(0f, 0f, w, borderWidth, nightFlashPaint)
         canvas.drawRect(0f, h - borderWidth, w, h, nightFlashPaint)
-        canvas.drawRect(0f, 0f, borderWidth, h, nightFlashPaint)
-        canvas.drawRect(w - borderWidth, 0f, w, h, nightFlashPaint)
+        canvas.drawRect(0f, borderWidth, borderWidth, h - borderWidth, nightFlashPaint)
+        canvas.drawRect(w - borderWidth, borderWidth, w, h - borderWidth, nightFlashPaint)
     }
 
     // =========================================================================

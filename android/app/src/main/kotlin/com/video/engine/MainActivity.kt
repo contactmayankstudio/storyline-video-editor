@@ -826,15 +826,24 @@ class VideoEditorActivity : ComponentActivity() {
         val startProjectPath =
             intent?.getStringExtra(EditorLaunchIntents.EXTRA_START_PROJECT_PATH)
                 ?.takeIf { it.isNotBlank() }
-        if (action.isNullOrBlank() && startProjectPath == null) return
+        val startMediaPath =
+            intent?.getStringExtra(EditorLaunchIntents.EXTRA_START_MEDIA_PATH)
+                ?.takeIf { it.isNotBlank() }
+        if (action.isNullOrBlank() && startProjectPath == null && startMediaPath == null) return
         intent?.let {
             it.removeExtra(EditorLaunchIntents.EXTRA_START_SHELL_ACTION)
             it.removeExtra(EditorLaunchIntents.EXTRA_START_PROJECT_PATH)
+            it.removeExtra(EditorLaunchIntents.EXTRA_START_MEDIA_PATH)
             setIntent(it)
         }
         mainHandler.postDelayed({
             if (isFinishing || isDestroyed) return@postDelayed
             if (startProjectPath != null && loadProjectFromStartAction(startProjectPath)) {
+                return@postDelayed
+            }
+            if (startMediaPath != null && File(startMediaPath).exists()) {
+                setStartScreenVisible(false)
+                importController?.importFromPath(startMediaPath)
                 return@postDelayed
             }
             when (action) {
