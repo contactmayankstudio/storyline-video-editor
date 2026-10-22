@@ -237,6 +237,12 @@ Java_com_video_engine_VideoPreviewView_nativeLoadProject(
             clip->setChromaKeySimilarity(clipEntry.chromaKey.similarity);
             clip->setChromaKeySmoothness(clipEntry.chromaKey.smoothness);
             clip->setChromaKeySpill(clipEntry.chromaKey.spill);
+            clip->getMutableProperties().posX = clipEntry.posX;
+            clip->getMutableProperties().posY = clipEntry.posY;
+            clip->getMutableProperties().scaleX = clipEntry.scaleX;
+            clip->getMutableProperties().scaleY = clipEntry.scaleY;
+            clip->getMutableProperties().rotation = clipEntry.transformRotation;
+            clip->getMutableProperties().transformKeyframes = clipEntry.transformKeyframes;
             timeline->addClip(clip);
             const int clipId = static_cast<int>(clip->getId());
             loadedClipIdMap[clipEntry.id] = clipId;

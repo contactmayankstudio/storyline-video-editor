@@ -20,6 +20,7 @@ import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -54,11 +55,13 @@ class StatusMakerActivity : ComponentActivity() {
     ) { uris: List<Uri> ->
         val template = pendingTemplate
         if (template == null || uris.isEmpty()) {
-            Toast.makeText(this, "Select photos to generate status video", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Select a photo to generate status video", Toast.LENGTH_SHORT).show()
             return@registerForActivityResult
         }
 
-        Toast.makeText(this, "Building ${template.title}...", Toast.LENGTH_SHORT).show()
+        val isSingle = uris.size == 1
+        val msg = if (isSingle) "Building 1-Photo Pro Status: ${template.title}..." else "Building ${template.title} (${uris.size} photos)..."
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
         Thread {
             val localPaths = uris.mapNotNull { uri -> resolveUriToLocalFile(this, uri) }
@@ -86,6 +89,16 @@ class StatusMakerActivity : ComponentActivity() {
                 }
             }
         }.start()
+    }
+
+    // Single photo picker to test in live preview dialog
+    private val pickSinglePhotoForPreviewLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri == null) return@registerForActivityResult
+        val localPath = resolveUriToLocalFile(this, uri) ?: return@registerForActivityResult
+        activePreviewDialog?.findViewById<StatusTemplateLivePreviewView>(R.id.statusLivePreviewView)?.setCustomPhoto(localPath)
+        activePreviewDialog?.findViewById<TextView>(R.id.statusPreviewTestPhotoText)?.text = "Photo Loaded ✓"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -281,14 +294,22 @@ class StatusMakerActivity : ComponentActivity() {
         val descTv = dialogView.findViewById<TextView>(R.id.statusPreviewDesc)
         val closeBtn = dialogView.findViewById<View>(R.id.statusPreviewCloseBtn)
         val ctaBtn = dialogView.findViewById<View>(R.id.statusPreviewCtaBtn)
+        val ctaText = dialogView.findViewById<TextView>(R.id.statusPreviewCtaText)
+        val testPhotoBtn = dialogView.findViewById<View>(R.id.statusPreviewTestPhotoBtn)
 
         // Bind metadata chips & text
         titleTv?.text = template.title
         categoryBadge?.text = "${template.emoji} ${template.category.uppercase()}"
         durationChip?.text = "⏱️ ${template.durationMs / 1000}s"
-        photosChip?.text = "📸 ${template.requiredPhotoCount} Photos"
+        photosChip?.text = "⚡ 1-Photo Ready"
         bpmChip?.text = "🎵 ${template.bpm} BPM"
         descTv?.text = template.description
+        ctaText?.text = "⚡ CREATE 1-PHOTO / REELS STATUS"
+
+        testPhotoBtn?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            pickSinglePhotoForPreviewLauncher.launch("image/*")
+        }
 
         // Dynamically theme CTA button with template gradient
         val density = resources.displayMetrics.density
@@ -351,6 +372,12 @@ class StatusMakerActivity : ComponentActivity() {
         }
 
         dialog.show()
+        dialog.window?.let { window ->
+            val dm = resources.displayMetrics
+            val targetW = (dm.widthPixels * 0.92f).toInt().coerceAtMost((420 * dm.density).toInt())
+            window.setLayout(targetW, WindowManager.LayoutParams.WRAP_CONTENT)
+            window.setGravity(Gravity.CENTER)
+        }
     }
 
     private fun resolveUriToLocalFile(context: Context, uri: Uri): String? {
@@ -412,6 +439,11 @@ class StatusMakerActivity : ComponentActivity() {
             val previewBtn: View = view.findViewById(R.id.previewTemplateButton)
             val useBtn: View = view.findViewById(R.id.useTemplateButton)
             val useBtnText: TextView = view.findViewById(R.id.useTemplateButtonText)
+            val previewBanner: View = view.findViewById(R.id.templatePreviewBanner)
+            val bannerBg: View = view.findViewById(R.id.templateBannerBg)
+            val bannerBadge: TextView = view.findViewById(R.id.templateBannerBadge)
+            val bannerBpmPill: TextView = view.findViewById(R.id.templateBannerBpmPill)
+            val bannerLyricText: TextView = view.findViewById(R.id.templateBannerLyricText)
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -426,32 +458,52 @@ class StatusMakerActivity : ComponentActivity() {
             holder.emoji.text = item.emoji
             holder.title.text = item.title
             holder.durationChip.text = "${item.durationMs / 1000}s"
-            holder.photosChip.text = "${item.requiredPhotoCount} Photos"
+            holder.photosChip.text = "⚡ 1-Photo Ready"
             holder.bpmChip.text = "${item.bpm} BPM"
             holder.desc.text = item.description
-            holder.useBtnText.text = "Use (${item.requiredPhotoCount}) ⚡"
+            holder.useBtnText.text = "⚡ 1-Photo Create"
+            holder.bannerBpmPill.text = "🎵 ${item.bpm} BPM"
+            val sampleLyric = item.textOverlays.firstOrNull()?.text ?: "${item.emoji} ${item.title}"
+            holder.bannerLyricText.text = sampleLyric
 
             val density = holder.itemView.context.resources.displayMetrics.density
 
-            // Dynamic Gradient Badge for Emoji
+            // Dynamic Gradient Badge for Emoji, Banner & CTA
             try {
+                val startC = Color.parseColor(item.gradientStartHex)
+                val endC = Color.parseColor(item.gradientEndHex)
+
                 val emojiBg = GradientDrawable(
                     GradientDrawable.Orientation.TL_BR,
-                    intArrayOf(Color.parseColor(item.gradientStartHex), Color.parseColor(item.gradientEndHex))
+                    intArrayOf(startC, endC)
                 ).apply {
                     cornerRadius = 14f * density
                 }
                 holder.emoji.background = emojiBg
 
+                val bannerBgDrawable = GradientDrawable(
+                    GradientDrawable.Orientation.TL_BR,
+                    intArrayOf(startC, endC)
+                ).apply {
+                    cornerRadius = 14f * density
+                }
+                holder.bannerBg.background = bannerBgDrawable
+
                 // Dynamic Gradient for Use Template Button
                 val btnBg = GradientDrawable(
                     GradientDrawable.Orientation.LEFT_RIGHT,
-                    intArrayOf(Color.parseColor(item.gradientStartHex), Color.parseColor(item.gradientEndHex))
+                    intArrayOf(startC, endC)
                 ).apply {
                     cornerRadius = 12f * density
                 }
                 holder.useBtn.background = btnBg
             } catch (_: Exception) {}
+
+            // Banner Click -> Live Preview with music
+            holder.previewBanner.setOnClickListener {
+                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                onCardClick(item)
+            }
 
             // Preview Button click -> Live Preview with music
             holder.previewBtn.setOnClickListener {

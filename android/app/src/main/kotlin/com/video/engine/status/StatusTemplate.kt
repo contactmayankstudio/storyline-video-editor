@@ -1233,10 +1233,12 @@ object StatusTemplateRepository {
         )
     )
 
-    val categories: List<String> = listOf("All", "Trending", "Love", "Attitude", "Emotional", "Celebration")
+    val categories: List<String> = listOf("All", "⚡ 1-Photo", "Trending", "Love", "Attitude", "Emotional", "Celebration")
 
     fun getByCategory(category: String): List<StatusTemplate> {
-        if (category.equals("All", ignoreCase = true)) return allTemplates
+        if (category.equals("All", ignoreCase = true) || category.contains("1-Photo", ignoreCase = true)) {
+            return allTemplates
+        }
         return allTemplates.filter { it.category.equals(category, ignoreCase = true) }
     }
 }

@@ -2,6 +2,7 @@ package com.video.engine.status
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -26,8 +27,8 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         set(value) {
             field = value
             startTime = SystemClock.uptimeMillis()
-            prepareSampleSlides()
-            invalidate()
+            ensureSampleSlides()
+            postInvalidateOnAnimation()
         }
 
     private var isPlaying: Boolean = true
@@ -68,6 +69,7 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
 
     // 4 Procedurally rendered aesthetic portrait model slides
     private val sampleSlides = mutableListOf<Bitmap>()
+    private var customPhotoBitmap: Bitmap? = null
 
     init {
         setOnClickListener {
@@ -79,13 +81,86 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
                 startTime += (SystemClock.uptimeMillis() - pausedTime)
                 try { mediaPlayer?.start() } catch (_: Exception) {}
             }
-            invalidate()
+            postInvalidateOnAnimation()
         }
     }
 
-    private fun prepareSampleSlides() {
-        if (sampleSlides.isNotEmpty()) return
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        isPlaying = true
+        startTime = SystemClock.uptimeMillis()
+        ensureSampleSlides()
+        postInvalidateOnAnimation()
+    }
 
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        isPlaying = false
+    }
+
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        if (visibility == View.VISIBLE) {
+            isPlaying = true
+            postInvalidateOnAnimation()
+        } else {
+            isPlaying = false
+        }
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val widthMode = MeasureSpec.getMode(widthMeasureSpec)
+        val widthSize = MeasureSpec.getSize(widthMeasureSpec)
+        val heightMode = MeasureSpec.getMode(heightMeasureSpec)
+        val heightSize = MeasureSpec.getSize(heightMeasureSpec)
+
+        val density = resources.displayMetrics.density
+        val defaultWidth = (225 * density).toInt()
+        val defaultHeight = (400 * density).toInt()
+
+        val desiredWidth = when (widthMode) {
+            MeasureSpec.EXACTLY -> widthSize
+            MeasureSpec.AT_MOST -> widthSize.coerceAtLeast(defaultWidth)
+            else -> defaultWidth
+        }
+
+        val desiredHeight = when (heightMode) {
+            MeasureSpec.EXACTLY -> heightSize
+            MeasureSpec.AT_MOST -> heightSize.coerceAtLeast(defaultHeight)
+            else -> ((desiredWidth * 16f) / 9f).toInt()
+        }
+
+        setMeasuredDimension(desiredWidth, desiredHeight)
+    }
+
+    fun setCustomPhoto(filePath: String) {
+        try {
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(filePath, options)
+            var sampleSize = 1
+            while (options.outWidth / sampleSize > 1080 || options.outHeight / sampleSize > 1920) {
+                sampleSize *= 2
+            }
+            val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+            val bmp = BitmapFactory.decodeFile(filePath, decodeOptions)
+            if (bmp != null) {
+                customPhotoBitmap?.recycle()
+                customPhotoBitmap = bmp
+                postInvalidateOnAnimation()
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun ensureSampleSlides() {
+        if (sampleSlides.isNotEmpty() && sampleSlides.all { !it.isRecycled }) return
+        sampleSlides.forEach {
+            try { if (!it.isRecycled) it.recycle() } catch (_: Exception) {}
+        }
+        sampleSlides.clear()
+        prepareSampleSlides()
+    }
+
+    private fun prepareSampleSlides() {
         // Generate 4 high-fashion aesthetic portrait cards with gradients & silhouettes
         val w = 540
         val h = 960
@@ -150,8 +225,14 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         val w = width.toFloat()
         val h = height.toFloat()
 
-        if (sampleSlides.isEmpty()) {
-            prepareSampleSlides()
+        if (w <= 0f || h <= 0f) {
+            if (isPlaying) postInvalidateOnAnimation()
+            return
+        }
+
+        if (customPhotoBitmap == null) {
+            ensureSampleSlides()
+            if (sampleSlides.isEmpty()) return
         }
 
         val totalDurationMs = tm.durationMs.coerceAtLeast(6000L)
@@ -161,15 +242,21 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
             (pausedTime - startTime) % totalDurationMs
         }
 
-        val numSlides = sampleSlides.size.coerceAtLeast(1)
+        val numSlides = if (customPhotoBitmap != null) 4 else sampleSlides.size.coerceAtLeast(1)
         val slideDurationMs = totalDurationMs / numSlides
         val currentSlideIndex = ((elapsedMs / slideDurationMs) % numSlides).toInt()
         val slideProgress = (elapsedMs % slideDurationMs) / slideDurationMs.toFloat()
 
         // 1. Draw Active Slide with Ken Burns Dynamic Zoom
-        val currentBmp = sampleSlides[currentSlideIndex]
+        val currentBmp = customPhotoBitmap ?: sampleSlides[currentSlideIndex % sampleSlides.size]
         val nextSlideIndex = (currentSlideIndex + 1) % numSlides
-        val nextBmp = sampleSlides[nextSlideIndex]
+        val nextBmp = customPhotoBitmap ?: sampleSlides[nextSlideIndex % sampleSlides.size]
+
+        if (currentBmp.isRecycled || nextBmp.isRecycled) {
+            ensureSampleSlides()
+            if (isPlaying) postInvalidateOnAnimation()
+            return
+        }
 
         // Safe beat pulse calculation from BPM
         val safeBpm = tm.bpm.coerceIn(40, 240)
@@ -189,11 +276,25 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
             shakeY = (Math.cos(elapsedMs / 20.0).toFloat() * 8f * beatPulse)
         }
 
-        canvas.save()
-        canvas.translate(shakeX, shakeY)
+        // 1-Photo Choreographed Ken Burns Camera Movements per slide
+        var panOffsetX = 0f
+        var panOffsetY = 0f
+        val zoom = when (currentSlideIndex % 4) {
+            0 -> 1.0f + (slideProgress * 0.18f) + (beatPulse * 0.04f) // Smooth Zoom In
+            1 -> {
+                panOffsetY = (slideProgress * 15f)
+                1.22f - (slideProgress * 0.16f) + (beatPulse * 0.05f) // Zoom Out with drop
+            }
+            2 -> {
+                panOffsetX = (-0.05f + slideProgress * 0.10f) * w // Pan Left to Right
+                1.14f + (beatPulse * 0.03f)
+            }
+            else -> 1.08f + (slideProgress * 0.16f) + (beatPulse * 0.06f) // Beat Punch Zoom
+        }
 
-        // Smooth Ken Burns Zoom (1.0x to 1.18x)
-        val zoom = 1.0f + (slideProgress * 0.18f) + (beatPulse * 0.04f)
+        canvas.save()
+        canvas.translate(shakeX + panOffsetX, shakeY + panOffsetY)
+
         val baseScale = Math.max(w / currentBmp.width.toFloat(), h / currentBmp.height.toFloat()) * zoom
         val scaledW = currentBmp.width.toFloat() * baseScale
         val scaledH = currentBmp.height.toFloat() * baseScale
@@ -207,7 +308,7 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         canvas.drawBitmap(currentBmp, matrix, bgPaint)
 
         // 2. Crossfade transition on last 25% of slide duration
-        if (slideProgress > 0.75f) {
+        if (slideProgress > 0.75f && customPhotoBitmap == null) {
             val fadeProgress = (slideProgress - 0.75f) / 0.25f
             bgPaint.alpha = (fadeProgress * 255).toInt().coerceIn(0, 255)
 
@@ -223,9 +324,7 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
 
         // 3. RGB Glitch Chromatic Aberration on Beat Drops
         if ((transitionType == "rgb_glitch_split" || transitionType == "glitch") && beatPhase < 0.25f) {
-            val glitchPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.argb((beatPulse * 70).toInt(), 0, 255, 255)
-            }
+            glitchPaint.color = Color.argb((beatPulse * 70).toInt(), 0, 255, 255)
             canvas.drawRect(0f, 0f, w, h, glitchPaint)
         }
 
@@ -237,17 +336,19 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         }
 
         // 5. Template Gradient Color Wash
+        val safeH = h.coerceAtLeast(10f)
+        val endColorInt = parseColorSafe(tm.gradientEndHex, Color.MAGENTA)
         val washGradient = LinearGradient(
-            0f, 0f, 0f, h,
+            0f, 0f, 0f, safeH,
             intArrayOf(
                 Color.argb(40, 0, 0, 0),
                 Color.argb(30, 0, 0, 0),
-                parseColorSafe(tm.gradientEndHex, Color.MAGENTA).let { Color.argb(160, Color.red(it), Color.green(it), Color.blue(it)) }
+                Color.argb(160, Color.red(endColorInt), Color.green(endColorInt), Color.blue(endColorInt))
             ),
             floatArrayOf(0f, 0.5f, 1f),
             Shader.TileMode.CLAMP
         )
-        val washPaint = Paint().apply { shader = washGradient }
+        washPaint.shader = washGradient
         canvas.drawRect(0f, 0f, w, h, washPaint)
 
         canvas.restore()
@@ -259,7 +360,7 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         drawAudioVisualizer(canvas, w, h, tm, elapsedMs, beatPulse)
 
         // 8. Progress Time Scrubber Pill at Top
-        drawProgressBadge(canvas, w, h, elapsedMs, totalDurationMs, tm)
+        drawProgressBadge(canvas, w, elapsedMs, totalDurationMs, tm)
 
         // 9. Pause Overlay if paused
         if (!isPlaying) {
@@ -304,7 +405,7 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         val currentOverlay = overlays[overlayIdx]
 
         val text = currentOverlay.text
-        val textSizeSp = (currentOverlay.scale * 24f) * resources.displayMetrics.scaledDensity
+        val textSizeSp = (currentOverlay.scale * 22f) * resources.displayMetrics.scaledDensity
         val bounce = beatPulse * 4f
 
         textPaint.apply {
@@ -316,6 +417,20 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         }
 
         val yPos = (h * currentOverlay.posYPercent) - bounce
+        val maxTextWidth = w * 0.90f
+        if (textPaint.measureText(text) > maxTextWidth) {
+            val words = text.split(" ")
+            if (words.size > 2) {
+                val mid = words.size / 2
+                val line1 = words.subList(0, mid).joinToString(" ")
+                val line2 = words.subList(mid, words.size).joinToString(" ")
+                canvas.drawText(line1, w / 2f, yPos - (textSizeSp * 0.65f), textPaint)
+                canvas.drawText(line2, w / 2f, yPos + (textSizeSp * 0.65f), textPaint)
+                textPaint.setShadowLayer(0f, 0f, 0f, 0)
+                return
+            }
+        }
+
         canvas.drawText(text, w / 2f, yPos, textPaint)
         textPaint.setShadowLayer(0f, 0f, 0f, 0)
     }
@@ -331,7 +446,7 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         val numBars = 26
         val barWidth = (w * 0.85f) / numBars
         val startX = w * 0.075f
-        val baseY = h - 65f
+        val baseY = h * 0.88f
 
         val neonColor = parseColorSafe(tm.gradientStartHex, Color.CYAN)
         visualizerPaint.apply {
@@ -355,7 +470,6 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
     private fun drawProgressBadge(
         canvas: Canvas,
         w: Float,
-        h: Float,
         elapsedMs: Long,
         totalDurationMs: Long,
         tm: StatusTemplate
@@ -370,9 +484,9 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         val totSec = totalDurationMs / 1000
         val timeStr = String.format("▶ %s • %02d:%02d / %02d:%02d", tm.emoji, curSec / 60, curSec % 60, totSec / 60, totSec % 60)
 
-        bgRect.set(w / 2f - 140f, 28f, w / 2f + 140f, 62f)
+        bgRect.set(w / 2f - 140f, 26f, w / 2f + 140f, 58f)
         canvas.drawRoundRect(bgRect, 16f, 16f, pillBgPaint)
-        canvas.drawText(timeStr, w / 2f, 52f, badgePaint)
+        canvas.drawText(timeStr, w / 2f, 48f, badgePaint)
     }
 
     private fun drawPauseOverlay(canvas: Canvas, w: Float, h: Float) {
@@ -388,7 +502,8 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         this.mediaPlayer = mp
         this.startTime = SystemClock.uptimeMillis()
         this.isPlaying = true
-        invalidate()
+        ensureSampleSlides()
+        postInvalidateOnAnimation()
     }
 
     fun setOnCreateStatusClickListener(listener: () -> Unit) {
@@ -398,9 +513,11 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
     fun release() {
         isPlaying = false
         sampleSlides.forEach {
-            try { it.recycle() } catch (_: Exception) {}
+            try { if (!it.isRecycled) it.recycle() } catch (_: Exception) {}
         }
         sampleSlides.clear()
+        customPhotoBitmap?.recycle()
+        customPhotoBitmap = null
         mediaPlayer = null
     }
 }

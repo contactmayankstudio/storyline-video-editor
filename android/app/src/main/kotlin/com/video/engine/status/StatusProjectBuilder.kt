@@ -39,9 +39,14 @@ object StatusProjectBuilder {
                 // Clips array
                 val clipsArray = JSONArray()
                 var currentTimelineTimeMs = 0L
+                val isSinglePhoto = photoPaths.size == 1
 
                 template.slots.forEachIndexed { index, slot ->
                     val photoPath = photoPaths[index % photoPaths.size]
+                    val motion = getMotionParams(index, isSinglePhoto)
+                    val contrast = if (isSinglePhoto && index % 2 == 1) 1.12 else 1.06
+                    val saturation = if (isSinglePhoto && index % 2 == 1) 1.18 else 1.10
+
                     val clipJson = JSONObject().apply {
                         put("id", index + 1)
                         put("mediaPath", photoPath)
@@ -58,10 +63,40 @@ object StatusProjectBuilder {
                         put("playbackSpeed", 1.0)
                         put("effects", JSONObject().apply {
                             put("brightness", 0.0)
-                            put("contrast", 1.05)
-                            put("saturation", 1.1)
+                            put("contrast", contrast)
+                            put("saturation", saturation)
                             put("enabled", true)
                         })
+
+                        // Spatial transform (initial)
+                        put("transform", JSONObject().apply {
+                            put("posX", motion.startX)
+                            put("posY", motion.startY)
+                            put("scaleX", motion.startScale)
+                            put("scaleY", motion.startScale)
+                            put("rotation", motion.startRot)
+                        })
+
+                        // Transform keyframes for dynamic Ken Burns zoom & beat motion
+                        val keyframesArray = JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("timeMs", 0L)
+                                put("posX", motion.startX)
+                                put("posY", motion.startY)
+                                put("scale", motion.startScale)
+                                put("rotation", motion.startRot)
+                                put("opacity", 1.0)
+                            })
+                            put(JSONObject().apply {
+                                put("timeMs", slot.durationMs)
+                                put("posX", motion.endX)
+                                put("posY", motion.endY)
+                                put("scale", motion.endScale)
+                                put("rotation", motion.endRot)
+                                put("opacity", 1.0)
+                            })
+                        }
+                        put("transformKeyframes", keyframesArray)
                     }
                     clipsArray.put(clipJson)
                     currentTimelineTimeMs += slot.durationMs
@@ -136,6 +171,35 @@ object StatusProjectBuilder {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to build status project", e)
             return null
+        }
+    }
+
+    private data class MotionParams(
+        val startScale: Double,
+        val endScale: Double,
+        val startX: Double,
+        val endX: Double,
+        val startY: Double,
+        val endY: Double,
+        val startRot: Double,
+        val endRot: Double
+    )
+
+    private fun getMotionParams(index: Int, isSinglePhoto: Boolean): MotionParams {
+        if (!isSinglePhoto) {
+            return when (index % 3) {
+                0 -> MotionParams(1.00, 1.14, 0.50, 0.50, 0.50, 0.48, 0.0, 0.0)
+                1 -> MotionParams(1.15, 1.03, 0.50, 0.50, 0.48, 0.52, 0.0, 0.0)
+                else -> MotionParams(1.08, 1.18, 0.48, 0.52, 0.50, 0.50, 0.0, 0.0)
+            }
+        }
+        // Dynamic, high-energy cinematic camera choreographies for 1-photo status
+        return when (index % 5) {
+            0 -> MotionParams(1.00, 1.20, 0.50, 0.50, 0.50, 0.47, 0.0, 0.0)      // Cinematic Zoom-In
+            1 -> MotionParams(1.24, 1.05, 0.50, 0.50, 0.47, 0.52, -1.5, 1.0)   // Beat Drop Zoom-Out + Dutch tilt
+            2 -> MotionParams(1.16, 1.16, 0.43, 0.57, 0.50, 0.50, 0.0, 0.0)    // Cinematic Pan Left-to-Right
+            3 -> MotionParams(1.08, 1.26, 0.50, 0.50, 0.52, 0.46, 1.0, -1.0)   // Punch Zoom-In with Beat Bounce
+            else -> MotionParams(1.15, 1.15, 0.57, 0.43, 0.49, 0.51, 0.0, 0.0) // Pan Right-to-Left Drift
         }
     }
 

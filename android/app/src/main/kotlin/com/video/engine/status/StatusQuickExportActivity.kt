@@ -145,14 +145,23 @@ class StatusQuickExportActivity : ComponentActivity() {
         previewView = pv
         previewContainer.addView(pv)
 
-        // Load project
-        projectPath?.let { path ->
-            pv.post {
-                pv.loadProject(path)
-                pv.startPlayback(0)
-                isPlaying = true
+        val loadProjectRunnable = Runnable {
+            projectPath?.let { path ->
+                val loaded = pv.loadProject(path)
+                if (loaded) {
+                    pv.startPlayback(0)
+                    isPlaying = true
+                    playPauseIcon.visibility = View.GONE
+                }
             }
         }
+
+        pv.onSurfaceReady = {
+            runOnUiThread(loadProjectRunnable)
+        }
+
+        // Post fallback in case surface was already bound
+        pv.postDelayed(loadProjectRunnable, 300)
 
         // Tap on preview toggles playback
         previewContainer.setOnClickListener {

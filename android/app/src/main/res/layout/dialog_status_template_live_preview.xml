@@ -91,8 +91,8 @@
 
                 <FrameLayout
                     android:id="@+id/statusPreviewFrame"
-                    android:layout_width="225dp"
-                    android:layout_height="400dp"
+                    android:layout_width="230dp"
+                    android:layout_height="370dp"
                     android:layout_gravity="center"
                     android:background="@drawable/status_preview_frame_background"
                     android:clipChildren="true"
@@ -104,6 +104,43 @@
                         android:layout_width="match_parent"
                         android:layout_height="match_parent" />
                 </FrameLayout>
+            </FrameLayout>
+
+            <!-- Test with photo pill button -->
+            <FrameLayout
+                android:id="@+id/statusPreviewTestPhotoBtn"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/launch_count_chip_background"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="📷"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/statusPreviewTestPhotoText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:text="Test With My Photo"
+                        android:textColor="#388BFD"
+                        android:textSize="11.5sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
             </FrameLayout>
 
             <!-- 3. Metadata Chips: Duration, Photos Required, BPM -->

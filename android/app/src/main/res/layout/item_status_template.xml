@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginBottom="16dp"
@@ -71,7 +72,7 @@
                     android:paddingTop="2dp"
                     android:paddingEnd="7dp"
                     android:paddingBottom="2dp"
-                    android:text="4 Photos"
+                    android:text="⚡ 1-Photo Ready"
                     android:textColor="#D946EF"
                     android:textSize="11sp"
                     android:textStyle="bold" />
@@ -87,28 +88,142 @@
                     android:paddingEnd="7dp"
                     android:paddingBottom="2dp"
                     android:text="128 BPM"
-                    android:textColor="#8A99AD"
+                    android:textColor="#00F2FE"
                     android:textSize="11sp" />
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>
+
+    <!-- Visual Interactive Preview Banner (Mast App Style) -->
+    <FrameLayout
+        android:id="@+id/templatePreviewBanner"
+        android:layout_width="match_parent"
+        android:layout_height="124dp"
+        android:layout_marginTop="12dp"
+        android:clickable="true"
+        android:elevation="4dp"
+        android:focusable="true"
+        android:foreground="?android:attr/selectableItemBackground">
+
+        <!-- Banner Gradient Background -->
+        <View
+            android:id="@+id/templateBannerBg"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/status_preview_cta_gradient_bg" />
+
+        <!-- Ambient overlay dim -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#44000000" />
+
+        <!-- Top Badges inside Banner -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:orientation="horizontal"
+            android:padding="10dp">
+
+            <TextView
+                android:id="@+id/templateBannerBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/launch_count_chip_background"
+                android:paddingStart="8dp"
+                android:paddingTop="3dp"
+                android:paddingEnd="8dp"
+                android:paddingBottom="3dp"
+                android:text="⚡ 1-PHOTO READY"
+                android:textColor="#FFFFFF"
+                android:textSize="10.5sp"
+                android:textStyle="bold" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/templateBannerBpmPill"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/launch_count_chip_background"
+                android:paddingStart="8dp"
+                android:paddingTop="3dp"
+                android:paddingEnd="8dp"
+                android:paddingBottom="3dp"
+                android:textColor="#00F2FE"
+                android:textSize="10.5sp"
+                android:textStyle="bold"
+                tools:text="🎵 128 BPM" />
+        </LinearLayout>
+
+        <!-- Centered Floating Live Beat Preview Button -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:background="@drawable/launch_count_chip_background"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="14dp"
+            android:paddingTop="7dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="7dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="▶"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:letterSpacing="0.04"
+                android:text="LIVE BEAT PREVIEW"
+                android:textColor="#FFFFFF"
+                android:textSize="11.5sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- Bottom Lyric Preview -->
+        <TextView
+            android:id="@+id/templateBannerLyricText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:gravity="center"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="8dp"
+            android:singleLine="true"
+            android:textColor="#E0FFFFFF"
+            android:textSize="11.5sp"
+            android:textStyle="bold"
+            tools:text="✨ FEEL THE BASS DROP • REELS READY" />
+    </FrameLayout>
 
     <!-- Description -->
     <TextView
         android:id="@+id/templateDesc"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
+        android:layout_marginTop="10dp"
         android:text="High-energy fast cuts synced to heavy bass beats with flash and zoom transitions."
         android:textColor="#8A99AD"
-        android:textSize="12.5sp"
+        android:textSize="12sp"
         android:lineSpacingExtra="2dp" />
 
     <!-- Action Row: Preview & Use Template Buttons -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="44dp"
-        android:layout_marginTop="14dp"
+        android:layout_marginTop="12dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -167,7 +282,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="7dp"
-                android:text="Use (4 Photos) ⚡"
+                android:text="⚡ 1-Photo Create"
                 android:textColor="#FFFFFF"
                 android:textSize="13sp"
                 android:textStyle="bold" />

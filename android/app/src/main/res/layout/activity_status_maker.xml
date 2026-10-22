@@ -55,7 +55,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
-                android:text="Select photos and create viral beat reels"
+                android:text="1-Photo to Viral Reels • 1-Click Status Maker"
                 android:textColor="#8A99AD"
                 android:textSize="11.5sp" />
         </LinearLayout>
