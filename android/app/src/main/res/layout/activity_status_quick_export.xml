@@ -84,30 +84,103 @@
 
         <!-- Video Preview Container (Vertical 9:16 Frame) -->
         <FrameLayout
+            android:id="@+id/previewOuterContainer"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
-            android:layout_margin="12dp">
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="6dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginBottom="10dp">
 
             <FrameLayout
                 android:id="@+id/previewSurfaceContainer"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="match_parent"
                 android:layout_gravity="center"
-                android:background="#161B22" />
+                android:background="#161B22">
 
-            <!-- Play / Pause Overlay Icon -->
-            <ImageView
-                android:id="@+id/quickExportPlayPauseIcon"
-                android:layout_width="64dp"
-                android:layout_height="64dp"
-                android:layout_gravity="center"
-                android:background="@drawable/launch_count_chip_background"
-                android:padding="16dp"
-                android:src="@drawable/ic_play_toolbar"
-                android:visibility="gone"
-                app:tint="#FFFFFF" />
+                <!-- Play / Pause Overlay Icon -->
+                <ImageView
+                    android:id="@+id/quickExportPlayPauseIcon"
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/launch_count_chip_background"
+                    android:padding="16dp"
+                    android:src="@drawable/ic_play_toolbar"
+                    android:visibility="gone"
+                    app:tint="#FFFFFF" />
+            </FrameLayout>
         </FrameLayout>
+
+        <!-- Music Selector Card -->
+        <LinearLayout
+            android:id="@+id/quickExportMusicCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/home_secondary_card_bg"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="14dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="10dp">
+
+            <TextView
+                android:id="@+id/quickExportMusicEmoji"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🎵"
+                android:textSize="20sp" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/quickExportMusicTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="Energetic Reels Trap Beat"
+                    android:textColor="#FFFFFF"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/quickExportMusicSubtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Tap to change soundtrack or pick from phone"
+                    android:textColor="#8A99AD"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/quickExportChangeMusicBtn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/launch_count_chip_background"
+                android:paddingStart="10dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="6dp"
+                android:text="Change 🎶"
+                android:textColor="#58A6FF"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+        </LinearLayout>
 
         <!-- Bottom Action Bar (1-Click Export) -->
         <LinearLayout

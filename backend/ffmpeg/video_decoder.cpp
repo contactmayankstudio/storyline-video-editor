@@ -306,11 +306,14 @@ bool VideoDecoder::initializeSwsContext(int srcWidth, int srcHeight, int srcPixe
 
     int dstWidth = srcWidth;
     int dstHeight = srcHeight;
-    if (m_previewScaleLimitLongEdgePx > 0 && srcWidth > 0 && srcHeight > 0) {
+    const int effectiveLimit = (m_previewScaleLimitLongEdgePx > 0)
+        ? m_previewScaleLimitLongEdgePx
+        : 3840; // Defense-in-depth safety limit to prevent OOM on massive raw images
+    if (srcWidth > 0 && srcHeight > 0) {
         const int longEdge = std::max(srcWidth, srcHeight);
-        if (longEdge > m_previewScaleLimitLongEdgePx) {
+        if (longEdge > effectiveLimit) {
             const double scale =
-                static_cast<double>(m_previewScaleLimitLongEdgePx) /
+                static_cast<double>(effectiveLimit) /
                 static_cast<double>(longEdge);
             dstWidth = std::max(2, static_cast<int>(srcWidth * scale));
             dstHeight = std::max(2, static_cast<int>(srcHeight * scale));

@@ -16,7 +16,8 @@ object StatusProjectBuilder {
     fun buildProjectFile(
         context: Context,
         template: StatusTemplate,
-        photoPaths: List<String>
+        photoPaths: List<String>,
+        customAudioPath: String? = null
     ): File? {
         if (photoPaths.isEmpty()) return null
 
@@ -26,8 +27,23 @@ object StatusProjectBuilder {
             val safeTitle = template.title.replace(Regex("[^a-zA-Z0-9]"), "_")
             val projectFile = File(projectsDir, "Status_${safeTitle}_${ts}.vne")
 
-            // Copy audio asset to storage so video engine can decode it
-            val audioFile = extractAudioAsset(context, template.audioAssetPath)
+            // Ensure photo paths are normalized for optimal C++ decoding and 1080x1920 layout
+            val normalizedPhotoPaths = photoPaths.map { path ->
+                val f = File(path)
+                if (f.extension.equals("png", ignoreCase = true) && f.parentFile?.name == "status_photos") {
+                    path
+                } else {
+                    StatusMediaHelper.normalizeImageFileForStatus(context, f) ?: path
+                }
+            }
+
+            // Copy audio asset to storage so video engine can decode it, or use custom audio file
+            val audioFile = if (!customAudioPath.isNullOrBlank() && File(customAudioPath).exists()) {
+                File(customAudioPath)
+            } else {
+                StatusMediaHelper.extractAudioAssetToLocal(context, template.audioAssetPath)
+                    ?: extractAudioAsset(context, template.audioAssetPath)
+            }
 
             val rootJson = JSONObject().apply {
                 put("version", "1.1")
@@ -39,10 +55,10 @@ object StatusProjectBuilder {
                 // Clips array
                 val clipsArray = JSONArray()
                 var currentTimelineTimeMs = 0L
-                val isSinglePhoto = photoPaths.size == 1
+                val isSinglePhoto = normalizedPhotoPaths.size == 1
 
                 template.slots.forEachIndexed { index, slot ->
-                    val photoPath = photoPaths[index % photoPaths.size]
+                    val photoPath = normalizedPhotoPaths[index % normalizedPhotoPaths.size]
                     val motion = getMotionParams(index, isSinglePhoto)
                     val contrast = if (isSinglePhoto && index % 2 == 1) 1.12 else 1.06
                     val saturation = if (isSinglePhoto && index % 2 == 1) 1.18 else 1.10

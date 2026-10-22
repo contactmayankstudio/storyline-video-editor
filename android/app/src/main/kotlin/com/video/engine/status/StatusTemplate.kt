@@ -1241,4 +1241,67 @@ object StatusTemplateRepository {
         }
         return allTemplates.filter { it.category.equals(category, ignoreCase = true) }
     }
+
+    fun getById(id: String): StatusTemplate? {
+        return allTemplates.find { it.id.equals(id, ignoreCase = true) }
+    }
+}
+
+data class StatusSoundtrack(
+    val id: String,
+    val title: String,
+    val category: String,
+    val emoji: String,
+    val assetPath: String
+)
+
+object StatusSoundtrackRepository {
+    val presets: List<StatusSoundtrack> = listOf(
+        StatusSoundtrack(
+            id = "snd_trap",
+            title = "Energetic Trap Beat",
+            category = "Trending Reels",
+            emoji = "⚡",
+            assetPath = "music_bgm/energetic_reels_trap_beat.wav"
+        ),
+        StatusSoundtrack(
+            id = "snd_attitude",
+            title = "Attitude Bass Drop",
+            category = "Swag & Bass",
+            emoji = "😎",
+            assetPath = "music_bgm/attitude_bass_drop.wav"
+        ),
+        StatusSoundtrack(
+            id = "snd_romantic",
+            title = "Romantic Acoustic Love",
+            category = "Love & Couple",
+            emoji = "💖",
+            assetPath = "music_bgm/romantic_acoustic_love.wav"
+        ),
+        StatusSoundtrack(
+            id = "snd_lofi",
+            title = "Lo-Fi Chill Vlog Beat",
+            category = "Chill Aesthetic",
+            emoji = "☕",
+            assetPath = "music_bgm/lofi_chill_vlog_beat.wav"
+        ),
+        StatusSoundtrack(
+            id = "snd_sad",
+            title = "Sad Piano Emotional",
+            category = "Emotional Memories",
+            emoji = "🥺",
+            assetPath = "music_bgm/sad_piano_emotional.wav"
+        ),
+        StatusSoundtrack(
+            id = "snd_devotional",
+            title = "Devotional Ambient Flute",
+            category = "Spiritual & Bhakti",
+            emoji = "🪔",
+            assetPath = "music_bgm/devotional_ambient_flute.wav"
+        )
+    )
+
+    fun getByAssetPath(path: String): StatusSoundtrack? {
+        return presets.find { it.assetPath.equals(path, ignoreCase = true) }
+    }
 }

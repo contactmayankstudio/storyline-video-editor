@@ -64,7 +64,10 @@ class StatusMakerActivity : ComponentActivity() {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
         Thread {
-            val localPaths = uris.mapNotNull { uri -> resolveUriToLocalFile(this, uri) }
+            val localPaths = uris.mapNotNull { uri ->
+                StatusMediaHelper.normalizeImageUriForStatus(this, uri)
+                    ?: resolveUriToLocalFile(this, uri)
+            }
             if (localPaths.isEmpty()) {
                 runOnUiThread {
                     Toast.makeText(this, "Could not read selected photos", Toast.LENGTH_SHORT).show()
@@ -78,10 +81,12 @@ class StatusMakerActivity : ComponentActivity() {
                     // Open 1-Click Quick Export Screen directly!
                     val quickExportIntent = Intent(this, StatusQuickExportActivity::class.java).apply {
                         putExtra(StatusQuickExportActivity.EXTRA_PROJECT_PATH, projectFile.absolutePath)
+                        putExtra(StatusQuickExportActivity.EXTRA_TEMPLATE_ID, template.id)
                         putExtra(StatusQuickExportActivity.EXTRA_TEMPLATE_TITLE, template.title)
                         putExtra(StatusQuickExportActivity.EXTRA_TEMPLATE_DURATION_MS, template.durationMs)
                         putExtra(StatusQuickExportActivity.EXTRA_TEMPLATE_GRADIENT_START, template.gradientStartHex)
                         putExtra(StatusQuickExportActivity.EXTRA_TEMPLATE_GRADIENT_END, template.gradientEndHex)
+                        putStringArrayListExtra(StatusQuickExportActivity.EXTRA_PHOTO_PATHS, ArrayList(localPaths))
                     }
                     startActivity(quickExportIntent)
                 } else {
@@ -96,7 +101,9 @@ class StatusMakerActivity : ComponentActivity() {
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri == null) return@registerForActivityResult
-        val localPath = resolveUriToLocalFile(this, uri) ?: return@registerForActivityResult
+        val localPath = StatusMediaHelper.normalizeImageUriForStatus(this, uri)
+            ?: resolveUriToLocalFile(this, uri)
+            ?: return@registerForActivityResult
         activePreviewDialog?.findViewById<StatusTemplateLivePreviewView>(R.id.statusLivePreviewView)?.setCustomPhoto(localPath)
         activePreviewDialog?.findViewById<TextView>(R.id.statusPreviewTestPhotoText)?.text = "Photo Loaded ✓"
     }
