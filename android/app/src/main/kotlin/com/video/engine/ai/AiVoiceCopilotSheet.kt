@@ -8,6 +8,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -303,6 +304,25 @@ class AiVoiceCopilotSheet(
         header.addView(localeControl)
         localeControlRef = localeControl
 
+        // Clear Chat History Button: [🗑️]
+        val clearHistoryBtn = ImageView(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(28), dp(28)).apply {
+                marginStart = dp(6)
+            }
+            setImageResource(android.R.drawable.ic_menu_delete)
+            setColorFilter(Color.parseColor("#94A3B8"))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#1B222C"))
+            }
+            setPadding(dp(5), dp(5), dp(5), dp(5))
+            contentDescription = "Chat history clear karein"
+            setOnClickListener {
+                showClearHistoryConfirmDialog()
+            }
+        }
+        header.addView(clearHistoryBtn)
+
         val closeButton = ImageView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(dp(28), dp(28)).apply {
                 marginStart = dp(10)
@@ -350,18 +370,8 @@ class AiVoiceCopilotSheet(
         chatScrollView.addView(chatContainer)
         chatBox.addView(chatScrollView)
 
-        // Initial Assistant Welcome Bubble
-        addAssistantBubble(
-            "👋 Hey! Main tumhara pro AI video editor hoon. Bolo ya chat karo — puri timeline edit aur export turant ho jayegi! 🎬✨",
-            isSuccess = true,
-            actionPills = listOf(
-                Pair("✨ Full AI Edit & Export") { handleUserCommand("pura video auto edit karke export karo") },
-                Pair("🚀 Export 1080p") { handleUserCommand("export 1080p") },
-                Pair("📱 9:16 Reel") { handleUserCommand("aspect ratio 9:16") },
-                Pair("🎵 Add BGM") { handleUserCommand("add music lofi chill") },
-                Pair("✂️ Remove Silence") { handleUserCommand("remove silence") },
-            ),
-        )
+        // Load Saved Chat History or Initial Welcome Bubble
+        loadPersistedChatHistory()
 
         // 5. Quick Suggestion Chips Strip
         val chipsScroll = HorizontalScrollView(activity).apply {
@@ -627,8 +637,12 @@ class AiVoiceCopilotSheet(
             isSingleLine = true
             imeOptions = EditorInfo.IME_ACTION_SEND
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
-            setOnEditorActionListener { _, actionId, _ ->
-                if (actionId == EditorInfo.IME_ACTION_SEND) {
+            setOnEditorActionListener { _, actionId, event ->
+                val isSendAction = actionId == EditorInfo.IME_ACTION_SEND ||
+                    actionId == EditorInfo.IME_ACTION_DONE ||
+                    actionId == EditorInfo.IME_ACTION_GO ||
+                    (event != null && event.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)
+                if (isSendAction) {
                     val query = text.toString().trim()
                     if (query.isNotBlank()) {
                         setText("")
@@ -794,10 +808,14 @@ class AiVoiceCopilotSheet(
         val isUnknown = parsed.intent is VideoEditIntent.Unknown
 
         if (isPureConversational || isUnknown) {
-            val thinkingBubble = addAssistantBubble("Thinking... ⏳", isSuccess = true)
+            val thinkingBubble = renderAssistantBubble("Thinking... ⏳", isSuccess = true)
             chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
             MultiProviderAiRouter.query(query, activity) { reply ->
                 thinkingBubble.text = reply
+                AiChatHistoryStore.addMessage(
+                    activity,
+                    AiChatHistoryStore.ChatMessage("assistant", reply, isSuccess = true),
+                )
                 cliPanel?.appendLog("[AI]", reply)
                 cliPanel?.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
                 chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
@@ -852,7 +870,7 @@ class AiVoiceCopilotSheet(
             else -> Pair("ViralReel", "1080p")
         }
 
-        val bubble = addAssistantBubble("🚀 Full AI Auto-Pilot Edit & Export initiated ($style, $resolution)...\n\n⏳ [1/6] Removing audio silence & dead pauses...")
+        val bubble = renderAssistantBubble("🚀 Full AI Auto-Pilot Edit & Export initiated ($style, $resolution)...\n\n⏳ [1/6] Removing audio silence & dead pauses...")
         chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
         cliPanel?.appendLog("> [1/6]", "Auto-Pilot: Removing audio silence & dead pauses...")
 
@@ -899,13 +917,18 @@ class AiVoiceCopilotSheet(
             if (success) {
                 cliPanel?.appendLog("[✓]", "Auto-Pilot Complete! Exporting video in $resolution")
                 cliPanel?.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
-                bubble.text = "🎉 **Full AI Video Edit & Export Started!** 🚀\n\n" +
+                val finalMsg = "🎉 **Full AI Video Edit & Export Started!** 🚀\n\n" +
                     "✅ Dead pauses cut & trimmed\n" +
                     "✅ Viral hook zoom & motion active\n" +
                     "✅ Cinematic Teal & Orange color grade\n" +
                     "✅ Royalty-free background music synchronized\n" +
                     "✅ AI subtitles & dynamic title added\n" +
                     "🚀 **Timeline is rendering & exporting at $resolution!**"
+                bubble.text = finalMsg
+                AiChatHistoryStore.addMessage(
+                    activity,
+                    AiChatHistoryStore.ChatMessage("assistant", finalMsg, isSuccess = true),
+                )
 
                 addAssistantBubble(
                     "Video background me export ho raha hai! Quick actions:",
@@ -920,7 +943,12 @@ class AiVoiceCopilotSheet(
             } else {
                 cliPanel?.appendLog("[!]", "Auto-Pilot failed: $feedback")
                 cliPanel?.setStatus(AiTerminalConsolePanel.STATUS_ERROR, "#F85149")
-                bubble.text = "⚠️ Auto-Pilot edit failed: $feedback\nTimeline par media clip add karein aur fir try karein."
+                val errMsg = "⚠️ Auto-Pilot edit failed: $feedback\nTimeline par media clip add karein aur fir try karein."
+                bubble.text = errMsg
+                AiChatHistoryStore.addMessage(
+                    activity,
+                    AiChatHistoryStore.ChatMessage("assistant", errMsg, isSuccess = false),
+                )
             }
             chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
         }, 2000)
@@ -933,7 +961,7 @@ class AiVoiceCopilotSheet(
             else -> "ViralReel"
         }
 
-        val bubble = addAssistantBubble("🚀 Auto-Pilot Magic Edit initiated ($style)...\n\n⏳ [1/5] Removing audio silence & dead pauses...")
+        val bubble = renderAssistantBubble("🚀 Auto-Pilot Magic Edit initiated ($style)...\n\n⏳ [1/5] Removing audio silence & dead pauses...")
         chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
         cliPanel?.appendLog("> [1/5]", "Auto-Pilot: Removing audio silence & dead pauses...")
 
@@ -942,7 +970,12 @@ class AiVoiceCopilotSheet(
         if (!success) {
             cliPanel?.appendLog("[!]", "Auto-Pilot failed: No media or clip selected")
             cliPanel?.setStatus(AiTerminalConsolePanel.STATUS_ERROR, "#F85149")
-            bubble.text = "⚠️ Auto-Pilot edit could not complete. Please ensure media or a clip is selected on the timeline."
+            val failMsg = "⚠️ Auto-Pilot edit could not complete. Please ensure media or a clip is selected on the timeline."
+            bubble.text = failMsg
+            AiChatHistoryStore.addMessage(
+                activity,
+                AiChatHistoryStore.ChatMessage("assistant", failMsg, isSuccess = false),
+            )
             return
         }
 
@@ -988,13 +1021,18 @@ class AiVoiceCopilotSheet(
         mainHandler.postDelayed({
             cliPanel?.appendLog("[✓]", "Auto-Pilot: Magic edit complete! Timeline ready for preview/export.")
             cliPanel?.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
-            bubble.text = "✨ **Auto-Pilot Magic Edit Complete!** 🚀\n\n" +
+            val completeMsg = "✨ **Auto-Pilot Magic Edit Complete!** 🚀\n\n" +
                 "✅ Audio silence trimmed for fast pacing\n" +
                 "✅ Dynamic hook zoom (push-in)\n" +
                 "✅ Teal & Orange cinematic look\n" +
                 "✅ AI subtitles & captions added\n" +
                 "✅ 'Viral Video' hook title overlay\n\n" +
                 "Aapki viral reel preview ke liye taiyar hai! 🔥"
+            bubble.text = completeMsg
+            AiChatHistoryStore.addMessage(
+                activity,
+                AiChatHistoryStore.ChatMessage("assistant", completeMsg, isSuccess = true),
+            )
             addAssistantBubble(
                 "Export ya preview chalu karein:",
                 isSuccess = true,
@@ -1073,7 +1111,7 @@ class AiVoiceCopilotSheet(
         }
     }
 
-    private fun addUserBubble(message: String) {
+    private fun renderUserBubble(message: String) {
         val bubble = TextView(activity).apply {
             text = message
             textSize = 13.5f
@@ -1098,7 +1136,15 @@ class AiVoiceCopilotSheet(
         chatContainer.addView(bubble)
     }
 
-    private fun addAssistantBubble(
+    private fun addUserBubble(message: String) {
+        renderUserBubble(message)
+        AiChatHistoryStore.addMessage(
+            activity,
+            AiChatHistoryStore.ChatMessage("user", message, isSuccess = true),
+        )
+    }
+
+    private fun renderAssistantBubble(
         message: String,
         isSuccess: Boolean = true,
         actionPills: List<Pair<String, () -> Unit>> = emptyList(),
@@ -1199,6 +1245,78 @@ class AiVoiceCopilotSheet(
 
         chatContainer.addView(rootBubbleContainer)
         return bubbleText
+    }
+
+    private fun addAssistantBubble(
+        message: String,
+        isSuccess: Boolean = true,
+        actionPills: List<Pair<String, () -> Unit>> = emptyList(),
+    ): TextView {
+        val bubble = renderAssistantBubble(message, isSuccess, actionPills)
+        AiChatHistoryStore.addMessage(
+            activity,
+            AiChatHistoryStore.ChatMessage("assistant", message, isSuccess = isSuccess),
+        )
+        return bubble
+    }
+
+    private fun loadPersistedChatHistory() {
+        chatContainer.removeAllViews()
+        val history = AiChatHistoryStore.getHistory(activity)
+        if (history.isEmpty()) {
+            val welcomeText = "👋 Hey! Main tumhara pro AI video editor hoon. Bolo ya chat karo — puri timeline edit aur export turant ho jayegi! 🎬✨"
+            renderAssistantBubble(
+                welcomeText,
+                isSuccess = true,
+                actionPills = listOf(
+                    Pair("✨ Full AI Edit & Export") { handleUserCommand("pura video auto edit karke export karo") },
+                    Pair("👀 Inspect Video") { handleUserCommand("mera video dekho kaha cut aur zoom kare") },
+                    Pair("🚀 Export 1080p") { handleUserCommand("export 1080p") },
+                    Pair("📱 9:16 Reel") { handleUserCommand("aspect ratio 9:16") },
+                    Pair("🎵 Add BGM") { handleUserCommand("add music lofi chill") },
+                    Pair("✂️ Remove Silence") { handleUserCommand("remove silence") },
+                ),
+            )
+            AiChatHistoryStore.addMessage(
+                activity,
+                AiChatHistoryStore.ChatMessage("assistant", welcomeText, isSuccess = true),
+            )
+        } else {
+            for (msg in history) {
+                if (msg.sender == "user") {
+                    renderUserBubble(msg.text)
+                } else {
+                    renderAssistantBubble(msg.text, msg.isSuccess)
+                }
+            }
+        }
+        chatScrollView.post {
+            chatScrollView.fullScroll(View.FOCUS_DOWN)
+        }
+    }
+
+    private fun showClearHistoryConfirmDialog() {
+        android.app.AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Clear Chat History?")
+            .setMessage("Kya aap saari previous chat history delete karna chahte hain?")
+            .setPositiveButton("Delete") { _, _ ->
+                AiChatHistoryStore.clearHistory(activity)
+                chatContainer.removeAllViews()
+                val resetMsg = "Namaste! 🙏 Saari previous chat history clear ho gayi hai. Video ko cut, zoom, color grade, subtitles ya 1-tap me viral reel banane ke liye bas bolo ya type karo!"
+                addAssistantBubble(
+                    resetMsg,
+                    isSuccess = true,
+                    actionPills = listOf(
+                        Pair("✨ Full AI Edit & Export") { handleUserCommand("pura video auto edit karke export karo") },
+                        Pair("👀 Inspect Video") { handleUserCommand("mera video dekho kaha cut aur zoom kare") },
+                        Pair("🚀 Export 1080p") { handleUserCommand("export 1080p") },
+                        Pair("📱 9:16 Reel") { handleUserCommand("aspect ratio 9:16") },
+                    ),
+                )
+                Toast.makeText(activity, "Chat history deleted", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun dp(dpVal: Int): Int {
