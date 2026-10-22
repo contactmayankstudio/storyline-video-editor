@@ -32,6 +32,11 @@ sealed class VideoEditIntent {
     data class TopicToReel(val topic: String) : VideoEditIntent()
     data class AddSoundEffect(val sfxType: String = "whoosh") : VideoEditIntent()
     data class FaceTrackingZoom(val zoomFactor: Float = 1.25f) : VideoEditIntent()
+    data class StudioVoiceClarity(val level: String = "High") : VideoEditIntent()
+    data class DynamicCaptions(val style: String = "Hormozi") : VideoEditIntent()
+    data class GenerateThumbnail(val headline: String = "") : VideoEditIntent()
+    data class AddStickerOverlay(val emojiOrSymbol: String = "🔥") : VideoEditIntent()
+    data class PlatformExport(val platform: String = "Instagram") : VideoEditIntent()
     object TogglePlayback : VideoEditIntent()
     object Undo : VideoEditIntent()
     object Redo : VideoEditIntent()
@@ -102,7 +107,18 @@ object AiIntentParser {
             )
         }
 
-        // 0b. Export Video
+        // 0b. Platform-Optimized Zero-Compression Export
+        if (matchesPlatformExport(normalized)) {
+            val platform = resolvePlatform(normalized)
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.PlatformExport(platform),
+                confidence = 0.98f,
+                feedbackMessage = "🚀 $platform export pipeline started (Zero-compression standard profile)!",
+            )
+        }
+
+        // 0c. Export Video
         if (matchesExportVideo(normalized)) {
             val res = resolveExportResolution(normalized)
             return ParsedCommand(
@@ -186,6 +202,49 @@ object AiIntentParser {
                 feedbackMessage = "👤 AI Face-Tracking Dynamic Zoom apply kar diya hai (speaker face centered)!",
             )
         }
+
+        // 0j. Studio Voice Clarity & Noise Removal
+        if (matchesStudioVoiceClarity(normalized)) {
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.StudioVoiceClarity("High"),
+                confidence = 0.98f,
+                feedbackMessage = "🎙️ AI Studio Voice Clarity applied! Noise floor reduced aur voice clarity boost ho gayi hai.",
+            )
+        }
+
+        // 0k. Dynamic Viral Captions (Hormozi / Beast style)
+        if (matchesDynamicCaptions(normalized)) {
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.DynamicCaptions("Hormozi"),
+                confidence = 0.98f,
+                feedbackMessage = "✨ Hormozi-style punchy dynamic captions (3D stroke + context emojis) timeline par add ho gaye!",
+            )
+        }
+
+        // 0l. AI Viral Thumbnail & Cover Photo
+        if (matchesGenerateThumbnail(normalized)) {
+            val headline = resolveThumbnailHeadline(clean)
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.GenerateThumbnail(headline),
+                confidence = 0.98f,
+                feedbackMessage = "📸 Viral HD Thumbnail generate karke phone gallery me save kar diya hai!",
+            )
+        }
+
+        // 0m. Smart B-Roll & Dynamic Overlay Sticker
+        if (matchesAddSticker(normalized)) {
+            val symbol = resolveStickerSymbol(normalized)
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.AddStickerOverlay(symbol),
+                confidence = 0.97f,
+                feedbackMessage = "🎬 Dynamic sticker overlay ($symbol) playhead par add kar diya hai!",
+            )
+        }
+
 
         // 1. Aspect Ratio Switcher (9:16, 16:9, 1:1, etc.)
         if (matchesSetAspectRatio(normalized)) {
@@ -693,6 +752,7 @@ object AiIntentParser {
     }
 
     private fun matchesExportVideo(text: String): Boolean {
+        if (matchesPlatformExport(text)) return false
         return text.contains("export") || text.contains("render video") ||
             text.contains("save video") || text.contains("video save") ||
             text.contains("video export") || text.contains("save kardo") ||
@@ -890,5 +950,67 @@ object AiIntentParser {
     private fun matchesFaceTrackingZoom(text: String): Boolean {
         return text.contains("face tracking") || text.contains("chehre pe zoom") ||
             text.contains("face zoom") || text.contains("smart face")
+    }
+
+    private fun matchesStudioVoiceClarity(text: String): Boolean {
+        return text.contains("noise") || text.contains("shor") ||
+            text.contains("voice clarity") || text.contains("studio audio") ||
+            text.contains("clean audio") || text.contains("noise cancellation") ||
+            text.contains("audio saaf") || text.contains("voice saaf") ||
+            text.contains("studio voice") || text.contains("clear audio")
+    }
+
+    private fun matchesDynamicCaptions(text: String): Boolean {
+        return text.contains("hormozi") || text.contains("dynamic caption") ||
+            text.contains("dynamic captions") || text.contains("mrbeast") ||
+            text.contains("bouncy caption") || text.contains("bouncy captions") ||
+            text.contains("viral subtitle") || text.contains("animated subtitle") ||
+            text.contains("bouncy subtitle")
+    }
+
+    private fun matchesGenerateThumbnail(text: String): Boolean {
+        return text.contains("thumbnail") || text.contains("cover photo") ||
+            text.contains("cover frame") || text.contains("थंबनेल") ||
+            text.contains("कवर फोटो")
+    }
+
+    private fun resolveThumbnailHeadline(raw: String): String {
+        val parts = raw.split(":", limit = 2)
+        if (parts.size > 1 && parts[1].trim().isNotBlank()) {
+            return parts[1].trim()
+        }
+        val clean = raw.replace(Regex("(?i)^(?:thumbnail\\s+banao|make\\s+thumbnail|generate\\s+thumbnail|cover\\s+photo\\s+banao|thumbnail)\\s*"), "").trim()
+        return if (clean.isNotBlank()) clean else "VIRAL STORY"
+    }
+
+    private fun matchesAddSticker(text: String): Boolean {
+        return text.contains("sticker") || text.contains("स्टीकर") ||
+            text.contains("emoji overlay") || text.contains("b-roll sticker") ||
+            text.contains("pip sticker")
+    }
+
+    private fun resolveStickerSymbol(text: String): String {
+        return when {
+            text.contains("fire") || text.contains("aag") -> "🔥"
+            text.contains("star") || text.contains("sitara") -> "⭐"
+            text.contains("heart") || text.contains("dil") || text.contains("love") -> "❤️"
+            text.contains("clap") || text.contains("action") || text.contains("cinema") -> "🎬"
+            text.contains("boom") || text.contains("blast") -> "💥"
+            else -> "✨"
+        }
+    }
+
+    private fun matchesPlatformExport(text: String): Boolean {
+        return (text.contains("export") && (text.contains("insta") || text.contains("reel") || text.contains("youtube") || text.contains("yt") || text.contains("shorts") || text.contains("whatsapp") || text.contains("tiktok"))) ||
+            text.contains("instagram ke liye") || text.contains("whatsapp status")
+    }
+
+    private fun resolvePlatform(text: String): String {
+        return when {
+            text.contains("whatsapp") -> "WhatsApp Status"
+            text.contains("youtube") || text.contains("yt") || text.contains("shorts") -> "YouTube Shorts"
+            text.contains("tiktok") -> "TikTok"
+            else -> "Instagram Reels"
+        }
     }
 }

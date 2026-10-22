@@ -155,6 +155,31 @@ interface AiCommandDispatcher {
     fun faceTrackingZoom(zoomFactor: Float = 1.25f): Boolean = false
 
     /**
+     * Applies AI studio voice clarity & noise reduction to active speech track.
+     */
+    fun studioVoiceClarity(level: String = "High"): Boolean = false
+
+    /**
+     * Applies Alex Hormozi / MrBeast style dynamic punchy captions with 3D stroke & emojis.
+     */
+    fun dynamicCaptions(style: String = "Hormozi"): Boolean = false
+
+    /**
+     * Generates a viral high-resolution composite thumbnail and saves to gallery.
+     */
+    fun generateThumbnail(headline: String = ""): Boolean = false
+
+    /**
+     * Adds dynamic B-roll sticker overlay at playhead.
+     */
+    fun addStickerOverlay(symbol: String = "🔥"): Boolean = false
+
+    /**
+     * Exports project using platform-optimized zero-compression preset.
+     */
+    fun platformExport(platform: String = "Instagram"): Boolean = false
+
+    /**
      * Dispatches a ParsedCommand to the appropriate action.
      * Returns a pair of (success: Boolean, feedbackMessage: String).
      */
@@ -185,6 +210,11 @@ interface AiCommandDispatcher {
             is VideoEditIntent.TopicToReel -> topicToReel(intent.topic)
             is VideoEditIntent.AddSoundEffect -> addSoundEffect(intent.sfxType)
             is VideoEditIntent.FaceTrackingZoom -> faceTrackingZoom(intent.zoomFactor)
+            is VideoEditIntent.StudioVoiceClarity -> studioVoiceClarity(intent.level)
+            is VideoEditIntent.DynamicCaptions -> dynamicCaptions(intent.style)
+            is VideoEditIntent.GenerateThumbnail -> generateThumbnail(intent.headline)
+            is VideoEditIntent.AddStickerOverlay -> addStickerOverlay(intent.emojiOrSymbol)
+            is VideoEditIntent.PlatformExport -> platformExport(intent.platform)
             is VideoEditIntent.TogglePlayback -> togglePlayback()
             is VideoEditIntent.Conversational -> {
                 intent.executeIntent?.let { subIntent ->
@@ -214,6 +244,11 @@ interface AiCommandDispatcher {
                         is VideoEditIntent.TopicToReel -> topicToReel(subIntent.topic)
                         is VideoEditIntent.AddSoundEffect -> addSoundEffect(subIntent.sfxType)
                         is VideoEditIntent.FaceTrackingZoom -> faceTrackingZoom(subIntent.zoomFactor)
+                        is VideoEditIntent.StudioVoiceClarity -> studioVoiceClarity(subIntent.level)
+                        is VideoEditIntent.DynamicCaptions -> dynamicCaptions(subIntent.style)
+                        is VideoEditIntent.GenerateThumbnail -> generateThumbnail(subIntent.headline)
+                        is VideoEditIntent.AddStickerOverlay -> addStickerOverlay(subIntent.emojiOrSymbol)
+                        is VideoEditIntent.PlatformExport -> platformExport(subIntent.platform)
                         is VideoEditIntent.TogglePlayback -> togglePlayback()
                         is VideoEditIntent.Undo -> undo()
                         is VideoEditIntent.Redo -> redo()

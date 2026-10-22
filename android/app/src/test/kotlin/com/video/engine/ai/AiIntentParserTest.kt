@@ -422,6 +422,71 @@ class AiIntentParserTest {
     }
 
     @Test
+    fun parse_studioVoiceClarity() {
+        val cases = listOf(
+            "background noise hatao",
+            "studio voice karo",
+            "noise cancellation lagao",
+            "audio saaf karo",
+            "clean audio",
+        )
+        for (query in cases) {
+            val res = AiIntentParser.parse(query)
+            assertTrue("Expected StudioVoiceClarity for '$query', got ${res.intent}", res.intent is VideoEditIntent.StudioVoiceClarity)
+        }
+    }
+
+    @Test
+    fun parse_dynamicCaptions() {
+        val cases = listOf(
+            "hormozi style dynamic captions lagao",
+            "bouncy captions",
+            "mrbeast captions",
+            "viral subtitles",
+        )
+        for (query in cases) {
+            val res = AiIntentParser.parse(query)
+            assertTrue("Expected DynamicCaptions for '$query', got ${res.intent}", res.intent is VideoEditIntent.DynamicCaptions)
+        }
+    }
+
+    @Test
+    fun parse_generateThumbnail() {
+        val res1 = AiIntentParser.parse("viral thumbnail banao")
+        assertTrue("Expected GenerateThumbnail, got ${res1.intent}", res1.intent is VideoEditIntent.GenerateThumbnail)
+
+        val res2 = AiIntentParser.parse("thumbnail: Top 5 Secret Hacks")
+        assertTrue(res2.intent is VideoEditIntent.GenerateThumbnail)
+        assertEquals("Top 5 Secret Hacks", (res2.intent as VideoEditIntent.GenerateThumbnail).headline)
+    }
+
+    @Test
+    fun parse_addStickerOverlay() {
+        val fireRes = AiIntentParser.parse("fire sticker lagao")
+        assertTrue(fireRes.intent is VideoEditIntent.AddStickerOverlay)
+        assertEquals("🔥", (fireRes.intent as VideoEditIntent.AddStickerOverlay).emojiOrSymbol)
+
+        val starRes = AiIntentParser.parse("sitara sticker dalo")
+        assertTrue(starRes.intent is VideoEditIntent.AddStickerOverlay)
+        assertEquals("⭐", (starRes.intent as VideoEditIntent.AddStickerOverlay).emojiOrSymbol)
+    }
+
+    @Test
+    fun parse_platformExport() {
+        val instaRes = AiIntentParser.parse("export for instagram reel")
+        assertTrue(instaRes.intent is VideoEditIntent.PlatformExport)
+        assertEquals("Instagram Reels", (instaRes.intent as VideoEditIntent.PlatformExport).platform)
+
+        val ytRes = AiIntentParser.parse("youtube shorts export")
+        assertTrue(ytRes.intent is VideoEditIntent.PlatformExport)
+        assertEquals("YouTube Shorts", (ytRes.intent as VideoEditIntent.PlatformExport).platform)
+
+        val waRes = AiIntentParser.parse("whatsapp status export")
+        assertTrue(waRes.intent is VideoEditIntent.PlatformExport)
+        assertEquals("WhatsApp Status", (waRes.intent as VideoEditIntent.PlatformExport).platform)
+    }
+
+    @Test
     fun parse_blankAndUnknown() {
         val emptyRes = AiIntentParser.parse("")
         assertTrue(emptyRes.intent is VideoEditIntent.Unknown)

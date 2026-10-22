@@ -81,6 +81,11 @@ class AiVoiceCopilotSheet(
 
     private val suggestionChips = listOf(
         Pair("✨ Full AI Edit & Export", "pura video auto edit karke export karo"),
+        Pair("🎤 Studio Voice Clarity", "background noise hatao studio voice karo"),
+        Pair("✨ Hormozi Captions", "hormozi style dynamic captions lagao"),
+        Pair("📸 Viral Thumbnail", "viral thumbnail banao"),
+        Pair("🔥 Dynamic Sticker", "fire sticker lagao"),
+        Pair("📱 Insta Reel Export", "export for instagram reel"),
         Pair("👀 Inspect Video & Cuts", "mera video dekho kaha cut aur zoom kare"),
         Pair("🎬 Director Agent Review", "director review my video"),
         Pair("🎙️ AI Voiceover", "voiceover dalo: Welcome to my brand new video!"),
@@ -1104,6 +1109,11 @@ class AiVoiceCopilotSheet(
             is VideoEditIntent.TopicToReel,
             is VideoEditIntent.AddSoundEffect,
             is VideoEditIntent.FaceTrackingZoom,
+            is VideoEditIntent.StudioVoiceClarity,
+            is VideoEditIntent.DynamicCaptions,
+            is VideoEditIntent.GenerateThumbnail,
+            is VideoEditIntent.AddStickerOverlay,
+            is VideoEditIntent.PlatformExport,
             is VideoEditIntent.MuteClip -> listOf(
                 Pair("▶️ Play Preview") { handleUserCommand("play") },
                 Pair("🚀 Export 1080p") { handleUserCommand("export 1080p") },
