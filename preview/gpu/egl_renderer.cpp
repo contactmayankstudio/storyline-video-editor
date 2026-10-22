@@ -305,9 +305,9 @@ vec2 resolveSampleCoord(
     float viewportAspect = viewportSize.x / max(viewportSize.y, 1.0);
     vec2 baseRenderedSize;
     if (sourceAspect > viewportAspect) {
-        baseRenderedSize = vec2(viewportSize.y * sourceAspect, viewportSize.y);
-    } else {
         baseRenderedSize = vec2(viewportSize.x, viewportSize.x / max(sourceAspect, 0.0001));
+    } else {
+        baseRenderedSize = vec2(viewportSize.y * sourceAspect, viewportSize.y);
     }
 
     float minZoom = objectTransform ? 0.15 : 0.35;
@@ -587,6 +587,7 @@ bool EGLRenderer::initialize(ANativeWindow* nativeWindow) {
         m_eglDisplay = nullptr;
         return false;
     }
+    m_eglConfig = config;
 
     // Create EGL context
     const EGLint contextAttribs[] = {
@@ -725,6 +726,11 @@ void EGLRenderer::resizeViewport(int width, int height) {
         return;
     }
 
+    width = (width / 2) * 2;
+    height = (height / 2) * 2;
+    if (width <= 0) width = 2;
+    if (height <= 0) height = 2;
+
     m_viewportWidth = width;
     m_viewportHeight = height;
     if (m_nativeWindow) {
@@ -734,9 +740,38 @@ void EGLRenderer::resizeViewport(int width, int height) {
             height,
             WINDOW_FORMAT_RGBA_8888);
     }
-    if (m_initialized && acquireContext()) {
-        glViewport(0, 0, width, height);
-        releaseContext();
+
+    if (m_initialized && m_eglDisplay != nullptr && m_eglConfig != nullptr && m_nativeWindow != nullptr) {
+        EGLint surfWidth = 0;
+        EGLint surfHeight = 0;
+        if (m_eglSurface != nullptr && m_eglSurface != EGL_NO_SURFACE) {
+            eglQuerySurface(m_eglDisplay, m_eglSurface, EGL_WIDTH, &surfWidth);
+            eglQuerySurface(m_eglDisplay, m_eglSurface, EGL_HEIGHT, &surfHeight);
+        }
+
+        if (m_eglSurface == nullptr || m_eglSurface == EGL_NO_SURFACE || surfWidth != width || surfHeight != height) {
+            eglMakeCurrent(m_eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            if (m_eglSurface != nullptr && m_eglSurface != EGL_NO_SURFACE) {
+                eglDestroySurface(m_eglDisplay, m_eglSurface);
+                m_eglSurface = nullptr;
+            }
+
+            m_eglSurface = eglCreateWindowSurface(
+                m_eglDisplay,
+                static_cast<EGLConfig>(m_eglConfig),
+                m_nativeWindow,
+                nullptr);
+
+            if (m_eglSurface == EGL_NO_SURFACE) {
+                setError("eglCreateWindowSurface failed on resize: 0x%x", eglGetError());
+                return;
+            }
+        }
+
+        if (acquireContext()) {
+            glViewport(0, 0, width, height);
+            releaseContext();
+        }
     }
 }
 
@@ -1143,6 +1178,7 @@ void EGLRenderer::shutdown() {
     eglReleaseThread(); // Release EGL state for this thread
 
     m_nativeWindow = nullptr;
+    m_eglConfig = nullptr;
     m_initialized = false;
     std::cout << "[EGLRenderer] Shutdown complete\n";
 }

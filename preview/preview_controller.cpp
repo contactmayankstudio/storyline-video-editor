@@ -332,6 +332,9 @@ void PreviewController::resizeSurface(int width, int height) {
         m_surfaceHeight = height;
         m_renderer->resizeViewport(width, height);
         std::cout << "[PreviewController] Surface resized to " << width << "x" << height << "\n";
+        if (!m_isPlaying.load() && m_hasDecodedFrame && m_texture && m_texture->isValid()) {
+            redrawTextureLocked(0, 0, m_surfaceWidth, m_surfaceHeight, false);
+        }
     }
 }
 

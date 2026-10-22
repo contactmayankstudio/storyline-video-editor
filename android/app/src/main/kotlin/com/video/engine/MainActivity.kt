@@ -3866,6 +3866,8 @@ class VideoEditorActivity : ComponentActivity() {
             targetHeight = availableHeight
             targetWidth = (targetHeight * targetRatio).roundToInt()
         }
+        targetWidth = (targetWidth and 1.inv()).coerceAtLeast(2)
+        targetHeight = (targetHeight and 1.inv()).coerceAtLeast(2)
 
         val actualSizeMismatch =
             viewportFrame.width > 0 &&
@@ -3921,13 +3923,12 @@ class VideoEditorActivity : ComponentActivity() {
         val view = previewView ?: return
         view.ensureNativeSurfaceBinding()
         view.syncNativeSurfaceSizeToView()
-        targetTimeMs?.let { timeMs ->
-            seekPreviewNativeIfNeeded(
-                timeMs = timeMs.coerceAtLeast(0L),
-                force = true,
-                allowDuringPlayback = false,
-            )
-        }
+        val renderTime = (targetTimeMs ?: currentTimeMs).coerceAtLeast(0L)
+        seekPreviewNativeIfNeeded(
+            timeMs = renderTime,
+            force = true,
+            allowDuringPlayback = false,
+        )
     }
 
     private fun schedulePreviewSurfaceSyncAfterAspectLayout(targetTimeMs: Long? = null) {
@@ -4329,9 +4330,9 @@ class VideoEditorActivity : ComponentActivity() {
         val safeSourceAspect = sourceAspect.coerceIn(0.05f, 20f)
         val viewportAspect = (viewportWidth / viewportHeight.coerceAtLeast(1f)).coerceIn(0.05f, 20f)
         return if (safeSourceAspect > viewportAspect) {
-            (viewportHeight * safeSourceAspect) to viewportHeight
-        } else {
             viewportWidth to (viewportWidth / safeSourceAspect.coerceAtLeast(0.05f))
+        } else {
+            (viewportHeight * safeSourceAspect) to viewportHeight
         }
     }
 

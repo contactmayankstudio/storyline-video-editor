@@ -178,15 +178,15 @@ class VideoPreviewView @JvmOverloads constructor(
                     didBindSurface = true
                 }
                 val targetWidth = when {
-                    width > 0 -> width
-                    surfaceW > 0 -> surfaceW
-                    requestedBufferWidth > 0 -> requestedBufferWidth
+                    width > 0 -> (width / 2) * 2
+                    surfaceW > 0 -> (surfaceW / 2) * 2
+                    requestedBufferWidth > 0 -> (requestedBufferWidth / 2) * 2
                     else -> 0
                 }
                 val targetHeight = when {
-                    height > 0 -> height
-                    surfaceH > 0 -> surfaceH
-                    requestedBufferHeight > 0 -> requestedBufferHeight
+                    height > 0 -> (height / 2) * 2
+                    surfaceH > 0 -> (surfaceH / 2) * 2
+                    requestedBufferHeight > 0 -> (requestedBufferHeight / 2) * 2
                     else -> 0
                 }
                 var sizeChanged = false
@@ -270,12 +270,14 @@ class VideoPreviewView @JvmOverloads constructor(
      * @param height The height of the surface
      */
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-        if (width == surfaceW && height == surfaceH && nativeSurfaceInitialized) return
-        Log.d(TAG, "surfaceChanged: $width x $height")
-        surfaceW = width
-        surfaceH = height
-        requestedBufferWidth = width
-        requestedBufferHeight = height
+        val alignedWidth = (width / 2) * 2
+        val alignedHeight = (height / 2) * 2
+        if (alignedWidth == surfaceW && alignedHeight == surfaceH && nativeSurfaceInitialized) return
+        Log.d(TAG, "surfaceChanged: $alignedWidth x $alignedHeight")
+        surfaceW = alignedWidth
+        surfaceH = alignedHeight
+        requestedBufferWidth = alignedWidth
+        requestedBufferHeight = alignedHeight
         if (!nativeLibraryLoaded) {
             Log.w(TAG, "Skipping nativeSetSurfaceSize because native library is not loaded")
             return
@@ -285,7 +287,7 @@ class VideoPreviewView @JvmOverloads constructor(
             return
         }
         try {
-            nativeSetSurfaceSize(width, height)
+            nativeSetSurfaceSize(alignedWidth, alignedHeight)
         } catch (e: UnsatisfiedLinkError) {
             Log.w(TAG, "nativeSetSurfaceSize JNI not implemented")
         }
@@ -416,11 +418,13 @@ class VideoPreviewView @JvmOverloads constructor(
     fun syncNativeSurfaceSizeToView(): Boolean {
         if (!nativeLibraryLoaded) return false
         if (width <= 0 || height <= 0) return false
-        if (requestedBufferWidth == width && requestedBufferHeight == height) return true
+        val alignedWidth = (width / 2) * 2
+        val alignedHeight = (height / 2) * 2
+        if (requestedBufferWidth == alignedWidth && requestedBufferHeight == alignedHeight) return true
         return try {
-            requestedBufferWidth = width
-            requestedBufferHeight = height
-            nativeSetSurfaceSize(width, height)
+            requestedBufferWidth = alignedWidth
+            requestedBufferHeight = alignedHeight
+            nativeSetSurfaceSize(alignedWidth, alignedHeight)
             true
         } catch (e: UnsatisfiedLinkError) {
             Log.w(TAG, "syncNativeSurfaceSizeToView JNI not implemented")

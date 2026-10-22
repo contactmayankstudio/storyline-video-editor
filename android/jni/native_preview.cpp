@@ -4567,10 +4567,23 @@ Java_com_video_engine_VideoPreviewView_nativeSetSurfaceSize(
     
     std::lock_guard<std::mutex> lock(g_mutex);
 
+    width = (width / 2) * 2;
+    height = (height / 2) * 2;
+    if (width <= 0) width = 2;
+    if (height <= 0) height = 2;
+
     LOGD("[AndroidPreview] SurfaceSize: %dx%d", width, height);
 
     g_surfaceWidth = width;
     g_surfaceHeight = height;
+
+    if (g_nativeWindow) {
+        ANativeWindow_setBuffersGeometry(
+            g_nativeWindow,
+            width,
+            height,
+            WINDOW_FORMAT_RGBA_8888);
+    }
 
     if (g_eglDisplay != EGL_NO_DISPLAY && g_eglContext != EGL_NO_CONTEXT) {
         eglMakeCurrent(g_eglDisplay, g_eglSurface, g_eglSurface, g_eglContext);
