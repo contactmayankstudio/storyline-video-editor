@@ -487,6 +487,21 @@ class AiIntentParserTest {
     }
 
     @Test
+    fun parse_resetPreview() {
+        val cases = listOf(
+            "preview blur hai theek karo",
+            "preview reset karo",
+            "fix preview",
+            "preview saaf karo",
+            "preview freeze ho gaya",
+        )
+        for (query in cases) {
+            val res = AiIntentParser.parse(query)
+            assertTrue("Expected ResetPreview for '$query', got ${res.intent}", res.intent is VideoEditIntent.ResetPreview)
+        }
+    }
+
+    @Test
     fun parse_blankAndUnknown() {
         val emptyRes = AiIntentParser.parse("")
         assertTrue(emptyRes.intent is VideoEditIntent.Unknown)

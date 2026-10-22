@@ -180,6 +180,11 @@ interface AiCommandDispatcher {
     fun platformExport(platform: String = "Instagram"): Boolean = false
 
     /**
+     * Self-healing preview reset & recalibrate (fixes blur, freeze, black screen).
+     */
+    fun resetPreview(): Boolean = false
+
+    /**
      * Dispatches a ParsedCommand to the appropriate action.
      * Returns a pair of (success: Boolean, feedbackMessage: String).
      */
@@ -215,6 +220,7 @@ interface AiCommandDispatcher {
             is VideoEditIntent.GenerateThumbnail -> generateThumbnail(intent.headline)
             is VideoEditIntent.AddStickerOverlay -> addStickerOverlay(intent.emojiOrSymbol)
             is VideoEditIntent.PlatformExport -> platformExport(intent.platform)
+            is VideoEditIntent.ResetPreview -> resetPreview()
             is VideoEditIntent.TogglePlayback -> togglePlayback()
             is VideoEditIntent.Conversational -> {
                 intent.executeIntent?.let { subIntent ->
@@ -249,6 +255,7 @@ interface AiCommandDispatcher {
                         is VideoEditIntent.GenerateThumbnail -> generateThumbnail(subIntent.headline)
                         is VideoEditIntent.AddStickerOverlay -> addStickerOverlay(subIntent.emojiOrSymbol)
                         is VideoEditIntent.PlatformExport -> platformExport(subIntent.platform)
+                        is VideoEditIntent.ResetPreview -> resetPreview()
                         is VideoEditIntent.TogglePlayback -> togglePlayback()
                         is VideoEditIntent.Undo -> undo()
                         is VideoEditIntent.Redo -> redo()

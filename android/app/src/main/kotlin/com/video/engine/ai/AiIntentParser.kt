@@ -37,6 +37,7 @@ sealed class VideoEditIntent {
     data class GenerateThumbnail(val headline: String = "") : VideoEditIntent()
     data class AddStickerOverlay(val emojiOrSymbol: String = "🔥") : VideoEditIntent()
     data class PlatformExport(val platform: String = "Instagram") : VideoEditIntent()
+    object ResetPreview : VideoEditIntent()
     object TogglePlayback : VideoEditIntent()
     object Undo : VideoEditIntent()
     object Redo : VideoEditIntent()
@@ -242,6 +243,16 @@ object AiIntentParser {
                 intent = VideoEditIntent.AddStickerOverlay(symbol),
                 confidence = 0.97f,
                 feedbackMessage = "🎬 Dynamic sticker overlay ($symbol) playhead par add kar diya hai!",
+            )
+        }
+
+        // 0n. AI Self-Healing Preview Reset / Calibrate (fixes blur, freeze, black screen)
+        if (matchesResetPreview(normalized)) {
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.ResetPreview,
+                confidence = 0.98f,
+                feedbackMessage = "🔄 Preview surface buffer aur textures ko reset karke Full HD me recalibrate kar diya hai!",
             )
         }
 
@@ -1012,5 +1023,10 @@ object AiIntentParser {
             text.contains("tiktok") -> "TikTok"
             else -> "Instagram Reels"
         }
+    }
+
+    private fun matchesResetPreview(text: String): Boolean {
+        return (text.contains("preview") && (text.contains("blur") || text.contains("reset") || text.contains("fix") || text.contains("saaf") || text.contains("theek") || text.contains("freeze") || text.contains("stuck") || text.contains("black") || text.contains("refresh"))) ||
+            text.contains("preview blur") || text.contains("preview theek karo") || text.contains("preview reset") || text.contains("fix preview")
     }
 }

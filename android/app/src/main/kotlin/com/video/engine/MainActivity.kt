@@ -7613,6 +7613,15 @@ class VideoEditorActivity : ComponentActivity() {
                 return true
             }
 
+            override fun resetPreview(): Boolean {
+                runOnUiThread {
+                    previewView?.requestLayout()
+                    refreshPreviewAtPlayhead(resyncAudio = true)
+                    safeToast("🔄 Preview pipeline reset & recalibrated in Full HD!", Toast.LENGTH_SHORT)
+                }
+                return true
+            }
+
             override fun exportVideo(resolution: String): Boolean {
                 runOnUiThread {
                     val currentAspect = getSelectedAspectRatio()
