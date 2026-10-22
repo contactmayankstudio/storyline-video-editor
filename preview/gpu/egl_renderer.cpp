@@ -39,7 +39,7 @@ void main() {
 )";
 
 static const char* FRAGMENT_SHADER_SRC = R"(#version 300 es
-precision mediump float;
+precision highp float;
 
 in vec2 fragTexCoord;
 out vec4 outColor;
@@ -151,8 +151,15 @@ void main() {
         }
         sampleCoord = (localPx / renderedSize) + vec2(0.5);
     } else {
-        vec2 localPx = (fragTexCoord - vec2(0.5)) * viewportSize;
-        sampleCoord = (localPx / baseRenderedSize) + vec2(0.5);
+        if (abs(sourceAspect - viewportAspect) < 0.05) {
+            sampleCoord = fragTexCoord;
+        } else if (sourceAspect > viewportAspect) {
+            sampleCoord.x = fragTexCoord.x;
+            sampleCoord.y = (fragTexCoord.y - 0.5) * (viewportSize.y / max(baseRenderedSize.y, 0.0001)) + 0.5;
+        } else {
+            sampleCoord.x = (fragTexCoord.x - 0.5) * (viewportSize.x / max(baseRenderedSize.x, 0.0001)) + 0.5;
+            sampleCoord.y = fragTexCoord.y;
+        }
     }
 
     if (sampleCoord.x < 0.0 || sampleCoord.x > 1.0 ||
@@ -190,7 +197,7 @@ void main() {
 )";
 
 static const char* TRANSITION_FRAGMENT_SHADER_SRC = R"(#version 300 es
-precision mediump float;
+precision highp float;
 
 in vec2 fragTexCoord;
 out vec4 outColor;
@@ -295,10 +302,6 @@ vec2 resolveSampleCoord(
     float rotationDeg,
     bool mirrorX,
     bool objectTransform) {
-    if (!transformEnabled) {
-        return baseCoord;
-    }
-
     vec2 viewportSize = max(uViewportSize, vec2(1.0));
     vec2 safeTextureSize = max(textureSize, vec2(1.0));
     float sourceAspect = safeTextureSize.x / max(safeTextureSize.y, 1.0);
@@ -308,6 +311,16 @@ vec2 resolveSampleCoord(
         baseRenderedSize = vec2(viewportSize.x, viewportSize.x / max(sourceAspect, 0.0001));
     } else {
         baseRenderedSize = vec2(viewportSize.y * sourceAspect, viewportSize.y);
+    }
+
+    if (!transformEnabled) {
+        if (abs(sourceAspect - viewportAspect) < 0.05) {
+            return baseCoord;
+        } else if (sourceAspect > viewportAspect) {
+            return vec2(baseCoord.x, (baseCoord.y - 0.5) * (viewportSize.y / max(baseRenderedSize.y, 0.0001)) + 0.5);
+        } else {
+            return vec2((baseCoord.x - 0.5) * (viewportSize.x / max(baseRenderedSize.x, 0.0001)) + 0.5, baseCoord.y);
+        }
     }
 
     float minZoom = objectTransform ? 0.15 : 0.35;
@@ -776,12 +789,18 @@ void EGLRenderer::resizeViewport(int width, int height) {
 }
 
 void EGLRenderer::drawQuad() {
-    if (m_vao == 0) {
+    if (m_vao == 0 || m_vbo == 0 || m_ebo == 0) {
         if (!createQuadMesh()) {
             return;
         }
     }
     glBindVertexArray(m_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
     glBindVertexArray(0);
 }
