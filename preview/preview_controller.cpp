@@ -144,13 +144,13 @@ PreviewController::PreviewController()
     , m_reachedEos(false)
     , m_maxQueuedFrames(5)
     , m_ghostPreviewEnabled(true)
-    , m_ghostPreviewLongEdgePx(640)
+    , m_ghostPreviewLongEdgePx(1080)
     , m_adaptiveFrameDropEnabled(true)
     , m_targetPreviewFps(30)
     , m_minPreviewFps(15)
     , m_frameDropOverloadScore(0)
     , m_budgetPreviewFps(30)
-    , m_budgetPreviewLongEdgePx(640)
+    , m_budgetPreviewLongEdgePx(1080)
     , m_budgetBypassOverlayComposition(false)
     , m_budgetPredictivePrefetchAllowed(true)
     , m_audioMasterClockWallClock(std::chrono::steady_clock::now())
@@ -538,6 +538,7 @@ bool PreviewController::processFrame() {
 
     int64_t renderedTimelineMs = targetTimelineMs;
     const auto renderStartedAt = std::chrono::steady_clock::now();
+    const int previousClipId = m_lastRenderedClipId;
     const bool rendered = renderTimelineFrameLocked(
         targetTimelineMs,
         /*keyframeOnlyScrub=*/false,
@@ -547,7 +548,10 @@ bool PreviewController::processFrame() {
     const auto renderFinishedAt = std::chrono::steady_clock::now();
     const int64_t renderCostMs = std::chrono::duration_cast<std::chrono::milliseconds>(
         renderFinishedAt - renderStartedAt).count();
-    updateAdaptiveOverloadScoreLocked(renderCostMs);
+    const bool isClipTransition = (previousClipId > 0 && m_lastRenderedClipId > 0 && previousClipId != m_lastRenderedClipId);
+    if (!isClipTransition) {
+        updateAdaptiveOverloadScoreLocked(renderCostMs);
+    }
     if (!rendered) {
         if (m_isPlaying.load()) {
             if (m_texture && m_texture->isValid()) {
@@ -1671,6 +1675,29 @@ bool PreviewController::renderTimelineFrameLocked(
             }
         }
 
+        // Direct decode optimization at the beginning of a newly switched clip (avoids expensive seek on boundary)
+        const bool isNearClipStart = (sourceSeekMs <= 250 && !renderedFromPredictiveCache && !keyframeOnlyScrub && linearForwardMapping);
+        if (!allowSequentialDecode && isNearClipStart && m_decoder) {
+            DecodedFrame decodedFrame;
+            if (m_decoder->decodeNextFrame(decodedFrame)) {
+                renderedSourceMs = decodedFrame.ptsMs > 0 ? clampTimeMs(decodedFrame.ptsMs) : sourceSeekMs;
+                if (renderDecodedFrame(
+                        decodedFrame,
+                        clampedTimelineMs,
+                        /*presentFrame=*/!shouldCompositeAdditionalLayers)) {
+                    m_lastRenderedClipId = activeClipId;
+                    m_lastRenderedSourceMs = renderedSourceMs;
+                    if (renderedTimelineMs) {
+                        *renderedTimelineMs = requestedTimelineMs;
+                    }
+                    if (!shouldCompositeAdditionalLayers) {
+                        return true;
+                    }
+                    renderedFromPredictiveCache = true;
+                }
+            }
+        }
+
         if (!renderedFromPredictiveCache) {
             if (!m_decoder) {
                 setError("Decoder unavailable");
@@ -1870,20 +1897,21 @@ bool PreviewController::renderTimelineFrameLocked(
 
                     const size_t pixelCount = static_cast<size_t>(fw) * fh;
                     const uint8_t* rgba = nullptr;
-                    std::vector<uint8_t> scratch;
                     if (frame.rgb.size() >= pixelCount * 4) {
                         rgba = frame.rgb.data();
                     } else if (frame.rgb.size() >= pixelCount * 3) {
-                        scratch.resize(pixelCount * 4);
+                        if (m_compositeScratch.size() != pixelCount * 4) {
+                            m_compositeScratch.resize(pixelCount * 4);
+                        }
                         const uint8_t* src = frame.rgb.data();
-                        uint8_t* dst = scratch.data();
+                        uint8_t* dst = m_compositeScratch.data();
                         for (size_t i = 0; i < pixelCount; ++i) {
                             dst[i * 4 + 0] = src[i * 3 + 0];
                             dst[i * 4 + 1] = src[i * 3 + 1];
                             dst[i * 4 + 2] = src[i * 3 + 2];
                             dst[i * 4 + 3] = 0xFF;
                         }
-                        rgba = scratch.data();
+                        rgba = m_compositeScratch.data();
                     }
                     if (!rgba) {
                         continue;

@@ -91,7 +91,7 @@ bool GLTexture::allocateStorage(int width, int height) {
     return true;
 }
 
-void GLTexture::update(const uint8_t* rgbaPixels) {
+void GLTexture::update(const uint8_t* rgbaPixels, int srcStrideBytes) {
     if (!rgbaPixels) {
         std::cerr << "[GLTexture] NULL RGBA pixel data\n";
         return;
@@ -104,6 +104,10 @@ void GLTexture::update(const uint8_t* rgbaPixels) {
 
     glBindTexture(GL_TEXTURE_2D, m_textureId);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    const int rowLengthPixels = (srcStrideBytes > 0) ? (srcStrideBytes / 4) : 0;
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, rowLengthPixels);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
 
     // Stream data to texture using glTexSubImage2D (efficient for repeated updates)
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_width, m_height,
@@ -114,6 +118,9 @@ void GLTexture::update(const uint8_t* rgbaPixels) {
         std::cerr << "[GLTexture] glTexSubImage2D failed: 0x" << std::hex << err << "\n";
     }
 
+    // Always restore UNPACK state to defaults so OpenGL state never leaks
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 

@@ -41,10 +41,10 @@ public:
      * Data must match dimensions from initialize().
      * Uses glTexSubImage2D for efficient streaming (not reallocating).
      * 
-     * @param rgbaPixels RGBA data (width * height * 4 bytes)
-     *                   Format: R, G, B, A for each pixel in row-major order
+     * @param rgbaPixels RGBA data
+     * @param srcStrideBytes Optional source row stride in bytes (0 for tightly packed width * 4)
      */
-    void update(const uint8_t* rgbaPixels);
+    void update(const uint8_t* rgbaPixels, int srcStrideBytes = 0);
 
     /**
      * Bind texture to active texture unit for shader sampling.

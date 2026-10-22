@@ -3573,6 +3573,9 @@ transcode_clip_done:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+        glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+        glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
         glTexImage2D(
             GL_TEXTURE_2D,
             0,
@@ -3583,6 +3586,8 @@ transcode_clip_done:
             GL_RGBA,
             GL_UNSIGNED_BYTE,
             bitmap.rgba.data());
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
         const GLenum uploadError = glGetError();
         glBindTexture(GL_TEXTURE_2D, 0);
         if (uploadError != GL_NO_ERROR) {

@@ -317,8 +317,8 @@ bool VideoDecoder::initializeSwsContext(int srcWidth, int srcHeight, int srcPixe
         }
     }
 
-    // Ensure even dimensions for SIMD / NEON sws_scale alignment
-    dstWidth = (dstWidth + 1) & ~1;
+    // Ensure 4-pixel (16-byte for RGBA) aligned width and even height for NEON/SIMD sws_scale alignment
+    dstWidth = (dstWidth + 3) & ~3;
     dstHeight = (dstHeight + 1) & ~1;
 
     m_swsContext = sws_getContext(
@@ -328,7 +328,7 @@ bool VideoDecoder::initializeSwsContext(int srcWidth, int srcHeight, int srcPixe
         dstWidth,
         dstHeight,
         AV_PIX_FMT_RGBA,
-        SWS_FAST_BILINEAR,
+        SWS_BILINEAR,
         nullptr,
         nullptr,
         nullptr
@@ -339,12 +339,12 @@ bool VideoDecoder::initializeSwsContext(int srcWidth, int srcHeight, int srcPixe
         return false;
     }
 
-    // Allocate packed RGBA buffer for m_rgbFrame so preview can upload directly.
+    // Allocate 32-byte pitch-aligned RGBA buffer for m_rgbFrame so SIMD sws_scale writes safely.
     int bufferSize = av_image_get_buffer_size(
         AV_PIX_FMT_RGBA,
         dstWidth,
         dstHeight,
-        1
+        32
     );
 
     if (bufferSize < 0) {
@@ -369,7 +369,7 @@ bool VideoDecoder::initializeSwsContext(int srcWidth, int srcHeight, int srcPixe
         AV_PIX_FMT_RGBA,
         dstWidth,
         dstHeight,
-        1
+        32
     );
 
     m_swsSourceWidth = srcWidth;
@@ -431,7 +431,7 @@ bool VideoDecoder::convertToRGB24(AVFrame* srcFrame, DecodedFrame& out) {
         return false;
     }
 
-    for (int y = 0; y < out.height; ++y) {
+    for (uint32_t y = 0; y < out.height; ++y) {
         const uint8_t* srcRow = srcStride > 0
             ? (srcBase + (y * srcStride))
             : (srcBase + ((out.height - 1 - y) * (-srcStride)));

@@ -463,7 +463,7 @@ private:
     int m_minPreviewFps;
     int m_frameDropOverloadScore;
     int m_budgetPreviewFps = 30;
-    int m_budgetPreviewLongEdgePx = 640;
+    int m_budgetPreviewLongEdgePx = 1080;
     bool m_budgetBypassOverlayComposition = false;
     bool m_budgetPredictivePrefetchAllowed = true;
     std::unique_ptr<VideoEngine::Performance::AdaptiveResolution> m_adaptiveResolution;
@@ -641,6 +641,7 @@ private:
     int64_t m_keyframeScrubVelocityThresholdMsPerSec = 2000;  // was 6000 — lower = faster scrub response
     int64_t m_keyframeScrubMinDeltaMs = 50;                   // was 80
     std::vector<uint8_t> m_rgbaScratch;
+    std::vector<uint8_t> m_compositeScratch;
 };
 
 }  // namespace VideoEngine
