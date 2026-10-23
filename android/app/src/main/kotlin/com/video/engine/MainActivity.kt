@@ -62,6 +62,10 @@ import com.video.engine.pro.model.TrackType
 import com.video.engine.pro.timeline.AudioWaveformCache
 import com.video.engine.pro.timeline.MultiTrackTimelineView
 import com.video.engine.pro.timeline.TimelineThumbnailCache
+import com.video.engine.speed.VelocitySpeedCurveView
+import com.video.engine.speed.VelocityPresets
+import com.video.engine.speed.SpeedCurvePreset
+import com.video.engine.speed.SpeedCurvePoint
 import com.video.engine.stickers.StickerClip
 import com.video.engine.stickers.StickerClipStore
 import com.video.engine.stickers.StickerOverlayView
@@ -1357,7 +1361,7 @@ class VideoEditorActivity : ComponentActivity() {
         ClipToolbarItem(R.id.clipReverseButton, R.id.clipReverseLabel, "Reverse"),
         ClipToolbarItem(R.id.clipFreezeFrameButton, R.id.clipFreezeFrameLabel, "Freeze"),
         ClipToolbarItem(R.id.clipDuckingButton, R.id.clipDuckingLabel, "Ducking"),
-        ClipToolbarItem(R.id.clipCurveSpeedButton, R.id.clipCurveSpeedLabel, "Curve"),
+        ClipToolbarItem(R.id.clipCurveSpeedButton, R.id.clipCurveSpeedLabel, "Velocity"),
         ClipToolbarItem(R.id.clipChromaKeyButton, R.id.clipChromaKeyLabel, "AI Matte"),
         ClipToolbarItem(R.id.clipCutoutButton, R.id.clipCutoutLabel, "AI Cut"),
     )
@@ -3567,7 +3571,7 @@ class VideoEditorActivity : ComponentActivity() {
             }
             chips(
                 "Selected: $selectedLabel",
-                listOf("Auto Premium", "Motion Push", "Motion Pull", "Keyframe", "Curve", "Cine Color"),
+                listOf("Auto Premium", "Motion Push", "Motion Pull", "Keyframe", "⚡ Velocity", "Cine Color"),
                 -1,
                 dismissOnSelect = false,
             ) { _, option ->
@@ -3576,7 +3580,7 @@ class VideoEditorActivity : ComponentActivity() {
                     "Motion Push" -> applyProMotionPreset("push_in")
                     "Motion Pull" -> applyProMotionPreset("pull_out")
                     "Keyframe" -> performSelectedClipKeyframeAction()
-                    "Curve" -> performSelectedClipCurveSpeedAction()
+                    "Curve", "⚡ Velocity", "Velocity" -> performSelectedClipCurveSpeedAction()
                     "Cine Color" -> applyProCinematicColor()
                 }
             }
@@ -7650,17 +7654,14 @@ class VideoEditorActivity : ComponentActivity() {
 
             override fun speedRamp(preset: String): Boolean {
                 val selectedId = resolveSelectedVisualClipId(syncSelectionIfNeeded = true) ?: run {
-                    safeToast("Select a clip to apply Speed Ramp", Toast.LENGTH_SHORT)
+                    safeToast("Select a clip to apply Velocity Curve", Toast.LENGTH_SHORT)
                     return false
                 }
-                val curveName = when (preset) {
-                    "bullet_time" -> "ease_in"
-                    "montage" -> "hyperlapse"
-                    else -> "hero_drop"
-                }
-                applyNativeClipSpeedChange(selectedId, 0.4f, curveProfile = curveName)
+                val selectedPreset = VelocityPresets.findById(preset)
+                val effectiveSpeed = VelocityPresets.computeEffectiveSpeed(selectedPreset.points)
+                applyNativeClipSpeedChange(selectedId, effectiveSpeed, curveProfile = selectedPreset.id)
                 applySelectedClipPanZoomPreset("push_in")
-                safeToast("⚡ Speed Ramp ($preset) applied with dynamic hook zoom!", Toast.LENGTH_SHORT)
+                safeToast("⚡ Velocity Curve (${selectedPreset.name}) applied with dynamic hook zoom!", Toast.LENGTH_SHORT)
                 return true
             }
 
@@ -15850,7 +15851,12 @@ class VideoEditorActivity : ComponentActivity() {
                         applyNativeClipSpeedChange(clipId, initialSpeed, curveProfile = initialCurve)
                     },
                 ) {
-                    tabs(listOf("Standard", "Curve"), selected = 0) { _ -> }
+                    tabs(listOf("Standard", "⚡ Velocity Curve"), selected = 0) { tab ->
+                        if (tab == 1) {
+                            dismiss()
+                            performSelectedClipCurveSpeedAction()
+                        }
+                    }
                     toggle("Keep Audio Pitch", keepPitch) { keepPitch = it }
                     divider()
                     section("Speed Presets")
@@ -16793,17 +16799,116 @@ class VideoEditorActivity : ComponentActivity() {
                     return
                 }
                 pausePlaybackForSpeedSheet()
-                val labels = listOf("Linear 1x", "Ease In 0.8x", "Ease Out 1.2x", "Speed Ramp 1.4x", "Hyperlapse 2x")
-                val profiles = listOf("linear", "ease_in", "ease_out", "speed_ramp", "hyperlapse")
-                val strengths = listOf(1.0f, 0.8f, 1.2f, 1.4f, 2.0f)
-                ModernSheet.show(this, "$clipLabel Curve Speed") {
-                    chips("Profile", labels, -1) { i, _ ->
-                        applyNativeClipSpeedChange(clipId, strengths[i], curveProfile = profiles[i])
-                        Toast.makeText(this@VideoEditorActivity, labels[i], Toast.LENGTH_SHORT).show()
+
+                val initialSpeed = nativeClipPlaybackSpeed[clipId] ?: 1.0f
+                val initialProfile = nativeClipCurveSpeedProfile[clipId] ?: "linear"
+                val initialDurationMs = (nativeClipDurationMs[clipId] ?: 3000L).coerceAtLeast(100L)
+
+                val curveView = VelocitySpeedCurveView(this)
+                val initialPreset = VelocityPresets.findById(initialProfile)
+                curveView.applyPreset(initialPreset)
+
+                val presetChips = listOf(
+                    "⚡ Montage",
+                    "🌊 Hero Flow",
+                    "💥 Bullet Drop",
+                    "⚡ Flash Cut",
+                    "🎬 Smooth Slow-Mo",
+                    "✏️ Custom Bézier",
+                    "➖ Normal 1.0x",
+                )
+                val presetObjects = listOf(
+                    VelocityPresets.MONTAGE,
+                    VelocityPresets.HERO_FLOW,
+                    VelocityPresets.BULLET_DROP,
+                    VelocityPresets.FLASH_CUT,
+                    VelocityPresets.SMOOTH_SLOWMO,
+                    VelocityPresets.CUSTOM_BEZIER,
+                    VelocityPresets.LINEAR,
+                )
+
+                var activePresetIdx = presetObjects.indexOfFirst { it.id.equals(initialProfile, ignoreCase = true) }
+                if (activePresetIdx < 0) activePresetIdx = 0
+
+                var currentEffectiveSpeed = curveView.getEffectiveSpeed()
+                var currentCurveProfile = presetObjects[activePresetIdx].id
+                var preservePitch = true
+                var smoothSlowMo = true
+
+                val infoText = TextView(this).apply {
+                    textSize = 12f
+                    setTextColor(Color.parseColor("#8E9AA8"))
+                    setPadding(0, 0, 0, (6 * resources.displayMetrics.density).toInt())
+                }
+
+                fun updateDurationReadout(effective: Float) {
+                    val origSec = initialDurationMs / 1000f
+                    val newSec = (initialDurationMs / effective) / 1000f
+                    infoText.text = String.format(
+                        java.util.Locale.US,
+                        "⏱️ Duration: %.2fs ➔ %.2fs  •  Avg Speed: %.2fx",
+                        origSec,
+                        newSec,
+                        effective,
+                    )
+                }
+                updateDurationReadout(currentEffectiveSpeed)
+
+                curveView.onCurveChangedListener = { _, effective ->
+                    currentEffectiveSpeed = effective
+                    currentCurveProfile = curveView.currentPresetId
+                    updateDurationReadout(effective)
+                    applyNativeClipSpeedChange(clipId, effective, curveProfile = currentCurveProfile)
+                }
+
+                ModernSheet.showModal(
+                    context = this,
+                    title = "⚡ $clipLabel Velocity Curve",
+                    showClose = true,
+                    showApply = true,
+                    onApply = {
+                        applyNativeClipSpeedChange(clipId, currentEffectiveSpeed, curveProfile = currentCurveProfile)
+                        safeToast("⚡ Velocity Curve (${currentCurveProfile.replace('_', ' ')}) applied!", Toast.LENGTH_SHORT)
+                    },
+                    onCancel = {
+                        applyNativeClipSpeedChange(clipId, initialSpeed, curveProfile = initialProfile)
+                    },
+                ) {
+                    caption("CapCut-style dynamic velocity ramping & smooth slow-motion")
+                    customView(infoText)
+                    divider()
+
+                    section("Speed Curve Presets")
+                    selectableChips(
+                        label = "Presets",
+                        options = presetChips,
+                        selected = activePresetIdx,
+                    ) { idx, _ ->
+                        activePresetIdx = idx
+                        val selectedPreset = presetObjects[idx]
+                        curveView.applyPreset(selectedPreset)
+                        currentCurveProfile = selectedPreset.id
+                        currentEffectiveSpeed = curveView.getEffectiveSpeed()
+                        updateDurationReadout(currentEffectiveSpeed)
+                        applyNativeClipSpeedChange(clipId, currentEffectiveSpeed, curveProfile = currentCurveProfile)
+                    }
+
+                    divider()
+                    section("Interactive Bézier Touch Graph")
+                    caption("Drag control points up/down to adjust velocity peaks & slow-mo dips live:")
+                    customView(curveView)
+
+                    divider()
+                    section("Playback Processing")
+                    toggle("Smooth Optical Slow-Mo Interpolation", smoothSlowMo) {
+                        smoothSlowMo = it
+                    }
+                    toggle("Keep Audio Pitch (Phase Vocoder)", preservePitch) {
+                        preservePitch = it
                     }
                 }
             }
-            else -> safeToast("Curve speed for video clips", Toast.LENGTH_SHORT)
+            else -> safeToast("Velocity curve is available for video & overlay clips", Toast.LENGTH_SHORT)
         }
     }
 

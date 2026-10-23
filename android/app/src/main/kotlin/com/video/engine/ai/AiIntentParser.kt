@@ -1259,16 +1259,19 @@ object AiIntentParser {
 
     private fun matchesSpeedRamp(text: String): Boolean {
         return text.contains("speed ramp") || text.contains("curve ramp") ||
+            text.contains("velocity") || text.contains("velocity curve") ||
             text.contains("bullet time") || text.contains("slow mo ramp") ||
             text.contains("cinematic ramp") || text.contains("speed curve") ||
-            text.contains("रैंप")
+            text.contains("रैंप") || text.contains("वेलोसिटी")
     }
 
     private fun resolveSpeedRampPreset(text: String): String {
         return when {
             text.contains("bullet") -> "bullet_time"
             text.contains("montage") -> "montage"
-            text.contains("smooth") -> "ease_in"
+            text.contains("hero") -> "hero_drop"
+            text.contains("flash") -> "flash_cut"
+            text.contains("slow") || text.contains("smooth") -> "ease_in"
             else -> "hero_drop"
         }
     }

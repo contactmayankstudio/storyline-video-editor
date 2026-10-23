@@ -1215,6 +1215,10 @@ object ModernSheet {
             })
         }
 
+        fun customView(view: View) {
+            root.addView(view)
+        }
+
         fun dismiss() = dialog.dismiss()
     }
 

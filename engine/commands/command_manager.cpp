@@ -3667,7 +3667,7 @@ public:
         m_previousSpeed = props.playbackSpeed;
 
         props.curveSpeedProfile = m_profile.empty() ? "linear" : m_profile;
-        props.curveSpeedStrength = std::clamp(m_strength, 0.1f, 4.0f);
+        props.curveSpeedStrength = std::clamp(m_strength, 0.1f, 6.0f);
 
         float effectiveSpeed = props.curveSpeedStrength;
         if (props.curveSpeedProfile == "ease_in") {
@@ -3676,6 +3676,13 @@ public:
             effectiveSpeed = std::max(0.1f, props.curveSpeedStrength * 1.15f);
         } else if (props.curveSpeedProfile == "hyperlapse") {
             effectiveSpeed = std::max(1.0f, props.curveSpeedStrength);
+        } else if (props.curveSpeedProfile == "montage" ||
+                   props.curveSpeedProfile == "hero_flow" ||
+                   props.curveSpeedProfile == "bullet_drop" ||
+                   props.curveSpeedProfile == "flash_cut" ||
+                   props.curveSpeedProfile == "smooth_slowmo" ||
+                   props.curveSpeedProfile == "custom_bezier") {
+            effectiveSpeed = std::clamp(props.curveSpeedStrength, 0.1f, 6.0f);
         }
         clip->setPlaybackSpeed(effectiveSpeed);
 

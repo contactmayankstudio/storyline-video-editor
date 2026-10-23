@@ -1074,7 +1074,7 @@ class TimelineCanvasView @JvmOverloads constructor(
         val index = track?.clips?.indexOfFirst { it.id == clip.id }?.takeIf { it >= 0 }?.plus(1) ?: 1
         val indexStr = if (index < 10) "0$index" else "$index"
 
-        return when (clip.trackType) {
+        val baseLabel = when (clip.trackType) {
             TrackType.VIDEO -> "Video $indexStr"
             TrackType.OVERLAY, TrackType.LAYER -> "Overlay $indexStr"
             TrackType.TEXT -> {
@@ -1088,6 +1088,13 @@ class TimelineCanvasView @JvmOverloads constructor(
                     "Audio $indexStr"
                 }
             }
+        }
+
+        val curveProfile = clip.metadata["curveSpeedProfile"]
+        return if (!curveProfile.isNullOrBlank() && !curveProfile.equals("linear", ignoreCase = true)) {
+            "$baseLabel ⚡"
+        } else {
+            baseLabel
         }
     }
 

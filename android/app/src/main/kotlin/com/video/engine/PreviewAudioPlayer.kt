@@ -1101,6 +1101,9 @@ class PreviewAudioPlayer(
         runCatching {
             val player = mediaPlayer ?: return@runCatching
             val params = runCatching { player.playbackParams }.getOrNull() ?: android.media.PlaybackParams()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                params.setPitch(1.0f)
+            }
             player.playbackParams = params.setSpeed(speed)
         }.onFailure {
             Log.w(TAG, "Failed to apply playback speed=$speed: ${it.message}")

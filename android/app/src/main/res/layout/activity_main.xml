@@ -1223,7 +1223,7 @@
                 </LinearLayout>
                 <LinearLayout android:id="@+id/clipCurveSpeedButton" style="@style/ClipToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_curve_speed"/>
-                    <TextView android:id="@+id/clipCurveSpeedLabel" style="@style/ClipToolbarLabel" android:text="Curve"/>
+                    <TextView android:id="@+id/clipCurveSpeedLabel" style="@style/ClipToolbarLabel" android:text="⚡ Velocity"/>
                 </LinearLayout>
                 <LinearLayout android:id="@+id/clipChromaKeyButton" style="@style/ClipToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_chroma_key"/>
