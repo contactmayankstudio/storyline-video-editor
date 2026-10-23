@@ -18,7 +18,10 @@ object StatusProjectBuilder {
         template: StatusTemplate,
         photoPaths: List<String>,
         customAudioPath: String? = null,
-        customText: String? = null
+        customText: String? = null,
+        textNormX: Float = 0.5f,
+        textNormY: Float = 0.74f,
+        textScale: Float = 1.0f
     ): File? {
         if (photoPaths.isEmpty()) return null
 
@@ -69,9 +72,9 @@ object StatusProjectBuilder {
                         textArray.put(JSONObject().apply {
                             put("id", 100)
                             put("text", customText)
-                            put("x", 0.5)
-                            put("y", 0.76)
-                            put("scale", 1.30)
+                            put("x", textNormX)
+                            put("y", textNormY)
+                            put("scale", 1.30 * textScale)
                             put("color", "0xFFFFD700")
                             put("opacity", 1.0)
                             put("fadeInMs", 300)
@@ -209,9 +212,9 @@ object StatusProjectBuilder {
                     val customJson = JSONObject().apply {
                         put("id", 100)
                         put("text", customText)
-                        put("x", 0.5)
-                        put("y", 0.76)
-                        put("scale", 1.30)
+                        put("x", textNormX)
+                        put("y", textNormY)
+                        put("scale", 1.30 * textScale)
                         put("rotation", 0.0)
                         put("color", "0xFFFFD700")
                         put("opacity", 1.0)

@@ -1027,7 +1027,11 @@ class VideoEditorActivity : ComponentActivity() {
     private var currentTimeMs = 0L
         set(value) {
             field = value
-            refreshOverlayVisibilityAndPose()
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                refreshOverlayVisibilityAndPose()
+            } else {
+                runOnUiThread { refreshOverlayVisibilityAndPose() }
+            }
         }
     private var videoDurationMs = 0L
     private var selectedTimelineClipKey: String? = null
@@ -3570,7 +3574,7 @@ class VideoEditorActivity : ComponentActivity() {
             Triple("IG Reels", "9:16", 9f / 16f),
             Triple("Shorts", "9:16", 9f / 16f),
             Triple("IG Port.", "4:5", 4f / 5f),
-            Triple("Snapchat", "9:16", 9f / 16f),
+            Triple("Reels / Story", "9:16", 9f / 16f),
             Triple("FB Story", "9:16", 9f / 16f),
             Triple("Cinema", "21:9", 21f / 9f),
             Triple("Classic", "4:3", 4f / 3f),
@@ -7130,7 +7134,7 @@ class VideoEditorActivity : ComponentActivity() {
             }
             selectableChips(
                 "Category",
-                listOf("Trending", "CapCut Viral 🔥", "Love & Couple 💖", "Attitude 😎", "Aesthetic ☕"),
+                listOf("Trending", "Storyline Viral 🔥", "Love & Couple 💖", "Attitude 😎", "Aesthetic ☕"),
                 0
             ) { _, cat ->
                 selectedCategory = cat
@@ -9740,7 +9744,6 @@ class VideoEditorActivity : ComponentActivity() {
         val playheadMs = currentPlayheadMs().coerceAtLeast(0L)
         currentTimeMs = playheadMs
         rememberPreviewLifecycleAnchor(playheadMs)
-        refreshOverlayVisibilityAndPose()
         aiCutoutOverlayView?.updateTime(playheadMs)
         applySelectedClipKeyframedPreviewTransform(playheadMs, immediate = true)
         seekPreviewNativeIfNeeded(
@@ -10283,7 +10286,12 @@ class VideoEditorActivity : ComponentActivity() {
         refreshMainTimelineTracks()
     }
 
+    private var lastOverlayOrderKey: String = ""
     private fun refreshOverlayStack() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            runOnUiThread { refreshOverlayStack() }
+            return
+        }
         val container = overlayContainer ?: return
         val orderedViews = mutableListOf<Pair<Float, android.view.View>>()
         allTextOverlays().forEach { overlay ->
@@ -10292,9 +10300,13 @@ class VideoEditorActivity : ComponentActivity() {
         StickerClipStore.all().forEach { sticker ->
             stickerOverlayViews[sticker.id]?.let { orderedViews += it.z to it }
         }
-        orderedViews
-            .sortedBy { it.first }
-            .forEach { (_, view) -> view.bringToFront() }
+        val sorted = orderedViews.sortedBy { it.first }
+        val currentKey = sorted.joinToString(",") { "${it.second.id}:${it.first}" }
+        if (currentKey == lastOverlayOrderKey) {
+            return
+        }
+        lastOverlayOrderKey = currentKey
+        sorted.forEach { (_, view) -> view.bringToFront() }
         container.invalidate()
     }
 
@@ -17289,7 +17301,7 @@ class VideoEditorActivity : ComponentActivity() {
                         applyNativeClipSpeedChange(clipId, initialSpeed, curveProfile = initialProfile)
                     },
                 ) {
-                    caption("CapCut-style dynamic velocity ramping & smooth slow-motion")
+                    caption("Storyline dynamic velocity ramping & smooth slow-motion")
                     customView(infoText)
                     divider()
 

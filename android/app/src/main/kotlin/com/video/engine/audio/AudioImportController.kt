@@ -283,11 +283,15 @@ class AudioImportController(
         forceNativeAudioClipTiming(clip)
         AudioClipStore.add(clip)
         setNextAudioClipId(maxOf(nextAudioClipIdProvider(), clip.id + 1))
-        onImportedAudio(clip)
+        activity.runOnUiThread {
+            onImportedAudio(clip)
+        }
         if (shouldBuildPeakMapsProvider()) {
             startPeakMapBuild(clip)
         }
-        onImportFinished?.invoke(true, path, clip.id, null)
+        activity.runOnUiThread {
+            onImportFinished?.invoke(true, path, clip.id, null)
+        }
         return clip
     }
 

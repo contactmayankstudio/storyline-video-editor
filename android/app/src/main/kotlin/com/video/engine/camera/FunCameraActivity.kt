@@ -1569,7 +1569,7 @@ class FunCameraActivity : ComponentActivity() {
         }
 
         dialog = AlertDialog.Builder(this)
-            .setTitle("🎭 Select Snapchat Sticker")
+            .setTitle("🎭 Select Storyline Sticker")
             .setView(grid)
             .setNegativeButton("Cancel", null)
             .show()

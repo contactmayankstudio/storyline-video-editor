@@ -406,9 +406,15 @@ class OverlayController(
                 currentTimeMs >= overlay.startTimeMs.toLong() &&
                 currentTimeMs < overlay.endTimeMs.toLong().coerceAtLeast(overlay.startTimeMs.toLong() + 1L)
         val isEditing = activeAtCurrentTime && !isPlayingProvider()
-        view.visibility = if (activeAtCurrentTime) android.view.View.VISIBLE else android.view.View.INVISIBLE
+        val targetVis = if (activeAtCurrentTime) android.view.View.VISIBLE else android.view.View.INVISIBLE
+        if (view.visibility != targetVis) {
+            view.visibility = targetVis
+        }
         view.showControls(isEditing)
-        view.alpha = if (activeAtCurrentTime) overlay.opacity.coerceIn(0.12f, 1f) else 0f
+        val targetAlpha = if (activeAtCurrentTime) overlay.opacity.coerceIn(0.12f, 1f) else 0f
+        if (view.alpha != targetAlpha) {
+            view.alpha = targetAlpha
+        }
         view.setText(overlay.text)
         view.applyStyle(overlay, currentTimeMs)
         if (overlay.captionStyle != null && activeAtCurrentTime) {
@@ -421,12 +427,17 @@ class OverlayController(
                 }
             }
         }
-        view.scaleX = overlay.scale
-        view.scaleY = overlay.scale
+        if (view.scaleX != overlay.scale) view.scaleX = overlay.scale
+        if (view.scaleY != overlay.scale) view.scaleY = overlay.scale
         view.syncControlChromeScale()
-        view.rotation = overlay.rotation
+        if (view.rotation != overlay.rotation) view.rotation = overlay.rotation
         val zOrder = TEXT_PREVIEW_Z + overlay.layerIndex.coerceAtLeast(0)
-        view.z = zOrder.toFloat()
+        val targetZ = zOrder.toFloat()
+        var stackDirty = false
+        if (view.z != targetZ) {
+            view.z = targetZ
+            stackDirty = true
+        }
         val nativeOpacity = if (activeAtCurrentTime) overlay.opacity else 0f
         val previewView = previewViewProvider()
         if (textNativeOpacityById[overlay.id] != nativeOpacity) {
@@ -436,8 +447,11 @@ class OverlayController(
         if (textNativeZOrderById[overlay.id] != zOrder) {
             textNativeZOrderById[overlay.id] = zOrder
             previewView?.setTextZOrder(overlay.id, zOrder)
+            stackDirty = true
         }
-        onRefreshOverlayStack()
+        if (stackDirty) {
+            onRefreshOverlayStack()
+        }
     }
 
     fun applyStickerLayerState(clip: StickerClip) {
@@ -447,12 +461,18 @@ class OverlayController(
             clip.visible &&
                 currentTimeMs >= clip.startTimeMs.toLong() &&
                 currentTimeMs < (clip.startTimeMs.toLong() + clip.durationMs.toLong().coerceAtLeast(1L))
-        view.visibility = if (activeAtCurrentTime) android.view.View.VISIBLE else android.view.View.INVISIBLE
-        view.alpha = if (activeAtCurrentTime) clip.opacity.coerceIn(0.12f, 1f) else 0f
-        view.scaleX = if (clip.mirrorX) -clip.scale else clip.scale
-        view.scaleY = clip.scale
-        view.rotation = clip.rotation
-        view.z = (STICKER_PREVIEW_Z + clip.layerIndex.coerceAtLeast(0)).toFloat()
-        onRefreshOverlayStack()
+        val targetVis = if (activeAtCurrentTime) android.view.View.VISIBLE else android.view.View.INVISIBLE
+        if (view.visibility != targetVis) view.visibility = targetVis
+        val targetAlpha = if (activeAtCurrentTime) clip.opacity.coerceIn(0.12f, 1f) else 0f
+        if (view.alpha != targetAlpha) view.alpha = targetAlpha
+        val targetScaleX = if (clip.mirrorX) -clip.scale else clip.scale
+        if (view.scaleX != targetScaleX) view.scaleX = targetScaleX
+        if (view.scaleY != clip.scale) view.scaleY = clip.scale
+        if (view.rotation != clip.rotation) view.rotation = clip.rotation
+        val targetZ = (STICKER_PREVIEW_Z + clip.layerIndex.coerceAtLeast(0)).toFloat()
+        if (view.z != targetZ) {
+            view.z = targetZ
+            onRefreshOverlayStack()
+        }
     }
 }

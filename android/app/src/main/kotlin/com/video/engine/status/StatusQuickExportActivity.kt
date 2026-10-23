@@ -31,6 +31,7 @@ import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.video.engine.EditorLaunchIntents
+import com.video.engine.ExportService
 import com.video.engine.R
 import com.video.engine.VideoEditorActivity
 import com.video.engine.audio.AudioExtractorHelper
@@ -65,7 +66,7 @@ class StatusQuickExportActivity : ComponentActivity() {
     private var gradientEnd: String = "#8A2387"
     private var photoPaths: ArrayList<String> = arrayListOf()
     private var customText: String? = null
-    private var is1080pSelected: Boolean = true
+    private var is1080pSelected: Boolean = false
 
     private var currentTemplate: StatusTemplate? = null
     private var currentAudioPath: String? = null
@@ -564,6 +565,29 @@ class StatusQuickExportActivity : ComponentActivity() {
         exportPercentText.text = "Exporting Status Video ($qualityLabel)... 0%"
         livePreviewView?.visibility = View.GONE
 
+        // Start Foreground Service so Android does not kill export if user switches apps
+        try {
+            startService(
+                ExportService.buildIntent(
+                    context = this@StatusQuickExportActivity,
+                    title = "Exporting Status Video",
+                    text = "Export in progress ($qualityLabel)... 0%",
+                    progress = 0
+                )
+            )
+        } catch (_: Exception) {}
+
+        // Enable Run in Background button
+        findViewById<View>(R.id.exportRunInBackgroundBtn)?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            Toast.makeText(
+                this@StatusQuickExportActivity,
+                "📲 Export background me chal raha hai. Video ready hone par gallery me save ho jayegi.",
+                Toast.LENGTH_LONG
+            ).show()
+            moveTaskToBack(true)
+        }
+
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val safeTitle = templateTitle.replace(Regex("[^a-zA-Z0-9]"), "_")
         val exportDir = File(cacheDir, "status_exports").also { it.mkdirs() }
@@ -575,10 +599,16 @@ class StatusQuickExportActivity : ComponentActivity() {
 
         Thread {
             try {
+                // Ensure project is loaded into native engine
+                val pv = previewView
+                if (!isProjectLoaded && projectPath != null && pv != null) {
+                    pv.loadProject(projectPath!!)
+                    Thread.sleep(150)
+                }
+
                 // Brief pause so any playback rendering thread completely releases EGL surface
                 Thread.sleep(150)
 
-                val pv = previewView
                 val success = pv?.exportToVideo(
                     outputPath = exportFile.absolutePath,
                     width = expWidth,
@@ -587,6 +617,8 @@ class StatusQuickExportActivity : ComponentActivity() {
                     bitrateMbps = expBitrate,
                     videoCodec = "h264"
                 ) ?: false
+
+                try { stopService(Intent(this@StatusQuickExportActivity, ExportService::class.java)) } catch (_: Exception) {}
 
                 if (success && exportFile.exists() && exportFile.length() > 0) {
                     val savedFile = saveVideoToGallery(exportFile)
@@ -608,6 +640,7 @@ class StatusQuickExportActivity : ComponentActivity() {
                     }
                 }
             } catch (e: Exception) {
+                try { stopService(Intent(this@StatusQuickExportActivity, ExportService::class.java)) } catch (_: Exception) {}
                 runOnUiThread {
                     exportProgressOverlay.visibility = View.GONE
                     livePreviewView?.visibility = View.VISIBLE
@@ -629,7 +662,20 @@ class StatusQuickExportActivity : ComponentActivity() {
                     if (currentProgress < 90) currentProgress += 5
                 }
                 exportProgressBar.progress = currentProgress
-                exportPercentText.text = "Exporting Status Video... $currentProgress%"
+                exportPercentText.text = "Exporting Status Video ($qualityLabel)... $currentProgress%"
+
+                // Update notification progress
+                try {
+                    startService(
+                        ExportService.buildIntent(
+                            context = this@StatusQuickExportActivity,
+                            title = "Exporting Status Video",
+                            text = "Exporting Status Video ($qualityLabel)... $currentProgress%",
+                            progress = currentProgress
+                        )
+                    )
+                } catch (_: Exception) {}
+
                 handler.postDelayed(this, 300)
             }
         }
@@ -821,6 +867,9 @@ class StatusQuickExportActivity : ComponentActivity() {
         progressCheckRunnable?.let { handler.removeCallbacks(it) }
         stopAudioPlayback()
         previewView?.stopPlayback()
+        if (!isExporting) {
+            try { stopService(Intent(this, ExportService::class.java)) } catch (_: Exception) {}
+        }
         super.onDestroy()
     }
 

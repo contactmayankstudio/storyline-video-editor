@@ -47,14 +47,14 @@ fun StatusTemplate.getViralUsageCount(): String {
 object StatusTemplateRepository {
     val allTemplates: List<StatusTemplate> = listOf(
         StatusTemplate(
-            id = "tpl_capcut_3d_zoom_pro",
-            title = "CapCut 3D Zoom Pro 🔥",
+            id = "tpl_storyline_3d_zoom_pro",
+            title = "Storyline 3D Zoom Pro 🔥",
             category = "Trending",
             emoji = "🔥",
             durationMs = 12000L,
             requiredPhotoCount = 4,
             bpm = 130,
-            description = "Viral CapCut 3D depth zoom with camera roll, beat drop shake, and high-impact bass cuts.",
+            description = "Viral Storyline 3D depth zoom with camera roll, beat drop shake, and high-impact bass cuts.",
             gradientStartHex = "#FF0844",
             gradientEndHex = "#FFB199",
             audioAssetPath = "music_bgm/attitude_bass_drop.wav",
@@ -72,8 +72,8 @@ object StatusTemplateRepository {
             )
         ),
         StatusTemplate(
-            id = "tpl_capcut_velocity_flow",
-            title = "CapCut Velocity Speed-Ramp ⚡",
+            id = "tpl_storyline_velocity_flow",
+            title = "Storyline Velocity Speed-Ramp ⚡",
             category = "Trending",
             emoji = "⚡",
             durationMs = 11000L,
@@ -97,8 +97,8 @@ object StatusTemplateRepository {
             )
         ),
         StatusTemplate(
-            id = "tpl_capcut_sigma_phonk",
-            title = "CapCut Sigma Phonk Bass Drop 💥",
+            id = "tpl_storyline_sigma_phonk",
+            title = "Storyline Sigma Phonk Bass Drop 💥",
             category = "Trending",
             emoji = "💥",
             durationMs = 12000L,
@@ -122,8 +122,8 @@ object StatusTemplateRepository {
             )
         ),
         StatusTemplate(
-            id = "tpl_capcut_cyber_neon",
-            title = "CapCut Cyberpunk Neon Rave 🌌",
+            id = "tpl_storyline_cyber_neon",
+            title = "Storyline Cyberpunk Neon Rave 🌌",
             category = "Trending",
             emoji = "🌌",
             durationMs = 13000L,
@@ -147,8 +147,8 @@ object StatusTemplateRepository {
             )
         ),
         StatusTemplate(
-            id = "tpl_capcut_golden_hour",
-            title = "CapCut Golden Hour 35mm Film ✨",
+            id = "tpl_storyline_golden_hour",
+            title = "Storyline Golden Hour 35mm Film ✨",
             category = "Trending",
             emoji = "✨",
             durationMs = 14000L,
@@ -172,8 +172,8 @@ object StatusTemplateRepository {
             )
         ),
         StatusTemplate(
-            id = "tpl_capcut_mafia_swag",
-            title = "CapCut Mafia Boss Swag 😎",
+            id = "tpl_storyline_mafia_swag",
+            title = "Storyline Mafia Boss Swag 😎",
             category = "Attitude",
             emoji = "😎",
             durationMs = 12000L,
@@ -197,8 +197,8 @@ object StatusTemplateRepository {
             )
         ),
         StatusTemplate(
-            id = "tpl_capcut_romantic_heartbeat",
-            title = "CapCut Lyrical Heartbeat Glow 💖",
+            id = "tpl_storyline_romantic_heartbeat",
+            title = "Storyline Lyrical Heartbeat Glow 💖",
             category = "Love",
             emoji = "💖",
             durationMs = 14000L,
@@ -222,8 +222,8 @@ object StatusTemplateRepository {
             )
         ),
         StatusTemplate(
-            id = "tpl_capcut_mahakal_tandav",
-            title = "CapCut Mahakal Tandav Trance 🔱",
+            id = "tpl_storyline_mahakal_tandav",
+            title = "Storyline Mahakal Tandav Trance 🔱",
             category = "Celebration",
             emoji = "🔱",
             durationMs = 14000L,
@@ -247,8 +247,8 @@ object StatusTemplateRepository {
             )
         ),
         StatusTemplate(
-            id = "tpl_capcut_flash_rave",
-            title = "CapCut Flash Beat Rave 🔊",
+            id = "tpl_storyline_flash_rave",
+            title = "Storyline Flash Beat Rave 🔊",
             category = "Trending",
             emoji = "🔊",
             durationMs = 10000L,
@@ -271,8 +271,8 @@ object StatusTemplateRepository {
             )
         ),
         StatusTemplate(
-            id = "tpl_capcut_cinematic_hype",
-            title = "CapCut Cinematic Trailer Intro 🎬",
+            id = "tpl_storyline_cinematic_hype",
+            title = "Storyline Cinematic Trailer Intro 🎬",
             category = "Trending",
             emoji = "🎬",
             durationMs = 15000L,
@@ -1288,8 +1288,8 @@ object StatusTemplateRepository {
         if (category.contains("Bhakti", ignoreCase = true) || category.contains("Devotional", ignoreCase = true)) {
             return all.filter { it.id.contains("dev_") || it.title.contains("Ram", true) || it.title.contains("Krishna", true) || it.title.contains("Divine", true) || it.emoji in listOf("🪔", "🪶", "🚩") }
         }
-        if (category.contains("CapCut", ignoreCase = true)) {
-            return all.filter { it.title.contains("CapCut", ignoreCase = true) || it.id.startsWith("tpl_capcut_") }
+        if (category.contains("Storyline", ignoreCase = true) || category.contains("CapCut", ignoreCase = true)) {
+            return all.filter { it.title.contains("Storyline", ignoreCase = true) || it.id.startsWith("tpl_storyline_") || it.title.contains("CapCut", ignoreCase = true) || it.id.startsWith("tpl_capcut_") }
         }
         return all.filter { it.category.equals(category, ignoreCase = true) }
     }

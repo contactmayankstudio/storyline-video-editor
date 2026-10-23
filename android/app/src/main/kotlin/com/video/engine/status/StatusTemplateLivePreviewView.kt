@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.LinearGradient
 import android.graphics.Matrix
 import android.graphics.Paint
@@ -15,6 +16,9 @@ import android.graphics.Shader
 import android.graphics.Typeface
 import android.os.SystemClock
 import android.util.AttributeSet
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 
 class StatusTemplateLivePreviewView @JvmOverloads constructor(
@@ -37,6 +41,56 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
             field = value
             postInvalidateOnAnimation()
         }
+
+    // Touch gesture adjustment for text: Position (Norm X/Y) & Scale
+    var customTextNormX: Float = 0.5f
+        set(value) {
+            field = value.coerceIn(0.10f, 0.90f)
+            postInvalidateOnAnimation()
+        }
+    var customTextNormY: Float = 0.74f
+        set(value) {
+            field = value.coerceIn(0.12f, 0.88f)
+            postInvalidateOnAnimation()
+        }
+    var customTextScaleFactor: Float = 1.0f
+        set(value) {
+            field = value.coerceIn(0.55f, 2.8f)
+            postInvalidateOnAnimation()
+        }
+
+    private var isDraggingText = false
+    private var isTouchInteractingWithText = false
+    private var touchDownX = 0f
+    private var touchDownY = 0f
+    private val textBoundingRect = RectF()
+    private val textHandlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#FFD700")
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        pathEffect = DashPathEffect(floatArrayOf(12f, 8f), 0f)
+    }
+    private val textHandleFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#FFD700")
+        style = Paint.Style.FILL
+    }
+    private val textTouchHintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#FFE500")
+        textSize = 24f
+        typeface = Typeface.DEFAULT_BOLD
+        textAlign = Paint.Align.CENTER
+    }
+    private val textTouchHintBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(200, 0, 0, 0)
+    }
+    private val scaleGestureDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScale(detector: ScaleGestureDetector): Boolean {
+            customTextScaleFactor = (customTextScaleFactor * detector.scaleFactor).coerceIn(0.55f, 2.8f)
+            performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            postInvalidateOnAnimation()
+            return true
+        }
+    })
 
     private var isPlaying: Boolean = true
     private var startTime: Long = SystemClock.uptimeMillis()
@@ -393,17 +447,45 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         canvas.save()
         canvas.translate(shakeX + panOffsetX, shakeY + panOffsetY)
 
-        val baseScale = Math.max(w / currentBmp.width.toFloat(), h / currentBmp.height.toFloat()) * zoom
-        val scaledW = currentBmp.width.toFloat() * baseScale
-        val scaledH = currentBmp.height.toFloat() * baseScale
+        val photoRatio = currentBmp.width.toFloat() / currentBmp.height.toFloat()
+        val isNonPortrait = customPhotoBitmap != null && Math.abs(photoRatio - 9f / 16f) > 0.04f
 
-        matrix.reset()
-        matrix.postScale(baseScale, baseScale)
-        matrix.postTranslate((w - scaledW) / 2f, (h - scaledH) / 2f)
+        if (isNonPortrait) {
+            // 1. Ambient blurred / cover background to fill 9:16 canvas seamlessly
+            val bgScale = Math.max(w / currentBmp.width.toFloat(), h / currentBmp.height.toFloat())
+            val bgW = currentBmp.width.toFloat() * bgScale
+            val bgH = currentBmp.height.toFloat() * bgScale
+            matrix.reset()
+            matrix.postScale(bgScale, bgScale)
+            matrix.postTranslate((w - bgW) / 2f, (h - bgH) / 2f)
+            bgPaint.alpha = 135
+            canvas.drawBitmap(currentBmp, matrix, bgPaint)
 
-        // Draw primary photo
-        bgPaint.alpha = 255
-        canvas.drawBitmap(currentBmp, matrix, bgPaint)
+            // Scrim
+            canvas.drawRect(0f, 0f, w, h, dimPaint)
+
+            // 2. Full original photo centered with fitCenter so NOTHING is cut off!
+            val fgScale = Math.min(w / currentBmp.width.toFloat(), h / currentBmp.height.toFloat()) * zoom
+            val fgW = currentBmp.width.toFloat() * fgScale
+            val fgH = currentBmp.height.toFloat() * fgScale
+            matrix.reset()
+            matrix.postScale(fgScale, fgScale)
+            matrix.postTranslate((w - fgW) / 2f, (h - fgH) / 2f)
+            bgPaint.alpha = 255
+            canvas.drawBitmap(currentBmp, matrix, bgPaint)
+        } else {
+            val baseScale = Math.max(w / currentBmp.width.toFloat(), h / currentBmp.height.toFloat()) * zoom
+            val scaledW = currentBmp.width.toFloat() * baseScale
+            val scaledH = currentBmp.height.toFloat() * baseScale
+
+            matrix.reset()
+            matrix.postScale(baseScale, baseScale)
+            matrix.postTranslate((w - scaledW) / 2f, (h - scaledH) / 2f)
+
+            // Draw primary photo
+            bgPaint.alpha = 255
+            canvas.drawBitmap(currentBmp, matrix, bgPaint)
+        }
 
         // 2. Crossfade transition on last 25% of slide duration
         if (slideProgress > 0.75f && customPhotoBitmap == null) {
@@ -540,8 +622,9 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         // Draw custom user name / lyrical text bouncing to the beat with glowing kinetic typography
         val customText = customStatusText
         if (!customText.isNullOrBlank()) {
-            val customBounce = beatPulse * 5f
-            val customTextSize = (21f * resources.displayMetrics.scaledDensity) + customBounce
+            val customBounce = beatPulse * 4f
+            val baseSize = (19f * resources.displayMetrics.scaledDensity) * customTextScaleFactor
+            val customTextSize = baseSize + customBounce
             customTextPaint.apply {
                 color = Color.parseColor("#FFFDF0")
                 textSize = customTextSize
@@ -550,20 +633,73 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
                 setShadowLayer(16f + (beatPulse * 6f), 0f, 0f, Color.parseColor("#FFD700"))
             }
 
-            val customY = (h * 0.74f) - customBounce
-            val measuredW = customTextPaint.measureText(customText)
-            val pillPadH = 14f * resources.displayMetrics.density
-            val pillPadV = 6f * resources.displayMetrics.density
+            // Word wrap lines dynamically so Shayari text NEVER cuts off horizontally
+            val maxLineWidth = (w * 0.82f)
+            val words = customText.split(" ")
+            val lines = mutableListOf<String>()
+            var currentLine = StringBuilder()
+
+            for (word in words) {
+                val candidate = if (currentLine.isEmpty()) word else "$currentLine $word"
+                if (customTextPaint.measureText(candidate) <= maxLineWidth) {
+                    currentLine = StringBuilder(candidate)
+                } else {
+                    if (currentLine.isNotEmpty()) {
+                        lines.add(currentLine.toString())
+                    }
+                    currentLine = StringBuilder(word)
+                }
+            }
+            if (currentLine.isNotEmpty()) {
+                lines.add(currentLine.toString())
+            }
+
+            val lineHeight = customTextSize * 1.32f
+            val totalTextHeight = lines.size * lineHeight
+            var maxMeasuredWidth = 0f
+            for (line in lines) {
+                val lw = customTextPaint.measureText(line)
+                if (lw > maxMeasuredWidth) maxMeasuredWidth = lw
+            }
+
+            val centerX = w * customTextNormX
+            val centerY = (h * customTextNormY) - customBounce
+            val pillPadH = 16f * resources.displayMetrics.density
+            val pillPadV = 10f * resources.displayMetrics.density
             val pillRect = RectF(
-                (w / 2f) - (measuredW / 2f) - pillPadH,
-                customY - customTextSize + (pillPadV * 0.5f),
-                (w / 2f) + (measuredW / 2f) + pillPadH,
-                customY + (pillPadV * 1.5f)
+                centerX - (maxMeasuredWidth / 2f) - pillPadH,
+                centerY - (totalTextHeight / 2f) - pillPadV,
+                centerX + (maxMeasuredWidth / 2f) + pillPadH,
+                centerY + (totalTextHeight / 2f) + pillPadV
             )
+            textBoundingRect.set(pillRect)
+
             canvas.drawRoundRect(pillRect, 18f, 18f, customPillBgPaint)
             canvas.drawRoundRect(pillRect, 18f, 18f, customPillStrokePaint)
-            canvas.drawText(customText, w / 2f, customY, customTextPaint)
+
+            var lineY = centerY - (totalTextHeight / 2f) + (customTextSize * 0.95f)
+            for (line in lines) {
+                canvas.drawText(line, centerX, lineY, customTextPaint)
+                lineY += lineHeight
+            }
             customTextPaint.setShadowLayer(0f, 0f, 0f, 0)
+
+            // If user is interacting / dragging, draw dashed bounding box & helper hint
+            if (isTouchInteractingWithText) {
+                canvas.drawRoundRect(pillRect, 18f, 18f, textHandlePaint)
+                val dotR = 6f * resources.displayMetrics.density
+                canvas.drawCircle(pillRect.left, pillRect.top, dotR, textHandleFillPaint)
+                canvas.drawCircle(pillRect.right, pillRect.top, dotR, textHandleFillPaint)
+                canvas.drawCircle(pillRect.left, pillRect.bottom, dotR, textHandleFillPaint)
+                canvas.drawCircle(pillRect.right, pillRect.bottom, dotR, textHandleFillPaint)
+
+                val hintText = "✏️ Drag to Move • Pinch to Scale"
+                val hintW = textTouchHintPaint.measureText(hintText) + 24f
+                val hintH = 34f
+                val hintRect = RectF(centerX - hintW / 2f, pillRect.top - hintH - 12f, centerX + hintW / 2f, pillRect.top - 12f)
+                canvas.drawRoundRect(hintRect, 10f, 10f, textTouchHintBgPaint)
+                canvas.drawText(hintText, centerX, hintRect.centerY() + 8f, textTouchHintPaint)
+            }
         }
     }
 
@@ -723,6 +859,69 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
 
     fun setOnCreateStatusClickListener(listener: () -> Unit) {
         this.onCreateStatusClick = listener
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        scaleGestureDetector.onTouchEvent(event)
+
+        val customText = customStatusText
+        if (customText.isNullOrBlank()) {
+            return super.onTouchEvent(event)
+        }
+
+        val touchSlop = 32f * resources.displayMetrics.density
+        val hitRect = RectF(
+            textBoundingRect.left - touchSlop,
+            textBoundingRect.top - touchSlop,
+            textBoundingRect.right + touchSlop,
+            textBoundingRect.bottom + touchSlop
+        )
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                if (hitRect.contains(event.x, event.y)) {
+                    isDraggingText = true
+                    isTouchInteractingWithText = true
+                    touchDownX = event.x
+                    touchDownY = event.y
+                    performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    postInvalidateOnAnimation()
+                    return true
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (isDraggingText && !scaleGestureDetector.isInProgress) {
+                    val dx = event.x - touchDownX
+                    val dy = event.y - touchDownY
+                    val wF = width.toFloat().coerceAtLeast(10f)
+                    val hF = height.toFloat().coerceAtLeast(10f)
+                    customTextNormX = (customTextNormX + (dx / wF)).coerceIn(0.12f, 0.88f)
+                    customTextNormY = (customTextNormY + (dy / hF)).coerceIn(0.12f, 0.88f)
+                    touchDownX = event.x
+                    touchDownY = event.y
+                    postInvalidateOnAnimation()
+                    return true
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (isDraggingText) {
+                    isDraggingText = false
+                    performHapticFeedback(HapticFeedbackConstants.KEYBOARD_RELEASE)
+                    parent?.requestDisallowInterceptTouchEvent(false)
+                    postDelayed({
+                        if (!isDraggingText) {
+                            isTouchInteractingWithText = false
+                            postInvalidateOnAnimation()
+                        }
+                    }, 1400L)
+                    postInvalidateOnAnimation()
+                    return true
+                }
+            }
+        }
+
+        return super.onTouchEvent(event)
     }
 
     fun release() {

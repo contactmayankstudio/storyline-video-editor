@@ -920,13 +920,22 @@ class TimelineCanvasView @JvmOverloads constructor(
         val midY = (top + bottom) / 2f
         val maxAmp = (bottom - top) / 2f - dp(4)
         val barW = (right - left) / peakCount
-        val ptsNeeded = peakCount * 4
+        val viewLeft = max(left, headerWidthPx.toFloat())
+        val viewRight = min(right, clipDrawRight)
+        if (viewRight <= viewLeft || barW <= 0f) return
+
+        val startIdx = (((viewLeft - left) / barW).toInt() - 1).coerceIn(0, peakCount - 1)
+        val endIdx = (((viewRight - left) / barW).toInt() + 1).coerceIn(0, peakCount - 1)
+        if (startIdx > endIdx) return
+
+        val visibleCount = (endIdx - startIdx + 1)
+        val ptsNeeded = visibleCount * 4
         if (waveformLinePts.size < ptsNeeded) {
             waveformLinePts = FloatArray(ptsNeeded)
         }
         val pts = waveformLinePts
         var ptIdx = 0
-        for (i in 0 until peakCount) {
+        for (i in startIdx..endIdx) {
             val peak = peaks[i]
             val x = left + i * barW + barW / 2f
             val amp = peak * maxAmp
@@ -936,18 +945,18 @@ class TimelineCanvasView @JvmOverloads constructor(
             pts[ptIdx++] = midY + amp
         }
         canvas.save()
-        canvas.clipRect(max(left, headerWidthPx.toFloat()), top, min(right, clipDrawRight), bottom)
-        canvas.drawLines(pts, 0, ptsNeeded, waveformPaint)
+        canvas.clipRect(viewLeft, top, viewRight, bottom)
+        canvas.drawLines(pts, 0, ptIdx, waveformPaint)
 
-        // Draw CapCut-style rhythmic golden beat drop markers along audio track
-        if (clip.trackType == TrackType.AUDIO) {
+        // Draw Storyline rhythmic golden beat drop markers along audio track (culled to visible range)
+        if (clip.trackType == TrackType.AUDIO && (!playbackActive || !DeviceDetector.isLowEndDevice())) {
             val markerY = top + dp(5f).toFloat()
             val dotRadius = dp(2.2f).toFloat()
             val glowRadius = dp(4.5f).toFloat()
             val minPeakDist = (peakCount * 450L / clip.durationMs.coerceAtLeast(1L)).toInt().coerceIn(6, 40)
             var lastBeatIdx = -minPeakDist
 
-            for (i in 0 until peakCount) {
+            for (i in startIdx..endIdx) {
                 val peak = peaks[i]
                 val isBeat = (peak >= 0.65f && (i - lastBeatIdx) >= minPeakDist) ||
                              ((i - lastBeatIdx) >= minPeakDist * 2 && peak >= 0.40f)
@@ -1123,6 +1132,7 @@ class TimelineCanvasView @JvmOverloads constructor(
             canvas.clipRect(clampedLeft, top + dp(2), clampedRight, bottom - dp(2))
             thumbs.forEachIndexed { i, bmp ->
                 val tx = left + i * tileW
+                if (tx + tileW < clampedLeft || tx > clampedRight) return@forEachIndexed
                 thumbSrcRect.set(0, 0, bmp.width, bmp.height)
                 thumbDstRect.set(tx, top + dp(2), tx + tileW, bottom - dp(2))
                 canvas.drawBitmap(bmp, thumbSrcRect, thumbDstRect, thumbnailPaint)

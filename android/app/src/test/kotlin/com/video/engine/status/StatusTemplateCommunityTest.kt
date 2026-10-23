@@ -12,23 +12,23 @@ import org.junit.Test
 class StatusTemplateCommunityTest {
 
     @Test
-    fun builtInTemplates_containViralCapCutPresets() {
+    fun builtInTemplates_containViralStorylinePresets() {
         val all = StatusTemplateRepository.allTemplates
         assertTrue(all.isNotEmpty())
 
-        val capCutZoom = StatusTemplateRepository.getById("tpl_capcut_3d_zoom_pro")
-        assertNotNull(capCutZoom)
-        assertEquals("CapCut 3D Zoom Pro 🔥", capCutZoom?.title)
-        assertEquals(130, capCutZoom?.bpm)
-        assertFalse(capCutZoom?.isUserCreated ?: true)
+        val storylineZoom = StatusTemplateRepository.getById("tpl_storyline_3d_zoom_pro")
+        assertNotNull(storylineZoom)
+        assertEquals("Storyline 3D Zoom Pro 🔥", storylineZoom?.title)
+        assertEquals(130, storylineZoom?.bpm)
+        assertFalse(storylineZoom?.isUserCreated ?: true)
 
-        val velocity = StatusTemplateRepository.getById("tpl_capcut_velocity_flow")
+        val velocity = StatusTemplateRepository.getById("tpl_storyline_velocity_flow")
         assertNotNull(velocity)
-        assertEquals("CapCut Velocity Speed-Ramp ⚡", velocity?.title)
+        assertEquals("Storyline Velocity Speed-Ramp ⚡", velocity?.title)
 
-        val phonk = StatusTemplateRepository.getById("tpl_capcut_sigma_phonk")
+        val phonk = StatusTemplateRepository.getById("tpl_storyline_sigma_phonk")
         assertNotNull(phonk)
-        assertEquals("CapCut Sigma Phonk Bass Drop 💥", phonk?.title)
+        assertEquals("Storyline Sigma Phonk Bass Drop 💥", phonk?.title)
     }
 
     @Test

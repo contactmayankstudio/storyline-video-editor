@@ -351,6 +351,22 @@
                 android:text="Rendering effects, music &amp; lyrics"
                 android:textColor="#8A99AD"
                 android:textSize="12sp" />
+
+            <!-- Run in Background Button -->
+            <TextView
+                android:id="@+id/exportRunInBackgroundBtn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:background="@drawable/launch_count_chip_background"
+                android:paddingStart="16dp"
+                android:paddingTop="9dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="9dp"
+                android:text="📲 Run in Background (बैकग्राउंड में होने दें)"
+                android:textColor="#58A6FF"
+                android:textSize="13sp"
+                android:textStyle="bold" />
         </LinearLayout>
     </FrameLayout>
 

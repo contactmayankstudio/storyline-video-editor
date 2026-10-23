@@ -130,7 +130,7 @@
                         android:textColor="#FFFFFF"
                         android:textSize="12sp"
                         android:textStyle="bold"
-                        tools:text="CapCut 3D Zoom Pro" />
+                        tools:text="Storyline 3D Zoom Pro" />
 
                     <TextView
                         android:id="@+id/mastCardBpm"

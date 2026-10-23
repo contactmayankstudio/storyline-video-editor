@@ -89,7 +89,7 @@
             android:paddingTop="4dp"
             android:paddingEnd="9dp"
             android:paddingBottom="4dp"
-            android:text="✨ CAPCUT COMMUNITY"
+            android:text="✨ STORYLINE COMMUNITY"
             android:textColor="#FFFFFF"
             android:textSize="10.5sp"
             android:textStyle="bold" />
@@ -153,7 +153,7 @@
             android:shadowDx="0"
             android:shadowDy="2"
             android:shadowRadius="6"
-            android:text="CapCut 3D Zoom Pro 🔥"
+            android:text="Storyline 3D Zoom Pro 🔥"
             android:textColor="#FFFFFF"
             android:textSize="16sp"
             android:textStyle="bold" />
@@ -169,7 +169,7 @@
             android:shadowDx="0"
             android:shadowDy="2"
             android:shadowRadius="4"
-            android:text="Viral CapCut 3D depth zoom with camera roll, beat drop shake, and high-impact bass cuts."
+            android:text="Viral Storyline 3D depth zoom with camera roll, beat drop shake, and high-impact bass cuts."
             android:textColor="#D0E0FF"
             android:textSize="11.5sp" />
 

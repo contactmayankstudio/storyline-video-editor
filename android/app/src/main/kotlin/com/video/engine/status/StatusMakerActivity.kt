@@ -685,41 +685,37 @@ class StatusMakerActivity : ComponentActivity() {
         val onCtaAction = View.OnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             if (activePhotoPath != null) {
+                val textX = livePreviewView?.customTextNormX ?: 0.5f
+                val textY = livePreviewView?.customTextNormY ?: 0.74f
+                val textScale = livePreviewView?.customTextScaleFactor ?: 1.0f
                 dialog.dismiss()
                 val photosToUse = activePhotoPaths.ifEmpty { listOf(activePhotoPath) }
-                if (currentProjectFile != null && currentProjectFile!!.exists()) {
-                    launchQuickExport(
-                        currentProjectFile!!,
+                Toast.makeText(this@StatusMakerActivity, "Preparing Export...", Toast.LENGTH_SHORT).show()
+                Thread {
+                    val proj = StatusProjectBuilder.buildProjectFile(
+                        this@StatusMakerActivity,
                         currentActiveTemplate,
                         photosToUse,
+                        activeCustomAudioPath,
                         activeCustomText,
-                        activeCustomAudioPath
+                        textNormX = textX,
+                        textNormY = textY,
+                        textScale = textScale
                     )
-                } else {
-                    Toast.makeText(this@StatusMakerActivity, "Preparing Export...", Toast.LENGTH_SHORT).show()
-                    Thread {
-                        val proj = StatusProjectBuilder.buildProjectFile(
-                            this@StatusMakerActivity,
-                            currentActiveTemplate,
-                            photosToUse,
-                            activeCustomAudioPath,
-                            activeCustomText
-                        )
-                        runOnUiThread {
-                            if (proj != null && proj.exists()) {
-                                launchQuickExport(
-                                    proj,
-                                    currentActiveTemplate,
-                                    photosToUse,
-                                    activeCustomText,
-                                    activeCustomAudioPath
-                                )
-                            } else {
-                                Toast.makeText(this@StatusMakerActivity, "Failed to build status project", Toast.LENGTH_SHORT).show()
-                            }
+                    runOnUiThread {
+                        if (proj != null && proj.exists()) {
+                            launchQuickExport(
+                                proj,
+                                currentActiveTemplate,
+                                photosToUse,
+                                activeCustomText,
+                                activeCustomAudioPath
+                            )
+                        } else {
+                            Toast.makeText(this@StatusMakerActivity, "Failed to build status project", Toast.LENGTH_SHORT).show()
                         }
-                    }.start()
-                }
+                    }
+                }.start()
             } else {
                 dialog.dismiss()
                 pendingTemplate = currentActiveTemplate
@@ -1180,7 +1176,7 @@ class StatusMakerActivity : ComponentActivity() {
                     holder.communityBadge.text = "🌟 MY TEMPLATE"
                     holder.communityBadge.setTextColor(Color.parseColor("#FFE500"))
                 } else {
-                    holder.communityBadge.text = "✨ CAPCUT COMMUNITY"
+                    holder.communityBadge.text = "✨ STORYLINE COMMUNITY"
                     holder.communityBadge.setTextColor(Color.WHITE)
                 }
 
