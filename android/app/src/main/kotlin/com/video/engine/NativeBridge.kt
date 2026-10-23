@@ -345,9 +345,9 @@ object NativeBridge {
      * Create a bitmap from overlay text and upload pixel data to native preview.
      * This uses the shared text bitmap helper so preview/export/edit all render consistently.
      */
-    fun setTextOverlayBitmap(previewView: VideoPreviewView, overlay: com.video.engine.overlay.TextOverlay) {
+    fun setTextOverlayBitmap(previewView: VideoPreviewView, overlay: com.video.engine.overlay.TextOverlay, currentTimeMs: Long = -1L) {
         try {
-            val (pixels, width, height) = TextBitmapHelper.createTextPixels(overlay)
+            val (pixels, width, height) = TextBitmapHelper.createTextPixels(overlay, currentTimeMs)
             previewView.setTextOverlayBitmap(overlay.id, pixels, width, height)
             Log.d("[Text]", "uploaded bitmap id=${overlay.id} size=${width}x${height}")
         } catch (e: Exception) {

@@ -142,6 +142,9 @@ class TextEditorPanel(
         container.addView(label("Font"))
         val row = toolRow()
         val specs = listOf(
+            FontSpec("Bangers", "bangers"),
+            FontSpec("Anton", "anton"),
+            FontSpec("Poppins", "poppins-bold"),
             FontSpec("Sans", "sans-serif"),
             FontSpec("Serif", "serif"),
             FontSpec("Mono", "monospace"),

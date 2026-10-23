@@ -1,7 +1,10 @@
 package com.video.engine
 
+import android.content.Context
+import android.content.res.AssetManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.RectF
@@ -27,16 +30,19 @@ import kotlin.math.roundToInt
 object TextBitmapHelper {
     
     private const val TAG = "[TextBitmapHelper]"
+    private val fontCache = mutableMapOf<String, Typeface>()
+
+    var assetManager: AssetManager? = null
+
+    fun init(context: Context) {
+        if (assetManager == null) {
+            assetManager = context.applicationContext.assets
+        }
+    }
     
     /**
      * Create a bitmap with text rendered using Android Canvas.
      * Text is anti-aliased and centered horizontally.
-     * 
-     * @param text Text content to render
-     * @param fontSize Font size in pixels
-     * @param textColor ARGB color (0xAARRGGBB) for rendering
-     * @param bgColor Background color (typically 0x00000000 = transparent black)
-     * @return Bitmap with rendered text (ARGB_8888 format)
      */
     fun createTextBitmap(
         text: String,
@@ -62,6 +68,11 @@ object TextBitmapHelper {
         gradientEndColor: Int = textColor,
         backgroundPadding: Float = 0.0f,
         backgroundCornerRadius: Float = 0.0f,
+        activeWordIndex: Int = -1,
+        highlightColor: Int? = null,
+        activeWordScale: Float = 1.0f,
+        glowColor: Int? = null,
+        captionStyle: String? = null,
     ): Bitmap {
         val renderText = if (allCaps) {
             text.uppercase(Locale.getDefault())
@@ -69,24 +80,22 @@ object TextBitmapHelper {
             text
         }
         if (renderText.isEmpty()) {
-            // Return minimal 1x1 transparent pixels
             return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
         }
 
-        val effectiveShadowColor =
-            if (shadowColor ushr 24 == 0) {
-                if (isLightColor(textColor)) 0x99000000.toInt() else 0xB3FFFFFF.toInt()
-            } else {
-                shadowColor
-            }
+        val effectiveShadowColor = when {
+            glowColor != null && (glowColor ushr 24) != 0 -> glowColor
+            shadowColor ushr 24 == 0 -> if (isLightColor(textColor)) 0x99000000.toInt() else 0xB3FFFFFF.toInt()
+            else -> shadowColor
+        }
         val effectiveShadowBlur =
-            if (shadowEnabled) shadowBlur.coerceIn(0f, fontSize * 0.45f) else 0f
+            if (shadowEnabled) shadowBlur.coerceIn(0f, fontSize * 0.55f) else 0f
 
-        // Setup paint for text rendering
+        val typeface = resolveTypeface(fontName, bold, italic)
         val paint = Paint().apply {
             color = textColor
             textSize = fontSize
-            typeface = resolveTypeface(fontName, bold, italic)
+            this.typeface = typeface
             isUnderlineText = underline
             isAntiAlias = true
             isDither = true
@@ -101,38 +110,40 @@ object TextBitmapHelper {
             }
         }
 
+        val words = renderText.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        val hasWordHighlight = activeWordIndex in words.indices
+
         val lines = renderText.replace("\r\n", "\n").split('\n').ifEmpty { listOf(" ") }
         val safeLines = lines.map { if (it.isEmpty()) " " else it }
         val strokePx = strokeWidth.coerceIn(0f, fontSize * 0.35f)
         val depthOffsetPx = depthPx.coerceIn(0f, fontSize * 0.55f)
+        val maxWordScale = if (hasWordHighlight) activeWordScale.coerceIn(1f, 1.4f) else 1f
         val fontMetrics = paint.fontMetrics
-        val lineHeight = (fontMetrics.descent - fontMetrics.ascent + fontSize * 0.18f).coerceAtLeast(fontSize * 1.15f)
-        val maxLineWidth = safeLines.maxOfOrNull { paint.measureText(it) } ?: 0f
+        val lineHeight = (fontMetrics.descent - fontMetrics.ascent + fontSize * 0.22f * maxWordScale).coerceAtLeast(fontSize * 1.2f)
+        val maxLineWidth = (safeLines.maxOfOrNull { paint.measureText(it) } ?: 0f) * maxWordScale
         val hasBackground = ((bgColor ushr 24) and 0xFF) > 0
         val shadowPad = if (effectiveShadowBlur > 0.1f) {
             effectiveShadowBlur + maxOf(kotlin.math.abs(shadowOffsetX), kotlin.math.abs(shadowOffsetY))
         } else {
             0f
         }
-        val effectPadding = (strokePx + depthOffsetPx + shadowPad + fontSize * 0.14f).roundToInt().coerceAtLeast(0)
+        val effectPadding = (strokePx + depthOffsetPx + shadowPad + fontSize * 0.2f).roundToInt().coerceAtLeast(0)
         val explicitBackgroundPadding = backgroundPadding.takeIf { it > 0f }?.coerceIn(0f, fontSize * 2.4f)
         val horizontalPadding =
-            (explicitBackgroundPadding ?: (fontSize * if (hasBackground) 0.48f else 0.32f))
+            (explicitBackgroundPadding ?: (fontSize * if (hasBackground) 0.52f else 0.36f))
                 .toInt()
-                .coerceAtLeast(16) + effectPadding
+                .coerceAtLeast(18) + effectPadding
         val verticalPadding =
-            (explicitBackgroundPadding ?: (fontSize * if (hasBackground) 0.36f else 0.28f))
+            (explicitBackgroundPadding ?: (fontSize * if (hasBackground) 0.40f else 0.30f))
                 .toInt()
-                .coerceAtLeast(16) + effectPadding
+                .coerceAtLeast(18) + effectPadding
         val bitmapWidth = (maxLineWidth + horizontalPadding * 2 + depthOffsetPx).roundToInt().coerceAtLeast(32)
         val bitmapHeight = (lineHeight * safeLines.size + verticalPadding * 2 + depthOffsetPx).roundToInt().coerceAtLeast(32)
 
-        // Create bitmap
         val bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-
-        // Clear background
         canvas.drawColor(0x00000000, android.graphics.PorterDuff.Mode.CLEAR)
+
         if (hasBackground) {
             val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = bgColor
@@ -162,50 +173,97 @@ object TextBitmapHelper {
         }
         val fillPaint = Paint(paint).apply { style = Paint.Style.FILL }
 
-        // Draw multiline text centered line-by-line.
-        var baselineY = verticalPadding - fontMetrics.ascent
-        safeLines.forEach { line ->
-            val lineWidth = paint.measureText(line)
-            val xPos = ((bitmapWidth - lineWidth) * 0.5f).coerceAtLeast(horizontalPadding.toFloat())
-            if (depthOffsetPx > 0.1f) {
-                val steps = depthOffsetPx.roundToInt().coerceIn(1, 24)
-                for (step in steps downTo 1) {
-                    val offset = step.toFloat()
-                    canvas.drawText(line, xPos + offset, baselineY + offset, depthPaint)
+        if (hasWordHighlight && safeLines.size == 1) {
+            // Precise word-level rendering with kinetic bounce & pop
+            val wordPaints = words.mapIndexed { idx, word ->
+                val isActive = (idx == activeWordIndex)
+                val isPast = (idx < activeWordIndex)
+                val wordScale = if (isActive) activeWordScale.coerceIn(1f, 1.4f) else 1.0f
+                val wColor = when {
+                    isActive -> highlightColor ?: 0xFFFFE500.toInt()
+                    captionStyle == "KARAOKE" && isPast -> highlightColor ?: 0xFFFFE500.toInt()
+                    captionStyle == "KARAOKE" -> Color.argb(120, 255, 255, 255)
+                    else -> textColor
                 }
+                val p = Paint(paint).apply {
+                    textSize = fontSize * wordScale
+                    color = wColor
+                    if (isActive && glowColor != null) {
+                        setShadowLayer(effectiveShadowBlur.coerceAtLeast(8f), 0f, 0f, glowColor)
+                    }
+                }
+                val s = Paint(strokePaint).apply {
+                    textSize = fontSize * wordScale
+                    this.strokeWidth = strokePx * wordScale
+                }
+                val d = Paint(depthPaint).apply {
+                    textSize = fontSize * wordScale
+                }
+                Triple(p, s, d)
             }
-            if (strokePx > 0.1f) {
-                canvas.drawText(line, xPos, baselineY, strokePaint)
+            val spaceWidth = paint.measureText(" ")
+            val totalWordsWidth = words.indices.sumOf { wordPaints[it].first.measureText(words[it]).toDouble() }.toFloat() +
+                spaceWidth * (words.size - 1).coerceAtLeast(0)
+            var currentX = ((bitmapWidth - totalWordsWidth) * 0.5f).coerceAtLeast(horizontalPadding.toFloat())
+            val baselineY = verticalPadding - fontMetrics.ascent
+
+            words.forEachIndexed { idx, word ->
+                val (wFill, wStroke, wDepth) = wordPaints[idx]
+                val wordW = wFill.measureText(word)
+                if (depthOffsetPx > 0.1f) {
+                    val steps = depthOffsetPx.roundToInt().coerceIn(1, 24)
+                    for (step in steps downTo 1) {
+                        val offset = step.toFloat()
+                        canvas.drawText(word, currentX + offset, baselineY + offset, wDepth)
+                    }
+                }
+                if (strokePx > 0.1f) {
+                    canvas.drawText(word, currentX, baselineY, wStroke)
+                }
+                canvas.drawText(word, currentX, baselineY, wFill)
+                currentX += wordW + spaceWidth
             }
-            if (gradientEnabled) {
-                fillPaint.shader = LinearGradient(
-                    xPos,
-                    baselineY + fontMetrics.ascent,
-                    xPos + lineWidth.coerceAtLeast(1f),
-                    baselineY,
-                    gradientStartColor,
-                    gradientEndColor,
-                    Shader.TileMode.CLAMP,
-                )
-            } else {
+        } else {
+            // Draw multiline text centered line-by-line
+            var baselineY = verticalPadding - fontMetrics.ascent
+            safeLines.forEach { line ->
+                val lineWidth = paint.measureText(line)
+                val xPos = ((bitmapWidth - lineWidth) * 0.5f).coerceAtLeast(horizontalPadding.toFloat())
+                if (depthOffsetPx > 0.1f) {
+                    val steps = depthOffsetPx.roundToInt().coerceIn(1, 24)
+                    for (step in steps downTo 1) {
+                        val offset = step.toFloat()
+                        canvas.drawText(line, xPos + offset, baselineY + offset, depthPaint)
+                    }
+                }
+                if (strokePx > 0.1f) {
+                    canvas.drawText(line, xPos, baselineY, strokePaint)
+                }
+                if (gradientEnabled) {
+                    fillPaint.shader = LinearGradient(
+                        xPos,
+                        baselineY + fontMetrics.ascent,
+                        xPos + lineWidth.coerceAtLeast(1f),
+                        baselineY,
+                        gradientStartColor,
+                        gradientEndColor,
+                        Shader.TileMode.CLAMP,
+                    )
+                } else {
+                    fillPaint.shader = null
+                }
+                canvas.drawText(line, xPos, baselineY, fillPaint)
                 fillPaint.shader = null
+                baselineY += lineHeight
             }
-            canvas.drawText(line, xPos, baselineY, fillPaint)
-            fillPaint.shader = null
-            baselineY += lineHeight
         }
 
-        android.util.Log.d(TAG, "Created bitmap: text='$text' size=${bitmapWidth}x${bitmapHeight} color=$textColor")
-
+        android.util.Log.d(TAG, "Created bitmap: text='$text' size=${bitmapWidth}x${bitmapHeight} color=$textColor activeWord=$activeWordIndex")
         return bitmap
     }
     
     /**
      * Convert Bitmap to IntArray (ARGB pixels in row-major order).
-     * Used for uploading to native GL texture via JNI.
-     * 
-     * @param bitmap Bitmap in ARGB_8888 format
-     * @return IntArray of ARGB pixel values
      */
     fun bitmapToPixelArray(bitmap: Bitmap): IntArray {
         val width = bitmap.width
@@ -217,9 +275,6 @@ object TextBitmapHelper {
     
     /**
      * Create text bitmap and return pixels ready for GPU upload.
-     * Convenience method combining createTextBitmap + bitmapToPixelArray.
-     * 
-     * @return Pair of (IntArray pixels, Pair of width x height)
      */
     fun createTextPixels(
         text: String,
@@ -275,12 +330,13 @@ object TextBitmapHelper {
         return Triple(pixels, bitmap.width, bitmap.height)
     }
 
-    fun createTextPixels(overlay: TextOverlay): Triple<IntArray, Int, Int> {
-        return createTextPixels(
+    fun createTextPixels(overlay: TextOverlay, currentTimeMs: Long = -1L): Triple<IntArray, Int, Int> {
+        val activeWordIndex = if (currentTimeMs >= 0L) overlay.activeWordIndexAt(currentTimeMs) else -1
+        val bitmap = createTextBitmap(
             text = overlay.text,
             fontSize = overlay.fontSize,
             textColor = overlay.color,
-            backgroundColor = overlay.backgroundColor,
+            bgColor = overlay.backgroundColor,
             bold = overlay.bold,
             italic = overlay.italic,
             underline = overlay.underline,
@@ -300,28 +356,59 @@ object TextBitmapHelper {
             gradientEndColor = overlay.gradientEndColor,
             backgroundPadding = overlay.backgroundPadding,
             backgroundCornerRadius = overlay.backgroundCornerRadius,
+            activeWordIndex = activeWordIndex,
+            highlightColor = overlay.highlightColor,
+            activeWordScale = overlay.activeWordScale,
+            glowColor = overlay.glowColor,
+            captionStyle = overlay.captionStyle,
         )
+        val pixels = bitmapToPixelArray(bitmap)
+        return Triple(pixels, bitmap.width, bitmap.height)
     }
 
-    private fun resolveTypeface(fontName: String?, bold: Boolean, italic: Boolean): Typeface {
+    fun resolveTypeface(fontName: String?, bold: Boolean = false, italic: Boolean = false, context: Context? = null): Typeface {
+        val assets = context?.assets ?: assetManager
+        val cleanName = fontName?.trim()?.lowercase() ?: ""
+        val styleKey = "$cleanName|b=$bold|i=$italic"
+        val cached = fontCache[styleKey]
+        if (cached != null) return cached
+
+        val assetPath = when {
+            cleanName.contains("banger") -> "fonts/Bangers-Regular.ttf"
+            cleanName.contains("anton") -> "fonts/Anton-Regular.ttf"
+            cleanName.contains("poppins") && cleanName.contains("semi") -> "fonts/Poppins-SemiBold.ttf"
+            cleanName.contains("poppins") -> "fonts/Poppins-Bold.ttf"
+            cleanName.contains("marker") -> "fonts/PermanentMarker-Regular.ttf"
+            cleanName.contains("montserrat") -> "fonts/Montserrat-Variable.ttf"
+            else -> null
+        }
+        if (assetPath != null && assets != null) {
+            val tf = runCatching { Typeface.createFromAsset(assets, assetPath) }.getOrNull()
+            if (tf != null) {
+                fontCache[styleKey] = tf
+                return tf
+            }
+        }
         val style = when {
             bold && italic -> Typeface.BOLD_ITALIC
             bold -> Typeface.BOLD
             italic -> Typeface.ITALIC
             else -> Typeface.NORMAL
         }
-        val base = when (fontName?.trim()?.lowercase()) {
+        val base = when (cleanName) {
             "serif" -> Typeface.SERIF
             "mono", "monospace" -> Typeface.MONOSPACE
             "condensed", "sans-serif-condensed" -> Typeface.create("sans-serif-condensed", style)
             "medium", "sans-serif-medium" -> Typeface.create("sans-serif-medium", style)
             else -> Typeface.SANS_SERIF
         }
-        return if (base === Typeface.SANS_SERIF || base === Typeface.SERIF || base === Typeface.MONOSPACE) {
+        val result = if (base === Typeface.SANS_SERIF || base === Typeface.SERIF || base === Typeface.MONOSPACE) {
             Typeface.create(base, style)
         } else {
             base
         }
+        fontCache[styleKey] = result
+        return result
     }
 
     private fun isLightColor(color: Int): Boolean {

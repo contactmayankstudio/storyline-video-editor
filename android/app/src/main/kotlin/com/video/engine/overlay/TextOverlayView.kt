@@ -125,7 +125,8 @@ class TextOverlayView @JvmOverloads constructor(
         requestLayout()
     }
 
-    fun applyStyle(overlay: TextOverlay) {
+    fun applyStyle(overlay: TextOverlay, currentTimeMs: Long = -1L) {
+        val activeWordIndex = if (currentTimeMs >= 0L) overlay.activeWordIndexAt(currentTimeMs) else -1
         val styleKey = listOf(
             overlay.text,
             overlay.color,
@@ -150,6 +151,11 @@ class TextOverlayView @JvmOverloads constructor(
             overlay.italic,
             overlay.underline,
             overlay.allCaps,
+            overlay.captionStyle.orEmpty(),
+            overlay.highlightColor,
+            overlay.activeWordScale,
+            overlay.glowColor,
+            activeWordIndex,
         ).joinToString("|")
         if (styleKey == lastStyleKey) return
         lastStyleKey = styleKey
@@ -158,10 +164,48 @@ class TextOverlayView @JvmOverloads constructor(
         } else {
             overlay.text
         }
-        if (textView.text.toString() != displayText) {
-            textView.text = displayText
+        val words = (if (overlay.wordCues.isNotEmpty()) overlay.wordCues.map { it.word } else displayText.trim().split(Regex("\\s+"))).filter { it.isNotBlank() }
+        if (words.isNotEmpty() && (overlay.captionStyle != null || overlay.wordCues.isNotEmpty())) {
+            val builder = android.text.SpannableStringBuilder()
+            words.forEachIndexed { idx, word ->
+                val displayWord = if (overlay.allCaps) word.uppercase(Locale.getDefault()) else word
+                val start = builder.length
+                builder.append(displayWord)
+                val end = builder.length
+
+                val isActive = (idx == activeWordIndex)
+                val isPast = (idx < activeWordIndex)
+
+                if (isActive) {
+                    val wColor = when {
+                        overlay.captionStyle == "MRBEAST" && (idx % 2 == 1) -> 0xFFFF2A55.toInt() // Pop Red
+                        overlay.captionStyle == "MRBEAST" -> 0xFF00FF66.toInt() // Pop Green
+                        overlay.captionStyle == "CYBERPUNK" -> 0xFFFF007F.toInt() // Neon Magenta pop
+                        else -> overlay.highlightColor
+                    }
+                    builder.setSpan(android.text.style.ForegroundColorSpan(wColor), start, end, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    val bounce = overlay.activeWordScale.coerceIn(1.0f, 1.4f)
+                    builder.setSpan(android.text.style.RelativeSizeSpan(bounce), start, end, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(android.text.style.StyleSpan(Typeface.BOLD), start, end, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                } else if (overlay.captionStyle == "KARAOKE" && isPast) {
+                    builder.setSpan(android.text.style.ForegroundColorSpan(overlay.highlightColor), start, end, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                } else if (overlay.captionStyle == "KARAOKE") {
+                    builder.setSpan(android.text.style.ForegroundColorSpan(Color.argb(128, 255, 255, 255)), start, end, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                } else {
+                    builder.setSpan(android.text.style.ForegroundColorSpan(if (overlay.gradientEnabled) overlay.gradientStartColor else overlay.color), start, end, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+
+                if (idx < words.lastIndex) {
+                    builder.append(" ")
+                }
+            }
+            textView.setText(builder, TextView.BufferType.SPANNABLE)
+        } else {
+            if (textView.text.toString() != displayText) {
+                textView.text = displayText
+            }
+            textView.setTextColor(if (overlay.gradientEnabled) overlay.gradientStartColor else overlay.color)
         }
-        textView.setTextColor(if (overlay.gradientEnabled) overlay.gradientStartColor else overlay.color)
         textView.setTextSize(
             TypedValue.COMPLEX_UNIT_SP,
             (overlay.fontSize * 0.66f).coerceIn(12f, 54f),
@@ -190,12 +234,18 @@ class TextOverlayView @JvmOverloads constructor(
             textView.background = null
             textView.setPadding(0, 0, 0, 0)
         }
+        val effectiveGlow = if (overlay.captionStyle != null && (overlay.glowColor ushr 24) != 0) {
+            overlay.glowColor
+        } else null
         val shadowColor = when {
+            effectiveGlow != null -> effectiveGlow
             (overlay.shadowColor ushr 24) != 0 -> overlay.shadowColor
             isLightColor(overlay.color) -> Color.argb(150, 0, 0, 0)
             else -> Color.argb(190, 255, 255, 255)
         }
-        if (overlay.shadowEnabled && overlay.shadowBlur > 0f) {
+        if (effectiveGlow != null) {
+            textView.setShadowLayer(16f, 0f, 0f, effectiveGlow)
+        } else if (overlay.shadowEnabled && overlay.shadowBlur > 0f) {
             textView.setShadowLayer(
                 overlay.shadowBlur.coerceIn(0f, 40f),
                 overlay.shadowOffsetX.coerceIn(-40f, 40f),
@@ -380,24 +430,7 @@ class TextOverlayView @JvmOverloads constructor(
     }
 
     private fun resolveTypeface(fontName: String?, bold: Boolean, italic: Boolean): Typeface {
-        val style = when {
-            bold && italic -> Typeface.BOLD_ITALIC
-            bold -> Typeface.BOLD
-            italic -> Typeface.ITALIC
-            else -> Typeface.NORMAL
-        }
-        val family = when (fontName?.trim()?.lowercase()) {
-            "serif" -> Typeface.SERIF
-            "mono", "monospace" -> Typeface.MONOSPACE
-            "condensed", "sans-serif-condensed" -> Typeface.create("sans-serif-condensed", style)
-            "medium", "sans-serif-medium" -> Typeface.create("sans-serif-medium", style)
-            else -> Typeface.SANS_SERIF
-        }
-        return if (family === Typeface.SANS_SERIF || family === Typeface.SERIF || family === Typeface.MONOSPACE) {
-            Typeface.create(family, style)
-        } else {
-            family
-        }
+        return com.video.engine.TextBitmapHelper.resolveTypeface(fontName, bold, italic, context)
     }
 
     private fun isLightColor(color: Int): Boolean {

@@ -44,6 +44,7 @@ class OverlayController(
     private val textNativeZOrderById = mutableMapOf<Int, Int>()
     private val textNativeViewIdentityById = mutableMapOf<Int, Int>()
     private val textNativeTransformUpdateMsById = mutableMapOf<Int, Long>()
+    private val lastCaptionWordIdxById = mutableMapOf<Int, Int>()
 
     private fun appendStartFor(trackType: TrackType): Long {
         val playheadMs = currentTimeMsProvider().coerceAtLeast(0L)
@@ -409,7 +410,17 @@ class OverlayController(
         view.showControls(isEditing)
         view.alpha = if (activeAtCurrentTime) overlay.opacity.coerceIn(0.12f, 1f) else 0f
         view.setText(overlay.text)
-        view.applyStyle(overlay)
+        view.applyStyle(overlay, currentTimeMs)
+        if (overlay.captionStyle != null && activeAtCurrentTime) {
+            val activeIdx = overlay.activeWordIndexAt(currentTimeMs)
+            if (lastCaptionWordIdxById[overlay.id] != activeIdx) {
+                lastCaptionWordIdxById[overlay.id] = activeIdx
+                val previewView = previewViewProvider()
+                if (previewView != null) {
+                    NativeBridge.setTextOverlayBitmap(previewView, overlay, currentTimeMs)
+                }
+            }
+        }
         view.scaleX = overlay.scale
         view.scaleY = overlay.scale
         view.syncControlChromeScale()

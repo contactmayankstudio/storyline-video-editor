@@ -2081,6 +2081,7 @@ class VideoEditorActivity : ComponentActivity() {
         NativeBridge.warmUpEngineAsync()
         com.video.engine.pro.timeline.TimelineThumbnailCache.init(this)
         com.video.engine.pro.timeline.AudioWaveformCache.init(this)
+        TextBitmapHelper.init(this)
 
         // Initialize handlers
         // CrashHandler.init(this)
@@ -3369,6 +3370,7 @@ class VideoEditorActivity : ComponentActivity() {
             onRemoveTransitionPreset = { removeToolbarTransitionPreset() },
             onVoiceoverRequested = { voiceoverController?.showPanel() },
             onShowTextComposer = { showAddTextDialog() },
+            onShowAutoCaptions = { showAutoCaptionsStudio() },
             onOpenAiCopilot = { showAiVoiceCopilotSheet() },
         )
         uiChromeController?.setupPlayPauseButton()
@@ -7490,89 +7492,16 @@ class VideoEditorActivity : ComponentActivity() {
 
             override fun dynamicCaptions(style: String): Boolean {
                 if (!ensureTrackEditable(TrackType.TEXT, "captions")) return false
-                val visualClipId = resolveSelectedVisualClipId(syncSelectionIfNeeded = true, preferredTrackType = selectedTrackType()) ?: run {
+                val mediaSource = resolveCaptionMediaSource() ?: run {
                     safeToast("Select clip first", Toast.LENGTH_SHORT)
                     return false
                 }
-                val timing = selectedVideoTiming(visualClipId) ?: run {
-                    safeToast("Clip timing unavailable", Toast.LENGTH_SHORT)
-                    return false
-                }
-                val sourcePath = nativeClipSourcePath[visualClipId].orEmpty()
-                val clipStartMs = timing.first
-                val clipDurationMs = timing.second
-
-                setTransientAiStatus("HORMOZI CAPTIONS")
-                commandExecutor.execute {
-                    val cues = AiAssistTools.loadCaptionCues(sourcePath, clipDurationMs).take(24)
-                    val overlays = cues.mapIndexedNotNull { idx, cue ->
-                        val startMs = (clipStartMs + cue.startMs).coerceAtLeast(0L).toInt()
-                        val endMs = (clipStartMs + cue.endMs).coerceAtLeast(startMs + 1L).toInt()
-                        var text = cue.text.trim().uppercase()
-                        if (text.isBlank()) return@mapIndexedNotNull null
-
-                        val emoji = when {
-                            text.contains("MONEY") || text.contains("PAISE") || text.contains("DOLLAR") -> " 💰"
-                            text.contains("FIRE") || text.contains("VIRAL") || text.contains("HIT") -> " 🔥"
-                            text.contains("GROWTH") || text.contains("FAST") || text.contains("SPEED") -> " ⚡"
-                            text.contains("IDEA") || text.contains("MIND") || text.contains("SMART") -> " 💡"
-                            text.contains("VIDEO") || text.contains("REEL") -> " 🎬"
-                            text.contains("ROCKET") || text.contains("FUTURE") -> " 🚀"
-                            idx % 4 == 0 -> " ✨"
-                            else -> ""
-                        }
-                        text = "$text$emoji"
-
-                        val color = if (idx % 2 == 0) 0xFFFFE600.toInt() else 0xFF00E5FF.toInt()
-                        com.video.engine.overlay.TextOverlay(
-                            id = nextTextOverlayId++,
-                            text = text,
-                            startTimeMs = startMs,
-                            endTimeMs = endMs,
-                            x = 0.5f,
-                            y = 0.78f,
-                            scale = 1.15f,
-                            rotation = 0.0f,
-                            opacity = 1.0f,
-                            color = color,
-                            bold = true,
-                            allCaps = true,
-                            strokeColor = 0xFF000000.toInt(),
-                            strokeWidth = 7.0f,
-                            depthColor = 0xFF000000.toInt(),
-                            depthPx = 4.0f,
-                            shadowEnabled = true,
-                            shadowColor = 0xCC000000.toInt(),
-                            shadowBlur = 6.0f,
-                            fontSize = 42f,
-                        )
-                    }
-                    mainHandler.post {
-                        clearTransientAiStatus()
-                        if (overlays.isNotEmpty()) {
-                            addTextOverlaysBatch(overlays, "Hormozi captions added ${overlays.size} viral cues")
-                        } else {
-                            val fallback = com.video.engine.overlay.TextOverlay(
-                                id = nextTextOverlayId++,
-                                text = "VIRAL HOOK 🔥",
-                                startTimeMs = currentTimeMs.toInt(),
-                                endTimeMs = (currentTimeMs + 2800).toInt(),
-                                x = 0.5f,
-                                y = 0.78f,
-                                scale = 1.2f,
-                                color = 0xFFFFE600.toInt(),
-                                bold = true,
-                                allCaps = true,
-                                strokeColor = 0xFF000000.toInt(),
-                                strokeWidth = 7.0f,
-                                depthColor = 0xFF000000.toInt(),
-                                depthPx = 4.0f,
-                                fontSize = 44f,
-                            )
-                            addTextOverlay(fallback, "Hormozi dynamic caption added")
-                        }
-                    }
-                }
+                generateViralCaptions(
+                    sourcePath = mediaSource.first,
+                    clipStartMs = mediaSource.second,
+                    clipDurationMs = mediaSource.third,
+                    styleKey = style.ifBlank { "HORMOZI" },
+                )
                 return true
             }
 
@@ -8120,6 +8049,17 @@ class VideoEditorActivity : ComponentActivity() {
             ) { value ->
                 customDurationMs = (value * 1000f).roundToInt()
             }
+
+            divider()
+            compactActionRow(
+                listOf(
+                    ModernSheet.CompactAction(
+                        title = "✨ Viral Auto Captions",
+                        isPrimary = true,
+                        onClick = { showAutoCaptionsStudio() },
+                    ),
+                ),
+            )
         }
     }
 
@@ -17352,64 +17292,299 @@ class VideoEditorActivity : ComponentActivity() {
     }
 
     internal fun performSelectedClipAiCaptionAction() {
+        showAutoCaptionsStudio()
+    }
+
+    internal fun showAutoCaptionsStudio() {
         if (!ensureTrackEditable(TrackType.TEXT, "captions")) return
-        val sourcePath: String
-        val clipStartMs: Long
-        val clipDurationMs: Long
+        var selectedStyle = "HORMOZI"
+        var selectedFont = "anton"
+        var selectedColor = 0xFFFFE500.toInt()
+
+        ModernSheet.show(this, "✨ Viral Auto Captions") {
+            section("Viral Caption Style")
+            val styleCards = listOf(
+                ModernSheet.VisualCard(id = "HORMOZI", label = "🔥 Hormozi", subtitle = "Bold Yellow Bounce", emoji = "🔥"),
+                ModernSheet.VisualCard(id = "MRBEAST", label = "⚡ MrBeast", subtitle = "Punchy Comic Pop", emoji = "⚡"),
+                ModernSheet.VisualCard(id = "CYBERPUNK", label = "🌆 Cyberpunk", subtitle = "Cyan/Magenta Neon", emoji = "🌆"),
+                ModernSheet.VisualCard(id = "CINEMA", label = "🎬 Cinema", subtitle = "Minimalist Letterbox", emoji = "🎬"),
+                ModernSheet.VisualCard(id = "KARAOKE", label = "🎤 Karaoke", subtitle = "Beat Fill Highlight", emoji = "🎤"),
+            )
+            visualCardsGrid(
+                cards = styleCards,
+                selected = 0,
+                columns = 2,
+                dismissOnSelect = false,
+            ) { _, card ->
+                selectedStyle = card.id
+                when (card.id) {
+                    "HORMOZI" -> {
+                        selectedFont = "anton"
+                        selectedColor = 0xFFFFE500.toInt()
+                    }
+                    "MRBEAST" -> {
+                        selectedFont = "bangers"
+                        selectedColor = 0xFF00FF66.toInt()
+                    }
+                    "CYBERPUNK" -> {
+                        selectedFont = "poppins-bold"
+                        selectedColor = 0xFF00F2FE.toInt()
+                    }
+                    "CINEMA" -> {
+                        selectedFont = "poppins-bold"
+                        selectedColor = 0xFFFFF8E7.toInt()
+                    }
+                    "KARAOKE" -> {
+                        selectedFont = "poppins-bold"
+                        selectedColor = 0xFFFFD700.toInt()
+                    }
+                }
+            }
+
+            divider()
+            section("Font Style")
+            chips(
+                label = "Font",
+                options = listOf("Anton", "Bangers", "Poppins-Bold"),
+                selected = 0,
+            ) { _, font ->
+                selectedFont = font.lowercase()
+            }
+
+            divider()
+            section("Highlight Color")
+            val colorLabels = listOf("Yellow", "Green", "Cyan", "Magenta", "White", "Red")
+            val colorValues = listOf(
+                0xFFFFE500.toInt(),
+                0xFF00FF66.toInt(),
+                0xFF00F2FE.toInt(),
+                0xFFFF007F.toInt(),
+                0xFFFFFFFF.toInt(),
+                0xFFFF2A55.toInt(),
+            )
+            chips(
+                label = "Color",
+                options = colorLabels,
+                selected = 0,
+            ) { idx, _ ->
+                selectedColor = colorValues[idx]
+            }
+
+            divider()
+            compactActionRow(
+                listOf(
+                    ModernSheet.CompactAction(
+                        title = "✨ Generate Auto Captions",
+                        isPrimary = true,
+                        onClick = {
+                            val mediaSource = resolveCaptionMediaSource()
+                            if (mediaSource == null) {
+                                safeToast("No video or audio clip found on timeline", Toast.LENGTH_SHORT)
+                                return@CompactAction
+                            }
+                            generateViralCaptions(
+                                sourcePath = mediaSource.first,
+                                clipStartMs = mediaSource.second,
+                                clipDurationMs = mediaSource.third,
+                                styleKey = selectedStyle,
+                                customFont = selectedFont,
+                                customColor = selectedColor,
+                            )
+                        },
+                    ),
+                ),
+            )
+        }
+    }
+
+    private fun resolveCaptionMediaSource(): Triple<String, Long, Long>? {
         when (selectedClipKind()) {
             ClipKind.VIDEO, ClipKind.OVERLAY -> {
-                val clipId = resolveSelectedVisualClipId(syncSelectionIfNeeded = true, preferredTrackType = selectedTrackType()) ?: run {
-                    safeToast("Select clip first", Toast.LENGTH_SHORT)
-                    return
+                val clipId = resolveSelectedVisualClipId(syncSelectionIfNeeded = true, preferredTrackType = selectedTrackType())
+                if (clipId != null) {
+                    val timing = selectedVideoTiming(clipId)
+                    val path = nativeClipSourcePath[clipId].orEmpty()
+                    if (timing != null && path.isNotBlank()) {
+                        return Triple(path, timing.first, timing.second)
+                    }
                 }
-                val timing = selectedVideoTiming(clipId) ?: run {
-                    safeToast("Clip timing unavailable", Toast.LENGTH_SHORT)
-                    return
-                }
-                sourcePath = nativeClipSourcePath[clipId].orEmpty()
-                clipStartMs = timing.first
-                clipDurationMs = timing.second
             }
             ClipKind.AUDIO -> {
-                val audioId = selectedAudioClipId() ?: run {
-                    safeToast("Select audio first", Toast.LENGTH_SHORT)
-                    return
+                val audioId = selectedAudioClipId()
+                if (audioId != null) {
+                    val clip = AudioClipStore.get(audioId)
+                    if (clip != null && clip.sourcePath.isNotBlank()) {
+                        return Triple(clip.sourcePath, clip.startTimeMs, clip.durationMs)
+                    }
                 }
-                val clip = AudioClipStore.get(audioId) ?: run {
-                    safeToast("Audio clip unavailable", Toast.LENGTH_SHORT)
-                    return
-                }
-                sourcePath = clip.sourcePath
-                clipStartMs = clip.startTimeMs
-                clipDurationMs = clip.durationMs
             }
-            else -> {
-                safeToast("Caption works on video or audio clips", Toast.LENGTH_SHORT)
-                return
+            else -> Unit
+        }
+        val firstClipId = nativeClipSourcePath.keys.firstOrNull()
+        if (firstClipId != null) {
+            val timing = selectedVideoTiming(firstClipId)
+            val path = nativeClipSourcePath[firstClipId].orEmpty()
+            if (timing != null && path.isNotBlank()) {
+                return Triple(path, timing.first, timing.second)
             }
         }
-        if (sourcePath.isBlank()) {
-            safeToast("Media path unavailable", Toast.LENGTH_SHORT)
-            return
+        val firstAudio = AudioClipStore.all().firstOrNull()
+        if (firstAudio != null && firstAudio.sourcePath.isNotBlank()) {
+            return Triple(firstAudio.sourcePath, firstAudio.startTimeMs, firstAudio.durationMs)
         }
-        setTransientAiStatus("AI CAPTION")
-        safeToast("AI Caption reading transcript", Toast.LENGTH_SHORT)
+        return null
+    }
+
+    internal fun generateViralCaptions(
+        sourcePath: String,
+        clipStartMs: Long,
+        clipDurationMs: Long,
+        styleKey: String = "HORMOZI",
+        customFont: String? = null,
+        customColor: Int? = null,
+    ) {
+        val normalizedStyle = when (styleKey.trim().uppercase()) {
+            "MRBEAST", "BEAST" -> "MRBEAST"
+            "CYBERPUNK", "NEON" -> "CYBERPUNK"
+            "CINEMA", "MINIMALIST" -> "CINEMA"
+            "KARAOKE" -> "KARAOKE"
+            else -> "HORMOZI"
+        }
+        setTransientAiStatus("$normalizedStyle CAPTIONS")
+        safeToast("✨ Transcribing and generating $normalizedStyle captions...", Toast.LENGTH_SHORT)
+
         commandExecutor.execute {
-            val cues = AiAssistTools.loadCaptionCues(sourcePath, clipDurationMs).take(18)
-            val overlays =
-                cues.mapNotNull { cue ->
-                    val startMs = clipStartMs + cue.startMs
-                    val endMs = clipStartMs + cue.endMs
-                    val text = cue.text.trim()
-                    if (text.isBlank()) null else buildCaptionOverlay(text, startMs, endMs)
+            val cues = AiAssistTools.loadCaptionCues(sourcePath, clipDurationMs).take(36)
+            val effectiveFont = customFont ?: when (normalizedStyle) {
+                "MRBEAST" -> "bangers"
+                "HORMOZI" -> "anton"
+                else -> "poppins-bold"
+            }
+            val effectiveHighlight = customColor ?: when (normalizedStyle) {
+                "MRBEAST" -> 0xFF00FF66.toInt()
+                "CYBERPUNK" -> 0xFFFF007F.toInt()
+                "CINEMA" -> 0xFFFFF8E7.toInt()
+                "KARAOKE" -> 0xFFFFD700.toInt()
+                else -> 0xFFFFE500.toInt()
+            }
+            val effectiveGlow = when (normalizedStyle) {
+                "CYBERPUNK" -> 0xFF00F2FE.toInt()
+                "CINEMA" -> 0x66FFF8E7.toInt()
+                else -> effectiveHighlight
+            }
+
+            val overlays = cues.mapIndexedNotNull { idx, cue ->
+                val startMs = (clipStartMs + cue.startMs).coerceAtLeast(0L).toInt()
+                val endMs = (clipStartMs + cue.endMs).coerceAtLeast(startMs + 1L).toInt()
+                var text = cue.text.trim()
+                if (text.isBlank()) return@mapIndexedNotNull null
+
+                val isHormoziOrBeast = normalizedStyle in setOf("HORMOZI", "MRBEAST")
+                if (isHormoziOrBeast) {
+                    text = text.uppercase()
+                    val emoji = when {
+                        text.contains("MONEY") || text.contains("PAISE") || text.contains("DOLLAR") -> " 💰"
+                        text.contains("FIRE") || text.contains("VIRAL") || text.contains("HIT") -> " 🔥"
+                        text.contains("GROWTH") || text.contains("FAST") || text.contains("SPEED") -> " ⚡"
+                        text.contains("IDEA") || text.contains("MIND") || text.contains("SMART") -> " 💡"
+                        text.contains("VIDEO") || text.contains("REEL") -> " 🎬"
+                        text.contains("ROCKET") || text.contains("FUTURE") -> " 🚀"
+                        idx % 4 == 0 -> " ✨"
+                        else -> ""
+                    }
+                    text = "$text$emoji"
                 }
+
+                val overlay = com.video.engine.overlay.TextOverlay(
+                    id = nextTextOverlayId++,
+                    text = text,
+                    startTimeMs = startMs,
+                    endTimeMs = endMs,
+                    x = 0.5f,
+                    y = when (normalizedStyle) {
+                        "MRBEAST" -> 0.78f
+                        "CINEMA" -> 0.82f
+                        else -> 0.80f
+                    },
+                    scale = 1.0f,
+                    rotation = 0.0f,
+                    opacity = 1.0f,
+                    color = when (normalizedStyle) {
+                        "CYBERPUNK" -> 0xFF00F2FE.toInt()
+                        "KARAOKE" -> 0x99FFFFFF.toInt()
+                        "CINEMA" -> 0xFFF5F5F5.toInt()
+                        else -> 0xFFFFFFFF.toInt()
+                    },
+                    backgroundColor = if (normalizedStyle == "CINEMA") 0x99000000.toInt() else 0x00000000,
+                    backgroundPadding = if (normalizedStyle == "CINEMA") 16f else 0f,
+                    backgroundCornerRadius = if (normalizedStyle == "CINEMA") 14f else 0f,
+                    strokeColor = when (normalizedStyle) {
+                        "CYBERPUNK" -> 0xFF1A0033.toInt()
+                        "CINEMA" -> 0x40000000.toInt()
+                        else -> 0xFF000000.toInt()
+                    },
+                    strokeWidth = when (normalizedStyle) {
+                        "MRBEAST" -> 10.0f
+                        "HORMOZI" -> 8.0f
+                        "KARAOKE" -> 7.0f
+                        "CYBERPUNK" -> 6.0f
+                        else -> 2.0f
+                    },
+                    depthColor = 0xFF000000.toInt(),
+                    depthPx = when (normalizedStyle) {
+                        "MRBEAST" -> 5.0f
+                        "HORMOZI" -> 4.0f
+                        "KARAOKE" -> 3.0f
+                        "CYBERPUNK" -> 3.0f
+                        else -> 0.0f
+                    },
+                    shadowEnabled = true,
+                    shadowColor = when (normalizedStyle) {
+                        "CYBERPUNK" -> 0xFF00F2FE.toInt()
+                        "CINEMA" -> 0x66000000.toInt()
+                        else -> 0xCC000000.toInt()
+                    },
+                    shadowBlur = when (normalizedStyle) {
+                        "CYBERPUNK" -> 14.0f
+                        "MRBEAST" -> 8.0f
+                        else -> 6.0f
+                    },
+                    fontSize = when (normalizedStyle) {
+                        "MRBEAST" -> 44f
+                        "HORMOZI" -> 42f
+                        "KARAOKE" -> 40f
+                        "CYBERPUNK" -> 40f
+                        else -> 34f
+                    },
+                    fontName = effectiveFont,
+                    bold = true,
+                    allCaps = normalizedStyle != "CINEMA",
+                    captionStyle = normalizedStyle,
+                    highlightColor = effectiveHighlight,
+                    glowColor = effectiveGlow,
+                    activeWordScale = when (normalizedStyle) {
+                        "MRBEAST" -> 1.28f
+                        "HORMOZI" -> 1.25f
+                        "KARAOKE" -> 1.20f
+                        "CYBERPUNK" -> 1.22f
+                        else -> 1.15f
+                    },
+                )
+                overlay.interpolateWordCuesIfNeeded()
+                overlay
+            }
+
             mainHandler.post {
                 clearTransientAiStatus()
                 if (overlays.isEmpty()) {
-                    safeToast("No captions found", Toast.LENGTH_SHORT)
+                    safeToast("No caption cues found in media", Toast.LENGTH_SHORT)
                     return@post
                 }
-                addTextOverlaysBatch(overlays, "AI Caption added ${overlays.size} cues")
+                addTextOverlaysBatch(overlays, "✨ $normalizedStyle captions added (${overlays.size} cues)")
+                overlays.firstOrNull()?.let { firstOverlay ->
+                    applyEditorPlayhead(firstOverlay.startTimeMs.toLong(), continueAudio = false)
+                }
+                refreshPreviewAtPlayhead(resyncAudio = false)
             }
         }
     }

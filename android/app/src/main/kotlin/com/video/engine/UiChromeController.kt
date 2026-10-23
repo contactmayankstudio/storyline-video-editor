@@ -42,6 +42,7 @@ class UiChromeController(
     private val onShowTextComposer: () -> Unit,
     private val onAddTextPreset: (String) -> Unit,
     private val onOpenSelectedTextStudio: () -> Unit = {},
+    private val onShowAutoCaptions: () -> Unit = {},
     private val onSplitAudioAtPlayhead: () -> Boolean,
     private val onHealthAction: (String) -> Unit = {},
     private val onUiButtonTap: (String, String, String) -> Unit = { _, _, _ -> },
@@ -377,8 +378,13 @@ class UiChromeController(
             compactActionRow(
                 listOf(
                     ModernSheet.CompactAction(
-                        title = "Text Composer",
+                        title = "✨ Auto Captions",
                         isPrimary = true,
+                        onClick = { onShowAutoCaptions() },
+                    ),
+                    ModernSheet.CompactAction(
+                        title = "Text Composer",
+                        isPrimary = false,
                         onClick = { onShowTextComposer() },
                     ),
                     ModernSheet.CompactAction(

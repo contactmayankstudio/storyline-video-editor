@@ -2,6 +2,16 @@ package com.video.engine.overlay
 
 import com.video.engine.AiPoseKeyframe
 
+/**
+ * Word-level cue for animated dynamic captions (Hormozi, MrBeast, Cyberpunk, etc.).
+ */
+data class WordCue(
+    val word: String,
+    val startMs: Int,
+    val endMs: Int,
+    val highlightColor: Int? = null,
+)
+
 data class TextOverlay(
     var id: Int = -1,
     var text: String = "Text",
@@ -37,7 +47,53 @@ data class TextOverlay(
     var layerIndex: Int = 0,
     var visible: Boolean = true,
     var aiTrackKeyframes: List<AiPoseKeyframe> = emptyList(),
-)
+    var wordCues: List<WordCue> = emptyList(),
+    var captionStyle: String? = null, // "HORMOZI", "MRBEAST", "CYBERPUNK", "CINEMA", "KARAOKE"
+    var highlightColor: Int = 0xFFFFE500.toInt(),
+    var activeWordScale: Float = 1.25f,
+    var glowColor: Int = 0xFFFFE500.toInt(),
+) {
+    /**
+     * Compute or interpolate word cues if not already populated.
+     * Divides text duration proportionally across words based on character length.
+     */
+    fun interpolateWordCuesIfNeeded(): List<WordCue> {
+        if (wordCues.isNotEmpty()) return wordCues
+        val words = text.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (words.isEmpty()) return emptyList()
+        val duration = (endTimeMs - startTimeMs).coerceAtLeast(100)
+        val totalChars = words.sumOf { it.length }.coerceAtLeast(1)
+        var currentOffset = 0
+        val cues = mutableListOf<WordCue>()
+        words.forEachIndexed { index, word ->
+            val wordDuration = (duration * word.length) / totalChars
+            val wordStart = startTimeMs + currentOffset
+            val wordEnd = if (index == words.lastIndex) endTimeMs else (wordStart + wordDuration)
+            currentOffset += wordDuration
+            val popColor = when {
+                captionStyle == "MRBEAST" && (index % 2 == 1) -> 0xFFFF2A55.toInt() // Red pop keyword
+                captionStyle == "MRBEAST" -> 0xFF00FF66.toInt() // Green keyword
+                else -> highlightColor
+            }
+            cues.add(WordCue(word = word, startMs = wordStart, endMs = wordEnd, highlightColor = popColor))
+        }
+        wordCues = cues
+        return cues
+    }
+
+    /**
+     * Return index of active word at given timeline timeMs.
+     */
+    fun activeWordIndexAt(timeMs: Long): Int {
+        val cues = if (wordCues.isEmpty()) interpolateWordCuesIfNeeded() else wordCues
+        if (cues.isEmpty()) return -1
+        val idx = cues.indexOfFirst { timeMs >= it.startMs && timeMs < it.endMs }
+        if (idx != -1) return idx
+        if (timeMs >= cues.last().endMs) return cues.lastIndex
+        if (timeMs <= cues.first().startMs) return 0
+        return -1
+    }
+}
 
 /**
  * Simple in-memory overlay store for Java/Kotlin side state.
