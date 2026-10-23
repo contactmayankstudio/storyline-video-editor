@@ -180,6 +180,11 @@ interface AiCommandDispatcher {
     fun platformExport(platform: String = "Instagram"): Boolean = false
 
     /**
+     * Converts single photo or timeline into a high-energy Mast-style Status with beat transitions & lyrical typography.
+     */
+    fun statusMakerPro(style: String = "Trending"): Boolean = false
+
+    /**
      * Self-healing preview reset & recalibrate (fixes blur, freeze, black screen).
      */
     fun resetPreview(): Boolean = false
@@ -291,6 +296,7 @@ interface AiCommandDispatcher {
     private fun dispatchSingle(intent: VideoEditIntent): Boolean {
         return when (intent) {
             is VideoEditIntent.AutoPilotEdit -> fullAutoPilotEdit(intent.style)
+            is VideoEditIntent.StatusMakerPro -> statusMakerPro(intent.style)
             is VideoEditIntent.AutoPilotEditAndExport -> fullAutoPilotEditAndExport(intent.style, intent.resolution)
             is VideoEditIntent.ExportVideo -> exportVideo(intent.resolution)
             is VideoEditIntent.SetAspectRatio -> setAspectRatio(intent.ratio)

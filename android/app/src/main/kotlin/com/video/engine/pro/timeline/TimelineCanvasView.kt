@@ -413,13 +413,16 @@ class TimelineCanvasView @JvmOverloads constructor(
             scroller.abortAnimation()
             assetRequestHandler.removeCallbacks(assetRequestRunnable)
             assetRequestScheduled = false
-            playbackAnchorTimelineMs = playheadMs
-            playbackAnchorRealtimeMs = SystemClock.uptimeMillis()
-            startPlaybackTicker()
+            stopPlaybackTicker()
         } else {
             stopPlaybackTicker()
             scheduleAssetRequests()
         }
+    }
+
+    fun resumeAssetRequests() {
+        externalAssetRequestsSuspendedUntilElapsedMs = 0L
+        scheduleAssetRequests()
     }
 
     fun suspendAssetRequests(windowMs: Long) {
@@ -444,17 +447,9 @@ class TimelineCanvasView @JvmOverloads constructor(
     fun setPlayheadMs(ms: Long) {
         if (playbackActive) {
             val safeMs = ms.coerceAtLeast(0L)
-            val now = SystemClock.uptimeMillis()
-            val currentPredicted = (playbackAnchorTimelineMs + (now - playbackAnchorRealtimeMs)).coerceAtLeast(0L)
-            val drift = abs(safeMs - currentPredicted)
-            if (drift >= 80L || safeMs > playbackAnchorTimelineMs) {
-                playbackAnchorTimelineMs = safeMs
-                playbackAnchorRealtimeMs = now
-            }
             if (!timelineInteractionActive()) {
-                renderPlaybackPosition(max(safeMs, currentPredicted))
+                renderPlaybackPosition(safeMs)
             }
-            startPlaybackTicker()
             return
         }
         val previousScrollX = scrollX
@@ -503,8 +498,10 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     private fun playbackTickerIntervalMs(): Long =
         when (DeviceDetector.getDeviceTier()) {
-            DeviceDetector.DeviceTier.LOW -> 33L
-            DeviceDetector.DeviceTier.MID -> 24L
+            // LOW: 50ms (20fps ticker), MID: 33ms (30fps ticker) — keeps canvas smooth
+            // without competing with native video decode on the GPU/CPU at 24ms.
+            DeviceDetector.DeviceTier.LOW -> 50L
+            DeviceDetector.DeviceTier.MID -> 33L
             DeviceDetector.DeviceTier.HIGH -> 16L
         }
 

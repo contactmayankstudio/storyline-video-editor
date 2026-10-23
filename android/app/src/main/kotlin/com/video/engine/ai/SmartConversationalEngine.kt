@@ -124,6 +124,12 @@ object SmartConversationalEngine {
             return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.AutoPilotEdit()), 0.98f, reply)
         }
 
+        // Conversational Status Maker Pro (1 photo se mast video maker jaisa status / reel)
+        if (matchesConversationalStatusMaker(lower)) {
+            val reply = "🔥 Status Maker Pro active! 1-Photo se dynamic beat transitions, kinetic zoom, vibrant look aur lyrical status video tayyar ho raha hai! 🎬✨"
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.StatusMakerPro()), 0.99f, reply)
+        }
+
         // I. Conversational Play / Start / Resume
         if (matchesConversationalPlay(lower)) {
             val reply = "Video play ho rahi hai bhai! ▶️ Live preview timeline par chalu hai."
@@ -212,6 +218,7 @@ object SmartConversationalEngine {
             return "Video pause kar di hai bhai! ⏸️"
         }
         return "Bhai aap video me kya edit karna chahte ho? Aap seedhe bol ya type kar sakte ho:\n\n" +
+            "• 'Status banao' (1-photo se Mast video maker jaisa jordaar video)\n" +
             "• 'Play' ya 'Pause' (video chalane/rokne ke liye)\n" +
             "• 'Silence hatao' (dead pauses trim karne ke liye)\n" +
             "• 'Cut karo' (current frame par split karne ke liye)\n" +
@@ -220,6 +227,15 @@ object SmartConversationalEngine {
             "• 'Auto Captions' (subtitles add karne ke liye)\n" +
             "• 'Speed 2x karo' (fast forward ke liye)\n" +
             "• 'Export karo' (gallery me save karne ke liye)"
+    }
+
+    private fun matchesConversationalStatusMaker(text: String): Boolean {
+        return text.contains("status") || text.contains("स्टेटस") ||
+            text.contains("1 photo") || text.contains("ek photo") ||
+            text.contains("one photo") || text.contains("photo se video") ||
+            text.contains("photo se reel") || text.contains("mast video") ||
+            text.contains("mast jaisa") || text.contains("photo video maker") ||
+            text.contains("status maker")
     }
 
     private fun matchesConversationalPlay(text: String): Boolean {

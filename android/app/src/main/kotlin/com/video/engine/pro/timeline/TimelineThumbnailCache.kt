@@ -70,6 +70,10 @@ object TimelineThumbnailCache {
         suspendedUntilElapsedMs = max(suspendedUntilElapsedMs, until)
     }
 
+    fun resumeRequests() {
+        suspendedUntilElapsedMs = 0L
+    }
+
     fun buildRequestKey(
         clip: ClipSegment,
         viewportWidthPx: Int,

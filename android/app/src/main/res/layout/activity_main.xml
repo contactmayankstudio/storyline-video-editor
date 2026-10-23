@@ -194,7 +194,7 @@
             android:textColor="@color/accent_cyan"
             android:textSize="10sp"
             android:textStyle="bold"
-            android:visibility="visible" />
+            android:visibility="gone" />
 
         <FrameLayout
             android:id="@+id/previewStageHost"

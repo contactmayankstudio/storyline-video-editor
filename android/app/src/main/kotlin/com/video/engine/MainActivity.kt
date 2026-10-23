@@ -2003,7 +2003,7 @@ class VideoEditorActivity : ComponentActivity() {
                 }
             startAiUpdateButton?.visibility = View.GONE
             startAiAdminButton?.visibility = View.GONE
-            editorAiStatusPill?.text = if (isPlaying) "⚡ AI Copilot: Playing" else "⚡ AI Copilot: Active"
+            editorAiStatusPill?.visibility = View.GONE
             return
         }
 
@@ -2056,15 +2056,7 @@ class VideoEditorActivity : ComponentActivity() {
                 getString(R.string.ai_status_open_update_action)
             }
 
-        editorAiStatusPill?.visibility = View.VISIBLE
-        editorAiStatusPill?.text =
-            when {
-                hosted?.updateAvailable == true -> "⚡ Update: ${hosted.versionName}"
-                screen == "crop" -> "⚡ AI Copilot: Crop Mode"
-                isPlaying -> "⚡ AI Copilot: Playing"
-                screen == "home" -> "⚡ AI Copilot"
-                else -> "⚡ AI Copilot: Active"
-            }
+        editorAiStatusPill?.visibility = View.GONE
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -2675,6 +2667,9 @@ class VideoEditorActivity : ComponentActivity() {
                 cancelPreviewAudioGestureResume()
                 pausedPreviewAudioSuppressUntilElapsedMs = 0L
                 previewAudioPlayer?.playFrom(timeMs)
+                TimelineThumbnailCache.suspendRequests(60_000L)
+                AudioWaveformCache.suspendRequests(60_000L)
+                activeCanvasTimelineView()?.suspendAssetRequests(60_000L)
                 if (::playbackExportIssueDetector.isInitialized) {
                     playbackExportIssueDetector.onPlaybackStarted(timeMs)
                 }
@@ -2691,6 +2686,9 @@ class VideoEditorActivity : ComponentActivity() {
                 lastPlaybackAudioClockSyncRealtimeMs = 0L
                 lastPlaybackAudioClockSyncTimelineMs = Long.MIN_VALUE
                 previewAudioPlayer?.pause()
+                TimelineThumbnailCache.resumeRequests()
+                AudioWaveformCache.resumeRequests()
+                activeCanvasTimelineView()?.resumeAssetRequests()
                 if (::playbackExportIssueDetector.isInitialized) {
                     playbackExportIssueDetector.onPlaybackPaused()
                 }
@@ -2708,8 +2706,6 @@ class VideoEditorActivity : ComponentActivity() {
         playbackController?.setupTimeline()
         // Wire canvas playhead to playback time
         playbackController?.onPlaybackTimeChanged = { timeMs ->
-            TimelineThumbnailCache.suspendRequests(750L)
-            AudioWaveformCache.suspendRequests(750L)
             activeCanvasTimelineView()
                 ?.takeIf { it.isShown }
                 ?.setPlayheadMs(timeMs)
@@ -7309,6 +7305,14 @@ class VideoEditorActivity : ComponentActivity() {
                 autoCaptions()
                 addTitle("Viral Video", "Title")
                 return true
+            }
+
+            override fun statusMakerPro(style: String): Boolean {
+                return com.video.engine.ai.AiStatusMakerProPipeline.execute(
+                    activity = this@VideoEditorActivity,
+                    dispatcher = this,
+                    style = style,
+                )
             }
 
             override fun splitClip(): Boolean {
@@ -17096,8 +17100,7 @@ class VideoEditorActivity : ComponentActivity() {
 
     private fun setTransientAiStatus(label: String) {
         mainHandler.post {
-            editorAiStatusPill?.visibility = View.VISIBLE
-            editorAiStatusPill?.text = label
+            editorAiStatusPill?.visibility = View.GONE
         }
     }
 

@@ -35,6 +35,10 @@ object AudioWaveformCache {
         suspendedUntilElapsedMs = max(suspendedUntilElapsedMs, until)
     }
 
+    fun resumeRequests() {
+        suspendedUntilElapsedMs = 0L
+    }
+
     fun request(clip: ClipSegment, barCount: Int, callback: (String, FloatArray) -> Unit) {
         val key = "${clip.sourcePath}#${clip.sourceInMs}#${clip.sourceOutMs}#$barCount"
         synchronized(lock) { cache[key]?.let { mainHandler.post { callback(key, it) }; return } }

@@ -38,11 +38,13 @@ class PlaybackController(
     companion object {
         private const val TAG = "[UI]"
         private const val HIGH_TIER_UI_FRAME_INTERVAL_MS = 16L
-        private const val MID_TIER_UI_FRAME_INTERVAL_MS = 24L
-        private const val LOW_TIER_UI_FRAME_INTERVAL_MS = 33L
-        private const val HIGH_TIER_HEAVY_UI_FRAME_INTERVAL_MS = 33L
-        private const val MID_TIER_HEAVY_UI_FRAME_INTERVAL_MS = 40L
-        private const val LOW_TIER_HEAVY_UI_FRAME_INTERVAL_MS = 50L
+        // MID tier raised to 33ms: native video decode + timeline canvas compete on the same
+        // GPU/CPU budget at 24ms causing visible jitter on mid-range phones (3-4 GB RAM).
+        private const val MID_TIER_UI_FRAME_INTERVAL_MS = 33L
+        private const val LOW_TIER_UI_FRAME_INTERVAL_MS = 50L
+        private const val HIGH_TIER_HEAVY_UI_FRAME_INTERVAL_MS = 40L
+        private const val MID_TIER_HEAVY_UI_FRAME_INTERVAL_MS = 66L
+        private const val LOW_TIER_HEAVY_UI_FRAME_INTERVAL_MS = 100L
         private const val PLAYBACK_UI_JUMP_REFRESH_DISTANCE_MS = 900L
         private const val LOW_TIER_PLAYBACK_UI_JUMP_REFRESH_DISTANCE_MS = 900L
         private const val NATIVE_PLAYBACK_START_GRACE_MS = 750L
@@ -457,9 +459,15 @@ class PlaybackController(
         }
         lastUiApplyRealtimeMs = nowMs
         setCurrentTimeMs(timeMs)
-        timelineCurrentTimeTextProvider()
-            ?.takeIf { it.visibility == View.VISIBLE }
-            ?.text = formatTimelineClock(timeMs, totalDurationMsProvider())
+        // Throttle clock-text update to heavy-UI interval: string format + setText is expensive.
+        val clockDue = lastHeavyUiApplyRealtimeMs <= 0L ||
+            nowMs - lastHeavyUiApplyRealtimeMs >= resolveHeavyUiFrameIntervalMs() ||
+            isFirstUiSample || isLargeTimelineJump
+        if (clockDue) {
+            timelineCurrentTimeTextProvider()
+                ?.takeIf { it.visibility == View.VISIBLE }
+                ?.text = formatTimelineClock(timeMs, totalDurationMsProvider())
+        }
         val lowTierTimelineLightMode = DeviceDetector.getDeviceTier() == DeviceDetector.DeviceTier.LOW
         if (!lowTierTimelineLightMode) {
             onPlaybackTimeChanged?.invoke(timeMs)

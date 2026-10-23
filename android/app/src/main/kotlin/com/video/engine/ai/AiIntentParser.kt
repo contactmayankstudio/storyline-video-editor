@@ -55,6 +55,7 @@ sealed class VideoEditIntent {
     object TogglePlayback : VideoEditIntent()
     object Undo : VideoEditIntent()
     object Redo : VideoEditIntent()
+    data class StatusMakerPro(val style: String = "Trending") : VideoEditIntent()
     data class Conversational(val reply: String, val executeIntent: VideoEditIntent? = null) : VideoEditIntent()
     object Unknown : VideoEditIntent()
 }
@@ -149,6 +150,17 @@ object AiIntentParser {
                 intent = VideoEditIntent.ExportVideo(res),
                 confidence = 0.98f,
                 feedbackMessage = "🚀 Video export pipeline started ($res Full HD). Video aapki phone gallery me save ho rahi hai!",
+            )
+        }
+
+        // 0b. Status Maker Pro (1 photo se mast video maker jaisa status / reel)
+        if (matchesStatusMakerPro(normalized)) {
+            val style = resolveStatusMakerStyle(normalized)
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.StatusMakerPro(style),
+                confidence = 0.99f,
+                feedbackMessage = "✨ Status Maker Pro: 1-Photo se dynamic transitions, beat zoom aur lyrical status video ban raha hai! 🔥",
             )
         }
 
@@ -901,6 +913,24 @@ object AiIntentParser {
         return text.contains("redo") || text.contains("फिर से करो") ||
             text.contains("रीडू करो") || text.contains("redo karo") ||
             text.contains("aage badhao")
+    }
+
+    private fun matchesStatusMakerPro(text: String): Boolean {
+        return text.contains("status") || text.contains("स्टेटस") ||
+            text.contains("1 photo") || text.contains("ek photo") ||
+            text.contains("one photo") || text.contains("1 pic") ||
+            text.contains("photo se video") || text.contains("photo se reel") ||
+            text.contains("mast video") || text.contains("mast jaisa") ||
+            text.contains("photo video maker") || text.contains("status maker")
+    }
+
+    private fun resolveStatusMakerStyle(text: String): String {
+        return when {
+            text.contains("attitude") || text.contains("एटीट्यूड") -> "Attitude"
+            text.contains("love") || text.contains("romantic") || text.contains("प्यार") -> "Love"
+            text.contains("sad") || text.contains("emotional") || text.contains("दर्द") -> "Emotional"
+            else -> "Trending"
+        }
     }
 
     private fun matchesAutoPilotEdit(text: String): Boolean {
