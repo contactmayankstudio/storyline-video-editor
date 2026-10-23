@@ -421,6 +421,24 @@ class UiChromeController(
             }
 
             divider()
+            section("📼 Retro & Cyberpunk Glitch")
+            val retroCards = listOf(
+                ModernSheet.VisualCard("VHS 1998", "VHS 1998", emoji = "📼"),
+                ModernSheet.VisualCard("Cyberpunk 2077", "Cyberpunk", emoji = "⚡"),
+                ModernSheet.VisualCard("CRT 80s TV", "CRT 80s TV", emoji = "📺"),
+                ModernSheet.VisualCard("Lo-Fi Grain", "Lo-Fi Grain", emoji = "🎞️"),
+                ModernSheet.VisualCard("Vapor Glitch", "Vapor Glitch", emoji = "👾"),
+            )
+            visualCardsGrid(
+                cards = retroCards,
+                selected = -1,
+                columns = 3,
+                dismissOnSelect = false,
+            ) { _, card ->
+                applyEffectPresetByName(card.id)
+            }
+
+            divider()
             compactActionRow(
                 listOf(
                     ModernSheet.CompactAction(
@@ -457,6 +475,8 @@ class UiChromeController(
                 ModernSheet.VisualCard("Film", "Film", emoji = "🎞️"),
                 ModernSheet.VisualCard("Boom", "Boom", emoji = "💥"),
                 ModernSheet.VisualCard("Star", "Star", emoji = "⭐"),
+                ModernSheet.VisualCard("VHS Cam", "VHS Cam", emoji = "📼"),
+                ModernSheet.VisualCard("Glitch", "Glitch", emoji = "👾"),
             )
             visualCardsGrid(
                 cards = graphicCards,
@@ -1004,6 +1024,22 @@ class UiChromeController(
             },
         ) {
             toggle("Enable Chroma Key", enabled) { enabled = it; apply() }
+            divider()
+            section("1-Tap Chroma Presets")
+            chips(
+                "Presets",
+                listOf("🟢 Green Screen", "🔵 Blue Screen", "⚫ Black / Shadow"),
+                -1,
+                dismissOnSelect = false,
+            ) { i, _ ->
+                enabled = true
+                when (i) {
+                    0 -> { isBlue = false; similarity = 0.42f; smoothness = 0.16f; spill = 0.28f }
+                    1 -> { isBlue = true; similarity = 0.46f; smoothness = 0.18f; spill = 0.32f }
+                    2 -> { isBlue = false; similarity = 0.30f; smoothness = 0.10f; spill = 0.10f }
+                }
+                apply()
+            }
             divider()
             section("Key Color")
             val colors = listOf(

@@ -6235,6 +6235,7 @@ class VideoEditorActivity : ComponentActivity() {
         onAddOrUpdateCurrent: () -> Unit,
         onDeleteCurrent: () -> Unit,
         onClearAll: () -> Unit,
+        onApplyMotionPreset: ((String) -> Unit)? = null,
     ) {
         val playheadMs = currentPlayheadMs().coerceAtLeast(0L)
         val previousKeyframe = previousTimelineKeyframe(keyframes, playheadMs)
@@ -6253,6 +6254,21 @@ class VideoEditorActivity : ComponentActivity() {
                     0 -> onAddOrUpdateCurrent()
                     1 -> onDeleteCurrent()
                     2 -> onClearAll()
+                }
+            }
+            if (onApplyMotionPreset != null) {
+                chips(
+                    "Motion Presets",
+                    listOf("🔍 Push In", "🔎 Pull Out", "↔️ Slide", "✨ 3D Parallax"),
+                    -1,
+                ) { index, _ ->
+                    val preset = when (index) {
+                        0 -> "push_in"
+                        1 -> "pull_out"
+                        2 -> "left_right"
+                        else -> "3d_parallax"
+                    }
+                    onApplyMotionPreset(preset)
                 }
             }
             chips(
@@ -6349,6 +6365,9 @@ class VideoEditorActivity : ComponentActivity() {
                         safeToast("Keyframes already clear", Toast.LENGTH_SHORT)
                     }
                 }
+            },
+            onApplyMotionPreset = { preset ->
+                applySelectedClipPanZoomPreset(preset)
             },
         )
     }
@@ -11409,7 +11428,33 @@ class VideoEditorActivity : ComponentActivity() {
             onExtractAudioFromVideo = {
                 pickVideoForAudioExtractionLauncher.launch("video/*")
             },
+            onOpenViralSfxBoard = {
+                showViralSfxSoundBoard()
+            },
         )
+    }
+
+    private fun showViralSfxSoundBoard() {
+        com.video.engine.sfx.ViralSfxLibrary.showSfxSoundBoard(this) { item, file ->
+            val playheadMs = maxOf(currentPlayheadMs(), currentTimeMs.coerceAtLeast(0L))
+            val nextAudioId = (AudioClipStore.all().maxOfOrNull { it.id } ?: 100) + 1
+            val clip = com.video.engine.audio.AudioClip(
+                id = nextAudioId,
+                sourcePath = file.absolutePath,
+                displayName = "${item.emoji} ${item.name}",
+                startTimeMs = playheadMs,
+                durationMs = item.durationMs,
+                sourceInMs = 0L,
+                sourceOutMs = item.durationMs,
+                gain = 1.0f,
+            )
+            AudioClipStore.add(clip)
+            syncPreviewAudioClipsToNative()
+            refreshMainTimelineTracks()
+            refreshPreviewAtPlayhead(resyncAudio = true)
+            triggerEditorHaptic(EditorHapticEffect.Success)
+            safeToast("Attached ${item.name} at ${playheadMs / 1000}s", Toast.LENGTH_SHORT)
+        }
     }
 
     private fun openVideoTrackImport() {
@@ -18386,10 +18431,50 @@ class VideoEditorActivity : ComponentActivity() {
         }
     }
 
+    private fun showPipPresetsSheet(clipId: Int) {
+        val previewApi = previewView ?: return
+        val previewWidth = previewApi.width.toFloat().takeIf { it > 0f } ?: 1080f
+        val previewHeight = previewApi.height.toFloat().takeIf { it > 0f } ?: 1920f
+
+        com.video.engine.pip.PipLayoutPresets.showPipLayoutSheet(this) { preset ->
+            val panXPx = preset.panXNorm * previewWidth
+            val panYPx = preset.panYNorm * previewHeight
+            val transform = ClipPreviewTransform(
+                zoom = preset.zoom,
+                scaleX = preset.scaleX,
+                scaleY = preset.scaleY,
+                panXPx = panXPx,
+                panYPx = panYPx,
+                rotationDeg = 0f,
+                mirrorX = false,
+            )
+            clipPreviewTransforms[clipId] = transform
+            applyNormalizedClipPreviewTransformToNative(clipId, transform, immediate = true)
+            refreshPreviewAtPlayhead(resyncAudio = false)
+            triggerEditorHaptic(EditorHapticEffect.Success)
+            safeToast("Applied ${preset.title}", Toast.LENGTH_SHORT)
+        }
+    }
+
     private fun performSelectedClipAddLayerAction() {
         noteAppHealthAction("clip_layer_action_handled")
-        setSelectedImportTrackType(TrackType.LAYER)
-        openLayerTrackImport()
+        val clipId = resolveSelectedVisualClipId(syncSelectionIfNeeded = true)
+        if (clipId != null && (nativeClipTrackType[clipId] == TrackType.OVERLAY || nativeClipTrackType[clipId] == TrackType.LAYER)) {
+            ModernSheet.show(this, "PIP & Layer Options") {
+                chips("Action", listOf("📱 PIP / Duet Layout", "📥 Import New Overlay Layer"), -1) { i, _ ->
+                    when (i) {
+                        0 -> showPipPresetsSheet(clipId)
+                        1 -> {
+                            setSelectedImportTrackType(TrackType.LAYER)
+                            openLayerTrackImport()
+                        }
+                    }
+                }
+            }
+        } else {
+            setSelectedImportTrackType(TrackType.LAYER)
+            openLayerTrackImport()
+        }
     }
 
     private fun setupBottomToolbarModes() {
@@ -18421,6 +18506,12 @@ class VideoEditorActivity : ComponentActivity() {
         bindClipToolbarAction(R.id.clipReplaceButton) { performSelectedClipReplaceAction() }
         bindClipToolbarAction(R.id.clipDuplicateButton) { performSelectedClipDuplicateAction() }
         bindClipToolbarAction(R.id.clipAddLayerButton) { performSelectedClipAddLayerAction() }
+        findViewById<View>(R.id.clipAddLayerButton)?.setOnLongClickListener {
+            resolveSelectedVisualClipId(syncSelectionIfNeeded = true)?.let { clipId ->
+                showPipPresetsSheet(clipId)
+                true
+            } ?: false
+        }
         bindClipToolbarAction(R.id.clipRotateMirrorButton) { performSelectedClipRotateMirrorAction() }
         bindClipToolbarAction(R.id.clipKeyframeButton) { performSelectedClipKeyframeAction() }
         bindClipToolbarAction(R.id.clipReverseButton) { performSelectedClipReverseAction() }

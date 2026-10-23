@@ -131,7 +131,8 @@ object MediaPickerSheet {
         initialTrackType: TrackType = TrackType.VIDEO,
         onMediaSelected: (uris: List<Uri>, trackType: TrackType) -> Unit,
         onBrowseSystemPicker: (trackType: TrackType) -> Unit,
-        onExtractAudioFromVideo: (() -> Unit)? = null
+        onExtractAudioFromVideo: (() -> Unit)? = null,
+        onOpenViralSfxBoard: (() -> Unit)? = null
     ) {
         val dialog = BottomSheetDialog(activity)
         var currentTab = when (initialTrackType) {
@@ -281,6 +282,33 @@ object MediaPickerSheet {
             }
         }
         root.addView(audioExtractBanner)
+
+        val sfxSoundBoardBanner = TextView(activity).apply {
+            text = "🔊 Viral Reel Meme SFX Sound Board"
+            setTextColor(Color.parseColor("#00E5FF"))
+            textSize = 12.5f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#15222E"))
+                setStroke(dpInt(activity, 1f), Color.parseColor("#00E5FF"))
+                cornerRadius = dp(activity, 10f)
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpInt(activity, 40f)
+            ).apply {
+                marginStart = dpInt(activity, 16f)
+                marginEnd = dpInt(activity, 16f)
+                bottomMargin = dpInt(activity, 8f)
+            }
+            visibility = if (currentTab == MediaType.AUDIO && onOpenViralSfxBoard != null) View.VISIBLE else View.GONE
+            setOnClickListener {
+                dialog.dismiss()
+                onOpenViralSfxBoard?.invoke()
+            }
+        }
+        root.addView(sfxSoundBoardBanner)
 
         // Recycler View for Grid / List
         val recyclerView = RecyclerView(activity).apply {
@@ -461,6 +489,7 @@ object MediaPickerSheet {
             updateTabButton(photoTab, tab == MediaType.PHOTO)
             updateTabButton(audioTab, tab == MediaType.AUDIO)
             audioExtractBanner.visibility = if (tab == MediaType.AUDIO && onExtractAudioFromVideo != null) View.VISIBLE else View.GONE
+            sfxSoundBoardBanner.visibility = if (tab == MediaType.AUDIO && onOpenViralSfxBoard != null) View.VISIBLE else View.GONE
 
             if (tab == MediaType.AUDIO) {
                 recyclerView.layoutManager = LinearLayoutManager(activity)

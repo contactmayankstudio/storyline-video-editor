@@ -48,6 +48,16 @@ object ProFilterPresets {
                 ProFilterPreset("Neutral", "Reset to clean base", EffectParams()),
             ),
         ),
+        ProFilterSection(
+            title = "Retro & Glitch",
+            presets = listOf(
+                ProFilterPreset("VHS 1998", "90s camcorder warm saturation", EffectParams(brightness = 0.12f, contrast = 0.94f, saturation = 1.38f)),
+                ProFilterPreset("Cyberpunk 2077", "Neon magenta & cyan distortion", EffectParams(brightness = -0.06f, contrast = 1.48f, saturation = 1.62f)),
+                ProFilterPreset("CRT 80s TV", "Cathode-ray phosphor tube look", EffectParams(brightness = 0.04f, contrast = 1.28f, saturation = 0.82f)),
+                ProFilterPreset("Lo-Fi Grain", "Muted indie film vintage tone", EffectParams(brightness = 0.06f, contrast = 0.88f, saturation = 0.68f)),
+                ProFilterPreset("Vapor Glitch", "Electric saturated synthwave style", EffectParams(brightness = -0.02f, contrast = 1.55f, saturation = 1.80f)),
+            ),
+        ),
     )
 
     private val allPresets: Map<String, ProFilterPreset> = sections
