@@ -33,6 +33,7 @@ import androidx.core.view.WindowInsetsCompat
 import com.video.engine.EditorLaunchIntents
 import com.video.engine.R
 import com.video.engine.VideoEditorActivity
+import com.video.engine.audio.AudioExtractorHelper
 import com.video.engine.VideoPreviewView
 import java.io.File
 import java.io.FileInputStream
@@ -100,6 +101,25 @@ class StatusQuickExportActivity : ComponentActivity() {
         } else {
             Toast.makeText(this, "Could not load selected audio file", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    // Video picker contract for extracting audio from Reel / Video
+    private val pickVideoForAudioExtractionLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri == null) return@registerForActivityResult
+        Toast.makeText(this, "⏳ Extracting audio from video...", Toast.LENGTH_SHORT).show()
+        Thread {
+            val result = AudioExtractorHelper.extractAudioFromVideoUri(this, uri)
+            runOnUiThread {
+                if (result != null && result.file.exists()) {
+                    onNewMusicSelected(result.file.absolutePath, "Reel Audio 🎵", "🎵")
+                    Toast.makeText(this, "🎵 Audio extracted & applied!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Could not extract audio from this video", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }.start()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -373,6 +393,7 @@ class StatusQuickExportActivity : ComponentActivity() {
     private fun showMusicSelectionDialog() {
         val presets = StatusSoundtrackRepository.presets
         val items = mutableListOf<String>()
+        items.add("🎵  Extract Audio from Video / Reel...")
         items.add("📁  Choose from Device Storage...")
         presets.forEach { s ->
             items.add("${s.emoji}  ${s.title} (${s.category})")
@@ -381,20 +402,27 @@ class StatusQuickExportActivity : ComponentActivity() {
         AlertDialog.Builder(this)
             .setTitle("🎵 Change Background Music")
             .setItems(items.toTypedArray()) { _, which ->
-                if (which == 0) {
-                    // Launch system audio picker
-                    pickAudioLauncher.launch("audio/*")
-                } else {
-                    val selectedSoundtrack = presets[which - 1]
-                    val localAudio = StatusMediaHelper.extractAudioAssetToLocal(this, selectedSoundtrack.assetPath)
-                    if (localAudio != null && localAudio.exists()) {
-                        onNewMusicSelected(
-                            audioPath = localAudio.absolutePath,
-                            title = selectedSoundtrack.title,
-                            emoji = selectedSoundtrack.emoji
-                        )
-                    } else {
-                        Toast.makeText(this, "Could not load preset soundtrack", Toast.LENGTH_SHORT).show()
+                when (which) {
+                    0 -> {
+                        // Extract from video / reel
+                        pickVideoForAudioExtractionLauncher.launch("video/*")
+                    }
+                    1 -> {
+                        // Launch system audio picker
+                        pickAudioLauncher.launch("audio/*")
+                    }
+                    else -> {
+                        val selectedSoundtrack = presets[which - 2]
+                        val localAudio = StatusMediaHelper.extractAudioAssetToLocal(this, selectedSoundtrack.assetPath)
+                        if (localAudio != null && localAudio.exists()) {
+                            onNewMusicSelected(
+                                audioPath = localAudio.absolutePath,
+                                title = selectedSoundtrack.title,
+                                emoji = selectedSoundtrack.emoji
+                            )
+                        } else {
+                            Toast.makeText(this, "Could not load preset soundtrack", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
             }

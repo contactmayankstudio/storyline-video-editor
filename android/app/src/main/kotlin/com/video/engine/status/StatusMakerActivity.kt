@@ -38,6 +38,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.video.engine.R
+import com.video.engine.audio.AudioExtractorHelper
 import java.io.File
 import java.io.FileOutputStream
 
@@ -70,6 +71,25 @@ class StatusMakerActivity : ComponentActivity() {
             val localAudio = resolveUriToLocalFile(this, uri) ?: return@Thread
             runOnUiThread {
                 onAudioSelectedCallback?.invoke(localAudio, "Phone Audio")
+            }
+        }.start()
+    }
+
+    // Video picker for Reel / Video audio extraction
+    private val pickVideoForAudioExtractionLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri == null) return@registerForActivityResult
+        Toast.makeText(this, "⏳ Extracting audio from video...", Toast.LENGTH_SHORT).show()
+        Thread {
+            val result = AudioExtractorHelper.extractAudioFromVideoUri(this, uri)
+            runOnUiThread {
+                if (result != null && result.file.exists()) {
+                    Toast.makeText(this, "🎵 Audio extracted successfully!", Toast.LENGTH_SHORT).show()
+                    onAudioSelectedCallback?.invoke(result.file.absolutePath, "Reel Audio 🎵")
+                } else {
+                    Toast.makeText(this, "Could not extract audio from selected video", Toast.LENGTH_SHORT).show()
+                }
             }
         }.start()
     }
@@ -738,10 +758,10 @@ class StatusMakerActivity : ComponentActivity() {
         }
 
         val hintText = TextView(ctx).apply {
-            text = "Enter your name, couple name, or status quote to bounce on your video with kinetic neon glow:"
+            text = "Enter your name or pick a trending Shayari / Quote to bounce with glowing kinetic neon text:"
             setTextColor(Color.parseColor("#9AA4B2"))
-            textSize = 13f
-            setPadding(0, 0, 0, (12 * density).toInt())
+            textSize = 12.5f
+            setPadding(0, 0, 0, (10 * density).toInt())
         }
         container.addView(hintText)
 
@@ -749,7 +769,7 @@ class StatusMakerActivity : ComponentActivity() {
             hint = "e.g. Rohan 🔥 / Happy Birthday 🎂 / Love You ❤️"
             setHintTextColor(Color.parseColor("#556070"))
             setTextColor(Color.WHITE)
-            textSize = 15f
+            textSize = 14.5f
             setText(initialText ?: "")
             setSelection(text.length)
             background = GradientDrawable().apply {
@@ -757,16 +777,118 @@ class StatusMakerActivity : ComponentActivity() {
                 cornerRadius = 10 * density
                 setStroke((1 * density).toInt(), Color.parseColor("#388BFD"))
             }
-            setPadding((14 * density).toInt(), (12 * density).toInt(), (14 * density).toInt(), (12 * density).toInt())
+            setPadding((14 * density).toInt(), (10 * density).toInt(), (14 * density).toInt(), (10 * density).toInt())
         }
         container.addView(editText)
 
-        val presetsLabel = TextView(ctx).apply {
-            text = "Quick Viral Presets:"
+        // Ready-made Lyrical Shayari & Quotes Library
+        val shayariHeader = TextView(ctx).apply {
+            text = "📚 Ready-Made Lyrical Shayari & Quotes:"
             setTextColor(Color.parseColor("#FFD700"))
             textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, (14 * density).toInt(), 0, (6 * density).toInt())
+            setPadding(0, (12 * density).toInt(), 0, (6 * density).toInt())
+        }
+        container.addView(shayariHeader)
+
+        val categoryScrollView = HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+        }
+        val categoryContainer = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
+        val quotesScrollView = HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+        }
+        val quotesContainer = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, (6 * density).toInt(), 0, (8 * density).toInt())
+        }
+
+        var activeCategoryIdx = 0
+        fun populateQuotes(catIdx: Int) {
+            quotesContainer.removeAllViews()
+            val category = ShayariLibraryRepository.categories.getOrNull(catIdx) ?: return
+            category.quotes.forEach { quote ->
+                val quoteChip = TextView(ctx).apply {
+                    text = quote
+                    textSize = 11.5f
+                    setTextColor(Color.parseColor("#E6EDF3"))
+                    setPadding((10 * density).toInt(), (6 * density).toInt(), (10 * density).toInt(), (6 * density).toInt())
+                    val params = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        marginEnd = (8 * density).toInt()
+                    }
+                    layoutParams = params
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#1F242C"))
+                        cornerRadius = 14 * density
+                        setStroke((1 * density).toInt(), Color.parseColor("#388BFD"))
+                    }
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener {
+                        it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                        editText.setText(quote)
+                        editText.setSelection(quote.length)
+                    }
+                }
+                quotesContainer.addView(quoteChip)
+            }
+        }
+
+        fun updateCategoryTabs() {
+            categoryContainer.removeAllViews()
+            ShayariLibraryRepository.categories.forEachIndexed { idx, cat ->
+                val isSelected = idx == activeCategoryIdx
+                val tabChip = TextView(ctx).apply {
+                    text = "${cat.emoji} ${cat.title}"
+                    textSize = 11.5f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(if (isSelected) Color.WHITE else Color.parseColor("#8B949E"))
+                    setPadding((12 * density).toInt(), (5 * density).toInt(), (12 * density).toInt(), (5 * density).toInt())
+                    val params = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        marginEnd = (6 * density).toInt()
+                    }
+                    layoutParams = params
+                    background = GradientDrawable().apply {
+                        setColor(if (isSelected) Color.parseColor("#388BFD") else Color.parseColor("#21262D"))
+                        cornerRadius = 14 * density
+                    }
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener {
+                        it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                        activeCategoryIdx = idx
+                        updateCategoryTabs()
+                        populateQuotes(idx)
+                    }
+                }
+                categoryContainer.addView(tabChip)
+            }
+        }
+
+        updateCategoryTabs()
+        populateQuotes(0)
+
+        categoryScrollView.addView(categoryContainer)
+        quotesScrollView.addView(quotesContainer)
+        container.addView(categoryScrollView)
+        container.addView(quotesScrollView)
+
+        // Viral Name Presets
+        val presetsLabel = TextView(ctx).apply {
+            text = "⚡ Quick Names & Tags:"
+            setTextColor(Color.parseColor("#7EE787"))
+            textSize = 11.5f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, (6 * density).toInt(), 0, (6 * density).toInt())
         }
         container.addView(presetsLabel)
 
@@ -792,19 +914,19 @@ class StatusMakerActivity : ComponentActivity() {
         presets.forEach { preset ->
             val chip = TextView(ctx).apply {
                 text = preset
-                textSize = 12f
+                textSize = 11.5f
                 setTextColor(Color.WHITE)
-                setPadding((12 * density).toInt(), (6 * density).toInt(), (12 * density).toInt(), (6 * density).toInt())
+                setPadding((10 * density).toInt(), (5 * density).toInt(), (10 * density).toInt(), (5 * density).toInt())
                 val params = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply {
-                    marginEnd = (8 * density).toInt()
+                    marginEnd = (6 * density).toInt()
                 }
                 layoutParams = params
                 background = GradientDrawable().apply {
                     setColor(Color.parseColor("#262C36"))
-                    cornerRadius = 16 * density
+                    cornerRadius = 14 * density
                     setStroke((1 * density).toInt(), Color.parseColor("#44FFFFFF"))
                 }
                 isClickable = true
@@ -821,7 +943,7 @@ class StatusMakerActivity : ComponentActivity() {
         container.addView(presetsScrollView)
 
         AlertDialog.Builder(ctx)
-            .setTitle("✏️ Custom Name & Status Text")
+            .setTitle("✏️ Lyrical Quotes & Custom Name")
             .setView(container)
             .setPositiveButton("Apply to Status ✨") { _, _ ->
                 val entered = editText.text.toString().trim()
@@ -836,13 +958,14 @@ class StatusMakerActivity : ComponentActivity() {
     ) {
         val ctx = this
         val tracks = listOf(
-            Triple("Attitude Bass Drop 🔥 (130 BPM)", "music_bgm/attitude_bass_drop.wav", false),
-            Triple("Energetic Reels Trap ⚡ (135 BPM)", "music_bgm/energetic_reels_trap_beat.wav", false),
-            Triple("Romantic Acoustic Love 💖 (100 BPM)", "music_bgm/romantic_acoustic_love.wav", false),
-            Triple("Lo-Fi Chill Vlog 🎧 (88 BPM)", "music_bgm/lofi_chill_vlog_beat.wav", false),
-            Triple("Devotional Ambient Flute 🙏 (75 BPM)", "music_bgm/devotional_ambient_flute.wav", false),
-            Triple("Sad Emotional Piano 🥺 (72 BPM)", "music_bgm/sad_piano_emotional.wav", false),
-            Triple("📂 Pick from Phone Storage...", "", true)
+            Triple("🎵 Extract Audio from Reel / Video...", "", "extract"),
+            Triple("📂 Pick from Phone Storage...", "", "phone"),
+            Triple("Attitude Bass Drop 🔥 (130 BPM)", "music_bgm/attitude_bass_drop.wav", "preset"),
+            Triple("Energetic Reels Trap ⚡ (135 BPM)", "music_bgm/energetic_reels_trap_beat.wav", "preset"),
+            Triple("Romantic Acoustic Love 💖 (100 BPM)", "music_bgm/romantic_acoustic_love.wav", "preset"),
+            Triple("Lo-Fi Chill Vlog 🎧 (88 BPM)", "music_bgm/lofi_chill_vlog_beat.wav", "preset"),
+            Triple("Devotional Ambient Flute 🙏 (75 BPM)", "music_bgm/devotional_ambient_flute.wav", "preset"),
+            Triple("Sad Emotional Piano 🥺 (72 BPM)", "music_bgm/sad_piano_emotional.wav", "preset")
         )
 
         val titles = tracks.map { it.first }.toTypedArray()
@@ -850,14 +973,23 @@ class StatusMakerActivity : ComponentActivity() {
             .setTitle("🎵 Select Status Soundtrack")
             .setItems(titles) { _, which ->
                 val selected = tracks[which]
-                if (selected.third) {
-                    onAudioSelectedCallback = { localPath, title ->
-                        onTrackSelected(localPath, title, true)
+                when (selected.third) {
+                    "extract" -> {
+                        onAudioSelectedCallback = { localPath, title ->
+                            onTrackSelected(localPath, title, true)
+                        }
+                        pickVideoForAudioExtractionLauncher.launch("video/*")
                     }
-                    pickAudioForPreviewLauncher.launch("audio/*")
-                } else {
-                    val cleanTitle = selected.first.split(" (")[0]
-                    onTrackSelected(selected.second, cleanTitle, false)
+                    "phone" -> {
+                        onAudioSelectedCallback = { localPath, title ->
+                            onTrackSelected(localPath, title, true)
+                        }
+                        pickAudioForPreviewLauncher.launch("audio/*")
+                    }
+                    else -> {
+                        val cleanTitle = selected.first.split(" (")[0]
+                        onTrackSelected(selected.second, cleanTitle, false)
+                    }
                 }
             }
             .setNegativeButton("Cancel", null)

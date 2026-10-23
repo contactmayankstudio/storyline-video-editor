@@ -112,6 +112,14 @@ class PreviewAudioPlayer(
     private var lastNoSourceLogElapsedMs = 0L
     private var lastNoSourceRequestTimelineMs = Long.MIN_VALUE
     private var lastNoSourceRequestElapsedMs = 0L
+    var pitchProvider: ((selectionKey: String, sourcePath: String) -> Float)? = null
+
+    fun resyncPlaybackParams() {
+        runOnAudioThread {
+            val selection = currentSelection ?: return@runOnAudioThread
+            applyPlaybackSpeed(selection)
+        }
+    }
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
             AudioManager.AUDIOFOCUS_GAIN -> runOnAudioThread {
@@ -1095,18 +1103,25 @@ class PreviewAudioPlayer(
     private fun applyPlaybackSpeed(selection: SourceSelection) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
         val speed = effectivePlaybackSpeed(selection)
-        if (abs(speed - 1.0f) < 0.01f) {
+        val pitch = pitchProvider?.invoke(selection.key, selection.path) ?: 1.0f
+        if (abs(speed - 1.0f) < 0.01f && abs(pitch - 1.0f) < 0.01f) {
+            runCatching {
+                val player = mediaPlayer ?: return@runCatching
+                val params = runCatching { player.playbackParams }.getOrNull() ?: android.media.PlaybackParams()
+                params.setPitch(1.0f)
+                params.setSpeed(1.0f)
+                player.playbackParams = params
+            }
             return
         }
         runCatching {
             val player = mediaPlayer ?: return@runCatching
             val params = runCatching { player.playbackParams }.getOrNull() ?: android.media.PlaybackParams()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                params.setPitch(1.0f)
-            }
-            player.playbackParams = params.setSpeed(speed)
+            params.setPitch(pitch.coerceIn(0.25f, 3.0f))
+            params.setSpeed(speed.coerceIn(0.1f, 4.0f))
+            player.playbackParams = params
         }.onFailure {
-            Log.w(TAG, "Failed to apply playback speed=$speed: ${it.message}")
+            Log.w(TAG, "Failed to apply playback speed=$speed pitch=$pitch: ${it.message}")
         }
     }
 

@@ -130,7 +130,8 @@ object MediaPickerSheet {
         activity: Activity,
         initialTrackType: TrackType = TrackType.VIDEO,
         onMediaSelected: (uris: List<Uri>, trackType: TrackType) -> Unit,
-        onBrowseSystemPicker: (trackType: TrackType) -> Unit
+        onBrowseSystemPicker: (trackType: TrackType) -> Unit,
+        onExtractAudioFromVideo: (() -> Unit)? = null
     ) {
         val dialog = BottomSheetDialog(activity)
         var currentTab = when (initialTrackType) {
@@ -252,6 +253,34 @@ object MediaPickerSheet {
             visibility = View.GONE
         }
         root.addView(infoStrip)
+
+        // 1-Tap Audio Extractor button (Instagram Reels / TikTok / Gallery video)
+        val audioExtractBanner = TextView(activity).apply {
+            text = "🎵 Extract Audio from Video / Reel"
+            setTextColor(Color.WHITE)
+            textSize = 12.5f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1B2A3D"))
+                setStroke(dpInt(activity, 1f), Color.parseColor("#388BFD"))
+                cornerRadius = dp(activity, 10f)
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpInt(activity, 40f)
+            ).apply {
+                marginStart = dpInt(activity, 16f)
+                marginEnd = dpInt(activity, 16f)
+                bottomMargin = dpInt(activity, 8f)
+            }
+            visibility = if (currentTab == MediaType.AUDIO && onExtractAudioFromVideo != null) View.VISIBLE else View.GONE
+            setOnClickListener {
+                dialog.dismiss()
+                onExtractAudioFromVideo?.invoke()
+            }
+        }
+        root.addView(audioExtractBanner)
 
         // Recycler View for Grid / List
         val recyclerView = RecyclerView(activity).apply {
@@ -431,6 +460,7 @@ object MediaPickerSheet {
             updateTabButton(videoTab, tab == MediaType.VIDEO)
             updateTabButton(photoTab, tab == MediaType.PHOTO)
             updateTabButton(audioTab, tab == MediaType.AUDIO)
+            audioExtractBanner.visibility = if (tab == MediaType.AUDIO && onExtractAudioFromVideo != null) View.VISIBLE else View.GONE
 
             if (tab == MediaType.AUDIO) {
                 recyclerView.layoutManager = LinearLayoutManager(activity)

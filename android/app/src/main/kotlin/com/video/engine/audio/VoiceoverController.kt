@@ -39,6 +39,7 @@ class VoiceoverController(
     private val permissionRequestCode: Int,
     private val currentTimeMsProvider: () -> Long,
     private val onRecordingComplete: (path: String, startTimeMs: Long, durationMs: Long) -> Unit,
+    private val onRecordingCompleteWithFx: ((path: String, startTimeMs: Long, durationMs: Long, voiceFx: String) -> Unit)? = null,
 ) {
     companion object {
         private const val TAG = "[Voiceover]"
@@ -58,6 +59,7 @@ class VoiceoverController(
     private var recordingStartMs = 0L
     private var timelineStartMs = 0L
     private var recordedDurationMs = 0L
+    private var selectedVoiceFx: String = "Original"
     private var currentDialog: BottomSheetDialog? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -233,9 +235,20 @@ class VoiceoverController(
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dpInt(44f),
-            ).also { it.bottomMargin = dpInt(20f) }
+            ).also { it.bottomMargin = dpInt(14f) }
         }
         root.addView(visualizerView)
+
+        // Voice Changer FX Container
+        val voiceFxContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).also { it.bottomMargin = dpInt(14f) }
+        }
+        root.addView(voiceFxContainer)
 
         // Action Buttons Container
         val actionContainer = LinearLayout(activity).apply {
@@ -250,6 +263,8 @@ class VoiceoverController(
 
         fun updateUiForState() {
             actionContainer.removeAllViews()
+            voiceFxContainer.removeAllViews()
+            voiceFxContainer.visibility = if (state == State.REVIEW) View.VISIBLE else View.GONE
             when (state) {
                 State.READY -> {
                     statusText.text = "Tap to Record"
@@ -342,6 +357,57 @@ class VoiceoverController(
                     timerDisplay.setTextColor(Color.WHITE)
                     timerDisplay.text = formatElapsedTimer(recordedDurationMs)
 
+                    val voiceFxHeader = TextView(activity).apply {
+                        text = "🎤 AI Voice Changer FX:"
+                        setTextColor(Color.parseColor("#FFD700"))
+                        textSize = 12f
+                        typeface = Typeface.DEFAULT_BOLD
+                        setPadding(0, 0, 0, dpInt(6f))
+                    }
+                    voiceFxContainer.addView(voiceFxHeader)
+
+                    val fxScrollView = android.widget.HorizontalScrollView(activity).apply {
+                        isHorizontalScrollBarEnabled = false
+                    }
+                    val fxRow = LinearLayout(activity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                    }
+                    val fxPresets = listOf(
+                        "Original" to "⚪ Original",
+                        "Deep Mafia" to "🦁 Deep Mafia (-4)",
+                        "Chipmunk" to "🐿 Cute Chipmunk (+6)",
+                        "Robot" to "🤖 Cyber Robot",
+                        "Studio Reverb" to "🎙 Studio Reverb",
+                        "Megaphone" to "📢 Megaphone"
+                    )
+                    fxPresets.forEach { (key, label) ->
+                        val isSel = selectedVoiceFx == key
+                        val chip = TextView(activity).apply {
+                            text = label
+                            textSize = 11.5f
+                            setTextColor(if (isSel) Color.WHITE else Color.parseColor("#8B949E"))
+                            typeface = Typeface.DEFAULT_BOLD
+                            setPadding(dpInt(10f), dpInt(6f), dpInt(10f), dpInt(6f))
+                            background = GradientDrawable().apply {
+                                setColor(if (isSel) Color.parseColor("#388BFD") else Color.parseColor("#1B222C"))
+                                cornerRadius = dp(12f)
+                                if (!isSel) setStroke(dpInt(1f), Color.parseColor("#2F3D54"))
+                            }
+                            layoutParams = LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.WRAP_CONTENT,
+                                LinearLayout.LayoutParams.WRAP_CONTENT
+                            ).apply { marginEnd = dpInt(6f) }
+                            setOnClickListener {
+                                selectedVoiceFx = key
+                                previewPlayer?.let { p -> applyVoiceFxToPlayer(p, key) }
+                                updateUiForState()
+                            }
+                        }
+                        fxRow.addView(chip)
+                    }
+                    fxScrollView.addView(fxRow)
+                    voiceFxContainer.addView(fxScrollView)
+
                     val discardBtn = TextView(activity).apply {
                         text = "Discard"
                         setTextColor(Color.parseColor("#F85149"))
@@ -409,7 +475,11 @@ class VoiceoverController(
                             if (file != null && file.exists() && recordedDurationMs > 0L) {
                                 stopPreviewPlayback()
                                 dialog.dismiss()
-                                onRecordingComplete(file.absolutePath, timelineStartMs, recordedDurationMs)
+                                if (onRecordingCompleteWithFx != null) {
+                                    onRecordingCompleteWithFx.invoke(file.absolutePath, timelineStartMs, recordedDurationMs, selectedVoiceFx)
+                                } else {
+                                    onRecordingComplete(file.absolutePath, timelineStartMs, recordedDurationMs)
+                                }
                             } else {
                                 Toast.makeText(activity, "Recording not found", Toast.LENGTH_SHORT).show()
                             }
@@ -552,7 +622,24 @@ class VoiceoverController(
         outputFile?.delete()
         outputFile = null
         recordedDurationMs = 0L
+        selectedVoiceFx = "Original"
         state = State.READY
+    }
+
+    private fun applyVoiceFxToPlayer(player: MediaPlayer, fx: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        val pitch = when (fx) {
+            "Deep Mafia" -> 0.79f
+            "Chipmunk" -> 1.41f
+            "Robot" -> 0.92f
+            "Megaphone" -> 1.08f
+            else -> 1.0f
+        }
+        runCatching {
+            val params = runCatching { player.playbackParams }.getOrNull() ?: android.media.PlaybackParams()
+            params.setPitch(pitch)
+            player.playbackParams = params
+        }
     }
 
     private fun togglePreviewPlayback(onStatusChanged: () -> Unit) {
@@ -573,6 +660,7 @@ class VoiceoverController(
         try {
             newPlayer.setDataSource(file.absolutePath)
             newPlayer.prepare()
+            applyVoiceFxToPlayer(newPlayer, selectedVoiceFx)
             newPlayer.setOnCompletionListener {
                 onStatusChanged()
             }

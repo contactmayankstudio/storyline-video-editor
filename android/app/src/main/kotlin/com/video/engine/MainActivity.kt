@@ -48,6 +48,7 @@ import com.video.engine.audio.AudioClip
 import com.video.engine.audio.AudioGainKeyframe
 import com.video.engine.audio.AudioClipStore
 import com.video.engine.audio.AudioImportController
+import com.video.engine.audio.AudioExtractorHelper
 import com.video.engine.audio.VoiceoverController
 import com.video.engine.effects.EffectParams
 import com.video.engine.media.MediaPickerSheet
@@ -142,6 +143,35 @@ class VideoEditorActivity : ComponentActivity() {
             }
             if (startedFromStart && !hasProjectContent()) {
                 setStartScreenVisible(true)
+            }
+        }
+    }
+
+    private val pickVideoForAudioExtractionLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri == null) return@registerForActivityResult
+        safeToast("⏳ Extracting audio from video...", Toast.LENGTH_SHORT)
+        commandExecutor.execute {
+            val result = AudioExtractorHelper.extractAudioFromVideoUri(this, uri)
+            mainHandler.post {
+                if (result != null && result.file.exists()) {
+                    val importStartTimeMs = maxOf(currentPlayheadMs(), currentTimeMs.coerceAtLeast(0L))
+                    val imported = audioImportController?.importFromPath(
+                        path = result.file.absolutePath,
+                        startTimeMs = importStartTimeMs,
+                        durationOverrideMs = result.durationMs.takeIf { it > 0L },
+                        displayNameOverride = "Reel Audio 🎵",
+                    )
+                    if (imported != null) {
+                        safeToast("🎵 Reel audio extracted & added to timeline!", Toast.LENGTH_SHORT)
+                        refreshMainTimelineTracks()
+                    } else {
+                        safeToast("Audio import failed", Toast.LENGTH_SHORT)
+                    }
+                } else {
+                    safeToast("Could not extract audio from selected video", Toast.LENGTH_SHORT)
+                }
             }
         }
     }
@@ -1076,6 +1106,8 @@ class VideoEditorActivity : ComponentActivity() {
         }
     private val audioClipGainOverrides = mutableMapOf<Int, Float>()
     private val audioDuckingRestoreGainOverrides = mutableMapOf<Int, Float>()
+    private val audioClipVoicePitch = mutableMapOf<Int, Float>()
+    private val audioClipVoiceFxName = mutableMapOf<Int, String>()
     private val videoClipGainOverrides = mutableMapOf<Int, Float>()
     private val videoClipReverseOverrides = mutableMapOf<Int, Boolean>()
     private val videoClipFreezeOverrides = mutableMapOf<Int, Pair<Long, Long>>()
@@ -2532,7 +2564,14 @@ class VideoEditorActivity : ComponentActivity() {
         previewAudioPlayer = PreviewAudioPlayer(
             context = this,
             previewViewProvider = { previewView },
-        )
+        ).apply {
+            pitchProvider = { key, _ ->
+                val clipId = key.removePrefix("audio-").removePrefix("clip-").toIntOrNull()
+                if (clipId != null) {
+                    audioClipVoicePitch[clipId] ?: 1.0f
+                } else 1.0f
+            }
+        }
         findViewById<android.view.View?>(R.id.previewPlayPauseButton)?.bringToFront()
         notificationManager = getSystemService(NotificationManager::class.java)
         setupBottomToolbarModes()
@@ -3108,6 +3147,18 @@ class VideoEditorActivity : ComponentActivity() {
                     durationOverrideMs = durationMs,
                     displayNameOverride = "Voiceover",
                 )
+            },
+            onRecordingCompleteWithFx = { path, startTimeMs, durationMs, voiceFx ->
+                val label = if (voiceFx.isNotBlank() && voiceFx != "Original") "Voice ($voiceFx)" else "Voiceover"
+                val imported = audioImportController?.importFromPath(
+                    path = path,
+                    startTimeMs = startTimeMs,
+                    durationOverrideMs = durationMs,
+                    displayNameOverride = label,
+                )
+                if (imported != null && voiceFx.isNotBlank() && voiceFx != "Original") {
+                    applyVoiceFxPresetToClip(imported.id, imported, voiceFx)
+                }
             },
         )
         exportController = ExportController(
@@ -6459,6 +6510,77 @@ class VideoEditorActivity : ComponentActivity() {
         applyAudioGainKeyframes(audioId, clip, keyframes)
     }
 
+    private fun applyVoiceFxPresetToClip(audioId: Int, clip: AudioClip, voiceFx: String) {
+        val pitch = when (voiceFx) {
+            "Deep Mafia" -> 0.79f
+            "Chipmunk" -> 1.41f
+            "Robot" -> 0.92f
+            "Megaphone" -> 1.08f
+            else -> 1.0f
+        }
+        audioClipVoicePitch[audioId] = pitch
+        audioClipVoiceFxName[audioId] = voiceFx
+        when (voiceFx) {
+            "Deep Mafia" -> {
+                applyAudioClipGainChange(audioId, clip, 1.25f)
+                applyAudioClipSpeedChange(audioId, 0.95f)
+            }
+            "Chipmunk" -> {
+                applyAudioClipGainChange(audioId, clip, 1.15f)
+                applyAudioClipSpeedChange(audioId, 1.05f)
+            }
+            "Robot" -> {
+                applyAudioClipGainChange(audioId, clip, 1.20f)
+                applyAudioClipSpeedChange(audioId, 1.0f)
+                applyAudioAutomationPreset(audioId, clip, "Pulse")
+            }
+            "Studio Reverb" -> {
+                val maxFadeMs = clip.durationMs.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                val shortFade = (maxFadeMs / 6).coerceAtLeast(0)
+                applyAudioClipFades(audioId, clip, shortFade, shortFade)
+                applyAudioClipGainChange(audioId, clip, 1.10f)
+                applyAudioClipSpeedChange(audioId, 1.0f)
+            }
+            "Megaphone" -> {
+                applyAudioClipGainChange(audioId, clip, 1.35f)
+                applyAudioClipSpeedChange(audioId, 1.0f)
+            }
+            else -> {
+                applyAudioClipGainChange(audioId, clip, 1.0f)
+                applyAudioClipSpeedChange(audioId, 1.0f)
+                applyAudioClipFades(audioId, clip, 0, 0)
+            }
+        }
+        previewAudioPlayer?.resyncPlaybackParams()
+    }
+
+    private fun showVoiceChangerSheet(audioId: Int, clip: AudioClip) {
+        val clipLabel = clip.displayName.ifBlank { "Audio $audioId" }
+        ModernSheet.show(this, "🎤 $clipLabel Voice Changer FX") {
+            section("Viral Voice Filters")
+            val currentFx = audioClipVoiceFxName[audioId] ?: "Original"
+            val presets = listOf(
+                "Original",
+                "Deep Mafia",
+                "Chipmunk",
+                "Robot",
+                "Studio Reverb",
+                "Megaphone"
+            )
+            val selectedIdx = presets.indexOf(currentFx).coerceAtLeast(0)
+            chips(
+                "Voice Presets",
+                listOf("⚪ Original", "🦁 Deep Mafia (-4)", "🐿 Chipmunk (+6)", "🤖 Cyber Robot", "🎙 Studio Reverb", "📢 Megaphone"),
+                selected = selectedIdx,
+                dismissOnSelect = false,
+            ) { idx, _ ->
+                val chosenPreset = presets[idx]
+                applyVoiceFxPresetToClip(audioId, clip, chosenPreset)
+                safeToast("🎤 Voice FX: $chosenPreset applied", Toast.LENGTH_SHORT)
+            }
+        }
+    }
+
     private fun showAudioClipFilterSheet(
         audioId: Int,
         clip: AudioClip,
@@ -6475,41 +6597,25 @@ class VideoEditorActivity : ComponentActivity() {
             },
         ) {
             section("Voice FX")
+            val currentFx = audioClipVoiceFxName[audioId] ?: "Original"
+            val presets = listOf(
+                "Original",
+                "Deep Mafia",
+                "Chipmunk",
+                "Robot",
+                "Studio Reverb",
+                "Megaphone"
+            )
+            val selectedIdx = presets.indexOf(currentFx).coerceAtLeast(0)
             chips(
                 "Voice Character",
-                listOf("Original", "Female", "Male", "Child", "Robot", "Echo"),
-                selected = 0,
+                listOf("⚪ Original", "🦁 Deep Mafia", "🐿 Chipmunk", "🤖 Robot", "🎙 Studio Reverb", "📢 Megaphone"),
+                selected = selectedIdx,
                 dismissOnSelect = false,
-            ) { _, character ->
-                when (character) {
-                    "Female" -> {
-                        applyAudioClipGainChange(audioId, clip, 1.15f)
-                        applyAudioClipSpeedChange(audioId, 1.12f)
-                    }
-                    "Male" -> {
-                        applyAudioClipGainChange(audioId, clip, 1.25f)
-                        applyAudioClipSpeedChange(audioId, 0.90f)
-                    }
-                    "Child" -> {
-                        applyAudioClipGainChange(audioId, clip, 1.20f)
-                        applyAudioClipSpeedChange(audioId, 1.25f)
-                    }
-                    "Robot" -> {
-                        applyAudioClipGainChange(audioId, clip, 1.30f)
-                        applyAudioAutomationPreset(audioId, clip, "Pulse")
-                    }
-                    "Echo" -> {
-                        val shortFade = (maxFadeMs / 6).coerceAtLeast(0)
-                        applyAudioClipFades(audioId, clip, shortFade, shortFade)
-                        applyAudioAutomationPreset(audioId, clip, "Rise")
-                    }
-                    else -> {
-                        applyAudioClipGainChange(audioId, clip, 1.0f)
-                        applyAudioClipSpeedChange(audioId, 1.0f)
-                        applyAudioClipFades(audioId, clip, 0, 0)
-                    }
-                }
-                safeToast("Voice FX: $character", Toast.LENGTH_SHORT)
+            ) { idx, _ ->
+                val chosenPreset = presets[idx]
+                applyVoiceFxPresetToClip(audioId, clip, chosenPreset)
+                safeToast("Voice FX: $chosenPreset", Toast.LENGTH_SHORT)
             }
             divider()
             section("Volume & Fades")
@@ -6651,10 +6757,11 @@ class VideoEditorActivity : ComponentActivity() {
             }
             chipGrid(
                 "Tools",
-                listOf("Gain", "Fade", "FX", "Speed", "Reverse", "Keyframe"),
+                listOf("Voice FX", "Gain", "Fade", "FX", "Speed", "Reverse", "Keyframe"),
                 columns = 4,
             ) { _, option ->
                 when (option) {
+                    "Voice FX" -> showVoiceChangerSheet(audioId, clip)
                     "Gain" -> performSelectedClipVolumeAction()
                     "Fade" -> performSelectedClipBrightnessAction()
                     "FX" -> showAudioClipFilterSheet(audioId, clip)
@@ -11270,6 +11377,9 @@ class VideoEditorActivity : ComponentActivity() {
                     TrackType.LAYER -> launchVisualPhotoPicker(TrackType.LAYER, PICK_LAYER_REQUEST)
                     else -> launchVisualPhotoPicker(TrackType.VIDEO, PICK_VIDEO_REQUEST)
                 }
+            },
+            onExtractAudioFromVideo = {
+                pickVideoForAudioExtractionLauncher.launch("video/*")
             },
         )
     }
@@ -16158,6 +16268,14 @@ class VideoEditorActivity : ComponentActivity() {
                 startTransform = ClipPreviewTransform(zoom = maxOf(minZoom, 1.26f), panXPx = -panXPx, panYPx = 0f),
                 endTransform = ClipPreviewTransform(zoom = maxOf(minZoom, 1.26f), panXPx = panXPx, panYPx = 0f),
             )
+            "3d_parallax",
+            "parallax",
+            "3d_photo" -> applySelectedClipPanZoomKeyframedPreset(
+                clipId = clipId,
+                label = "3D Parallax",
+                startTransform = ClipPreviewTransform(zoom = maxOf(minZoom, 1.05f), panXPx = -panXPx * 0.35f, panYPx = panYPx * 0.20f),
+                endTransform = ClipPreviewTransform(zoom = maxOf(minZoom, 1.38f), panXPx = panXPx * 0.35f, panYPx = -panYPx * 0.22f),
+            )
             else -> {
                 safeToast("Unknown Pan/Zoom preset", Toast.LENGTH_SHORT)
                 false
@@ -16165,10 +16283,33 @@ class VideoEditorActivity : ComponentActivity() {
         }
     }
 
+    private fun showPanZoomMotionSheet() {
+        ModernSheet.show(this, "📸 Photo & Clip Motion Animator") {
+            section("3D & Camera Motion")
+            chips(
+                "Presets",
+                listOf("📸 3D Parallax", "🔍 Push In", "🔭 Pull Out", "↔️ Slide", "🖼️ Fit", "📱 Fill", "🔄 Reset"),
+                -1,
+                dismissOnSelect = false,
+            ) { _, option ->
+                when (option) {
+                    "📸 3D Parallax" -> applySelectedClipPanZoomPreset("3d_parallax")
+                    "🔍 Push In" -> applySelectedClipPanZoomPreset("push_in")
+                    "🔭 Pull Out" -> applySelectedClipPanZoomPreset("pull_out")
+                    "↔️ Slide" -> applySelectedClipPanZoomPreset("slide")
+                    "🖼️ Fit" -> applySelectedClipPanZoomPreset("fit")
+                    "📱 Fill" -> applySelectedClipPanZoomPreset("fill")
+                    "🔄 Reset" -> applySelectedClipPanZoomPreset("reset")
+                }
+            }
+        }
+    }
+
     private fun performSelectedClipPanZoomAction() {
         when (selectedClipKind()) {
             ClipKind.VIDEO, ClipKind.OVERLAY -> {
-                enableSelectedClipPanZoomMode(showToast = true)
+                enableSelectedClipPanZoomMode(showToast = false)
+                showPanZoomMotionSheet()
             }
             ClipKind.TEXT -> {
                 val overlayId = selectedTextOverlayId() ?: return
