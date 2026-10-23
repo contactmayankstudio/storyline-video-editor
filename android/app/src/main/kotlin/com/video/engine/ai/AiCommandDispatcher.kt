@@ -240,6 +240,16 @@ interface AiCommandDispatcher {
     fun jumpToCut(forward: Boolean = true): Boolean = false
 
     /**
+     * Explicitly starts video playback.
+     */
+    fun playVideo(): Boolean = togglePlayback()
+
+    /**
+     * Explicitly pauses video playback.
+     */
+    fun pauseVideo(): Boolean = togglePlayback()
+
+    /**
      * Rewinds and replays the last N seconds of timeline.
      */
     fun replayLastSeconds(seconds: Int = 5): Boolean = false
@@ -323,6 +333,8 @@ interface AiCommandDispatcher {
             is VideoEditIntent.NudgeFrame -> nudgeFrame(intent.forward)
             is VideoEditIntent.JumpToCut -> jumpToCut(intent.forward)
             is VideoEditIntent.ReplayLastSeconds -> replayLastSeconds(intent.seconds)
+            is VideoEditIntent.PlayVideo -> playVideo()
+            is VideoEditIntent.PauseVideo -> pauseVideo()
             is VideoEditIntent.TogglePlayback -> togglePlayback()
             is VideoEditIntent.Undo -> undo()
             is VideoEditIntent.Redo -> redo()

@@ -108,6 +108,8 @@ open class AiTerminalConsolePanel @JvmOverloads constructor(
         chipLut = root.findViewById(R.id.chipLut)
         chipBeatcut = root.findViewById(R.id.chipBeatcut)
         chipCaptions = root.findViewById(R.id.chipCaptions)
+        root.findViewById<View>(R.id.terminalChipsScroll)?.visibility = View.GONE
+        root.findViewById<View>(R.id.terminalChipsContainer)?.visibility = View.GONE
 
         // Setup RecyclerView
         terminalLogRecyclerView?.let { rv ->

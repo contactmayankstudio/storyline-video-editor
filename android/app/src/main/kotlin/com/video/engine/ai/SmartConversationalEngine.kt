@@ -124,6 +124,68 @@ object SmartConversationalEngine {
             return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.AutoPilotEdit()), 0.98f, reply)
         }
 
+        // I. Conversational Play / Start / Resume
+        if (matchesConversationalPlay(lower)) {
+            val reply = "Video play ho rahi hai bhai! ▶️ Live preview timeline par chalu hai."
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.PlayVideo), 0.98f, reply)
+        }
+
+        // J. Conversational Pause / Stop / Roko
+        if (matchesConversationalPause(lower)) {
+            val reply = "Video pause kar di hai bhai! ⏸️ Playhead current frame par ruk gaya hai."
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.PauseVideo), 0.98f, reply)
+        }
+
+        // K. Conversational Aspect Ratio (9:16, 16:9, 1:1)
+        if (matchesConversationalAspect(lower)) {
+            val ratio = if (lower.contains("16:9") || lower.contains("youtube") || lower.contains("landscape")) "16:9"
+            else if (lower.contains("1:1") || lower.contains("square")) "1:1"
+            else "9:16"
+            val reply = "Canvas aspect ratio $ratio switch kar diya hai bhai! 📐 Frame dynamically fit ho gaya hai."
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.SetAspectRatio(ratio)), 0.98f, reply)
+        }
+
+        // L. Conversational Export / Save
+        if (matchesConversationalExport(lower)) {
+            val reply = "Video export queue me daal di hai bhai! 🚀 1080p HD me render hokar phone gallery me save ho jayegi."
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.ExportVideo("1080p")), 0.98f, reply)
+        }
+
+        // M. Conversational Undo / Redo
+        if (lower.contains("undo") || lower.contains("wapas") || lower.contains("piche lo")) {
+            val reply = "Last action undo kar diya hai bhai! ↩️ Timeline restore ho gayi."
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.Undo), 0.98f, reply)
+        }
+
+        // N. Conversational Music / BGM
+        if (matchesConversationalMusic(lower)) {
+            val track = if (lower.contains("trap") || lower.contains("reels")) "trap"
+                else if (lower.contains("bass") || lower.contains("action")) "attitude"
+                else "lofi"
+            val reply = "Background music timeline par add kar diya hai bhai! 🎵 Beat audio ke sath sync ho gayi hai."
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.AddMusic(track)), 0.98f, reply)
+        }
+
+        // O. Conversational Mute
+        if (matchesConversationalMute(lower)) {
+            val reply = "Selected clip ka audio mute kar diya hai bhai! 🔇"
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.MuteClip), 0.98f, reply)
+        }
+
+        // P. Conversational Volume
+        if (matchesConversationalVolume(lower)) {
+            val level = if (lower.contains("kam") || lower.contains("dheeme") || lower.contains("ghata")) 0.5f else 1.5f
+            val label = if (level > 1.0f) "boost (150%)" else "reduce (50%)"
+            val reply = "Volume $label kar diya hai bhai! 🔊"
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.SetVolume(level)), 0.98f, reply)
+        }
+
+        // Q. Conversational Loop Playback
+        if (lower.contains("loop") || lower.contains("repeat") || lower.contains("लूप")) {
+            val reply = "Seamless loop playback chalu kar diya hai bhai! 🔁 Video khatam hote hi dobara start ho jayegi."
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.ToggleLoopPlayback(true)), 0.98f, reply)
+        }
+
         // 6. Gratitude & Compliments
         if (isGratitudeOrCompliment(lower)) {
             val reply = listOf(
@@ -142,8 +204,43 @@ object SmartConversationalEngine {
      */
     fun generateHelpfulFallback(rawText: String): String {
         val clean = rawText.trim()
-        return "Haanji bhai! Main samajh gaya: \"$clean\"\n\n" +
-            "Aap bilkul chinta mat karo, video ki pacing, cuts aur look main professional tareeqe se manage kar raha hoon. Agar koi specific style ya vibe chahiye to batana! 🎬"
+        val lower = clean.lowercase(Locale.ROOT)
+        if (lower.contains("play") || lower.contains("chalao") || lower.contains("chalu") || lower.contains("start")) {
+            return "Video play kar raha hoon bhai! ▶️"
+        }
+        if (lower.contains("pause") || lower.contains("roko") || lower.contains("stop") || lower.contains("band")) {
+            return "Video pause kar di hai bhai! ⏸️"
+        }
+        return "Bhai aap video me kya edit karna chahte ho? Aap seedhe bol ya type kar sakte ho:\n\n" +
+            "• 'Play' ya 'Pause' (video chalane/rokne ke liye)\n" +
+            "• 'Silence hatao' (dead pauses trim karne ke liye)\n" +
+            "• 'Cut karo' (current frame par split karne ke liye)\n" +
+            "• '9:16 karo' ya '16:9 karo' (aspect ratio badalne ke liye)\n" +
+            "• 'Teal Orange look do' (cinematic LUT lagane ke liye)\n" +
+            "• 'Auto Captions' (subtitles add karne ke liye)\n" +
+            "• 'Speed 2x karo' (fast forward ke liye)\n" +
+            "• 'Export karo' (gallery me save karne ke liye)"
+    }
+
+    private fun matchesConversationalPlay(text: String): Boolean {
+        if (text.contains("pause") || text.contains("roko") || text.contains("stop")) return false
+        return text in listOf("play", "chalao", "chalu karo", "play karo", "shuru karo", "chalu kar do", "play kar do", "video play karo", "video chalao", "video chalu karo", "chalne do") ||
+            text.contains("video play") || text.contains("chalu kar") || text.contains("video chala") || text.contains("shuru kar") || text.contains("chalne do") || text.contains("play video")
+    }
+
+    private fun matchesConversationalPause(text: String): Boolean {
+        return text in listOf("pause", "roko", "stop", "rok do", "pause karo", "pause kar do", "video roko", "video pause karo", "band karo") ||
+            text.contains("video pause") || text.contains("rok de") || text.contains("rok do") || text.contains("video roko") || text.contains("band kar") || text.contains("pause video")
+    }
+
+    private fun matchesConversationalAspect(text: String): Boolean {
+        return text.contains("9:16") || text.contains("16:9") || text.contains("1:1") ||
+            text.contains("ratio") || text.contains("aspect") || text.contains("reels size") ||
+            text.contains("youtube size") || text.contains("vertical") || text.contains("landscape")
+    }
+
+    private fun matchesConversationalExport(text: String): Boolean {
+        return text.contains("export") || text.contains("gallery") || text.contains("save") || text.contains("download") || text.contains("render")
     }
 
     private fun isGreeting(text: String): Boolean {
@@ -225,5 +322,22 @@ object SmartConversationalEngine {
     private fun matchesConversationalConfirmation(text: String): Boolean {
         return text in listOf("haan", "haan kar do", "kar do", "theek hai", "ok kar do", "yes", "apply", "apply kar do", "go ahead", "haan bhai", "kardo", "ha kar do", "bilkul") ||
             text.startsWith("haan kar") || text.startsWith("kar do") || text.startsWith("apply")
+    }
+
+    private fun matchesConversationalMusic(text: String): Boolean {
+        return text.contains("music") || text.contains("bgm") || text.contains("song") ||
+            text.contains("gaana") || text.contains("gana") || text.contains("soundtrack") ||
+            text.contains("म्यूजिक") || text.contains("गाना")
+    }
+
+    private fun matchesConversationalMute(text: String): Boolean {
+        return text.contains("mute") || text.contains("awaaz band") || text.contains("aawaz band") ||
+            text.contains("awaz band") || text.contains("sound off") || text.contains("silent") ||
+            text.contains("म्यूट")
+    }
+
+    private fun matchesConversationalVolume(text: String): Boolean {
+        return text.contains("volume") || text.contains("awaaz") || text.contains("aawaz") ||
+            text.contains("awaz") || text.contains("sound badha") || text.contains("sound kam")
     }
 }

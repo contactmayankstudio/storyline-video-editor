@@ -391,7 +391,7 @@ class VideoEditorActivity : ComponentActivity() {
             StickerClipStore.all().any { it.visible }
     }
 
-    private fun currentProjectDurationMs(): Long {
+    internal fun currentProjectDurationMs(): Long {
         var maxEndMs = 0L
         var usedPositionedNativeClip = false
         val managerClipsById = timelineManager?.getClips().orEmpty().associateBy { it.id }
@@ -2003,7 +2003,7 @@ class VideoEditorActivity : ComponentActivity() {
                 }
             startAiUpdateButton?.visibility = View.GONE
             startAiAdminButton?.visibility = View.GONE
-            editorAiStatusPill?.text = "LOCAL BUILD"
+            editorAiStatusPill?.text = if (isPlaying) "⚡ AI Copilot: Playing" else "⚡ AI Copilot: Active"
             return
         }
 
@@ -2062,8 +2062,8 @@ class VideoEditorActivity : ComponentActivity() {
                 hosted?.updateAvailable == true -> "⚡ Update: ${hosted.versionName}"
                 screen == "crop" -> "⚡ AI Copilot: Crop Mode"
                 isPlaying -> "⚡ AI Copilot: Playing"
-                screen == "home" -> "⚡ Antigravity Copilot"
-                else -> "⚡ Antigravity Copilot: Active"
+                screen == "home" -> "⚡ AI Copilot"
+                else -> "⚡ AI Copilot: Active"
             }
     }
 
@@ -7297,9 +7297,7 @@ class VideoEditorActivity : ComponentActivity() {
     }
 
     fun showAntigravityCli() {
-        val dispatcher = createAiCommandDispatcher()
-        val sheet = com.video.engine.ai.AiVoiceCopilotSheet(this, dispatcher, startInCliMode = true)
-        sheet.show()
+        showAiVoiceCopilotSheet()
     }
 
     private fun createAiCommandDispatcher(): com.video.engine.ai.AiCommandDispatcher {
@@ -7363,7 +7361,31 @@ class VideoEditorActivity : ComponentActivity() {
             }
 
             override fun togglePlayback(): Boolean {
-                findViewById<View>(R.id.previewPlayPauseButton)?.performClick()
+                runOnUiThread {
+                    if (isPlaying) {
+                        playbackController?.nativePause()
+                    } else {
+                        playbackController?.nativePlay()
+                    }
+                }
+                return true
+            }
+
+            override fun playVideo(): Boolean {
+                runOnUiThread {
+                    if (!isPlaying) {
+                        playbackController?.nativePlay()
+                    }
+                }
+                return true
+            }
+
+            override fun pauseVideo(): Boolean {
+                runOnUiThread {
+                    if (isPlaying) {
+                        playbackController?.nativePause()
+                    }
+                }
                 return true
             }
 
@@ -7878,26 +7900,8 @@ class VideoEditorActivity : ComponentActivity() {
 
             override fun addMusic(trackName: String): Boolean {
                 runOnUiThread {
-                    val assetFile = when (trackName.lowercase(Locale.US)) {
-                        "trap" -> "music_bgm/energetic_reels_trap_beat.wav"
-                        "attitude" -> "music_bgm/attitude_bass_drop.wav"
-                        "sad" -> "music_bgm/sad_piano_emotional.wav"
-                        "romantic" -> "music_bgm/romantic_acoustic_love.wav"
-                        "ambient" -> "music_bgm/devotional_ambient_flute.wav"
-                        else -> "music_bgm/lofi_chill_vlog_beat.wav"
-                    }
-                    try {
-                        val tempFile = File(cacheDir, "bgm_${System.currentTimeMillis()}.wav")
-                        assets.open(assetFile).use { input ->
-                            java.io.FileOutputStream(tempFile).use { output ->
-                                input.copyTo(output)
-                            }
-                        }
-                        audioImportController?.importFromPath(path = tempFile.absolutePath, startTimeMs = 0L)
+                    if (addBundledBgm(trackName)) {
                         safeToast("BGM added to timeline", Toast.LENGTH_SHORT)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to load bundled music asset, opening audio picker", e)
-                        openAudioTrackImport()
                     }
                 }
                 return true
@@ -7908,6 +7912,31 @@ class VideoEditorActivity : ComponentActivity() {
                 exportVideo(resolution)
                 return true
             }
+        }
+    }
+
+    fun addBundledBgm(trackName: String): Boolean {
+        val assetFile = when (trackName.lowercase(Locale.US)) {
+            "trap" -> "music_bgm/energetic_reels_trap_beat.wav"
+            "attitude" -> "music_bgm/attitude_bass_drop.wav"
+            "sad" -> "music_bgm/sad_piano_emotional.wav"
+            "romantic" -> "music_bgm/romantic_acoustic_love.wav"
+            "ambient" -> "music_bgm/devotional_ambient_flute.wav"
+            else -> "music_bgm/lofi_chill_vlog_beat.wav"
+        }
+        return try {
+            val tempFile = File(cacheDir, "bgm_${System.currentTimeMillis()}.wav")
+            assets.open(assetFile).use { input ->
+                java.io.FileOutputStream(tempFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            audioImportController?.importFromPath(path = tempFile.absolutePath, startTimeMs = 0L)
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load bundled music asset, opening audio picker", e)
+            openAudioTrackImport()
+            false
         }
     }
 

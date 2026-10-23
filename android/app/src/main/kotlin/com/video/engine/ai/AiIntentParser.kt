@@ -50,6 +50,8 @@ sealed class VideoEditIntent {
     data class NudgeFrame(val forward: Boolean = true) : VideoEditIntent()
     data class JumpToCut(val forward: Boolean = true) : VideoEditIntent()
     data class ReplayLastSeconds(val seconds: Int = 5) : VideoEditIntent()
+    object PlayVideo : VideoEditIntent()
+    object PauseVideo : VideoEditIntent()
     object TogglePlayback : VideoEditIntent()
     object Undo : VideoEditIntent()
     object Redo : VideoEditIntent()
@@ -590,13 +592,33 @@ object AiIntentParser {
             )
         }
 
-        // 15. Playback Controls
+        // 15. Playback Controls (Play / Pause / Toggle)
         if (matchesPlayback(normalized)) {
+            val isPause = normalized.contains("pause") || normalized.contains("roko") ||
+                normalized.contains("rok") || normalized.contains("stop") ||
+                normalized.contains("band") || normalized.contains("पॉज़") ||
+                normalized.contains("रोको") || normalized.contains("रोक") || normalized.contains("बंद")
+            val isPlay = !isPause && (normalized.contains("play") || normalized.contains("chalao") ||
+                normalized.contains("chalu") || normalized.contains("shuru") ||
+                normalized.contains("start") || normalized.contains("resume") ||
+                normalized.contains("chalne") || normalized.contains("प्ले") ||
+                normalized.contains("चलाओ") || normalized.contains("चालू") || normalized.contains("शुरू"))
+
+            val intent = when {
+                isPause -> VideoEditIntent.PauseVideo
+                isPlay -> VideoEditIntent.PlayVideo
+                else -> VideoEditIntent.TogglePlayback
+            }
+            val feedback = when (intent) {
+                VideoEditIntent.PauseVideo -> "⏸️ Video pause kar di hai."
+                VideoEditIntent.PlayVideo -> "▶️ Video play ho rahi hai."
+                else -> "⏯️ Playback toggle kar diya hai."
+            }
             return ParsedCommand(
                 rawText = rawText,
-                intent = VideoEditIntent.TogglePlayback,
-                confidence = 0.90f,
-                feedbackMessage = "Toggling playback",
+                intent = intent,
+                confidence = 0.95f,
+                feedbackMessage = feedback,
             )
         }
 
@@ -824,17 +846,49 @@ object AiIntentParser {
         if (text.contains("clip kato") || text.contains("split karo") ||
             text.contains("cut karo") || text.contains("cut kar do") ||
             text.contains("kaat do") || text.contains("yahan se kato") ||
-            text.contains("yahan cut karo") || text.contains("clip split karo") ||
-            text.contains("video kato") || text == "kato" || text == "kaato") {
+            text.contains("yaha se kato") || text.contains("beech se") ||
+            text.contains("beech me se") || text.contains("yahan cut karo") ||
+            text.contains("clip split karo") || text.contains("clip cut karo") ||
+            text.contains("video split") || text.contains("cut kar") ||
+            text.contains("split kar") || text.contains("video kato") ||
+            text == "kato" || text == "kaato") {
             return true
         }
         return false
     }
 
     private fun matchesPlayback(text: String): Boolean {
-        return text in listOf("play", "pause", "resume", "stop", "toggle playback") ||
-            text in listOf("चलाओ", "रोको", "प्ले करो", "पॉज़ करो", "बंद करो") ||
-            text in listOf("chalao", "roko", "play karo", "pause karo", "pause kar do")
+        val t = text.trim().lowercase(Locale.ROOT)
+        // Exclude speed controls (e.g. "2x play", "fast preview")
+        if (t.contains("2x") || t.contains("1.5x") || t.contains("0.5x") ||
+            t.contains("speed") || t.contains("fast") || t.contains("slow")) {
+            return false
+        }
+        // Exclude loop controls
+        if (t.contains("loop") || t.contains("लूप") || t.contains("repeat")) {
+            return false
+        }
+        // Exclude replay last seconds
+        if (t.contains("replay") || t.contains("rewind") || t.contains("dobara") ||
+            t.contains("dubara") || t.contains("5 second") || t.contains("5s")) {
+            return false
+        }
+
+        // Exact tokens
+        if (t in listOf("play", "pause", "resume", "stop", "toggle playback", "play/pause", "play pause", "p")) return true
+        if (t in listOf("चलाओ", "रोको", "प्ले करो", "पॉज़ करो", "बंद करो", "शुरू करो", "चालू करो")) return true
+        if (t in listOf("chalao", "roko", "play karo", "pause karo", "pause kar do", "chalu karo", "shuru karo", "rok do", "band karo")) return true
+
+        // Substring / keyword matches
+        val hasPlay = t.contains("play") || t.contains("chalao") || t.contains("chalu") ||
+            t.contains("shuru") || t.contains("resume") || t.contains("start") ||
+            t.contains("chalne") || t.contains("प्ले") || t.contains("चलाओ") ||
+            t.contains("चालू") || t.contains("शुरू")
+        val hasPause = t.contains("pause") || t.contains("roko") || t.contains("rok do") ||
+            t.contains("stop") || t.contains("band karo") || t.contains("पॉज़") ||
+            t.contains("रोको") || t.contains("रोक") || t.contains("बंद")
+
+        return hasPlay || hasPause
     }
 
     private fun matchesUndo(text: String): Boolean {
@@ -856,14 +910,17 @@ object AiIntentParser {
             text.contains("full auto") || text.contains("viral reel edit") ||
             text.contains("auto reel") || text.contains("auto produce") ||
             text.contains("autonomous edit") || text.contains("auto-pilot") ||
-            text.contains("smart edit")) {
+            text.contains("smart edit") || text.contains("explain") ||
+            text.contains("recap") || text.contains("summary") ||
+            text.contains("story recap")) {
             return true
         }
         // Hindi (Devanagari)
         if (text.contains("ऑटो एडिट") || text.contains("ऑटोपायलट") ||
             text.contains("ऑटो पायलट") || text.contains("मैजिक एडिट") ||
             text.contains("पूरी वीडियो एडिट") || text.contains("पूरी वीडियो बनाओ") ||
-            text.contains("पूरा एडिट करो") || text.contains("सब कुछ एडिट")) {
+            text.contains("पूरा एडिट करो") || text.contains("सब कुछ एडिट") ||
+            text.contains("समझाओ") || text.contains("कहानी")) {
             return true
         }
         // Hinglish
@@ -873,7 +930,9 @@ object AiIntentParser {
             text.contains("poora video edit") || text.contains("pura edit") ||
             text.contains("poora edit") || text.contains("full video edit") ||
             text.contains("sab edit kar") || text.contains("viral reel bana") ||
-            text.contains("reel edit kar") || text.contains("auto-pilot")) {
+            text.contains("reel edit kar") || text.contains("auto-pilot") ||
+            text.contains("explain") || text.contains("samjhao") ||
+            text.contains("kahani") || text.contains("recap")) {
             return true
         }
         return false
@@ -975,12 +1034,14 @@ object AiIntentParser {
 
     private fun matchesMute(text: String): Boolean {
         return text.contains("mute") || text.contains("म्यूट") || text.contains("volume 0") ||
-            text.contains("awaaz band") || text.contains("sound off") || text.contains("silent")
+            text.contains("awaaz band") || text.contains("aawaz band") || text.contains("awaz band") ||
+            text.contains("sound off") || text.contains("silent")
     }
 
     private fun matchesSetVolume(text: String): Boolean {
         return text.contains("volume") || text.contains("sound level") ||
-            text.contains("awaaz") || text.contains("वॉल्यूम")
+            text.contains("awaaz") || text.contains("aawaz") || text.contains("awaz") ||
+            text.contains("वॉल्यूम")
     }
 
     private fun resolveVolumeLevel(text: String): Float {

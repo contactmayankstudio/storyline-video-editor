@@ -190,7 +190,7 @@
             android:paddingTop="8dp"
             android:paddingEnd="12dp"
             android:paddingBottom="8dp"
-            android:text="⚡ Antigravity Copilot: Active"
+            android:text="⚡ AI Copilot: Active"
             android:textColor="@color/accent_cyan"
             android:textSize="10sp"
             android:textStyle="bold"
@@ -723,14 +723,14 @@
         <androidx.constraintlayout.widget.ConstraintLayout
             android:id="@+id/playbackUndoRedoRow"
             android:layout_width="match_parent"
-            android:layout_height="44dp"
+            android:layout_height="48dp"
             android:layoutDirection="ltr"
             android:layout_gravity="bottom"
             android:layout_marginStart="10dp"
             android:layout_marginEnd="10dp"
             android:layout_marginBottom="0dp">
 
-            <!-- Persistent Direct Active AI Copilot & CLI Pill -->
+            <!-- Persistent Direct Active AI Copilot Pill (Clean: only AI Copilot) -->
             <LinearLayout
                 android:id="@+id/editorAiDirectPill"
                 android:layout_width="wrap_content"
@@ -742,7 +742,7 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:paddingStart="8dp"
-                android:paddingEnd="8dp"
+                android:paddingEnd="10dp"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toTopOf="parent"
                 app:layout_constraintBottom_toBottomOf="parent"
@@ -759,17 +759,18 @@
                     android:id="@+id/editorAiDirectPillLabel"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="4dp"
+                    android:layout_marginStart="5dp"
                     android:fontFamily="sans-serif-medium"
-                    android:text="Ask AI"
+                    android:text="AI Copilot"
                     android:textColor="#38BDF8"
-                    android:textSize="11sp"
+                    android:textSize="11.5sp"
                     android:textStyle="bold" />
 
                 <TextView
                     android:id="@+id/editorAiDirectCliBtn"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:visibility="gone"
                     android:layout_marginStart="6dp"
                     android:background="@drawable/bg_cli_tag"
                     android:clickable="true"
@@ -787,8 +788,8 @@
 
             <androidx.constraintlayout.widget.ConstraintLayout
                 android:id="@+id/playbackControlRail"
-                android:layout_width="144dp"
-                android:layout_height="44dp"
+                android:layout_width="156dp"
+                android:layout_height="48dp"
                 android:layoutDirection="ltr"
                 android:background="@android:color/transparent"
                 android:elevation="0dp"
@@ -801,7 +802,7 @@
                     android:id="@+id/undoButton"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
-                    android:layout_marginEnd="8dp"
+                    android:layout_marginEnd="6dp"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="@string/undo_label"
                     android:padding="7dp"
@@ -813,11 +814,11 @@
 
                 <ImageButton
                     android:id="@+id/previewPlayPauseButton"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="@string/play_button"
-                    android:padding="6dp"
+                    android:padding="4dp"
                     android:src="@drawable/ic_play_toolbar"
                     android:tint="@color/text_primary"
                     app:layout_constraintStart_toStartOf="parent"
@@ -829,7 +830,7 @@
                     android:id="@+id/redoButton"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
-                    android:layout_marginStart="8dp"
+                    android:layout_marginStart="6dp"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="@string/redo_label"
                     android:padding="7dp"

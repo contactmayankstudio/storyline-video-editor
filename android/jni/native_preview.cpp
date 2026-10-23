@@ -189,8 +189,8 @@ int64_t adjustedPlaybackSleepMs(
 void preciseRenderWait(
     int64_t sleepMs,
     bool usePrecisePacing,
-    bool useDisplaySync,
-    uint64_t& lastVsyncSequence,
+    bool /*useDisplaySync*/,
+    uint64_t& /*lastVsyncSequence*/,
     bool& deadlinePrimed,
     std::chrono::steady_clock::time_point& nextDeadline) {
     const auto clampedSleepMs = std::max<int64_t>(1, sleepMs);
@@ -201,29 +201,6 @@ void preciseRenderWait(
         return;
     }
 
-    if (useDisplaySync && clampedSleepMs <= 20) {
-        std::unique_lock<std::mutex> lock(g_vsyncMutex);
-        g_vsyncCv.wait_for(lock, frameDuration, [&]() {
-            return g_vsyncSequence.load(std::memory_order_acquire) != lastVsyncSequence ||
-                hasQueuedRenderWork();
-        });
-        lastVsyncSequence = g_vsyncSequence.load(std::memory_order_acquire);
-        deadlinePrimed = false;
-        return;
-    }
-
-    if (useDisplaySync && clampedSleepMs >= 28 && clampedSleepMs <= 36) {
-        std::unique_lock<std::mutex> lock(g_vsyncMutex);
-        const uint64_t startSequence = lastVsyncSequence;
-        g_vsyncCv.wait_for(lock, frameDuration + std::chrono::milliseconds(8), [&]() {
-            return g_vsyncSequence.load(std::memory_order_acquire) >= startSequence + 2 ||
-                hasQueuedRenderWork();
-        });
-        lastVsyncSequence = g_vsyncSequence.load(std::memory_order_acquire);
-        deadlinePrimed = false;
-        return;
-    }
-
     const auto now = std::chrono::steady_clock::now();
     if (!deadlinePrimed) {
         nextDeadline = now + frameDuration;
@@ -231,6 +208,7 @@ void preciseRenderWait(
     } else {
         nextDeadline += frameDuration;
         if (now >= nextDeadline) {
+            // Drop or spike detected - realign next deadline to keep pace smooth
             nextDeadline = now + frameDuration;
         }
     }
@@ -4092,10 +4070,8 @@ transcode_clip_done:
                     const bool atEndOfTimeline = (timelineDuration > 0 && currentTimeMs >= (timelineDuration - 100));
 
                     if (!atEndOfTimeline && preview->isPlaying()) {
-                        // Transient drop during active playback: keep playing.
-                        // Fall through to preciseRenderWait for proper vsync pacing
-                        // instead of spinning the CPU.
-                        sleepMs = adjustedPlaybackSleepMs(preview, renderCostMs);
+                        // Transient drop during active playback: keep playing with steady cadence.
+                        sleepMs = std::max<int64_t>(16, preview->preferredRenderSleepMs());
                     } else {
                         // Real render failure or end-of-timeline: attempt recovery or stop.
                         const char* lastError = preview->getLastError();
@@ -4130,7 +4106,7 @@ transcode_clip_done:
                 }
 
                 if (g_isRenderingActive.load(std::memory_order_acquire)) {
-                    sleepMs = adjustedPlaybackSleepMs(preview, renderCostMs);
+                    sleepMs = std::max<int64_t>(16, preview->preferredRenderSleepMs());
                 } else {
                     sleepMs = 4;
                 }

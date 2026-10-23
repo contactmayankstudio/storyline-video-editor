@@ -57,31 +57,51 @@ object MultiProviderAiRouter {
         }
 
         executor.execute {
-            // Tier 1: Groq (Fastest)
-            tryGroq(prompt, systemPrompt)?.let { reply ->
+            // Tier 0: Fast offline conversational intent check
+            val conv = SmartConversationalEngine.process(prompt)
+            if (conv != null) {
+                val reply = if (conv.intent is VideoEditIntent.Conversational) {
+                    (conv.intent as VideoEditIntent.Conversational).reply
+                } else {
+                    conv.feedbackMessage
+                }
                 mainHandler.post { onResponse(reply) }
                 return@execute
+            }
+
+            // Tier 1: Groq (Fastest)
+            if (KEY_GROQ.isNotBlank()) {
+                tryGroq(prompt, systemPrompt)?.let { reply ->
+                    mainHandler.post { onResponse(reply) }
+                    return@execute
+                }
             }
 
             // Tier 2: Gemini (Deep Knowledge)
-            tryGemini(prompt, systemPrompt)?.let { reply ->
-                mainHandler.post { onResponse(reply) }
-                return@execute
+            if (KEY_GEMINI.isNotBlank()) {
+                tryGemini(prompt, systemPrompt)?.let { reply ->
+                    mainHandler.post { onResponse(reply) }
+                    return@execute
+                }
             }
 
             // Tier 3: Cerebras
-            tryCerebras(prompt, systemPrompt)?.let { reply ->
-                mainHandler.post { onResponse(reply) }
-                return@execute
+            if (KEY_CEREBRAS.isNotBlank()) {
+                tryCerebras(prompt, systemPrompt)?.let { reply ->
+                    mainHandler.post { onResponse(reply) }
+                    return@execute
+                }
             }
 
             // Tier 4: Mistral
-            tryMistral(prompt, systemPrompt)?.let { reply ->
-                mainHandler.post { onResponse(reply) }
-                return@execute
+            if (KEY_MISTRAL.isNotBlank()) {
+                tryMistral(prompt, systemPrompt)?.let { reply ->
+                    mainHandler.post { onResponse(reply) }
+                    return@execute
+                }
             }
 
-            // Tier 5: Built-in Offline Brain
+            // Tier 5: Built-in Offline Brain (Instant 0ms)
             val offlineReply = SmartConversationalEngine.generateHelpfulFallback(prompt)
             mainHandler.post { onResponse(offlineReply) }
         }
