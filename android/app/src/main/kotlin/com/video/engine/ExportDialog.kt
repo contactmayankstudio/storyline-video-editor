@@ -294,6 +294,30 @@ class ExportDialog(
         }
         root.addView(exportButton)
 
+        // 10. SAVE AS REUSABLE REELS TEMPLATE BUTTON
+        val saveTemplateButton = TextView(activity).apply {
+            text = "✨ Save as Status/Reels Template (.vne)"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#388BFD"))
+            gravity = Gravity.CENTER
+            background = templateButtonBackground()
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(46),
+            ).also { it.topMargin = dp(10) }
+            setOnClickListener {
+                dialog.dismiss()
+                if (activity is VideoEditorActivity) {
+                    activity.promptSaveAsReusableTemplate()
+                } else {
+                    com.video.engine.UiToast.makeText(activity, "Template creator available in editor", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        root.addView(saveTemplateButton)
+
         fun resolveEffectiveSettings(): Triple<Int, Int, Int> {
             val fps = frameRates[selectedFpsIndex]
             val (ratioW, ratioH) = if (activity is VideoEditorActivity) {
@@ -502,6 +526,14 @@ class ExportDialog(
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(14).toFloat()
             setColor(Color.parseColor("#1F6FEB"))
+            setStroke(dp(1), Color.parseColor("#388BFD"))
+        }
+
+    private fun templateButtonBackground(): GradientDrawable =
+        GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(14).toFloat()
+            setColor(Color.parseColor("#161B22"))
             setStroke(dp(1), Color.parseColor("#388BFD"))
         }
 

@@ -6964,6 +6964,104 @@ class VideoEditorActivity : ComponentActivity() {
         exportController?.showExportDialog()
     }
 
+    fun promptSaveAsReusableTemplate() {
+        val pv = previewView ?: run {
+            safeToast("Preview not ready", Toast.LENGTH_SHORT)
+            return
+        }
+        var templateName = "Viral Reel Template"
+        var selectedCategory = "Trending"
+
+        ModernSheet.show(this, "✨ Save as Reusable Template") {
+            caption("Pack transitions, beat ramps, filters and lyrics into a reusable .vne template.")
+            textInput("Template Name", "Viral Reel Template") { input ->
+                templateName = input.ifBlank { "Viral Reel Template" }
+            }
+            selectableChips(
+                "Category",
+                listOf("Trending", "CapCut Viral 🔥", "Love & Couple 💖", "Attitude 😎", "Aesthetic ☕"),
+                0
+            ) { _, cat ->
+                selectedCategory = cat
+            }
+            actionTile(
+                title = "🌟 Save to Community & My Templates",
+                subtitle = "Make template available in Status Maker & Reels Feed",
+                dismissOnClick = true
+            ) {
+                saveProjectAsReusableTemplate(templateName, selectedCategory)
+            }
+        }
+    }
+
+    fun saveProjectAsReusableTemplate(name: String, category: String = "Trending"): Boolean {
+        val pv = previewView ?: return false
+        val duration = pv.getDuration().coerceAtLeast(1000L)
+        val templatesDir = File(getExternalFilesDir(null), "templates").also { it.mkdirs() }
+        val ts = System.currentTimeMillis()
+        val safeTitle = name.replace(Regex("[^a-zA-Z0-9]"), "_")
+        val vneFile = File(templatesDir, "tpl_${safeTitle}_${ts}.vne")
+
+        return try {
+            val success = pv.saveProject(vneFile.absolutePath, name)
+            if (!success) {
+                safeToast("Could not save template project", Toast.LENGTH_SHORT)
+                return false
+            }
+
+            val textOverlays = com.video.engine.overlay.OverlayStore.all().map { overlay ->
+                com.video.engine.status.StatusTextOverlay(
+                    text = overlay.text,
+                    startTimeMs = 0L,
+                    endTimeMs = duration,
+                    posYPercent = 0.25f,
+                    scale = overlay.scale,
+                    colorHex = "0x%08X".format(overlay.color)
+                )
+            }
+
+            val visualClipIds = nativeClipSourcePath.keys.toList()
+            val slots = if (visualClipIds.isNotEmpty()) {
+                visualClipIds.mapIndexed { idx, _ ->
+                    com.video.engine.status.StatusSlot(
+                        slotId = idx + 1,
+                        durationMs = (duration / visualClipIds.size).coerceAtLeast(1000L),
+                        transitionOut = "crossfade"
+                    )
+                }
+            } else {
+                listOf(com.video.engine.status.StatusSlot(1, duration, "zoom_in"))
+            }
+
+            val template = com.video.engine.status.StatusTemplate(
+                id = "tpl_user_${ts}",
+                title = name,
+                category = category,
+                emoji = "🌟",
+                durationMs = duration,
+                requiredPhotoCount = slots.size.coerceAtLeast(1),
+                bpm = 128,
+                description = "Custom creator template with dynamic transitions, beat ramps, and kinetic lyrics.",
+                gradientStartHex = "#FF0844",
+                gradientEndHex = "#FFB199",
+                audioAssetPath = "music_bgm/attitude_bass_drop.wav",
+                lutFilter = "",
+                slots = slots,
+                textOverlays = textOverlays,
+                templateFilePath = vneFile.absolutePath,
+                isUserCreated = true
+            )
+
+            com.video.engine.status.StatusTemplateRepository.saveUserTemplate(this, template, vneFile)
+            safeToast("🎉 Template Saved! Available in Status Maker.", Toast.LENGTH_LONG)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save reusable template", e)
+            safeToast("Error saving template: ${e.message}", Toast.LENGTH_SHORT)
+            false
+        }
+    }
+
     private fun saveCurrentSessionNow(reason: String): Boolean {
         if (startShellOnly || !hasProjectContent()) return false
         val saved = projectController?.autoSaveNow(reason) == true
@@ -7636,6 +7734,13 @@ class VideoEditorActivity : ComponentActivity() {
                 }
                 runOnUiThread {
                     applyClipAiCutout(clipId, params)
+                }
+                return true
+            }
+
+            override fun saveAsTemplate(title: String, category: String): Boolean {
+                runOnUiThread {
+                    saveProjectAsReusableTemplate(title, category)
                 }
                 return true
             }

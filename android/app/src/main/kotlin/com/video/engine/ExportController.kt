@@ -1161,6 +1161,54 @@ class ExportController(
             dialog.dismiss()
         }.also { it.layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f) })
         root.addView(row)
+
+        val socialRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).also { it.topMargin = dp(8) }
+        }
+        socialRow.addView(actionBtn("🟢 WhatsApp") {
+            try {
+                val uri = playbackUri ?: return@actionBtn
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "video/mp4"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    setPackage("com.whatsapp")
+                }
+                activity.startActivity(intent)
+            } catch (_: Exception) {
+                Toast.makeText(activity, "WhatsApp not installed", Toast.LENGTH_SHORT).show()
+            }
+            dialog.dismiss()
+        }.also { it.layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).also { m -> m.setMargins(0, 0, dp(6), 0) } })
+        socialRow.addView(actionBtn("🟣 Instagram Reels") {
+            try {
+                val uri = playbackUri ?: return@actionBtn
+                val intent = Intent("com.instagram.share.ADD_TO_REEL").apply {
+                    type = "video/mp4"
+                    putExtra("interactive_asset_uri", uri)
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    setPackage("com.instagram.android")
+                }
+                if (activity.packageManager.resolveActivity(intent, 0) != null) {
+                    activity.startActivity(intent)
+                } else {
+                    val fallback = Intent(Intent.ACTION_SEND).apply {
+                        type = "video/mp4"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        setPackage("com.instagram.android")
+                    }
+                    activity.startActivity(fallback)
+                }
+            } catch (_: Exception) {
+                Toast.makeText(activity, "Instagram not installed", Toast.LENGTH_SHORT).show()
+            }
+            dialog.dismiss()
+        }.also { it.layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f) })
+        root.addView(socialRow)
+
         root.addView(actionBtn("← Back to Editor") { dialog.dismiss(); activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
             .also { it.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(44)).also { m -> m.topMargin = dp(8) } })
         dialog.setContentView(root)

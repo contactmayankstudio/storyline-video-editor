@@ -38,6 +38,7 @@ sealed class VideoEditIntent {
     data class AddStickerOverlay(val emojiOrSymbol: String = "🔥") : VideoEditIntent()
     data class PlatformExport(val platform: String = "Instagram") : VideoEditIntent()
     data class AiCutout(val glowColor: String = "cyan", val background: String = "grid") : VideoEditIntent()
+    data class SaveAsTemplate(val title: String = "Viral Reel Template", val category: String = "Trending") : VideoEditIntent()
     object ResetPreview : VideoEditIntent()
     data class SpeedRamp(val curvePreset: String = "hero_drop") : VideoEditIntent()
     data class SmartJumpCuts(val pacing: String = "Snappy") : VideoEditIntent()
@@ -119,6 +120,17 @@ object AiIntentParser {
         val normalized = clean.lowercase(Locale.ROOT)
             .replace(Regex("[?!.,]+$"), "")
             .trim()
+
+        // 0-template. Export as Reusable Template (.vne)
+        if (matchesSaveAsTemplate(normalized)) {
+            val title = resolveTemplateTitle(clean)
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.SaveAsTemplate(title = title),
+                confidence = 0.98f,
+                feedbackMessage = "🌟 Project ko Reusable Status/Reels Template (.vne) me export karke Community Templates me save kar diya hai!",
+            )
+        }
 
         // 0a. Full AI Edit & Export Pipeline (Chat se puri video edit + export)
         if (matchesAutoPilotEditAndExport(normalized)) {
@@ -1000,7 +1012,7 @@ object AiIntentParser {
     }
 
     private fun matchesExportVideo(text: String): Boolean {
-        if (matchesPlatformExport(text)) return false
+        if (matchesPlatformExport(text) || matchesSaveAsTemplate(text)) return false
         return text.contains("export") || text.contains("render video") ||
             text.contains("save video") || text.contains("video save") ||
             text.contains("video export") || text.contains("save kardo") ||
@@ -1278,7 +1290,25 @@ object AiIntentParser {
         return Pair(glow, bg)
     }
 
+    private fun matchesSaveAsTemplate(text: String): Boolean {
+        return text.contains("save as template") || text.contains("export as template") ||
+            text.contains("save template") || text.contains("export template") ||
+            text.contains("make template") || text.contains("template banao") ||
+            text.contains("template save") || text.contains("reusable template") ||
+            text.contains("टेम्पलेट बनाओ") || text.contains("टेम्पलेट सेव")
+    }
+
+    private fun resolveTemplateTitle(raw: String): String {
+        val parts = raw.split(":", limit = 2)
+        if (parts.size > 1 && parts[1].trim().isNotBlank()) {
+            return parts[1].trim()
+        }
+        val clean = raw.replace(Regex("(?i)^(?:save\\s+as\\s+template|export\\s+as\\s+template|template\\s+banao|save\\s+template|template)\\s*"), "").trim()
+        return if (clean.isNotBlank()) clean else "Viral Reel Template"
+    }
+
     private fun matchesPlatformExport(text: String): Boolean {
+        if (matchesSaveAsTemplate(text)) return false
         return (text.contains("export") && (text.contains("insta") || text.contains("reel") || text.contains("youtube") || text.contains("yt") || text.contains("shorts") || text.contains("whatsapp") || text.contains("tiktok"))) ||
             text.contains("instagram ke liye") || text.contains("whatsapp status")
     }
@@ -1408,6 +1438,7 @@ object AiIntentParser {
         // Protect text/title/voiceover generation commands from being split
         if (lower.startsWith("title") || lower.startsWith("text") || lower.startsWith("शीर्षक") ||
             lower.startsWith("voiceover") || lower.startsWith("tts") || lower.startsWith("topic to reel") ||
+            matchesSaveAsTemplate(lower) ||
             TITLE_PATTERNS.any { it.matcher(clean).find() }) {
             return null
         }
@@ -1488,6 +1519,7 @@ object AiIntentParser {
                     is VideoEditIntent.AddStickerOverlay -> "🔥 Added sticker overlay"
                     is VideoEditIntent.AutoBrollOverlay -> "🖼️ Added AI B-Roll & Visual Overlays"
                     is VideoEditIntent.AiCutout -> "✂️ Applied AI Cutout with ${intent.glowColor} neon glow"
+                    is VideoEditIntent.SaveAsTemplate -> "🌟 Saved as reusable template (${intent.title})"
                     is VideoEditIntent.ExtractViralHighlight -> "🎞️ Extracted ${intent.targetDurationSec}s viral highlight"
                     is VideoEditIntent.ExportVideo -> "🚀 Exported video (${intent.resolution})"
                     else -> "Action executed"

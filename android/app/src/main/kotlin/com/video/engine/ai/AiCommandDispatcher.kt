@@ -265,6 +265,11 @@ interface AiCommandDispatcher {
     fun aiCutout(glowColor: String = "cyan", background: String = "grid"): Boolean = false
 
     /**
+     * Exports and saves the current project timeline as a reusable Status/Reels template (.vne).
+     */
+    fun saveAsTemplate(title: String = "Viral Reel Template", category: String = "Trending"): Boolean = false
+
+    /**
      * Dispatches a ParsedCommand to the appropriate action.
      * Returns a pair of (success: Boolean, feedbackMessage: String).
      */
@@ -345,6 +350,7 @@ interface AiCommandDispatcher {
             is VideoEditIntent.JumpToCut -> jumpToCut(intent.forward)
             is VideoEditIntent.ReplayLastSeconds -> replayLastSeconds(intent.seconds)
             is VideoEditIntent.AiCutout -> aiCutout(intent.glowColor, intent.background)
+            is VideoEditIntent.SaveAsTemplate -> saveAsTemplate(intent.title, intent.category)
             is VideoEditIntent.PlayVideo -> playVideo()
             is VideoEditIntent.PauseVideo -> pauseVideo()
             is VideoEditIntent.TogglePlayback -> togglePlayback()

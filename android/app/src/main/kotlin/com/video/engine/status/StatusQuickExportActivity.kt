@@ -645,7 +645,7 @@ class StatusQuickExportActivity : ComponentActivity() {
     private fun showExportSuccessDialog(videoFile: File) {
         val options = arrayOf(
             "Share to WhatsApp Status 🟢",
-            "Share to Instagram Stories 🟣",
+            "Share to Instagram Reels 🟣",
             "More Share Options 🚀",
             "Create Another Status 🔁"
         )
@@ -655,40 +655,78 @@ class StatusQuickExportActivity : ComponentActivity() {
             .setMessage("Saved in full 1080p HD to your phone gallery (Movies/Storyline_Status).")
             .setItems(options) { _, which ->
                 when (which) {
-                    0, 1, 2 -> {
-                        val uri: Uri = FileProvider.getUriForFile(
-                            this,
-                            "${applicationContext.packageName}.fileprovider",
-                            videoFile
-                        )
-                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                            type = "video/mp4"
-                            putExtra(Intent.EXTRA_STREAM, uri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            if (which == 0) setPackage("com.whatsapp")
-                            else if (which == 1) setPackage("com.instagram.android")
-                        }
-                        try {
-                            startActivity(shareIntent)
-                        } catch (_: Exception) {
-                            startActivity(
-                                Intent.createChooser(
-                                    Intent(Intent.ACTION_SEND).apply {
-                                        type = "video/mp4"
-                                        putExtra(Intent.EXTRA_STREAM, uri)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    },
-                                    "Share Status Video"
-                                )
-                            )
-                        }
-                    }
+                    0 -> shareToWhatsAppStatus(videoFile)
+                    1 -> shareToInstagramReels(videoFile)
+                    2 -> shareUniversal(videoFile, "Share Status Video")
                     3 -> finish()
                 }
             }
             .setPositiveButton("Done") { _, _ -> finish() }
             .setCancelable(false)
             .show()
+    }
+
+    private fun shareToWhatsAppStatus(videoFile: File) {
+        val uri: Uri = FileProvider.getUriForFile(
+            this,
+            "${applicationContext.packageName}.fileprovider",
+            videoFile
+        )
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "video/mp4"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            setPackage("com.whatsapp")
+        }
+        try {
+            startActivity(shareIntent)
+        } catch (_: Exception) {
+            shareUniversal(videoFile, "Share to WhatsApp Status")
+        }
+    }
+
+    private fun shareToInstagramReels(videoFile: File) {
+        val uri: Uri = FileProvider.getUriForFile(
+            this,
+            "${applicationContext.packageName}.fileprovider",
+            videoFile
+        )
+        val reelsIntent = Intent("com.instagram.share.ADD_TO_REEL").apply {
+            type = "video/mp4"
+            putExtra("interactive_asset_uri", uri)
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            setPackage("com.instagram.android")
+        }
+        try {
+            if (packageManager.resolveActivity(reelsIntent, 0) != null) {
+                startActivity(reelsIntent)
+            } else {
+                val igIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "video/mp4"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    setPackage("com.instagram.android")
+                }
+                startActivity(igIntent)
+            }
+        } catch (_: Exception) {
+            shareUniversal(videoFile, "Share to Instagram Reels")
+        }
+    }
+
+    private fun shareUniversal(videoFile: File, title: String) {
+        val uri: Uri = FileProvider.getUriForFile(
+            this,
+            "${applicationContext.packageName}.fileprovider",
+            videoFile
+        )
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "video/mp4"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(shareIntent, title))
     }
 
     private fun openInTimelineEditor() {

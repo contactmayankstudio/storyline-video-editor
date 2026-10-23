@@ -16,6 +16,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
+import android.util.Log
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
@@ -57,6 +58,8 @@ class StatusMakerActivity : ComponentActivity() {
     private var activeCustomAudioPath: String? = null
     private var activeCustomAudioTitle: String? = null
     private var onAudioSelectedCallback: ((String, String) -> Unit)? = null
+    private var isReelsFeedMode: Boolean = true
+    private var activePlayingTemplateId: String? = null
 
     // Phone audio picker
     private val pickAudioForPreviewLauncher = registerForActivityResult(
@@ -179,6 +182,17 @@ class StatusMakerActivity : ComponentActivity() {
         templatesRecycler = findViewById(R.id.statusTemplatesRecyclerView)
         templatesRecycler.layoutManager = LinearLayoutManager(this)
 
+        findViewById<TextView>(R.id.statusViewModeToggleBtn)?.let { toggleBtn ->
+            toggleBtn.text = if (isReelsFeedMode) "🎬 Reels Feed" else "📋 List Mode"
+            toggleBtn.setOnClickListener {
+                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                isReelsFeedMode = !isReelsFeedMode
+                toggleBtn.text = if (isReelsFeedMode) "🎬 Reels Feed" else "📋 List Mode"
+                toggleBtn.setTextColor(if (isReelsFeedMode) Color.parseColor("#00F2FE") else Color.parseColor("#388BFD"))
+                updateTemplatesList()
+            }
+        }
+
         setupCategoryChips()
         updateTemplatesList()
 
@@ -206,11 +220,12 @@ class StatusMakerActivity : ComponentActivity() {
         categoryContainer.removeAllViews()
         StatusTemplateRepository.categories.forEach { category ->
             val isSelected = category.equals(currentCategory, ignoreCase = true)
-            val count = StatusTemplateRepository.getByCategory(category).size
+            val count = StatusTemplateRepository.getByCategory(category, this).size
             val label = when {
                 category.equals("all", ignoreCase = true) -> "🔥 All ($count)"
                 category.contains("CapCut", ignoreCase = true) -> "⚡ CapCut Pro ($count)"
                 category.contains("1-Photo", ignoreCase = true) -> "📸 1-Photo Instant ($count)"
+                category.contains("My Templates", ignoreCase = true) -> "✨ My Templates ($count)"
                 category.equals("trending", ignoreCase = true) -> "🔥 Viral & Trending ($count)"
                 category.equals("love", ignoreCase = true) -> "💖 Love & Couple ($count)"
                 category.equals("attitude", ignoreCase = true) -> "😎 Attitude & Swag ($count)"
@@ -257,17 +272,55 @@ class StatusMakerActivity : ComponentActivity() {
     }
 
     private fun updateTemplatesList() {
-        val list = StatusTemplateRepository.getByCategory(currentCategory)
+        val list = StatusTemplateRepository.getByCategory(currentCategory, this)
         templatesRecycler.adapter = StatusTemplateAdapter(
-            list,
+            templates = list,
+            isReelsFeed = isReelsFeedMode,
             onCardClick = { template ->
+                stopPreviewAudio()
                 showTemplateLivePreviewDialog(template)
             },
             onUseTemplate = { template ->
+                stopPreviewAudio()
                 pendingTemplate = template
                 pickPhotosLauncher.launch("image/*")
+            },
+            onToggleSound = { template, onStateChange ->
+                toggleSoundtrackPreview(template, onStateChange)
             }
         )
+    }
+
+    private fun toggleSoundtrackPreview(template: StatusTemplate, onStateChange: (Boolean) -> Unit) {
+        if (activePlayingTemplateId == template.id && previewMediaPlayer?.isPlaying == true) {
+            stopPreviewAudio()
+            activePlayingTemplateId = null
+            onStateChange(false)
+            return
+        }
+        stopPreviewAudio()
+        activePlayingTemplateId = template.id
+        requestAudioFocus()
+        try {
+            val audioPath = template.audioAssetPath
+            val mp = MediaPlayer().apply {
+                if (audioPath.startsWith("/") && File(audioPath).exists()) {
+                    setDataSource(audioPath)
+                } else {
+                    val afd = assets.openFd(audioPath)
+                    setDataSource(afd.fileDescriptor, afd.startOffset, afd.declaredLength)
+                    afd.close()
+                }
+                isLooping = true
+                prepare()
+                start()
+            }
+            previewMediaPlayer = mp
+            onStateChange(true)
+        } catch (e: Exception) {
+            Log.w("StatusMakerActivity", "Failed to play soundtrack preview", e)
+            onStateChange(false)
+        }
     }
 
     private fun requestAudioFocus(): Boolean {
@@ -824,11 +877,18 @@ class StatusMakerActivity : ComponentActivity() {
 
     private class StatusTemplateAdapter(
         private val templates: List<StatusTemplate>,
+        private val isReelsFeed: Boolean,
         private val onCardClick: (StatusTemplate) -> Unit,
-        private val onUseTemplate: (StatusTemplate) -> Unit
-    ) : RecyclerView.Adapter<StatusTemplateAdapter.ViewHolder>() {
+        private val onUseTemplate: (StatusTemplate) -> Unit,
+        private val onToggleSound: ((StatusTemplate, (Boolean) -> Unit) -> Unit)? = null,
+    ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
-        class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        companion object {
+            const val VIEW_TYPE_REELS = 1
+            const val VIEW_TYPE_LIST = 2
+        }
+
+        class ListViewHolder(view: View) : RecyclerView.ViewHolder(view) {
             val emoji: TextView = view.findViewById(R.id.templateEmoji)
             val title: TextView = view.findViewById(R.id.templateTitle)
             val durationChip: TextView = view.findViewById(R.id.templateDurationChip)
@@ -845,81 +905,147 @@ class StatusMakerActivity : ComponentActivity() {
             val bannerLyricText: TextView = view.findViewById(R.id.templateBannerLyricText)
         }
 
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-            val view = LayoutInflater.from(parent.context).inflate(
-                R.layout.item_status_template, parent, false
-            )
-            return ViewHolder(view)
+        class ReelsFeedViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+            val cardBg: View = view.findViewById(R.id.reelsCardBg)
+            val centerEmoji: TextView = view.findViewById(R.id.reelsCardCenterEmoji)
+            val lyricText: TextView = view.findViewById(R.id.reelsCardLyricText)
+            val subtitle: TextView = view.findViewById(R.id.reelsCardSubtitle)
+            val communityBadge: TextView = view.findViewById(R.id.reelsCardCommunityBadge)
+            val soundPill: View = view.findViewById(R.id.reelsCardSoundPill)
+            val soundIcon: TextView = view.findViewById(R.id.reelsCardSoundIcon)
+            val soundTitle: TextView = view.findViewById(R.id.reelsCardSoundTitle)
+            val title: TextView = view.findViewById(R.id.reelsCardTitle)
+            val desc: TextView = view.findViewById(R.id.reelsCardDesc)
+            val useBtn: View = view.findViewById(R.id.reelsCardUseBtn)
+            val useBtnText: TextView = view.findViewById(R.id.reelsCardUseBtnText)
         }
 
-        override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-            val item = templates[position]
-            holder.emoji.text = item.emoji
-            holder.title.text = item.title
-            holder.durationChip.text = "${item.durationMs / 1000}s"
-            holder.photosChip.text = "⚡ 1-Photo Ready"
-            holder.bpmChip.text = "${item.bpm} BPM"
-            holder.desc.text = item.description
-            holder.useBtnText.text = "⚡ 1-Photo Create"
-            holder.bannerBpmPill.text = "🎵 ${item.bpm} BPM"
-            val sampleLyric = item.textOverlays.firstOrNull()?.text ?: "${item.emoji} ${item.title}"
-            holder.bannerLyricText.text = sampleLyric
+        override fun getItemViewType(position: Int): Int {
+            return if (isReelsFeed) VIEW_TYPE_REELS else VIEW_TYPE_LIST
+        }
 
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+            val inflater = LayoutInflater.from(parent.context)
+            return if (viewType == VIEW_TYPE_REELS) {
+                ReelsFeedViewHolder(inflater.inflate(R.layout.item_reels_feed_card, parent, false))
+            } else {
+                ListViewHolder(inflater.inflate(R.layout.item_status_template, parent, false))
+            }
+        }
+
+        override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+            val item = templates[position]
             val density = holder.itemView.context.resources.displayMetrics.density
 
-            // Dynamic Gradient Badge for Emoji, Banner & CTA
-            try {
-                val startC = Color.parseColor(item.gradientStartHex)
-                val endC = Color.parseColor(item.gradientEndHex)
+            if (holder is ReelsFeedViewHolder) {
+                holder.centerEmoji.text = item.emoji
+                holder.title.text = item.title
+                holder.desc.text = item.description
+                val sampleLyric = item.textOverlays.firstOrNull()?.text ?: "${item.emoji} ${item.title}"
+                holder.lyricText.text = sampleLyric
+                holder.subtitle.text = "${item.bpm} BPM • ${item.durationMs / 1000}s REEL"
+                holder.useBtnText.text = "⚡ Use Template (${item.requiredPhotoCount}-Photo Ready)"
 
-                val emojiBg = GradientDrawable(
-                    GradientDrawable.Orientation.TL_BR,
-                    intArrayOf(startC, endC)
-                ).apply {
-                    cornerRadius = 14f * density
+                if (item.isUserCreated) {
+                    holder.communityBadge.text = "🌟 MY TEMPLATE"
+                    holder.communityBadge.setTextColor(Color.parseColor("#FFE500"))
+                } else {
+                    holder.communityBadge.text = "✨ CAPCUT COMMUNITY"
+                    holder.communityBadge.setTextColor(Color.WHITE)
                 }
-                holder.emoji.background = emojiBg
 
-                val bannerBgDrawable = GradientDrawable(
-                    GradientDrawable.Orientation.TL_BR,
-                    intArrayOf(startC, endC)
-                ).apply {
-                    cornerRadius = 14f * density
+                val soundTrack = StatusSoundtrackRepository.getByAssetPath(item.audioAssetPath)
+                val soundName = soundTrack?.title
+                    ?: item.audioAssetPath.substringAfterLast("/").substringBeforeLast(".").replace("_", " ")
+                holder.soundTitle.text = soundName
+
+                try {
+                    val startC = Color.parseColor(item.gradientStartHex)
+                    val endC = Color.parseColor(item.gradientEndHex)
+                    val bg = GradientDrawable(
+                        GradientDrawable.Orientation.TL_BR,
+                        intArrayOf(startC, endC)
+                    ).apply { cornerRadius = 16f * density }
+                    holder.cardBg.background = bg
+
+                    val btnBg = GradientDrawable(
+                        GradientDrawable.Orientation.LEFT_RIGHT,
+                        intArrayOf(startC, endC)
+                    ).apply { cornerRadius = 14f * density }
+                    holder.useBtn.background = btnBg
+                } catch (_: Exception) {}
+
+                holder.soundPill.setOnClickListener {
+                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    onToggleSound?.invoke(item) { playing ->
+                        holder.soundIcon.text = if (playing) "⏸️" else "🎵"
+                        holder.soundTitle.setTextColor(if (playing) Color.parseColor("#FFE500") else Color.parseColor("#00F2FE"))
+                    }
                 }
-                holder.bannerBg.background = bannerBgDrawable
 
-                // Dynamic Gradient for Use Template Button
-                val btnBg = GradientDrawable(
-                    GradientDrawable.Orientation.LEFT_RIGHT,
-                    intArrayOf(startC, endC)
-                ).apply {
-                    cornerRadius = 12f * density
+                holder.itemView.setOnClickListener {
+                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    onCardClick(item)
                 }
-                holder.useBtn.background = btnBg
-            } catch (_: Exception) {}
 
-            // Banner Click -> Live Preview with music
-            holder.previewBanner.setOnClickListener {
-                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                onCardClick(item)
-            }
+                holder.useBtn.setOnClickListener {
+                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    onUseTemplate(item)
+                }
+            } else if (holder is ListViewHolder) {
+                holder.emoji.text = item.emoji
+                holder.title.text = item.title
+                holder.durationChip.text = "${item.durationMs / 1000}s"
+                holder.photosChip.text = "⚡ ${item.requiredPhotoCount}-Photo Ready"
+                holder.bpmChip.text = "${item.bpm} BPM"
+                holder.desc.text = item.description
+                holder.useBtnText.text = "⚡ 1-Photo Create"
+                holder.bannerBpmPill.text = "🎵 ${item.bpm} BPM"
+                val sampleLyric = item.textOverlays.firstOrNull()?.text ?: "${item.emoji} ${item.title}"
+                holder.bannerLyricText.text = sampleLyric
 
-            // Preview Button click -> Live Preview with music
-            holder.previewBtn.setOnClickListener {
-                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                onCardClick(item)
-            }
+                try {
+                    val startC = Color.parseColor(item.gradientStartHex)
+                    val endC = Color.parseColor(item.gradientEndHex)
 
-            // Card click -> Also opens Live Preview with music
-            holder.itemView.setOnClickListener {
-                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                onCardClick(item)
-            }
+                    val emojiBg = GradientDrawable(
+                        GradientDrawable.Orientation.TL_BR,
+                        intArrayOf(startC, endC)
+                    ).apply { cornerRadius = 14f * density }
+                    holder.emoji.background = emojiBg
 
-            // Direct Use button click -> Photo picker directly
-            holder.useBtn.setOnClickListener {
-                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                onUseTemplate(item)
+                    val bannerBgDrawable = GradientDrawable(
+                        GradientDrawable.Orientation.TL_BR,
+                        intArrayOf(startC, endC)
+                    ).apply { cornerRadius = 14f * density }
+                    holder.bannerBg.background = bannerBgDrawable
+
+                    val btnBg = GradientDrawable(
+                        GradientDrawable.Orientation.LEFT_RIGHT,
+                        intArrayOf(startC, endC)
+                    ).apply { cornerRadius = 12f * density }
+                    holder.useBtn.background = btnBg
+                } catch (_: Exception) {}
+
+                holder.previewBanner.setOnClickListener {
+                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    onCardClick(item)
+                }
+
+                holder.previewBtn.setOnClickListener {
+                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    onCardClick(item)
+                }
+
+                holder.itemView.setOnClickListener {
+                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    onCardClick(item)
+                }
+
+                holder.useBtn.setOnClickListener {
+                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    onUseTemplate(item)
+                }
             }
         }
 

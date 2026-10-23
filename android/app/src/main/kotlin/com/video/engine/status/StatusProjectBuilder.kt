@@ -46,6 +46,46 @@ object StatusProjectBuilder {
                     ?: extractAudioAsset(context, template.audioAssetPath)
             }
 
+            // If template has an underlying .vne file (User / Community template), adapt and clone it
+            if (!template.templateFilePath.isNullOrBlank() && File(template.templateFilePath).exists()) {
+                try {
+                    val tplFile = File(template.templateFilePath)
+                    val tplJson = JSONObject(tplFile.readText())
+                    val clips = tplJson.optJSONArray("clips") ?: JSONArray()
+                    var videoClipIdx = 0
+                    for (i in 0 until clips.length()) {
+                        val clip = clips.getJSONObject(i)
+                        val trackType = clip.optString("trackType", "VIDEO")
+                        if (trackType.equals("VIDEO", ignoreCase = true) || trackType.equals("MAIN", ignoreCase = true)) {
+                            val newPath = normalizedPhotoPaths[videoClipIdx % normalizedPhotoPaths.size]
+                            clip.put("mediaPath", newPath)
+                            videoClipIdx++
+                        } else if (trackType.equals("AUDIO", ignoreCase = true) && audioFile != null && audioFile.exists()) {
+                            clip.put("mediaPath", audioFile.absolutePath)
+                        }
+                    }
+                    if (!customText.isNullOrBlank()) {
+                        val textArray = tplJson.optJSONArray("textOverlays") ?: JSONArray().also { tplJson.put("textOverlays", it) }
+                        textArray.put(JSONObject().apply {
+                            put("id", 100)
+                            put("text", customText)
+                            put("x", 0.5)
+                            put("y", 0.76)
+                            put("scale", 1.30)
+                            put("color", "0xFFFFD700")
+                            put("opacity", 1.0)
+                            put("fadeInMs", 300)
+                            put("fadeOutMs", 300)
+                            put("zOrder", 99)
+                        })
+                    }
+                    projectFile.writeText(tplJson.toString(2))
+                    return projectFile
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to adapt .vne template, falling back to dynamic generator: ${e.message}")
+                }
+            }
+
             val rootJson = JSONObject().apply {
                 put("version", "1.1")
                 put("name", "Status - ${template.title}")

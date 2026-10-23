@@ -29,7 +29,9 @@ data class StatusTemplate(
     val audioAssetPath: String,
     val lutFilter: String,
     val slots: List<StatusSlot>,
-    val textOverlays: List<StatusTextOverlay>
+    val textOverlays: List<StatusTextOverlay>,
+    val templateFilePath: String? = null,
+    val isUserCreated: Boolean = false,
 )
 
 object StatusTemplateRepository {
@@ -1242,20 +1244,149 @@ object StatusTemplateRepository {
         )
     )
 
-    val categories: List<String> = listOf("All", "🔥 CapCut Pro", "⚡ 1-Photo", "Trending", "Love", "Attitude", "Emotional", "Celebration")
+    val categories: List<String> = listOf("All", "🔥 CapCut Pro", "⚡ 1-Photo", "✨ My Templates", "Trending", "Love", "Attitude", "Emotional", "Celebration")
 
-    fun getByCategory(category: String): List<StatusTemplate> {
-        if (category.equals("All", ignoreCase = true) || category.contains("1-Photo", ignoreCase = true)) {
-            return allTemplates
+    private val userTemplates = mutableListOf<StatusTemplate>()
+
+    fun getAll(context: android.content.Context? = null): List<StatusTemplate> {
+        if (context != null) {
+            loadUserTemplates(context)
         }
-        if (category.contains("CapCut", ignoreCase = true)) {
-            return allTemplates.filter { it.title.contains("CapCut", ignoreCase = true) || it.id.startsWith("tpl_capcut_") }
-        }
-        return allTemplates.filter { it.category.equals(category, ignoreCase = true) }
+        return userTemplates + allTemplates
     }
 
-    fun getById(id: String): StatusTemplate? {
-        return allTemplates.find { it.id.equals(id, ignoreCase = true) }
+    fun getByCategory(category: String, context: android.content.Context? = null): List<StatusTemplate> {
+        val all = getAll(context)
+        if (category.equals("All", ignoreCase = true) || category.contains("1-Photo", ignoreCase = true)) {
+            return all
+        }
+        if (category.contains("My Templates", ignoreCase = true) || category.contains("Community", ignoreCase = true)) {
+            return all.filter { it.isUserCreated || it.category.contains("Community", ignoreCase = true) }
+        }
+        if (category.contains("CapCut", ignoreCase = true)) {
+            return all.filter { it.title.contains("CapCut", ignoreCase = true) || it.id.startsWith("tpl_capcut_") }
+        }
+        return all.filter { it.category.equals(category, ignoreCase = true) }
+    }
+
+    fun getById(id: String, context: android.content.Context? = null): StatusTemplate? {
+        return getAll(context).find { it.id.equals(id, ignoreCase = true) }
+    }
+
+    fun loadUserTemplates(context: android.content.Context): List<StatusTemplate> {
+        return try {
+            val templatesDir = java.io.File(context.getExternalFilesDir(null), "templates").also { it.mkdirs() }
+            val metaFiles = templatesDir.listFiles { f -> f.isFile && f.extension.equals("json", ignoreCase = true) } ?: emptyArray()
+            val list = mutableListOf<StatusTemplate>()
+            for (f in metaFiles) {
+                runCatching {
+                    val obj = org.json.JSONObject(f.readText())
+                    val slotsArr = obj.optJSONArray("slots") ?: org.json.JSONArray()
+                    val slots = mutableListOf<StatusSlot>()
+                    for (i in 0 until slotsArr.length()) {
+                        val s = slotsArr.getJSONObject(i)
+                        slots.add(StatusSlot(s.optInt("slotId", i + 1), s.optLong("durationMs", 3000L), s.optString("transitionOut", "crossfade")))
+                    }
+                    val textsArr = obj.optJSONArray("textOverlays") ?: org.json.JSONArray()
+                    val textOverlays = mutableListOf<StatusTextOverlay>()
+                    for (i in 0 until textsArr.length()) {
+                        val t = textsArr.getJSONObject(i)
+                        textOverlays.add(
+                            StatusTextOverlay(
+                                text = t.optString("text", "VIRAL REEL"),
+                                startTimeMs = t.optLong("startTimeMs", 0L),
+                                endTimeMs = t.optLong("endTimeMs", 3000L),
+                                posYPercent = t.optDouble("posYPercent", 0.25).toFloat(),
+                                scale = t.optDouble("scale", 1.0).toFloat(),
+                                colorHex = t.optString("colorHex", "0xFFFFFFFF")
+                            )
+                        )
+                    }
+                    val tpl = StatusTemplate(
+                        id = obj.optString("id", "user_${f.nameWithoutExtension}"),
+                        title = obj.optString("title", f.nameWithoutExtension),
+                        category = obj.optString("category", "My Templates"),
+                        emoji = obj.optString("emoji", "🌟"),
+                        durationMs = obj.optLong("durationMs", 10000L),
+                        requiredPhotoCount = obj.optInt("requiredPhotoCount", slots.size.coerceAtLeast(1)),
+                        bpm = obj.optInt("bpm", 128),
+                        description = obj.optString("description", "Community template with custom transitions and effects."),
+                        gradientStartHex = obj.optString("gradientStartHex", "#FF416C"),
+                        gradientEndHex = obj.optString("gradientEndHex", "#8A2387"),
+                        audioAssetPath = obj.optString("audioAssetPath", "music_bgm/attitude_bass_drop.wav"),
+                        lutFilter = obj.optString("lutFilter", ""),
+                        slots = slots.ifEmpty { listOf(StatusSlot(1, 10000L, "zoom_in")) },
+                        textOverlays = textOverlays,
+                        templateFilePath = if (obj.has("templateFilePath")) obj.optString("templateFilePath") else null,
+                        isUserCreated = true
+                    )
+                    list.add(tpl)
+                }
+            }
+            userTemplates.clear()
+            userTemplates.addAll(list)
+            userTemplates
+        } catch (e: Exception) {
+            android.util.Log.w("StatusTemplateRepository", "Failed loading user templates", e)
+            emptyList()
+        }
+    }
+
+    fun saveUserTemplate(
+        context: android.content.Context,
+        template: StatusTemplate,
+        vneFile: java.io.File? = null
+    ): Boolean {
+        return try {
+            val templatesDir = java.io.File(context.getExternalFilesDir(null), "templates").also { it.mkdirs() }
+            val metaFile = java.io.File(templatesDir, "${template.id}.json")
+            val obj = org.json.JSONObject().apply {
+                put("id", template.id)
+                put("title", template.title)
+                put("category", template.category)
+                put("emoji", template.emoji)
+                put("durationMs", template.durationMs)
+                put("requiredPhotoCount", template.requiredPhotoCount)
+                put("bpm", template.bpm)
+                put("description", template.description)
+                put("gradientStartHex", template.gradientStartHex)
+                put("gradientEndHex", template.gradientEndHex)
+                put("audioAssetPath", template.audioAssetPath)
+                put("lutFilter", template.lutFilter)
+                put("templateFilePath", vneFile?.absolutePath ?: template.templateFilePath)
+                put("isUserCreated", true)
+
+                val slotsArr = org.json.JSONArray()
+                template.slots.forEach { s ->
+                    slotsArr.put(org.json.JSONObject().apply {
+                        put("slotId", s.slotId)
+                        put("durationMs", s.durationMs)
+                        put("transitionOut", s.transitionOut)
+                    })
+                }
+                put("slots", slotsArr)
+
+                val textsArr = org.json.JSONArray()
+                template.textOverlays.forEach { t ->
+                    textsArr.put(org.json.JSONObject().apply {
+                        put("text", t.text)
+                        put("startTimeMs", t.startTimeMs)
+                        put("endTimeMs", t.endTimeMs)
+                        put("posYPercent", t.posYPercent.toDouble())
+                        put("scale", t.scale.toDouble())
+                        put("colorHex", t.colorHex)
+                    })
+                }
+                put("textOverlays", textsArr)
+            }
+            metaFile.writeText(obj.toString(2))
+            userTemplates.removeAll { it.id == template.id }
+            userTemplates.add(0, template)
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("StatusTemplateRepository", "Failed to save user template", e)
+            false
+        }
     }
 }
 
