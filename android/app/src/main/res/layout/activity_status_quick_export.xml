@@ -194,6 +194,70 @@
             android:paddingEnd="20dp"
             android:paddingBottom="24dp">
 
+            <!-- Export Quality Selector Chips (1080p Full HD vs 720p Fast) -->
+            <LinearLayout
+                android:id="@+id/quickExportQualityContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="14dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Export Quality"
+                    android:textColor="#FFFFFF"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <!-- 1080p Chip -->
+                <FrameLayout
+                    android:id="@+id/quickExportQuality1080pBtn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:background="@drawable/launch_count_chip_background"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp">
+
+                    <TextView
+                        android:id="@+id/quickExportQuality1080pText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:text="💎 1080p Full HD"
+                        android:textColor="#388BFD"
+                        android:textSize="11.5sp"
+                        android:textStyle="bold" />
+                </FrameLayout>
+
+                <!-- 720p Chip -->
+                <FrameLayout
+                    android:id="@+id/quickExportQuality720pBtn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/launch_count_chip_background"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp">
+
+                    <TextView
+                        android:id="@+id/quickExportQuality720pText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:text="⚡ 720p Fast"
+                        android:textColor="#8A99AD"
+                        android:textSize="11.5sp"
+                        android:textStyle="bold" />
+                </FrameLayout>
+            </LinearLayout>
+
             <!-- Primary 1-Click Export Button -->
             <FrameLayout
                 android:id="@+id/quickExportButton"

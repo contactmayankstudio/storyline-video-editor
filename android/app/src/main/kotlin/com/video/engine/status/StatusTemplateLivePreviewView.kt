@@ -31,6 +31,12 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
             postInvalidateOnAnimation()
         }
 
+    var customStatusText: String? = null
+        set(value) {
+            field = value
+            postInvalidateOnAnimation()
+        }
+
     private var isPlaying: Boolean = true
     private var startTime: Long = SystemClock.uptimeMillis()
     private var pausedTime: Long = 0L
@@ -58,6 +64,15 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
     }
     private val pillBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(160, 0, 0, 0)
+    }
+    private val customTextPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val customPillBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(185, 15, 18, 25)
+    }
+    private val customPillStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#66FFD700")
+        style = Paint.Style.STROKE
+        strokeWidth = 2.5f
     }
     private val bgRect = RectF()
     private val dimPaint = Paint().apply { color = Color.argb(120, 0, 0, 0) }
@@ -398,41 +413,72 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         beatPulse: Float
     ) {
         val overlays = tm.textOverlays
-        if (overlays.isEmpty()) return
+        if (overlays.isNotEmpty()) {
+            // Pick lyrics based on timeline
+            val overlayIdx = ((elapsedMs * overlays.size) / totalDurationMs).toInt().coerceIn(0, overlays.size - 1)
+            val currentOverlay = overlays[overlayIdx]
 
-        // Pick lyrics based on timeline
-        val overlayIdx = ((elapsedMs * overlays.size) / totalDurationMs).toInt().coerceIn(0, overlays.size - 1)
-        val currentOverlay = overlays[overlayIdx]
+            val text = currentOverlay.text
+            val textSizeSp = (currentOverlay.scale * 20f) * resources.displayMetrics.scaledDensity
+            val bounce = beatPulse * 4f
 
-        val text = currentOverlay.text
-        val textSizeSp = (currentOverlay.scale * 22f) * resources.displayMetrics.scaledDensity
-        val bounce = beatPulse * 4f
-
-        textPaint.apply {
-            color = parseColorSafe(currentOverlay.colorHex, Color.WHITE)
-            textSize = textSizeSp + bounce
-            typeface = Typeface.DEFAULT_BOLD
-            textAlign = Paint.Align.CENTER
-            setShadowLayer(14f, 0f, 0f, parseColorSafe(tm.gradientStartHex, Color.CYAN))
-        }
-
-        val yPos = (h * currentOverlay.posYPercent) - bounce
-        val maxTextWidth = w * 0.90f
-        if (textPaint.measureText(text) > maxTextWidth) {
-            val words = text.split(" ")
-            if (words.size > 2) {
-                val mid = words.size / 2
-                val line1 = words.subList(0, mid).joinToString(" ")
-                val line2 = words.subList(mid, words.size).joinToString(" ")
-                canvas.drawText(line1, w / 2f, yPos - (textSizeSp * 0.65f), textPaint)
-                canvas.drawText(line2, w / 2f, yPos + (textSizeSp * 0.65f), textPaint)
-                textPaint.setShadowLayer(0f, 0f, 0f, 0)
-                return
+            textPaint.apply {
+                color = parseColorSafe(currentOverlay.colorHex, Color.WHITE)
+                textSize = textSizeSp + bounce
+                typeface = Typeface.DEFAULT_BOLD
+                textAlign = Paint.Align.CENTER
+                setShadowLayer(14f, 0f, 0f, parseColorSafe(tm.gradientStartHex, Color.CYAN))
             }
+
+            // If user has custom text at bottom, position template lyrics higher (0.22) so they don't collide
+            val basePosYPercent = if (!customStatusText.isNullOrBlank()) 0.22f else currentOverlay.posYPercent
+            val yPos = (h * basePosYPercent) - bounce
+            val maxTextWidth = w * 0.90f
+            if (textPaint.measureText(text) > maxTextWidth) {
+                val words = text.split(" ")
+                if (words.size > 2) {
+                    val mid = words.size / 2
+                    val line1 = words.subList(0, mid).joinToString(" ")
+                    val line2 = words.subList(mid, words.size).joinToString(" ")
+                    canvas.drawText(line1, w / 2f, yPos - (textSizeSp * 0.65f), textPaint)
+                    canvas.drawText(line2, w / 2f, yPos + (textSizeSp * 0.65f), textPaint)
+                } else {
+                    canvas.drawText(text, w / 2f, yPos, textPaint)
+                }
+            } else {
+                canvas.drawText(text, w / 2f, yPos, textPaint)
+            }
+            textPaint.setShadowLayer(0f, 0f, 0f, 0)
         }
 
-        canvas.drawText(text, w / 2f, yPos, textPaint)
-        textPaint.setShadowLayer(0f, 0f, 0f, 0)
+        // Draw custom user name / lyrical text bouncing to the beat with glowing kinetic typography
+        val customText = customStatusText
+        if (!customText.isNullOrBlank()) {
+            val customBounce = beatPulse * 5f
+            val customTextSize = (21f * resources.displayMetrics.scaledDensity) + customBounce
+            customTextPaint.apply {
+                color = Color.parseColor("#FFFDF0")
+                textSize = customTextSize
+                typeface = Typeface.DEFAULT_BOLD
+                textAlign = Paint.Align.CENTER
+                setShadowLayer(16f + (beatPulse * 6f), 0f, 0f, Color.parseColor("#FFD700"))
+            }
+
+            val customY = (h * 0.74f) - customBounce
+            val measuredW = customTextPaint.measureText(customText)
+            val pillPadH = 14f * resources.displayMetrics.density
+            val pillPadV = 6f * resources.displayMetrics.density
+            val pillRect = RectF(
+                (w / 2f) - (measuredW / 2f) - pillPadH,
+                customY - customTextSize + (pillPadV * 0.5f),
+                (w / 2f) + (measuredW / 2f) + pillPadH,
+                customY + (pillPadV * 1.5f)
+            )
+            canvas.drawRoundRect(pillRect, 18f, 18f, customPillBgPaint)
+            canvas.drawRoundRect(pillRect, 18f, 18f, customPillStrokePaint)
+            canvas.drawText(customText, w / 2f, customY, customTextPaint)
+            customTextPaint.setShadowLayer(0f, 0f, 0f, 0)
+        }
     }
 
     private fun drawAudioVisualizer(

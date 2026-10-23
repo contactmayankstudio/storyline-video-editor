@@ -17,7 +17,8 @@ object StatusProjectBuilder {
         context: Context,
         template: StatusTemplate,
         photoPaths: List<String>,
-        customAudioPath: String? = null
+        customAudioPath: String? = null,
+        customText: String? = null
     ): File? {
         if (photoPaths.isEmpty()) return null
 
@@ -146,7 +147,9 @@ object StatusProjectBuilder {
                         put("id", index + 1)
                         put("text", textOverlay.text)
                         put("x", 0.5)
-                        put("y", textOverlay.posYPercent.toDouble())
+                        // If user has custom text at bottom, position template lyrics higher (0.22)
+                        val adjustedY = if (!customText.isNullOrBlank()) 0.22 else textOverlay.posYPercent.toDouble()
+                        put("y", adjustedY)
                         put("scale", textOverlay.scale.toDouble())
                         put("rotation", 0.0)
                         put("color", textOverlay.colorHex)
@@ -159,6 +162,27 @@ object StatusProjectBuilder {
                         put("enabled", true)
                     }
                     textArray.put(textJson)
+                }
+
+                // Add prominent custom name / lyrical text overlay
+                if (!customText.isNullOrBlank()) {
+                    val customJson = JSONObject().apply {
+                        put("id", 100)
+                        put("text", customText)
+                        put("x", 0.5)
+                        put("y", 0.76)
+                        put("scale", 1.30)
+                        put("rotation", 0.0)
+                        put("color", "0xFFFFD700")
+                        put("opacity", 1.0)
+                        put("fadeInMs", 300)
+                        put("fadeOutMs", 300)
+                        put("zOrder", 99)
+                        put("startTime", 0L)
+                        put("endTime", template.durationMs)
+                        put("enabled", true)
+                    }
+                    textArray.put(customJson)
                 }
                 put("textOverlays", textArray)
 

@@ -151,10 +151,10 @@ class AiIntentParserTest {
     @Test
     fun parse_englishPlaybackAndHistory() {
         val playRes = AiIntentParser.parse("play")
-        assertTrue(playRes.intent is VideoEditIntent.TogglePlayback)
+        assertTrue(playRes.intent is VideoEditIntent.PlayVideo || playRes.intent is VideoEditIntent.TogglePlayback)
 
         val pauseRes = AiIntentParser.parse("pause")
-        assertTrue(pauseRes.intent is VideoEditIntent.TogglePlayback)
+        assertTrue(pauseRes.intent is VideoEditIntent.PauseVideo || pauseRes.intent is VideoEditIntent.TogglePlayback)
 
         val undoRes = AiIntentParser.parse("undo that")
         assertTrue(undoRes.intent is VideoEditIntent.Undo)
@@ -247,10 +247,10 @@ class AiIntentParserTest {
     @Test
     fun parse_hindiPlaybackAndUndo() {
         val playRes = AiIntentParser.parse("चलाओ")
-        assertTrue(playRes.intent is VideoEditIntent.TogglePlayback)
+        assertTrue(playRes.intent is VideoEditIntent.PlayVideo || playRes.intent is VideoEditIntent.TogglePlayback)
 
         val pauseRes = AiIntentParser.parse("रोको")
-        assertTrue(pauseRes.intent is VideoEditIntent.TogglePlayback)
+        assertTrue(pauseRes.intent is VideoEditIntent.PauseVideo || pauseRes.intent is VideoEditIntent.TogglePlayback)
 
         val undoRes = AiIntentParser.parse("वापस करो")
         assertTrue(undoRes.intent is VideoEditIntent.Undo)

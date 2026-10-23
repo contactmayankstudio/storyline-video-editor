@@ -849,6 +849,19 @@ class TimelineCanvasView @JvmOverloads constructor(
         color = Color.parseColor("#AAFFFFFF")
         strokeWidth = dp(1.5f).toFloat()
     }
+    private val beatMarkerDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#FFD700")
+        style = Paint.Style.FILL
+    }
+    private val beatMarkerGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#55FFD700")
+        style = Paint.Style.FILL
+    }
+    private val beatMarkerStemPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#88FFD700")
+        strokeWidth = dp(1f).toFloat()
+        style = Paint.Style.STROKE
+    }
     private var lastInvalidateMs = 0L
     private val invalidateThrottleMs = 16L
     private val assetRequestHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -925,6 +938,32 @@ class TimelineCanvasView @JvmOverloads constructor(
         canvas.save()
         canvas.clipRect(max(left, headerWidthPx.toFloat()), top, min(right, clipDrawRight), bottom)
         canvas.drawLines(pts, 0, ptsNeeded, waveformPaint)
+
+        // Draw CapCut-style rhythmic golden beat drop markers along audio track
+        if (clip.trackType == TrackType.AUDIO) {
+            val markerY = top + dp(5f).toFloat()
+            val dotRadius = dp(2.2f).toFloat()
+            val glowRadius = dp(4.5f).toFloat()
+            val minPeakDist = (peakCount * 450L / clip.durationMs.coerceAtLeast(1L)).toInt().coerceIn(6, 40)
+            var lastBeatIdx = -minPeakDist
+
+            for (i in 0 until peakCount) {
+                val peak = peaks[i]
+                val isBeat = (peak >= 0.65f && (i - lastBeatIdx) >= minPeakDist) ||
+                             ((i - lastBeatIdx) >= minPeakDist * 2 && peak >= 0.40f)
+                if (isBeat) {
+                    lastBeatIdx = i
+                    val x = left + i * barW + barW / 2f
+                    // Golden beat indicator stem from top to waveform center
+                    canvas.drawLine(x, top, x, top + dp(8f).toFloat(), beatMarkerStemPaint)
+                    // Translucent outer glow
+                    canvas.drawCircle(x, markerY, glowRadius, beatMarkerGlowPaint)
+                    // Solid golden beat dot
+                    canvas.drawCircle(x, markerY, dotRadius, beatMarkerDotPaint)
+                }
+            }
+        }
+
         canvas.restore()
     }
     private val clipThumbnails = mutableMapOf<String, List<android.graphics.Bitmap>>()

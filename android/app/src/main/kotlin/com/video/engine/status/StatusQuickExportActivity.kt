@@ -52,6 +52,8 @@ class StatusQuickExportActivity : ComponentActivity() {
         const val EXTRA_TEMPLATE_GRADIENT_START = "extra_status_gradient_start"
         const val EXTRA_TEMPLATE_GRADIENT_END = "extra_status_gradient_end"
         const val EXTRA_PHOTO_PATHS = "extra_status_photo_paths"
+        const val EXTRA_CUSTOM_TEXT = "extra_status_custom_text"
+        const val EXTRA_CUSTOM_AUDIO_PATH = "extra_status_custom_audio_path"
     }
 
     private var projectPath: String? = null
@@ -61,6 +63,8 @@ class StatusQuickExportActivity : ComponentActivity() {
     private var gradientStart: String = "#FF416C"
     private var gradientEnd: String = "#8A2387"
     private var photoPaths: ArrayList<String> = arrayListOf()
+    private var customText: String? = null
+    private var is1080pSelected: Boolean = true
 
     private var currentTemplate: StatusTemplate? = null
     private var currentAudioPath: String? = null
@@ -110,6 +114,12 @@ class StatusQuickExportActivity : ComponentActivity() {
         gradientStart = intent.getStringExtra(EXTRA_TEMPLATE_GRADIENT_START) ?: "#FF416C"
         gradientEnd = intent.getStringExtra(EXTRA_TEMPLATE_GRADIENT_END) ?: "#8A2387"
         photoPaths = intent.getStringArrayListExtra(EXTRA_PHOTO_PATHS) ?: arrayListOf()
+        customText = intent.getStringExtra(EXTRA_CUSTOM_TEXT)
+
+        val passedAudioPath = intent.getStringExtra(EXTRA_CUSTOM_AUDIO_PATH)
+        if (!passedAudioPath.isNullOrBlank() && File(passedAudioPath).exists()) {
+            currentAudioPath = passedAudioPath
+        }
 
         if (templateId != null) {
             currentTemplate = StatusTemplateRepository.getById(templateId!!)
@@ -187,6 +197,60 @@ class StatusQuickExportActivity : ComponentActivity() {
         setupPreviewView()
         setupMusicCard()
 
+        // Setup Export Quality Selector Chips (1080p Full HD vs 720p Fast)
+        val quality1080pBtn = findViewById<FrameLayout>(R.id.quickExportQuality1080pBtn)
+        val quality1080pText = findViewById<TextView>(R.id.quickExportQuality1080pText)
+        val quality720pBtn = findViewById<FrameLayout>(R.id.quickExportQuality720pBtn)
+        val quality720pText = findViewById<TextView>(R.id.quickExportQuality720pText)
+
+        fun updateQualityUi() {
+            val density = resources.displayMetrics.density
+            if (is1080pSelected) {
+                quality1080pBtn?.background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#1F385C"))
+                    cornerRadius = 16 * density
+                    setStroke((1.5f * density).toInt(), Color.parseColor("#388BFD"))
+                }
+                quality1080pText?.setTextColor(Color.parseColor("#58A6FF"))
+
+                quality720pBtn?.background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#161B22"))
+                    cornerRadius = 16 * density
+                    setStroke((1 * density).toInt(), Color.parseColor("#33FFFFFF"))
+                }
+                quality720pText?.setTextColor(Color.parseColor("#8A99AD"))
+            } else {
+                quality720pBtn?.background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#1F385C"))
+                    cornerRadius = 16 * density
+                    setStroke((1.5f * density).toInt(), Color.parseColor("#388BFD"))
+                }
+                quality720pText?.setTextColor(Color.parseColor("#58A6FF"))
+
+                quality1080pBtn?.background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#161B22"))
+                    cornerRadius = 16 * density
+                    setStroke((1 * density).toInt(), Color.parseColor("#33FFFFFF"))
+                }
+                quality1080pText?.setTextColor(Color.parseColor("#8A99AD"))
+            }
+        }
+        updateQualityUi()
+
+        quality1080pBtn?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            is1080pSelected = true
+            updateQualityUi()
+            Toast.makeText(this, "💎 1080p Full HD Export Selected", Toast.LENGTH_SHORT).show()
+        }
+
+        quality720pBtn?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            is1080pSelected = false
+            updateQualityUi()
+            Toast.makeText(this, "⚡ 720p Fast Export Selected", Toast.LENGTH_SHORT).show()
+        }
+
         // 1-Click Export click
         findViewById<FrameLayout>(R.id.quickExportButton)?.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
@@ -237,6 +301,9 @@ class StatusQuickExportActivity : ComponentActivity() {
             )
         }
         livePreviewView = lpv
+        if (!customText.isNullOrBlank()) {
+            lpv.customStatusText = customText
+        }
         currentTemplate?.let { tm ->
             lpv.bindTemplate(tm, previewMediaPlayer)
             if (photoPaths.isNotEmpty()) {
@@ -351,7 +418,8 @@ class StatusQuickExportActivity : ComponentActivity() {
                 context = this,
                 template = template,
                 photoPaths = photoPaths,
-                customAudioPath = audioPath
+                customAudioPath = audioPath,
+                customText = customText
             )
 
             runOnUiThread {
@@ -464,13 +532,18 @@ class StatusQuickExportActivity : ComponentActivity() {
 
         exportProgressOverlay.visibility = View.VISIBLE
         exportProgressBar.progress = 0
-        exportPercentText.text = "Exporting Status Video... 0%"
+        val qualityLabel = if (is1080pSelected) "1080p Full HD" else "720p Fast"
+        exportPercentText.text = "Exporting Status Video ($qualityLabel)... 0%"
         livePreviewView?.visibility = View.GONE
 
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val safeTitle = templateTitle.replace(Regex("[^a-zA-Z0-9]"), "_")
         val exportDir = File(cacheDir, "status_exports").also { it.mkdirs() }
         val exportFile = File(exportDir, "Status_${safeTitle}_${timeStamp}.mp4")
+
+        val expWidth = if (is1080pSelected) 1080 else 720
+        val expHeight = if (is1080pSelected) 1920 else 1280
+        val expBitrate = if (is1080pSelected) 8 else 4
 
         Thread {
             try {
@@ -480,10 +553,10 @@ class StatusQuickExportActivity : ComponentActivity() {
                 val pv = previewView
                 val success = pv?.exportToVideo(
                     outputPath = exportFile.absolutePath,
-                    width = 1080,
-                    height = 1920,
+                    width = expWidth,
+                    height = expHeight,
                     fps = 30,
-                    bitrateMbps = 8,
+                    bitrateMbps = expBitrate,
                     videoCodec = "h264"
                 ) ?: false
 

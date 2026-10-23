@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
@@ -21,7 +22,9 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -50,6 +53,23 @@ class StatusMakerActivity : ComponentActivity() {
     private var hasAudioFocus: Boolean = false
     private var lastCustomPhotoPath: String? = null
     private var lastPhotoPaths: List<String> = emptyList()
+    private var activeCustomText: String? = null
+    private var activeCustomAudioPath: String? = null
+    private var activeCustomAudioTitle: String? = null
+    private var onAudioSelectedCallback: ((String, String) -> Unit)? = null
+
+    // Phone audio picker
+    private val pickAudioForPreviewLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri == null) return@registerForActivityResult
+        Thread {
+            val localAudio = resolveUriToLocalFile(this, uri) ?: return@Thread
+            runOnUiThread {
+                onAudioSelectedCallback?.invoke(localAudio, "Phone Audio")
+            }
+        }.start()
+    }
 
     // Multiple photo picker
     private val pickPhotosLauncher = registerForActivityResult(
@@ -79,7 +99,13 @@ class StatusMakerActivity : ComponentActivity() {
             // Pre-build project in background for instant 1-click export
             var prebuiltProject: File? = null
             try {
-                prebuiltProject = StatusProjectBuilder.buildProjectFile(this, template, localPaths)
+                prebuiltProject = StatusProjectBuilder.buildProjectFile(
+                    this,
+                    template,
+                    localPaths,
+                    activeCustomAudioPath,
+                    activeCustomText
+                )
             } catch (_: Exception) {}
 
             runOnUiThread {
@@ -330,6 +356,10 @@ class StatusMakerActivity : ComponentActivity() {
         val testPhotoBtn = dialogView.findViewById<View>(R.id.statusPreviewTestPhotoBtn)
         val testPhotoText = dialogView.findViewById<TextView>(R.id.statusPreviewTestPhotoText)
         val nextTemplateBtn = dialogView.findViewById<View>(R.id.statusPreviewNextTemplateBtn)
+        val editTextBtn = dialogView.findViewById<View>(R.id.statusPreviewEditTextBtn)
+        val editTextTitle = dialogView.findViewById<TextView>(R.id.statusPreviewEditText)
+        val changeMusicBtn = dialogView.findViewById<View>(R.id.statusPreviewChangeMusicBtn)
+        val changeMusicText = dialogView.findViewById<TextView>(R.id.statusPreviewChangeMusicText)
 
         fun bindTemplateState(tmpl: StatusTemplate) {
             currentActiveTemplate = tmpl
@@ -341,6 +371,12 @@ class StatusMakerActivity : ComponentActivity() {
             descTv?.text = if (activePhotoPath != null) "⚡ Live animated preview of your photo with ${tmpl.title}! Tap Export to save." else tmpl.description
             ctaText?.text = if (activePhotoPath != null) "⚡ 1-CLICK EXPORT TO GALLERY" else "⚡ CREATE 1-PHOTO / REELS STATUS"
             testPhotoText?.text = if (activePhotoPath != null) "Change Photo 🔄" else "Test With My Photo 📷"
+            if (!activeCustomText.isNullOrBlank()) {
+                editTextTitle?.text = "✏️ ${activeCustomText!!.take(12)}"
+            }
+            if (!activeCustomAudioTitle.isNullOrBlank()) {
+                changeMusicText?.text = "🎵 ${activeCustomAudioTitle!!.take(12)}"
+            }
 
             val density = resources.displayMetrics.density
             val startColor = try { Color.parseColor(tmpl.gradientStartHex) } catch (_: Exception) { Color.parseColor("#FF416C") }
@@ -356,24 +392,106 @@ class StatusMakerActivity : ComponentActivity() {
             stopPreviewAudio()
             requestAudioFocus()
             try {
-                assets.openFd(tmpl.audioAssetPath).use { afd ->
+                if (activeCustomAudioPath != null && File(activeCustomAudioPath!!).exists()) {
                     val mp = MediaPlayer().apply {
-                        setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                        setDataSource(activeCustomAudioPath)
                         isLooping = true
                         prepare()
                         start()
                     }
                     previewMediaPlayer = mp
+                } else {
+                    assets.openFd(tmpl.audioAssetPath).use { afd ->
+                        val mp = MediaPlayer().apply {
+                            setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                            isLooping = true
+                            prepare()
+                            start()
+                        }
+                        previewMediaPlayer = mp
+                    }
                 }
             } catch (_: Exception) {}
 
             livePreviewView?.bindTemplate(tmpl, previewMediaPlayer)
+            livePreviewView?.customStatusText = activeCustomText
             if (activePhotoPath != null) {
                 livePreviewView?.setCustomPhoto(activePhotoPath)
             }
         }
 
         bindTemplateState(initialTemplate)
+
+        // Custom Name / Lyrical Text Editor
+        editTextBtn?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            showEditTextDialog(activeCustomText) { newText ->
+                activeCustomText = newText
+                livePreviewView?.customStatusText = newText
+                editTextTitle?.text = if (newText.isNotBlank()) "✏️ ${newText.take(12)}" else "Edit Text / Name"
+                Toast.makeText(this@StatusMakerActivity, "✨ Custom text applied: $newText", Toast.LENGTH_SHORT).show()
+
+                if (activePhotoPaths.isNotEmpty()) {
+                    Thread {
+                        currentProjectFile = StatusProjectBuilder.buildProjectFile(
+                            this@StatusMakerActivity,
+                            currentActiveTemplate,
+                            activePhotoPaths,
+                            activeCustomAudioPath,
+                            activeCustomText
+                        )
+                    }.start()
+                }
+            }
+        }
+
+        // Change Music Soundtrack (1-Tap switcher)
+        fun playSelectedAudio(pathOrAsset: String, displayTitle: String, isLocal: Boolean) {
+            stopPreviewAudio()
+            requestAudioFocus()
+            try {
+                val mp = MediaPlayer()
+                if (isLocal) {
+                    mp.setDataSource(pathOrAsset)
+                    activeCustomAudioPath = pathOrAsset
+                } else {
+                    assets.openFd(pathOrAsset).use { afd ->
+                        mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                    }
+                    activeCustomAudioPath = StatusMediaHelper.extractAudioAssetToLocal(this@StatusMakerActivity, pathOrAsset)?.absolutePath
+                }
+                mp.isLooping = true
+                mp.prepare()
+                mp.start()
+                previewMediaPlayer = mp
+                activeCustomAudioTitle = displayTitle
+            } catch (_: Exception) {
+                Toast.makeText(this@StatusMakerActivity, "Could not play soundtrack", Toast.LENGTH_SHORT).show()
+            }
+
+            livePreviewView?.bindTemplate(currentActiveTemplate, previewMediaPlayer)
+            changeMusicText?.text = "🎵 ${displayTitle.take(12)}"
+            Toast.makeText(this@StatusMakerActivity, "🎵 Track: $displayTitle", Toast.LENGTH_SHORT).show()
+
+            if (activePhotoPaths.isNotEmpty()) {
+                Thread {
+                    currentProjectFile = StatusProjectBuilder.buildProjectFile(
+                        this@StatusMakerActivity,
+                        currentActiveTemplate,
+                        activePhotoPaths,
+                        activeCustomAudioPath,
+                        activeCustomText
+                    )
+                }.start()
+            }
+        }
+
+        changeMusicBtn?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            showChangeMusicDialog { path, title, isLocal ->
+                playSelectedAudio(path, title, isLocal)
+            }
+        }
 
         // Next Template switcher on the fly!
         nextTemplateBtn?.setOnClickListener {
@@ -386,7 +504,13 @@ class StatusMakerActivity : ComponentActivity() {
             bindTemplateState(nextTmpl)
             if (activePhotoPaths.isNotEmpty()) {
                 Thread {
-                    currentProjectFile = StatusProjectBuilder.buildProjectFile(this@StatusMakerActivity, nextTmpl, activePhotoPaths)
+                    currentProjectFile = StatusProjectBuilder.buildProjectFile(
+                        this@StatusMakerActivity,
+                        nextTmpl,
+                        activePhotoPaths,
+                        activeCustomAudioPath,
+                        activeCustomText
+                    )
                 }.start()
             }
         }
@@ -419,14 +543,32 @@ class StatusMakerActivity : ComponentActivity() {
                 dialog.dismiss()
                 val photosToUse = activePhotoPaths.ifEmpty { listOf(activePhotoPath) }
                 if (currentProjectFile != null && currentProjectFile!!.exists()) {
-                    launchQuickExport(currentProjectFile!!, currentActiveTemplate, photosToUse)
+                    launchQuickExport(
+                        currentProjectFile!!,
+                        currentActiveTemplate,
+                        photosToUse,
+                        activeCustomText,
+                        activeCustomAudioPath
+                    )
                 } else {
                     Toast.makeText(this@StatusMakerActivity, "Preparing Export...", Toast.LENGTH_SHORT).show()
                     Thread {
-                        val proj = StatusProjectBuilder.buildProjectFile(this@StatusMakerActivity, currentActiveTemplate, photosToUse)
+                        val proj = StatusProjectBuilder.buildProjectFile(
+                            this@StatusMakerActivity,
+                            currentActiveTemplate,
+                            photosToUse,
+                            activeCustomAudioPath,
+                            activeCustomText
+                        )
                         runOnUiThread {
                             if (proj != null && proj.exists()) {
-                                launchQuickExport(proj, currentActiveTemplate, photosToUse)
+                                launchQuickExport(
+                                    proj,
+                                    currentActiveTemplate,
+                                    photosToUse,
+                                    activeCustomText,
+                                    activeCustomAudioPath
+                                )
                             } else {
                                 Toast.makeText(this@StatusMakerActivity, "Failed to build status project", Toast.LENGTH_SHORT).show()
                             }
@@ -458,7 +600,152 @@ class StatusMakerActivity : ComponentActivity() {
         }
     }
 
-    private fun launchQuickExport(projectFile: File, template: StatusTemplate, photoPaths: List<String>) {
+    private fun showEditTextDialog(
+        initialText: String?,
+        onTextApplied: (String) -> Unit
+    ) {
+        val ctx = this
+        val density = resources.displayMetrics.density
+
+        val container = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((20 * density).toInt(), (16 * density).toInt(), (20 * density).toInt(), (12 * density).toInt())
+        }
+
+        val hintText = TextView(ctx).apply {
+            text = "Enter your name, couple name, or status quote to bounce on your video with kinetic neon glow:"
+            setTextColor(Color.parseColor("#9AA4B2"))
+            textSize = 13f
+            setPadding(0, 0, 0, (12 * density).toInt())
+        }
+        container.addView(hintText)
+
+        val editText = EditText(ctx).apply {
+            hint = "e.g. Rohan 🔥 / Happy Birthday 🎂 / Love You ❤️"
+            setHintTextColor(Color.parseColor("#556070"))
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            setText(initialText ?: "")
+            setSelection(text.length)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1C2128"))
+                cornerRadius = 10 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#388BFD"))
+            }
+            setPadding((14 * density).toInt(), (12 * density).toInt(), (14 * density).toInt(), (12 * density).toInt())
+        }
+        container.addView(editText)
+
+        val presetsLabel = TextView(ctx).apply {
+            text = "Quick Viral Presets:"
+            setTextColor(Color.parseColor("#FFD700"))
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, (14 * density).toInt(), 0, (6 * density).toInt())
+        }
+        container.addView(presetsLabel)
+
+        val presetsScrollView = HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+        }
+        val presetsContainer = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        val presets = listOf(
+            "Rohan 🔥",
+            "Happy Birthday 🎂",
+            "Love You ❤️",
+            "Attitude King 👑",
+            "Priya & Rahul 💖",
+            "Dream Chaser 🚀",
+            "Sigma Boy 💥",
+            "Mahakal Bhakt 🔱",
+            "Reels Queen ✨",
+            "Always Winning 🏆"
+        )
+
+        presets.forEach { preset ->
+            val chip = TextView(ctx).apply {
+                text = preset
+                textSize = 12f
+                setTextColor(Color.WHITE)
+                setPadding((12 * density).toInt(), (6 * density).toInt(), (12 * density).toInt(), (6 * density).toInt())
+                val params = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    marginEnd = (8 * density).toInt()
+                }
+                layoutParams = params
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#262C36"))
+                    cornerRadius = 16 * density
+                    setStroke((1 * density).toInt(), Color.parseColor("#44FFFFFF"))
+                }
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    editText.setText(preset)
+                    editText.setSelection(preset.length)
+                }
+            }
+            presetsContainer.addView(chip)
+        }
+        presetsScrollView.addView(presetsContainer)
+        container.addView(presetsScrollView)
+
+        AlertDialog.Builder(ctx)
+            .setTitle("✏️ Custom Name & Status Text")
+            .setView(container)
+            .setPositiveButton("Apply to Status ✨") { _, _ ->
+                val entered = editText.text.toString().trim()
+                onTextApplied(entered)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showChangeMusicDialog(
+        onTrackSelected: (path: String, title: String, isLocalFile: Boolean) -> Unit
+    ) {
+        val ctx = this
+        val tracks = listOf(
+            Triple("Attitude Bass Drop 🔥 (130 BPM)", "music_bgm/attitude_bass_drop.wav", false),
+            Triple("Energetic Reels Trap ⚡ (135 BPM)", "music_bgm/energetic_reels_trap_beat.wav", false),
+            Triple("Romantic Acoustic Love 💖 (100 BPM)", "music_bgm/romantic_acoustic_love.wav", false),
+            Triple("Lo-Fi Chill Vlog 🎧 (88 BPM)", "music_bgm/lofi_chill_vlog_beat.wav", false),
+            Triple("Devotional Ambient Flute 🙏 (75 BPM)", "music_bgm/devotional_ambient_flute.wav", false),
+            Triple("Sad Emotional Piano 🥺 (72 BPM)", "music_bgm/sad_piano_emotional.wav", false),
+            Triple("📂 Pick from Phone Storage...", "", true)
+        )
+
+        val titles = tracks.map { it.first }.toTypedArray()
+        AlertDialog.Builder(ctx)
+            .setTitle("🎵 Select Status Soundtrack")
+            .setItems(titles) { _, which ->
+                val selected = tracks[which]
+                if (selected.third) {
+                    onAudioSelectedCallback = { localPath, title ->
+                        onTrackSelected(localPath, title, true)
+                    }
+                    pickAudioForPreviewLauncher.launch("audio/*")
+                } else {
+                    val cleanTitle = selected.first.split(" (")[0]
+                    onTrackSelected(selected.second, cleanTitle, false)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun launchQuickExport(
+        projectFile: File,
+        template: StatusTemplate,
+        photoPaths: List<String>,
+        customText: String? = null,
+        customAudioPath: String? = null
+    ) {
         val quickExportIntent = Intent(this, StatusQuickExportActivity::class.java).apply {
             putExtra(StatusQuickExportActivity.EXTRA_PROJECT_PATH, projectFile.absolutePath)
             putExtra(StatusQuickExportActivity.EXTRA_TEMPLATE_ID, template.id)
@@ -467,6 +754,8 @@ class StatusMakerActivity : ComponentActivity() {
             putExtra(StatusQuickExportActivity.EXTRA_TEMPLATE_GRADIENT_START, template.gradientStartHex)
             putExtra(StatusQuickExportActivity.EXTRA_TEMPLATE_GRADIENT_END, template.gradientEndHex)
             putStringArrayListExtra(StatusQuickExportActivity.EXTRA_PHOTO_PATHS, ArrayList(photoPaths))
+            putExtra(StatusQuickExportActivity.EXTRA_CUSTOM_TEXT, customText)
+            putExtra(StatusQuickExportActivity.EXTRA_CUSTOM_AUDIO_PATH, customAudioPath)
         }
         startActivity(quickExportIntent)
     }
