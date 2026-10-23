@@ -470,10 +470,6 @@ class StatusMakerActivity : ComponentActivity() {
         }
         startActivity(quickExportIntent)
     }
-            window.setLayout(targetW, WindowManager.LayoutParams.WRAP_CONTENT)
-            window.setGravity(Gravity.CENTER)
-        }
-    }
 
     private fun resolveUriToLocalFile(context: Context, uri: Uri): String? {
         if (uri.scheme == "file") {
