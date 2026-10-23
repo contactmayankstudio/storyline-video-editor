@@ -1231,7 +1231,7 @@
                 </LinearLayout>
                 <LinearLayout android:id="@+id/clipCutoutButton" style="@style/ClipToolbarItem" android:visibility="gone">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_cutout"/>
-                    <TextView android:id="@+id/clipCutoutLabel" style="@style/ClipToolbarLabel" android:text="AI Cut"/>
+                    <TextView android:id="@+id/clipCutoutLabel" style="@style/ClipToolbarLabel" android:text="✂️ Cutout"/>
                 </LinearLayout>
             </LinearLayout>
         </HorizontalScrollView>

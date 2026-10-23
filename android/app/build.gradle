@@ -224,6 +224,9 @@ dependencies {
     // Google ML Kit Face Detection (On-device, offline, fast face tracking)
     implementation 'com.google.mlkit:face-detection:16.1.7'
 
+    // TensorFlow Lite (Selfie segmentation & AI smart cutout)
+    implementation 'org.tensorflow:tensorflow-lite:2.14.0'
+
     // Testing
     testImplementation "junit:junit:4.13.2"
     androidTestImplementation "androidx.test.ext:junit:1.1.5"

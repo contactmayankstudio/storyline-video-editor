@@ -3296,12 +3296,25 @@ class PhotoEditorActivity : ComponentActivity() {
             Toast.makeText(this, "Import image first", Toast.LENGTH_SHORT).show()
             return
         }
-        canvasView.transparentBackground = true
-        canvasView.imageMaskMode = PhotoCanvasView.IMAGE_MASK_NONE
-        canvasView.setImageCutout(PhotoCanvasView.IMAGE_CUTOUT_AUTO, threshold = 46f, feather = 34f)
-        canvasView.selectBaseImage()
-        refreshStatus()
-        Toast.makeText(this, "Auto cutout applied", Toast.LENGTH_SHORT).show()
+        val base = canvasView.getBaseImage()
+        if (base != null) {
+            Toast.makeText(this, "✂️ AI Cutout analyzing person...", Toast.LENGTH_SHORT).show()
+            val helper = com.video.engine.ai.SelfieSegmenterHelper(this)
+            val result = helper.segment(base)
+            canvasView.setBaseImage(result.cutoutBitmap)
+            canvasView.transparentBackground = true
+            canvasView.imageMaskMode = PhotoCanvasView.IMAGE_MASK_NONE
+            canvasView.selectBaseImage()
+            refreshStatus()
+            Toast.makeText(this, "✨ AI Cutout applied!", Toast.LENGTH_SHORT).show()
+        } else {
+            canvasView.transparentBackground = true
+            canvasView.imageMaskMode = PhotoCanvasView.IMAGE_MASK_NONE
+            canvasView.setImageCutout(PhotoCanvasView.IMAGE_CUTOUT_AUTO, threshold = 46f, feather = 34f)
+            canvasView.selectBaseImage()
+            refreshStatus()
+            Toast.makeText(this, "Auto cutout applied", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun applyGreenScreenCutout() {

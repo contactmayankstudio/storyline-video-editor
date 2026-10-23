@@ -263,7 +263,14 @@ object AiAssistTools {
         return (hours * 3_600_000L) + (minutes * 60_000L) + (seconds * 1_000L) + millis
     }
 
-    private fun extractBitmapFrame(mediaPath: String, sourceTimeMs: Long): Bitmap? {
+    fun extractBitmapFrame(mediaPath: String, sourceTimeMs: Long = 0L): Bitmap? {
+        if (mediaPath.isBlank()) return null
+        val file = File(mediaPath)
+        if (!file.exists()) return null
+        val ext = file.extension.lowercase()
+        if (ext in setOf("jpg", "jpeg", "png", "webp", "bmp")) {
+            return runCatching { android.graphics.BitmapFactory.decodeFile(mediaPath) }.getOrNull()
+        }
         val retriever = MediaMetadataRetriever()
         return runCatching {
             retriever.setDataSource(mediaPath)

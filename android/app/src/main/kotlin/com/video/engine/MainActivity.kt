@@ -663,6 +663,10 @@ class VideoEditorActivity : ComponentActivity() {
     private var previewView: VideoPreviewView? = null
     private var previewContainerView: FrameLayout? = null
     private var previewViewportFrame: FrameLayout? = null
+    private var aiCutoutOverlayView: com.video.engine.ai.AiCutoutOverlayView? = null
+    private var selfieSegmenter: com.video.engine.ai.SelfieSegmenterHelper? = null
+    private val clipCutoutParams = mutableMapOf<Int, com.video.engine.ai.AiCutoutParams>()
+    private val clipCutoutCache = mutableMapOf<Int, com.video.engine.ai.SelfieSegmenterHelper.CutoutResult>()
     private var projectLoadSurfaceHoldUntilElapsedMs = 0L
     private var previewEmptyStateView: View? = null
     private var previewCropOverlayView: View? = null
@@ -1363,7 +1367,7 @@ class VideoEditorActivity : ComponentActivity() {
         ClipToolbarItem(R.id.clipDuckingButton, R.id.clipDuckingLabel, "Ducking"),
         ClipToolbarItem(R.id.clipCurveSpeedButton, R.id.clipCurveSpeedLabel, "Velocity"),
         ClipToolbarItem(R.id.clipChromaKeyButton, R.id.clipChromaKeyLabel, "AI Matte"),
-        ClipToolbarItem(R.id.clipCutoutButton, R.id.clipCutoutLabel, "AI Cut"),
+        ClipToolbarItem(R.id.clipCutoutButton, R.id.clipCutoutLabel, "✂️ Cutout"),
     )
     private data class AiAutoCutPreset(
         val label: String,
@@ -2565,6 +2569,13 @@ class VideoEditorActivity : ComponentActivity() {
             FrameLayout.LayoutParams.MATCH_PARENT,
         )
         viewportFrame.addView(previewView, params)
+
+        // AI Cutout & 3D Glowing Edge Silhouette View
+        val cutoutOverlay = com.video.engine.ai.AiCutoutOverlayView(this).apply {
+            visibility = View.GONE
+        }
+        aiCutoutOverlayView = cutoutOverlay
+        viewportFrame.addView(cutoutOverlay, params)
 
         // Check if native library is loaded
         if (!VideoPreviewView.isNativeLibraryLoaded()) {
@@ -7602,6 +7613,33 @@ class VideoEditorActivity : ComponentActivity() {
                 return success
             }
 
+            override fun aiCutout(glowColor: String, background: String): Boolean {
+                val clipId = resolveSelectedVisualClipId(syncSelectionIfNeeded = true)
+                    ?: nativeClipSourcePath.keys.firstOrNull() ?: run {
+                    safeToast("Select video or photo clip first", Toast.LENGTH_SHORT)
+                    return false
+                }
+                val params = clipCutoutParams.getOrPut(clipId) { com.video.engine.ai.AiCutoutParams(clipId = clipId) }
+                params.enabled = true
+                when (glowColor.lowercase(Locale.US)) {
+                    "pink" -> params.neonGlowColor = com.video.engine.ai.AiCutoutParams.COLOR_HOT_PINK
+                    "gold" -> params.neonGlowColor = com.video.engine.ai.AiCutoutParams.COLOR_GOLD_FLAME
+                    "none" -> params.neonGlowColor = com.video.engine.ai.AiCutoutParams.COLOR_NONE
+                    else -> params.neonGlowColor = com.video.engine.ai.AiCutoutParams.COLOR_NEON_CYAN
+                }
+                when (background.lowercase(Locale.US)) {
+                    "grid", "cyberpunk" -> params.backgroundType = com.video.engine.ai.AiCutoutParams.BG_CYBERPUNK_GRID
+                    "golden", "sunset" -> params.backgroundType = com.video.engine.ai.AiCutoutParams.BG_GOLDEN_HOUR
+                    "tunnel", "neon" -> params.backgroundType = com.video.engine.ai.AiCutoutParams.BG_NEON_TUNNEL
+                    "blur", "bokeh" -> params.backgroundType = com.video.engine.ai.AiCutoutParams.BG_BLUR_BOKEH
+                    else -> params.backgroundType = com.video.engine.ai.AiCutoutParams.BG_CYBERPUNK_GRID
+                }
+                runOnUiThread {
+                    applyClipAiCutout(clipId, params)
+                }
+                return true
+            }
+
             override fun autoReframe(targetRatio: String): Boolean {
                 runOnUiThread {
                     setAspectRatio(targetRatio)
@@ -9447,6 +9485,7 @@ class VideoEditorActivity : ComponentActivity() {
         currentTimeMs = playheadMs
         rememberPreviewLifecycleAnchor(playheadMs)
         refreshOverlayVisibilityAndPose()
+        aiCutoutOverlayView?.updateTime(playheadMs)
         applySelectedClipKeyframedPreviewTransform(playheadMs, immediate = true)
         seekPreviewNativeIfNeeded(
             timeMs = playheadMs,
@@ -17730,7 +17769,15 @@ class VideoEditorActivity : ComponentActivity() {
 
     private fun performSelectedClipCutoutAction() {
         when (selectedClipKind()) {
-            ClipKind.VIDEO, ClipKind.OVERLAY, ClipKind.AUDIO -> showSelectedClipAiAutoCutSheet()
+            ClipKind.VIDEO, ClipKind.OVERLAY -> {
+                val clipId = resolveSelectedVisualClipId(syncSelectionIfNeeded = true, preferredTrackType = selectedTrackType())
+                    ?: nativeClipSourcePath.keys.firstOrNull() ?: run {
+                    safeToast("Select video or photo clip first", Toast.LENGTH_SHORT)
+                    return
+                }
+                showAiCutoutStudio(clipId)
+            }
+            ClipKind.AUDIO -> showSelectedClipAiAutoCutSheet()
             ClipKind.TEXT -> {
                 val overlay = resolveSelectedTextOverlayForStudio(selectIfNeeded = true) ?: return
                 ModernSheet.show(this, "Text Cutout") {
@@ -17797,7 +17844,154 @@ class VideoEditorActivity : ComponentActivity() {
                     }
                 }
             }
-            ClipKind.NONE -> Toast.makeText(this@VideoEditorActivity, "Select clip first", Toast.LENGTH_SHORT).show()
+            ClipKind.NONE -> {
+                val clipId = resolveSelectedVisualClipId(syncSelectionIfNeeded = true) ?: nativeClipSourcePath.keys.firstOrNull()
+                if (clipId != null) {
+                    showAiCutoutStudio(clipId)
+                } else {
+                    Toast.makeText(this@VideoEditorActivity, "Select clip first", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun showAiCutoutStudio(clipId: Int) {
+        val params = clipCutoutParams.getOrPut(clipId) {
+            com.video.engine.ai.AiCutoutParams(
+                clipId = clipId,
+                enabled = true,
+                neonGlowColor = com.video.engine.ai.AiCutoutParams.COLOR_NEON_CYAN,
+                neonGlowPulse = true,
+                glowWidth = 14.0f,
+                backgroundType = com.video.engine.ai.AiCutoutParams.BG_CYBERPUNK_GRID
+            )
+        }
+
+        ModernSheet.show(this, "✂️ AI Cutout & Neon Silhouette") {
+            toggle("✂️ AI Cutout Enabled", params.enabled) { enabled ->
+                params.enabled = enabled
+                applyClipAiCutout(clipId, params)
+            }
+
+            section("✨ Neon Silhouette Glow")
+            val glowOptions = listOf("None", "Neon Cyan ⚡", "Hot Pink 💖", "Gold Flame 🔥")
+            val currentGlowIndex = when (params.neonGlowColor) {
+                com.video.engine.ai.AiCutoutParams.COLOR_NONE -> 0
+                com.video.engine.ai.AiCutoutParams.COLOR_HOT_PINK -> 2
+                com.video.engine.ai.AiCutoutParams.COLOR_GOLD_FLAME -> 3
+                else -> 1
+            }
+            selectableChips("Glow Color", glowOptions, currentGlowIndex) { idx, _ ->
+                params.neonGlowColor = when (idx) {
+                    0 -> com.video.engine.ai.AiCutoutParams.COLOR_NONE
+                    2 -> com.video.engine.ai.AiCutoutParams.COLOR_HOT_PINK
+                    3 -> com.video.engine.ai.AiCutoutParams.COLOR_GOLD_FLAME
+                    else -> com.video.engine.ai.AiCutoutParams.COLOR_NEON_CYAN
+                }
+                if (!params.enabled) params.enabled = true
+                applyClipAiCutout(clipId, params)
+            }
+
+            toggle("🎵 Beat Pulsing Glow", params.neonGlowPulse) { pulse ->
+                params.neonGlowPulse = pulse
+                applyClipAiCutout(clipId, params)
+            }
+
+            slider("Glow Thickness", 4f, 36f, params.glowWidth, { "%.0f px".format(it) }) { width ->
+                params.glowWidth = width
+                applyClipAiCutout(clipId, params)
+            }
+
+            section("🌆 3D Dynamic Background")
+            val bgOptions = listOf("Transparent", "Cyberpunk Grid 🌌", "Golden Hour 🌅", "Neon Tunnel 🌀", "Blur Bokeh 📷")
+            val currentBgIndex = when (params.backgroundType) {
+                com.video.engine.ai.AiCutoutParams.BG_CYBERPUNK_GRID -> 1
+                com.video.engine.ai.AiCutoutParams.BG_GOLDEN_HOUR -> 2
+                com.video.engine.ai.AiCutoutParams.BG_NEON_TUNNEL -> 3
+                com.video.engine.ai.AiCutoutParams.BG_BLUR_BOKEH -> 4
+                else -> 0
+            }
+            selectableChips("Background Style", bgOptions, currentBgIndex) { idx, _ ->
+                params.backgroundType = when (idx) {
+                    1 -> com.video.engine.ai.AiCutoutParams.BG_CYBERPUNK_GRID
+                    2 -> com.video.engine.ai.AiCutoutParams.BG_GOLDEN_HOUR
+                    3 -> com.video.engine.ai.AiCutoutParams.BG_NEON_TUNNEL
+                    4 -> com.video.engine.ai.AiCutoutParams.BG_BLUR_BOKEH
+                    else -> com.video.engine.ai.AiCutoutParams.BG_NONE
+                }
+                if (!params.enabled) params.enabled = true
+                applyClipAiCutout(clipId, params)
+            }
+
+            actionTile(
+                title = "🔄 Re-Extract Frame",
+                subtitle = "Update cutout from current playhead position",
+                dismissOnClick = false,
+            ) {
+                clipCutoutCache.remove(clipId)
+                applyClipAiCutout(clipId, params)
+            }
+        }
+
+        if (params.enabled) {
+            applyClipAiCutout(clipId, params)
+        }
+    }
+
+    private fun applyClipAiCutout(clipId: Int, params: com.video.engine.ai.AiCutoutParams) {
+        clipCutoutParams[clipId] = params
+        if (!params.enabled) {
+            aiCutoutOverlayView?.visibility = View.GONE
+            aiCutoutOverlayView?.setCutoutData(null, null, null, currentTimeMs)
+            refreshPreviewAtPlayhead(resyncAudio = false)
+            return
+        }
+
+        val cached = clipCutoutCache[clipId]
+        if (cached != null) {
+            aiCutoutOverlayView?.setCutoutData(cached.cutoutBitmap, cached.originalBitmap, params, currentTimeMs)
+            aiCutoutOverlayView?.visibility = View.VISIBLE
+            return
+        }
+
+        val mediaPath = nativeClipSourcePath[clipId].orEmpty()
+        if (mediaPath.isEmpty()) {
+            safeToast("Clip media path not found", Toast.LENGTH_SHORT)
+            return
+        }
+
+        val playheadMs = resolveVisualClipPreviewTimeMs(clipId)
+        val sourceTimeMs = mapTimelineTimeToSourceTimeMs(clipId, playheadMs)
+        setTransientAiStatus("AI CUTOUT")
+        safeToast("✂️ AI Cutout analyzing person...", Toast.LENGTH_SHORT)
+
+        commandExecutor.execute {
+            val frameBitmap = AiAssistTools.extractBitmapFrame(mediaPath, sourceTimeMs)
+            if (frameBitmap == null) {
+                mainHandler.post {
+                    clearTransientAiStatus()
+                    safeToast("Unable to extract frame for AI Cutout", Toast.LENGTH_SHORT)
+                }
+                return@execute
+            }
+
+            if (selfieSegmenter == null) {
+                selfieSegmenter = com.video.engine.ai.SelfieSegmenterHelper(this@VideoEditorActivity)
+            }
+            val result = selfieSegmenter?.segment(frameBitmap)
+
+            mainHandler.post {
+                clearTransientAiStatus()
+                if (result != null) {
+                    clipCutoutCache[clipId] = result
+                    val currentParams = clipCutoutParams[clipId] ?: params
+                    aiCutoutOverlayView?.setCutoutData(result.cutoutBitmap, result.originalBitmap, currentParams, currentTimeMs)
+                    aiCutoutOverlayView?.visibility = View.VISIBLE
+                    safeToast("✨ AI Cutout & Silhouette Glow applied!", Toast.LENGTH_SHORT)
+                } else {
+                    safeToast("AI Cutout failed on this frame", Toast.LENGTH_SHORT)
+                }
+            }
         }
     }
 

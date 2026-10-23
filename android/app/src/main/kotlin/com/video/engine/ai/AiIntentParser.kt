@@ -37,6 +37,7 @@ sealed class VideoEditIntent {
     data class GenerateThumbnail(val headline: String = "") : VideoEditIntent()
     data class AddStickerOverlay(val emojiOrSymbol: String = "🔥") : VideoEditIntent()
     data class PlatformExport(val platform: String = "Instagram") : VideoEditIntent()
+    data class AiCutout(val glowColor: String = "cyan", val background: String = "grid") : VideoEditIntent()
     object ResetPreview : VideoEditIntent()
     data class SpeedRamp(val curvePreset: String = "hero_drop") : VideoEditIntent()
     data class SmartJumpCuts(val pacing: String = "Snappy") : VideoEditIntent()
@@ -287,6 +288,17 @@ object AiIntentParser {
                 intent = VideoEditIntent.ResetPreview,
                 confidence = 0.98f,
                 feedbackMessage = "🔄 Preview surface buffer aur textures ko reset karke Full HD me recalibrate kar diya hai!",
+            )
+        }
+
+        // 0o-1. AI Smart Cutout & 3D Glowing Edge Silhouette
+        if (matchesAiCutout(normalized)) {
+            val (glow, bg) = resolveCutoutOptions(normalized)
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.AiCutout(glowColor = glow, background = bg),
+                confidence = 0.98f,
+                feedbackMessage = "✂️ AI Smart Cutout with 3D Glowing Silhouette apply kar diya hai!",
             )
         }
 
@@ -1238,6 +1250,34 @@ object AiIntentParser {
         }
     }
 
+    private fun matchesAiCutout(text: String): Boolean {
+        return text.contains("cutout") || text.contains("cut out") ||
+            text.contains("remove background") || text.contains("background remove") ||
+            text.contains("bg remove") || text.contains("background hatao") ||
+            text.contains("bg hatao") || text.contains("neon glow") ||
+            text.contains("silhouette") || text.contains("neon outline") ||
+            text.contains("edge glow") || text.contains("कटआउट") ||
+            text.contains("बैकग्राउंड हटाओ") || text.contains("नियॉन आउटलाइन") ||
+            text.contains("बैकग्राउंड रिमूव")
+    }
+
+    private fun resolveCutoutOptions(text: String): Pair<String, String> {
+        val glow = when {
+            text.contains("pink") || text.contains("gulabi") -> "pink"
+            text.contains("gold") || text.contains("yellow") || text.contains("flame") -> "gold"
+            text.contains("no glow") || text.contains("none") -> "none"
+            else -> "cyan"
+        }
+        val bg = when {
+            text.contains("golden") || text.contains("sunset") -> "golden"
+            text.contains("tunnel") || text.contains("neon tunnel") -> "tunnel"
+            text.contains("blur") || text.contains("bokeh") -> "blur"
+            text.contains("transparent") || text.contains("none") -> "none"
+            else -> "grid"
+        }
+        return Pair(glow, bg)
+    }
+
     private fun matchesPlatformExport(text: String): Boolean {
         return (text.contains("export") && (text.contains("insta") || text.contains("reel") || text.contains("youtube") || text.contains("yt") || text.contains("shorts") || text.contains("whatsapp") || text.contains("tiktok"))) ||
             text.contains("instagram ke liye") || text.contains("whatsapp status")
@@ -1447,6 +1487,7 @@ object AiIntentParser {
                     is VideoEditIntent.AddTransition -> "🔀 Added ${intent.preset} transition"
                     is VideoEditIntent.AddStickerOverlay -> "🔥 Added sticker overlay"
                     is VideoEditIntent.AutoBrollOverlay -> "🖼️ Added AI B-Roll & Visual Overlays"
+                    is VideoEditIntent.AiCutout -> "✂️ Applied AI Cutout with ${intent.glowColor} neon glow"
                     is VideoEditIntent.ExtractViralHighlight -> "🎞️ Extracted ${intent.targetDurationSec}s viral highlight"
                     is VideoEditIntent.ExportVideo -> "🚀 Exported video (${intent.resolution})"
                     else -> "Action executed"

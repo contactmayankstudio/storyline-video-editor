@@ -394,6 +394,8 @@ class PhotoCanvasView @JvmOverloads constructor(
 
     fun hasBaseImage(): Boolean = baseImage != null
 
+    fun getBaseImage(): Bitmap? = baseImage
+
     fun hasImageLayers(): Boolean = imageLayers.isNotEmpty()
 
     fun selectedImageLayer(): PhotoImageLayer? =

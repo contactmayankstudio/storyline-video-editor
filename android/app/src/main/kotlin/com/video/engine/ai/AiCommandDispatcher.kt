@@ -260,6 +260,11 @@ interface AiCommandDispatcher {
     fun replayLastSeconds(seconds: Int = 5): Boolean = false
 
     /**
+     * Applies AI Person Cutout with glowing neon silhouette stroke and dynamic 3D background.
+     */
+    fun aiCutout(glowColor: String = "cyan", background: String = "grid"): Boolean = false
+
+    /**
      * Dispatches a ParsedCommand to the appropriate action.
      * Returns a pair of (success: Boolean, feedbackMessage: String).
      */
@@ -339,6 +344,7 @@ interface AiCommandDispatcher {
             is VideoEditIntent.NudgeFrame -> nudgeFrame(intent.forward)
             is VideoEditIntent.JumpToCut -> jumpToCut(intent.forward)
             is VideoEditIntent.ReplayLastSeconds -> replayLastSeconds(intent.seconds)
+            is VideoEditIntent.AiCutout -> aiCutout(intent.glowColor, intent.background)
             is VideoEditIntent.PlayVideo -> playVideo()
             is VideoEditIntent.PauseVideo -> pauseVideo()
             is VideoEditIntent.TogglePlayback -> togglePlayback()
