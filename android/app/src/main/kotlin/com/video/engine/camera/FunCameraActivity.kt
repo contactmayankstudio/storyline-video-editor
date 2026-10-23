@@ -12,6 +12,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.SurfaceTexture
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
@@ -34,6 +35,7 @@ import android.provider.MediaStore
 import android.util.Log
 import android.util.Size
 import android.view.GestureDetector
+import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
@@ -57,6 +59,7 @@ import androidx.core.view.WindowInsetsCompat
 import com.video.engine.R
 import com.video.engine.photo.PhotoEditorActivity
 import com.video.engine.status.StatusMakerActivity
+import com.video.engine.status.StatusMediaHelper
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -85,6 +88,43 @@ class FunCameraActivity : ComponentActivity() {
     private var swipeToast: TextView? = null
     private var shutterFlashView: View? = null
     private var cameraLensScrollView: android.widget.HorizontalScrollView? = null
+
+    // Snapchat Camera Pro: Live BGM Music Overlay
+    private var cameraMusicBtn: TextView? = null
+    private var activeBgmPath: String? = null
+    private var activeBgmTitle: String? = null
+    private var activeBgmIsAsset: Boolean = false
+    private var bgmPlayer: MediaPlayer? = null
+
+    // Snapchat Camera Pro: Hands-Free Countdown Timer (0 = Off, 3s, 10s)
+    private var cameraTimerBtn: TextView? = null
+    private var countdownOverlay: FrameLayout? = null
+    private var countdownText: TextView? = null
+    private var countdownSeconds: Int = 0
+    private var isCountingDown: Boolean = false
+    private val countdownHandler = Handler(Looper.getMainLooper())
+    private var countdownRunnable: Runnable? = null
+
+    // Snapchat Camera Pro: Warm Amber Screen Flash (Selfie Glow)
+    private var warmAmberFlashView: View? = null
+
+    private val pickCameraAudioLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri == null) return@registerForActivityResult
+        Thread {
+            val result = StatusMediaHelper.copyAudioUriToLocal(this, uri)
+            if (result != null) {
+                runOnUiThread {
+                    setCameraBgm(path = result.first, title = result.second, isAsset = false)
+                }
+            } else {
+                runOnUiThread {
+                    Toast.makeText(this, "Could not load selected audio", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }.start()
+    }
 
     private var cameraDevice: CameraDevice? = null
     private var captureSession: CameraCaptureSession? = null
@@ -176,6 +216,11 @@ class FunCameraActivity : ComponentActivity() {
         zoomPill = findViewById(R.id.cameraZoomPill)
         swipeToast = findViewById(R.id.cameraLensSwipeToast)
         shutterFlashView = findViewById(R.id.cameraShutterFlash)
+        cameraMusicBtn = findViewById(R.id.cameraMusicBtn)
+        cameraTimerBtn = findViewById(R.id.cameraTimerBtn)
+        warmAmberFlashView = findViewById(R.id.cameraWarmAmberFlash)
+        countdownOverlay = findViewById(R.id.cameraCountdownOverlay)
+        countdownText = findViewById(R.id.cameraCountdownText)
 
         findViewById<FrameLayout>(R.id.cameraBackBtn)?.setOnClickListener { finish() }
 
@@ -298,15 +343,31 @@ class FunCameraActivity : ComponentActivity() {
         shutterButton.maxRecordingDurationMs = 15_000L
 
         shutterButton.onPhotoCapture = {
-            capturePhoto()
+            if (countdownSeconds > 0 && !isRecordingVideo) {
+                startCountdownTimer(countdownSeconds) {
+                    capturePhoto()
+                }
+            } else {
+                capturePhoto()
+            }
         }
 
         shutterButton.onRecordStart = {
-            startVideoRecording()
+            if (countdownSeconds > 0 && !isRecordingVideo) {
+                startCountdownTimer(countdownSeconds) {
+                    startVideoRecording()
+                }
+            } else {
+                startVideoRecording()
+            }
         }
 
         shutterButton.onRecordStop = {
-            stopVideoRecording()
+            if (isCountingDown) {
+                cancelCountdownTimer()
+            } else {
+                stopVideoRecording()
+            }
         }
 
         shutterButton.onRecordLock = {
@@ -374,6 +435,7 @@ class FunCameraActivity : ComponentActivity() {
                         session.setRepeatingRequest(recordBuilder.build(), null, backgroundHandler)
                         mediaRecorder?.start()
                         isRecordingVideo = true
+                        startBgmPlayback()
                         recordingStartTime = SystemClock.uptimeMillis()
                         runOnUiThread {
                             setRecordingUiState(true)
@@ -494,6 +556,7 @@ class FunCameraActivity : ComponentActivity() {
     private fun stopVideoRecording() {
         if (!isRecordingVideo) return
         isRecordingVideo = false
+        stopBgmPlayback()
         stopRecordingTimer()
         if (shutterButton.isRecording) {
             shutterButton.stopRecording()
@@ -641,56 +704,7 @@ class FunCameraActivity : ComponentActivity() {
     }
 
     private fun showVideoSavedDialog(videoFile: File) {
-        val options = arrayOf(
-            "Watch Video 👁️",
-            "Edit in Storyline Video Editor ✂️",
-            "Make Status & Reels ⚡",
-            "Share on WhatsApp / Instagram 🚀",
-            "Take Another 📸"
-        )
-        AlertDialog.Builder(this)
-            .setTitle("Video Saved! 🎬")
-            .setMessage("Saved in HD to your phone gallery (Movies/Storyline_Camera).")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> {
-                        val uri = FileProvider.getUriForFile(this, "${applicationContext.packageName}.fileprovider", videoFile)
-                        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(uri, "video/mp4")
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        startActivity(Intent.createChooser(viewIntent, "Play Video"))
-                    }
-                    1 -> {
-                        val nextIntent = com.video.engine.EditorLaunchIntents.markForEditorBoot(
-                            this,
-                            Intent(this, com.video.engine.VideoEditorActivity::class.java)
-                        ).putExtra(
-                            com.video.engine.EditorLaunchIntents.EXTRA_START_SHELL_ACTION,
-                            com.video.engine.EditorLaunchIntents.START_ACTION_IMPORT
-                        ).putExtra(
-                            com.video.engine.EditorLaunchIntents.EXTRA_START_MEDIA_PATH,
-                            videoFile.absolutePath
-                        )
-                        startActivity(nextIntent)
-                    }
-                    2 -> {
-                        startActivity(Intent(this, StatusMakerActivity::class.java))
-                    }
-                    3 -> {
-                        val uri = FileProvider.getUriForFile(this, "${applicationContext.packageName}.fileprovider", videoFile)
-                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                            type = "video/mp4"
-                            putExtra(Intent.EXTRA_STREAM, uri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        startActivity(Intent.createChooser(shareIntent, "Share Fun Video"))
-                    }
-                    4 -> { /* Resume camera */ }
-                }
-            }
-            .setCancelable(true)
-            .show()
+        showPostCaptureModal(videoFile, isVideo = true)
     }
 
     private fun setupCategoryTabs() {
@@ -1077,70 +1091,253 @@ class FunCameraActivity : ComponentActivity() {
     }
 
     private fun showPhotoSavedDialog(photoFile: File) {
-        val options = arrayOf(
-            "Take Another 📸",
-            "Edit in Storyline Video Editor ✂️",
-            "Edit in Photo Editor 🎨",
-            "Make Status Video ⚡",
-            "Share Photo 🚀"
-        )
-        AlertDialog.Builder(this)
-            .setTitle("Photo Saved! 🎉")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> { /* Resume camera */ }
-                    1 -> {
-                        val nextIntent = com.video.engine.EditorLaunchIntents.markForEditorBoot(
-                            this,
-                            Intent(this, com.video.engine.VideoEditorActivity::class.java)
-                        ).putExtra(
-                            com.video.engine.EditorLaunchIntents.EXTRA_START_SHELL_ACTION,
-                            com.video.engine.EditorLaunchIntents.START_ACTION_IMPORT
-                        ).putExtra(
-                            com.video.engine.EditorLaunchIntents.EXTRA_START_MEDIA_PATH,
-                            photoFile.absolutePath
-                        )
-                        startActivity(nextIntent)
-                    }
-                    2 -> {
-                        val intent = Intent(this, PhotoEditorActivity::class.java).apply {
-                            putExtra(PhotoEditorActivity.EXTRA_RESUME_PHOTO, false)
-                            putExtra(PhotoEditorActivity.EXTRA_PHOTO_PROJECT_PATH, photoFile.absolutePath)
-                        }
-                        startActivity(intent)
-                    }
-                    3 -> {
-                        startActivity(Intent(this, StatusMakerActivity::class.java))
-                    }
-                    4 -> {
-                        val uri = FileProvider.getUriForFile(
-                            this,
-                            "${applicationContext.packageName}.fileprovider",
-                            photoFile
-                        )
-                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                            type = "image/jpeg"
-                            putExtra(Intent.EXTRA_STREAM, uri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        startActivity(Intent.createChooser(shareIntent, "Share Fun Photo"))
-                    }
-                }
-            }
-            .setCancelable(true)
-            .show()
+        showPostCaptureModal(photoFile, isVideo = false)
     }
 
     private fun triggerShutterFlashAnimation() {
-        val flash = shutterFlashView ?: return
-        flash.alpha = 0.85f
+        val isWarmAmber = isFrontFacing && overlayView.isNightFlashEnabled
+        val flash = if (isWarmAmber) {
+            warmAmberFlashView ?: shutterFlashView ?: return
+        } else {
+            shutterFlashView ?: return
+        }
+        flash.alpha = if (isWarmAmber) 0.95f else 0.85f
         flash.visibility = View.VISIBLE
         flash.animate()?.cancel()
         flash.animate()
             ?.alpha(0f)
-            ?.setDuration(160L)
+            ?.setDuration(if (isWarmAmber) 280L else 160L)
             ?.withEndAction { flash.visibility = View.GONE }
             ?.start()
+    }
+
+    private fun showPostCaptureModal(mediaFile: File, isVideo: Boolean) {
+        val dialogView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24.dpToPx(context), 24.dpToPx(context), 24.dpToPx(context), 24.dpToPx(context))
+            background = GradientDrawable().apply {
+                cornerRadius = 24.dpToPx(context).toFloat()
+                setColor(Color.parseColor("#1B212C"))
+                setStroke(1.dpToPx(context), Color.parseColor("#33FFFFFF"))
+            }
+        }
+
+        // Title
+        val titleTv = TextView(this).apply {
+            text = if (isVideo) "🎬 Video Recorded in HD!" else "🎉 Studio Photo Captured!"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+        }
+        dialogView.addView(titleTv)
+
+        // Subtitle
+        val subTv = TextView(this).apply {
+            text = "Saved to Gallery. Choose instant action:"
+            textSize = 13f
+            setTextColor(Color.parseColor("#8E9AA8"))
+            setPadding(0, 4.dpToPx(context), 0, 18.dpToPx(context))
+        }
+        dialogView.addView(subTv)
+
+        var dialog: AlertDialog? = null
+
+        // 1. Primary Action: Make Status Video (Instant 9:16 Live Preview)
+        val makeStatusBtn = TextView(this).apply {
+            text = "⚡ Make Status Video (9:16 Live Preview)"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(16.dpToPx(context), 14.dpToPx(context), 16.dpToPx(context), 14.dpToPx(context))
+            val bg = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.parseColor("#FF512F"), Color.parseColor("#DD2476"))
+            ).apply {
+                cornerRadius = 14.dpToPx(context).toFloat()
+            }
+            background = bg
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                dialog?.dismiss()
+                val statusIntent = Intent(this@FunCameraActivity, StatusMakerActivity::class.java).apply {
+                    if (!isVideo) {
+                        putExtra(StatusMakerActivity.EXTRA_INITIAL_PHOTO_PATH, mediaFile.absolutePath)
+                    }
+                }
+                startActivity(statusIntent)
+            }
+        }
+        dialogView.addView(makeStatusBtn)
+
+        // 2. Secondary Action: Edit in Storyline
+        val editStorylineBtn = TextView(this).apply {
+            text = "✂️ Edit in Storyline Video Editor"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(16.dpToPx(context), 14.dpToPx(context), 16.dpToPx(context), 14.dpToPx(context))
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = 10.dpToPx(context)
+            }
+            layoutParams = params
+            val bg = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.parseColor("#0052D4"), Color.parseColor("#4364F7"))
+            ).apply {
+                cornerRadius = 14.dpToPx(context).toFloat()
+            }
+            background = bg
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                dialog?.dismiss()
+                val nextIntent = com.video.engine.EditorLaunchIntents.markForEditorBoot(
+                    this@FunCameraActivity,
+                    Intent(this@FunCameraActivity, com.video.engine.VideoEditorActivity::class.java)
+                ).putExtra(
+                    com.video.engine.EditorLaunchIntents.EXTRA_START_SHELL_ACTION,
+                    com.video.engine.EditorLaunchIntents.START_ACTION_IMPORT
+                ).putExtra(
+                    com.video.engine.EditorLaunchIntents.EXTRA_START_MEDIA_PATH,
+                    mediaFile.absolutePath
+                )
+                startActivity(nextIntent)
+            }
+        }
+        dialogView.addView(editStorylineBtn)
+
+        // Row of 2 buttons: (Photo Editor / Play) + Share
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = 10.dpToPx(context)
+            }
+            layoutParams = params
+        }
+
+        val extraBtn = TextView(this).apply {
+            text = if (isVideo) "👁️ Play Video" else "🎨 Photo FX"
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#D0D8E0"))
+            gravity = Gravity.CENTER
+            setPadding(12.dpToPx(context), 12.dpToPx(context), 12.dpToPx(context), 12.dpToPx(context))
+            val params = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = 6.dpToPx(context)
+            }
+            layoutParams = params
+            val bg = GradientDrawable().apply {
+                cornerRadius = 12.dpToPx(context).toFloat()
+                setColor(Color.parseColor("#262C38"))
+                setStroke(1.dpToPx(context), Color.parseColor("#33FFFFFF"))
+            }
+            background = bg
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                dialog?.dismiss()
+                if (isVideo) {
+                    val uri = FileProvider.getUriForFile(
+                        this@FunCameraActivity,
+                        "${applicationContext.packageName}.fileprovider",
+                        mediaFile
+                    )
+                    val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, "video/mp4")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(Intent.createChooser(viewIntent, "Play Video"))
+                } else {
+                    val intent = Intent(this@FunCameraActivity, PhotoEditorActivity::class.java).apply {
+                        putExtra(PhotoEditorActivity.EXTRA_RESUME_PHOTO, false)
+                        putExtra(PhotoEditorActivity.EXTRA_PHOTO_PROJECT_PATH, mediaFile.absolutePath)
+                    }
+                    startActivity(intent)
+                }
+            }
+        }
+        row.addView(extraBtn)
+
+        val shareBtn = TextView(this).apply {
+            text = "🚀 Share"
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#D0D8E0"))
+            gravity = Gravity.CENTER
+            setPadding(12.dpToPx(context), 12.dpToPx(context), 12.dpToPx(context), 12.dpToPx(context))
+            val params = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = 6.dpToPx(context)
+            }
+            layoutParams = params
+            val bg = GradientDrawable().apply {
+                cornerRadius = 12.dpToPx(context).toFloat()
+                setColor(Color.parseColor("#262C38"))
+                setStroke(1.dpToPx(context), Color.parseColor("#33FFFFFF"))
+            }
+            background = bg
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                dialog?.dismiss()
+                val mime = if (isVideo) "video/mp4" else "image/jpeg"
+                val uri = FileProvider.getUriForFile(
+                    this@FunCameraActivity,
+                    "${applicationContext.packageName}.fileprovider",
+                    mediaFile
+                )
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = mime
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(Intent.createChooser(shareIntent, "Share"))
+            }
+        }
+        row.addView(shareBtn)
+        dialogView.addView(row)
+
+        // Dismiss / Retake button
+        val retakeBtn = TextView(this).apply {
+            text = "📸 Take Another"
+            textSize = 13f
+            setTextColor(Color.parseColor("#8E9AA8"))
+            gravity = Gravity.CENTER
+            setPadding(12.dpToPx(context), 12.dpToPx(context), 12.dpToPx(context), 8.dpToPx(context))
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = 8.dpToPx(context)
+            }
+            layoutParams = params
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                dialog?.dismiss()
+            }
+        }
+        dialogView.addView(retakeBtn)
+
+        dialog = AlertDialog.Builder(this)
+            .setView(dialogView)
+            .setCancelable(true)
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.show()
     }
 
     private fun playShutterSound() {
@@ -1201,6 +1398,8 @@ class FunCameraActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        cancelCountdownTimer()
+        stopBgmPlayback()
         if (isRecordingVideo) {
             stopVideoRecording()
         }
@@ -1215,6 +1414,8 @@ class FunCameraActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        cancelCountdownTimer()
+        stopBgmPlayback()
         if (overlayView.isNightFlashEnabled) {
             val params = window.attributes
             params.screenBrightness = if (previousScreenBrightness >= 0f) previousScreenBrightness else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
@@ -1225,13 +1426,32 @@ class FunCameraActivity : ComponentActivity() {
     }
 
     private fun setupTopBarControls() {
+        // 1. Live BGM Music Toggle & Picker
+        cameraMusicBtn?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            showMusicSelectionDialog()
+        }
+
+        // 2. Hands-Free Countdown Timer Toggle (Off -> 3s -> 10s -> Off)
+        cameraTimerBtn?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            countdownSeconds = when (countdownSeconds) {
+                0 -> 3
+                3 -> 10
+                else -> 0
+            }
+            updateTimerBtnUi()
+            val msg = if (countdownSeconds > 0) "⏱️ Hands-Free Timer: ${countdownSeconds}s" else "⏱️ Timer: OFF"
+            showSwipeToast(msg)
+        }
+
         val nightFlashBtn = findViewById<TextView>(R.id.cameraNightFlashBtn)
         nightFlashBtn?.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             val newState = !overlayView.isNightFlashEnabled
             overlayView.isNightFlashEnabled = newState
 
-            // Front Screen Night Flash brightness integration
+            // Front Screen Warm Selfie Glow brightness integration
             val windowParams = window.attributes
             if (newState) {
                 previousScreenBrightness = windowParams.screenBrightness
@@ -1245,7 +1465,11 @@ class FunCameraActivity : ComponentActivity() {
             }
             window.attributes = windowParams
 
-            val msg = if (newState) "💡 Night Ring Light ON" else "Night Ring Light OFF"
+            val msg = if (newState) {
+                if (isFrontFacing) "💡 Warm Amber Selfie Glow ON" else "💡 Night Fill Light ON"
+            } else {
+                "💡 Night Light OFF"
+            }
             showSwipeToast(msg)
         }
 
@@ -1286,6 +1510,174 @@ class FunCameraActivity : ComponentActivity() {
             )
             showSwipeToast(labels[overlayView.filterStyle] ?: overlayView.filterStyle)
         }
+    }
+
+    private fun showMusicSelectionDialog() {
+        val tracks = listOf(
+            Triple("None / Mute BGM 🔇", null, false),
+            Triple("Attitude Bass Drop 💥", "music_bgm/attitude_bass_drop.wav", true),
+            Triple("Energetic Trap Beat ⚡", "music_bgm/energetic_reels_trap_beat.wav", true),
+            Triple("Romantic Acoustic Love 💖", "music_bgm/romantic_acoustic_love.wav", true),
+            Triple("Lo-Fi Chill Beat ☕", "music_bgm/lofi_chill_vlog_beat.wav", true),
+            Triple("Devotional Ambient Flute 🕉️", "music_bgm/devotional_ambient_flute.wav", true),
+            Triple("Emotional Sad Piano 🥺", "music_bgm/sad_piano_emotional.wav", true),
+            Triple("Choose from Phone Storage... 📁", "CHOOSE_STORAGE", false)
+        )
+
+        val titles = tracks.map { it.first }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("🎵 Select Live BGM for Recording")
+            .setItems(titles) { _, which ->
+                val chosen = tracks[which]
+                if (chosen.second == "CHOOSE_STORAGE") {
+                    pickCameraAudioLauncher.launch("audio/*")
+                } else if (chosen.second == null) {
+                    setCameraBgm(null, null, false)
+                } else {
+                    setCameraBgm(chosen.second, chosen.first.substringBefore(" ").trim(), true)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun setCameraBgm(path: String?, title: String?, isAsset: Boolean) {
+        activeBgmPath = path
+        activeBgmTitle = title
+        activeBgmIsAsset = isAsset
+
+        val btn = cameraMusicBtn ?: return
+        if (path != null && title != null) {
+            val shortTitle = if (title.length > 8) title.take(7) + "…" else title
+            btn.text = "🎵 $shortTitle"
+            btn.setTextColor(Color.WHITE)
+            val bg = GradientDrawable().apply {
+                cornerRadius = 19.dpToPx(this@FunCameraActivity).toFloat()
+                setColor(Color.parseColor("#FF1053")) // Vibrant energetic pink/red BGM badge
+            }
+            btn.background = bg
+            showSwipeToast("🎵 Live BGM: $title")
+        } else {
+            btn.text = "🎵 Music"
+            btn.setTextColor(Color.WHITE)
+            btn.setBackgroundResource(R.drawable.camera_mode_pill_bg)
+            showSwipeToast("🎵 BGM Muted")
+        }
+    }
+
+    private fun startBgmPlayback() {
+        val path = activeBgmPath ?: return
+        try {
+            stopBgmPlayback()
+            val player = MediaPlayer()
+            if (activeBgmIsAsset) {
+                assets.openFd(path).use { afd ->
+                    player.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                }
+            } else {
+                player.setDataSource(path)
+            }
+            player.isLooping = true
+            player.setVolume(1.0f, 1.0f)
+            player.prepare()
+            player.start()
+            bgmPlayer = player
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to start BGM playback", e)
+        }
+    }
+
+    private fun stopBgmPlayback() {
+        try {
+            if (bgmPlayer?.isPlaying == true) {
+                bgmPlayer?.stop()
+            }
+            bgmPlayer?.release()
+        } catch (_: Exception) {}
+        bgmPlayer = null
+    }
+
+    private fun updateTimerBtnUi() {
+        val btn = cameraTimerBtn ?: return
+        if (countdownSeconds > 0) {
+            btn.text = "⏱️ ${countdownSeconds}s"
+            btn.setTextColor(Color.parseColor("#FFD700"))
+            val bg = GradientDrawable().apply {
+                cornerRadius = 19.dpToPx(this@FunCameraActivity).toFloat()
+                setColor(Color.parseColor("#44FFD700"))
+                setStroke(1.dpToPx(this@FunCameraActivity), Color.parseColor("#FFD700"))
+            }
+            btn.background = bg
+        } else {
+            btn.text = "⏱️ Off"
+            btn.setTextColor(Color.WHITE)
+            btn.setBackgroundResource(R.drawable.camera_glass_button_bg)
+        }
+    }
+
+    private fun startCountdownTimer(seconds: Int, onFinish: () -> Unit) {
+        if (isCountingDown) return
+        isCountingDown = true
+        var current = seconds
+
+        countdownOverlay?.visibility = View.VISIBLE
+        countdownOverlay?.setOnClickListener {
+            cancelCountdownTimer()
+        }
+
+        fun tick() {
+            if (!isCountingDown) return
+            if (current > 0) {
+                countdownText?.text = current.toString()
+                countdownText?.scaleX = 0.4f
+                countdownText?.scaleY = 0.4f
+                countdownText?.alpha = 1.0f
+                countdownText?.animate()
+                    ?.scaleX(1.15f)
+                    ?.scaleY(1.15f)
+                    ?.setDuration(220L)
+                    ?.withEndAction {
+                        countdownText?.animate()?.scaleX(1.0f)?.scaleY(1.0f)?.setDuration(120L)?.start()
+                    }
+                    ?.start()
+
+                try {
+                    countdownOverlay?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    playCountdownTickSound()
+                } catch (_: Exception) {}
+
+                current--
+                countdownRunnable = Runnable { tick() }
+                countdownHandler.postDelayed(countdownRunnable!!, 1000L)
+            } else {
+                isCountingDown = false
+                countdownOverlay?.visibility = View.GONE
+                onFinish()
+            }
+        }
+
+        tick()
+    }
+
+    private fun cancelCountdownTimer() {
+        if (!isCountingDown) return
+        isCountingDown = false
+        countdownRunnable?.let { countdownHandler.removeCallbacks(it) }
+        countdownRunnable = null
+        countdownOverlay?.visibility = View.GONE
+        showSwipeToast("⏱️ Timer Cancelled")
+    }
+
+    private fun playCountdownTickSound() {
+        try {
+            assets.openFd("sound_effects/kenney_click1.wav").use { afd ->
+                val player = MediaPlayer()
+                player.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                player.prepare()
+                player.start()
+                player.setOnCompletionListener { it.release() }
+            }
+        } catch (_: Exception) {}
     }
 
     @SuppressLint("ClickableViewAccessibility")

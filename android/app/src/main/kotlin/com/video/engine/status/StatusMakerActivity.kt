@@ -181,6 +181,25 @@ class StatusMakerActivity : ComponentActivity() {
 
         setupCategoryChips()
         updateTemplatesList()
+
+        val initialPhotoPath = intent?.getStringExtra(EXTRA_INITIAL_PHOTO_PATH)
+        if (!initialPhotoPath.isNullOrBlank()) {
+            val photoFile = File(initialPhotoPath)
+            if (photoFile.exists()) {
+                lastCustomPhotoPath = initialPhotoPath
+                lastPhotoPaths = listOf(initialPhotoPath)
+                val templateId = intent?.getStringExtra(EXTRA_INITIAL_TEMPLATE_ID)
+                val template = StatusTemplateRepository.allTemplates.find { it.id == templateId }
+                    ?: StatusTemplateRepository.allTemplates.first()
+                window.decorView.post {
+                    showTemplateLivePreviewDialog(
+                        initialTemplate = template,
+                        customPhotoPath = initialPhotoPath,
+                        selectedPhotoPaths = listOf(initialPhotoPath)
+                    )
+                }
+            }
+        }
     }
 
     private fun setupCategoryChips() {
@@ -905,5 +924,10 @@ class StatusMakerActivity : ComponentActivity() {
         }
 
         override fun getItemCount(): Int = templates.size
+    }
+
+    companion object {
+        const val EXTRA_INITIAL_PHOTO_PATH = "extra_initial_photo_path"
+        const val EXTRA_INITIAL_TEMPLATE_ID = "extra_initial_template_id"
     }
 }
