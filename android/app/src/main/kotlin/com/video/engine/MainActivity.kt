@@ -44,6 +44,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.recyclerview.widget.RecyclerView
+import com.video.engine.ai.AudioBeatDetector
 import com.video.engine.audio.AudioClip
 import com.video.engine.audio.AudioGainKeyframe
 import com.video.engine.audio.AudioClipStore
@@ -2543,6 +2544,9 @@ class VideoEditorActivity : ComponentActivity() {
             override fun onTrackSelected(trackType: TrackType) {
                 setSelectedImportTrackType(trackType)
                 selectPreviewActiveClipForTrack(trackType)
+                if (trackType == TrackType.AUDIO && AudioClipStore.all().isNotEmpty()) {
+                    safeToast("🎵 Audio Track active • Tap Beat Cut to sync video", Toast.LENGTH_SHORT)
+                }
             }
             override fun onTrackVisibilityChanged(trackType: TrackType, isVisible: Boolean) {
                 applyTrackVisibilityChange(trackType, isVisible)
@@ -3650,11 +3654,12 @@ class VideoEditorActivity : ComponentActivity() {
             }
             chips(
                 "AI / Audio / Output",
-                listOf("AI Matte", "AI Cut", "Ducking", "Canvas", "Export", "Save"),
+                listOf("Beat Cut 🎵", "AI Matte", "AI Cut", "Ducking", "Canvas", "Export", "Save"),
                 -1,
                 dismissOnSelect = false,
             ) { _, option ->
                 when (option) {
+                    "Beat Cut 🎵", "Beat Cut" -> showAutoBeatCutSheet()
                     "AI Matte" -> performSelectedClipAiMatteAction()
                     "AI Cut" -> performSelectedClipCutoutAction()
                     "Ducking" -> performSelectedClipDuckingAction()
@@ -6757,10 +6762,11 @@ class VideoEditorActivity : ComponentActivity() {
             }
             chipGrid(
                 "Tools",
-                listOf("Voice FX", "Gain", "Fade", "FX", "Speed", "Reverse", "Keyframe"),
+                listOf("🎵 Beat Cut", "Voice FX", "Gain", "Fade", "FX", "Speed", "Reverse", "Keyframe"),
                 columns = 4,
             ) { _, option ->
                 when (option) {
+                    "🎵 Beat Cut", "Beat Cut" -> showAutoBeatCutSheet()
                     "Voice FX" -> showVoiceChangerSheet(audioId, clip)
                     "Gain" -> performSelectedClipVolumeAction()
                     "Fade" -> performSelectedClipBrightnessAction()
@@ -11320,6 +11326,9 @@ class VideoEditorActivity : ComponentActivity() {
             override fun onTrackSelected(trackType: TrackType) {
                 setSelectedImportTrackType(trackType)
                 selectPreviewActiveClipForTrack(trackType)
+                if (trackType == TrackType.AUDIO && AudioClipStore.all().isNotEmpty()) {
+                    safeToast("🎵 Audio Track active • Tap Beat Cut to sync video", Toast.LENGTH_SHORT)
+                }
             }
 
             override fun onTrackVisibilityChanged(trackType: TrackType, isVisible: Boolean) {
@@ -12689,6 +12698,123 @@ class VideoEditorActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun showAutoBeatCutSheet() {
+        val audioClip = selectedAudioClipId()?.let(AudioClipStore::get)
+            ?: AudioClipStore.all().firstOrNull()
+            ?: run {
+                safeToast("Add an audio or music track first to sync beats", Toast.LENGTH_SHORT)
+                return
+            }
+
+        val hasVideoClips = timelineManager?.getClips().orEmpty().any { (nativeClipTrackType[it.id] ?: TrackType.VIDEO) == TrackType.VIDEO } ||
+            nativeClipTrackType.any { it.value == TrackType.VIDEO }
+        if (!hasVideoClips) {
+            safeToast("Add video clips to slice and sync with beat drops", Toast.LENGTH_SHORT)
+            return
+        }
+
+        var selectedSensitivity = AudioBeatDetector.BeatSensitivity.FAST_CUTS
+        var selectedEffect = "mixed"
+
+        ModernSheet.show(this, "🎵 1-Tap AI Beat-Sync Cut") {
+            section("Audio: ${audioClip.displayName.ifBlank { "Track ${audioClip.id}" }}")
+
+            section("Beat Density & Sensitivity")
+            chips(
+                "Density",
+                listOf("🔥 Every Kick (Fast Cuts)", "⚡ Balanced Groove", "🌊 Major Drops Only (Smooth)"),
+                selected = 0,
+                dismissOnSelect = false,
+            ) { idx, _ ->
+                selectedSensitivity = when (idx) {
+                    0 -> AudioBeatDetector.BeatSensitivity.FAST_CUTS
+                    1 -> AudioBeatDetector.BeatSensitivity.BALANCED
+                    else -> AudioBeatDetector.BeatSensitivity.SMOOTH
+                }
+            }
+
+            section("Transition & Motion on Beat")
+            chips(
+                "Effect",
+                listOf("✨ Flash + Zoom (Viral)", "⚡ 0.2s Flash Cut", "🔍 Punch-In Zoom", "✂️ Clean Cut Only"),
+                selected = 0,
+                dismissOnSelect = false,
+            ) { idx, _ ->
+                selectedEffect = when (idx) {
+                    0 -> "mixed"
+                    1 -> "flash"
+                    2 -> "zoom"
+                    else -> "clean"
+                }
+            }
+
+            divider()
+            actionTile(
+                title = "🚀 Slice Video Clips to Beat Drops",
+                subtitle = "Auto-sync cuts with 0.2s flash & zoom",
+                dismissOnClick = true,
+            ) {
+                performAiBeatSyncCut(audioClip, selectedSensitivity, selectedEffect)
+            }
+        }
+    }
+
+    private fun performAiBeatSyncCut(
+        audioClip: AudioClip,
+        sensitivity: AudioBeatDetector.BeatSensitivity,
+        effect: String,
+    ): Boolean {
+        setTransientAiStatus("AI BEAT SYNC")
+        safeToast("⏳ Analyzing audio transients & sync points...", Toast.LENGTH_SHORT)
+
+        val beatGrid = AudioBeatDetector.detectBeats(audioClip, sensitivity)
+        val cutTimes = beatGrid.beatTimestampsMs
+        if (cutTimes.isEmpty()) {
+            clearTransientAiStatus()
+            safeToast("No clear beat transients found in audio", Toast.LENGTH_SHORT)
+            return false
+        }
+
+        playbackController?.nativePause()
+        aiAutoCutInFlight = true
+        var appliedCuts = 0
+        try {
+            cutTimes.forEach { cutTimeMs ->
+                applyEditorPlayhead(cutTimeMs, continueAudio = false)
+                val splitApplied = splitSelectedVideoAtPlayhead()
+                if (splitApplied) {
+                    appliedCuts++
+                    // Apply 0.2s flash transition
+                    if (effect == "flash" || effect == "mixed") {
+                        applyToolbarTransitionPreset(TransitionType.FADE, 200)
+                    }
+                    // Apply punch-in zoom keyframe transform
+                    if (effect == "zoom" || effect == "mixed") {
+                        val incomingClipId = resolveSplitTargetVideoClipId(cutTimeMs + 80L)
+                        if (incomingClipId != null) {
+                            applySelectedClipPanZoomPreset("push_in")
+                        }
+                    }
+                }
+            }
+        } finally {
+            aiAutoCutInFlight = false
+            clearTransientAiStatus()
+        }
+
+        if (appliedCuts <= 0) {
+            safeToast("Beat Sync could not find clips to split at beat drops", Toast.LENGTH_SHORT)
+            return false
+        }
+
+        refreshMainTimelineTracks()
+        refreshPreviewAtPlayhead(resyncAudio = false)
+        triggerEditorHaptic(EditorHapticEffect.Success)
+        noteAppHealthAction("ai_beat_sync_cut_applied")
+        safeToast("🔥 Synced $appliedCuts video cuts to beat drops (${beatGrid.bpm} BPM)!", Toast.LENGTH_LONG)
+        return true
     }
 
     private fun resolvePostSplitPreviewTimeMs(anchorTimeMs: Long, selectedClipId: Int): Long {
@@ -15557,7 +15683,7 @@ class VideoEditorActivity : ComponentActivity() {
                     labelOverrides[R.id.clipKeyframeLabel] = "Keyframe"
                     labelOverrides[R.id.clipReverseLabel] = "Reverse"
                     labelOverrides[R.id.clipDuckingLabel] = "Ducking"
-                    labelOverrides[R.id.clipCutoutLabel] = "AI Cut"
+                    labelOverrides[R.id.clipCutoutLabel] = "Beat Cut"
                 }
                 ClipKind.TEXT -> {
                     labelOverrides[R.id.clipVolumeLabel] = "Opacity"
@@ -18023,7 +18149,7 @@ class VideoEditorActivity : ComponentActivity() {
                 }
                 showAiCutoutStudio(clipId)
             }
-            ClipKind.AUDIO -> showSelectedClipAiAutoCutSheet()
+            ClipKind.AUDIO -> showAutoBeatCutSheet()
             ClipKind.TEXT -> {
                 val overlay = resolveSelectedTextOverlayForStudio(selectIfNeeded = true) ?: return
                 ModernSheet.show(this, "Text Cutout") {
