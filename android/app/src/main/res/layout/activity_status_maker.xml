@@ -4,10 +4,10 @@
     android:id="@+id/statusMakerRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/editor_root_background"
+    android:background="#0A0C10"
     android:orientation="vertical">
 
-    <!-- Top Action Bar -->
+    <!-- 1. Top Action Bar -->
     <LinearLayout
         android:id="@+id/statusTopBar"
         android:layout_width="match_parent"
@@ -17,7 +17,7 @@
         android:paddingStart="16dp"
         android:paddingTop="16dp"
         android:paddingEnd="16dp"
-        android:paddingBottom="12dp">
+        android:paddingBottom="10dp">
 
         <FrameLayout
             android:id="@+id/statusBackBtn"
@@ -44,9 +44,10 @@
             android:orientation="vertical">
 
             <TextView
+                android:id="@+id/statusMakerHeaderTitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/start_status_maker_action"
+                android:text="⚡ Mast Video Maker Pro"
                 android:textColor="#FFFFFF"
                 android:textSize="18sp"
                 android:textStyle="bold" />
@@ -55,11 +56,12 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
-                android:text="1-Photo to Viral Reels • 1-Click Status Maker"
+                android:text="Trending Reels • Lyrical Status • 1-Photo Magic"
                 android:textColor="#8A99AD"
                 android:textSize="11.5sp" />
         </LinearLayout>
 
+        <!-- Dual View Switcher ("📱 Mast 2-Grid" vs "🎬 Reels Feed") -->
         <TextView
             android:id="@+id/statusViewModeToggleBtn"
             android:layout_width="wrap_content"
@@ -68,16 +70,310 @@
             android:clickable="true"
             android:focusable="true"
             android:paddingStart="12dp"
-            android:paddingTop="6dp"
+            android:paddingTop="7dp"
             android:paddingEnd="12dp"
-            android:paddingBottom="6dp"
+            android:paddingBottom="7dp"
             android:text="🎬 Reels Feed"
             android:textColor="#00F2FE"
             android:textSize="12sp"
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- Prominent 1-Photo Instant Hero Card (Photo dalte hi Live Preview dekho!) -->
+    <!-- 2. Top Hero Carousel (Glowing Gradient Banners) -->
+    <HorizontalScrollView
+        android:id="@+id/statusHeroCarouselScroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:clipToPadding="false"
+        android:overScrollMode="never"
+        android:paddingStart="16dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="10dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/statusHeroCarouselContainer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <!-- Hero Banner 1: Daily Viral Status -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/heroCardViral"
+                android:layout_width="230dp"
+                android:layout_height="95dp"
+                android:layout_marginEnd="10dp"
+                android:clickable="true"
+                android:focusable="true"
+                app:cardBackgroundColor="#20111A"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="4dp">
+
+                <FrameLayout
+                    android:id="@+id/heroCardViralBg"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:padding="12dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="44dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/launch_status_icon_chip"
+                            android:gravity="center"
+                            android:text="🔥"
+                            android:textSize="22sp" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="10dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="🔥 Daily Viral Status"
+                                android:textColor="#FFFFFF"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:text="Trending beat-drop reels"
+                                android:textColor="#FFE500"
+                                android:textSize="10.5sp" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="3dp"
+                                android:text="TOP PICK • 1.8M USES"
+                                android:textColor="#8A99AD"
+                                android:textSize="9sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </FrameLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Hero Banner 2: Romantic Melodies -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/heroCardLove"
+                android:layout_width="230dp"
+                android:layout_height="95dp"
+                android:layout_marginEnd="10dp"
+                android:clickable="true"
+                android:focusable="true"
+                app:cardBackgroundColor="#211224"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="4dp">
+
+                <FrameLayout
+                    android:id="@+id/heroCardLoveBg"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:padding="12dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="44dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/launch_status_icon_chip"
+                            android:gravity="center"
+                            android:text="💖"
+                            android:textSize="22sp" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="10dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="💖 Romantic Melodies"
+                                android:textColor="#FFFFFF"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:text="Couple lyrical stories"
+                                android:textColor="#FF69B4"
+                                android:textSize="10.5sp" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="3dp"
+                                android:text="TRENDING • 2.4M USES"
+                                android:textColor="#8A99AD"
+                                android:textSize="9sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </FrameLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Hero Banner 3: Attitude Swag -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/heroCardAttitude"
+                android:layout_width="230dp"
+                android:layout_height="95dp"
+                android:layout_marginEnd="10dp"
+                android:clickable="true"
+                android:focusable="true"
+                app:cardBackgroundColor="#13142B"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="4dp">
+
+                <FrameLayout
+                    android:id="@+id/heroCardAttitudeBg"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:padding="12dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="44dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/launch_status_icon_chip"
+                            android:gravity="center"
+                            android:text="😎"
+                            android:textSize="22sp" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="10dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="😎 Attitude Swag"
+                                android:textColor="#FFFFFF"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:text="Heavy phonk bass drops"
+                                android:textColor="#00F2FE"
+                                android:textSize="10.5sp" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="3dp"
+                                android:text="VIRAL REELS • 3.1M USES"
+                                android:textColor="#8A99AD"
+                                android:textSize="9sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </FrameLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Hero Banner 4: Birthday Special -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/heroCardBirthday"
+                android:layout_width="230dp"
+                android:layout_height="95dp"
+                android:layout_marginEnd="10dp"
+                android:clickable="true"
+                android:focusable="true"
+                app:cardBackgroundColor="#2B2111"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="4dp">
+
+                <FrameLayout
+                    android:id="@+id/heroCardBirthdayBg"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:padding="12dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="44dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/launch_status_icon_chip"
+                            android:gravity="center"
+                            android:text="🎂"
+                            android:textSize="22sp" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="10dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="🎂 Birthday Special"
+                                android:textColor="#FFFFFF"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:text="Confetti &amp; sparkles wishes"
+                                android:textColor="#FFD700"
+                                android:textSize="10.5sp" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="3dp"
+                                android:text="SPECIAL • 1.2M USES"
+                                android:textColor="#8A99AD"
+                                android:textSize="9sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </FrameLayout>
+            </androidx.cardview.widget.CardView>
+
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <!-- 3. Prominent 1-Photo Instant Hero Card (Photo dalte hi Live Preview dekho!) -->
     <FrameLayout
         android:id="@+id/statusInstantHeroCard"
         android:layout_width="match_parent"
@@ -95,17 +391,17 @@
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:paddingStart="14dp"
-            android:paddingTop="12dp"
+            android:paddingTop="11dp"
             android:paddingEnd="14dp"
-            android:paddingBottom="12dp">
+            android:paddingBottom="11dp">
 
             <TextView
-                android:layout_width="44dp"
-                android:layout_height="44dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:background="@drawable/launch_status_icon_chip"
                 android:gravity="center"
                 android:text="⚡"
-                android:textSize="22sp" />
+                android:textSize="20sp" />
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -117,18 +413,18 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="1-Photo Instant Status Maker Pro"
+                    android:text="1-Photo Instant Status Maker"
                     android:textColor="#FFFFFF"
-                    android:textSize="14sp"
+                    android:textSize="13.5sp"
                     android:textStyle="bold" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="Photo select karo &amp; live video preview dekho 🔥"
+                    android:text="Pick 1 photo &amp; see instant animated preview 🔥"
                     android:textColor="#8A99AD"
-                    android:textSize="11.5sp" />
+                    android:textSize="11sp" />
             </LinearLayout>
 
             <TextView
@@ -141,12 +437,12 @@
                 android:paddingBottom="7dp"
                 android:text="Pick Photo 📸"
                 android:textColor="#FFFFFF"
-                android:textSize="12sp"
+                android:textSize="11.5sp"
                 android:textStyle="bold" />
         </LinearLayout>
     </FrameLayout>
 
-    <!-- Category Tabs Horizontal Scroll -->
+    <!-- 4. Category Tabs Horizontal Scroll: [ 🔥 All ] [ ⚡ 1-Photo Magic ] [ 💖 Love ] [ 😎 Attitude ] [ 🎂 Birthday ] [ 🔱 Bhakti ] [ ✨ My Templates ] -->
     <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -159,12 +455,12 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:paddingStart="16dp"
-            android:paddingTop="6dp"
+            android:paddingTop="4dp"
             android:paddingEnd="16dp"
-            android:paddingBottom="12dp" />
+            android:paddingBottom="10dp" />
     </HorizontalScrollView>
 
-    <!-- Templates List -->
+    <!-- 5. Templates Grid / Reels RecyclerView -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/statusTemplatesRecyclerView"
         android:layout_width="match_parent"
@@ -172,8 +468,8 @@
         android:layout_weight="1"
         android:clipToPadding="false"
         android:overScrollMode="never"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
         android:paddingBottom="24dp" />
 
 </LinearLayout>

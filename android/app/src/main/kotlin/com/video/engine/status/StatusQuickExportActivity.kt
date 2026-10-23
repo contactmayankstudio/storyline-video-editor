@@ -565,7 +565,7 @@ class StatusQuickExportActivity : ComponentActivity() {
                     runOnUiThread {
                         exportProgressOverlay.visibility = View.GONE
                         isExporting = false
-                        showExportSuccessDialog(savedFile ?: exportFile)
+                        showExportSuccessCelebration(savedFile ?: exportFile)
                     }
                 } else {
                     runOnUiThread {
@@ -639,6 +639,41 @@ class StatusQuickExportActivity : ComponentActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "Error saving video to gallery", e)
             null
+        }
+    }
+
+    private fun showExportSuccessCelebration(videoFile: File) {
+        val celebrationOverlay = findViewById<View>(R.id.exportCelebrationOverlay)
+        val confettiView = findViewById<ConfettiCelebrationView>(R.id.confettiCelebrationView)
+        val whatsAppBtn = findViewById<View>(R.id.celebrationWhatsAppBtn)
+        val instagramBtn = findViewById<View>(R.id.celebrationInstagramBtn)
+        val moreShareBtn = findViewById<View>(R.id.celebrationMoreShareBtn)
+        val doneBtn = findViewById<View>(R.id.celebrationDoneBtn)
+        val savedBadge = findViewById<TextView>(R.id.celebrationSavedBadge)
+
+        savedBadge?.text = "💾 Saved to Gallery ✓ (Movies/Storyline_Status)"
+        celebrationOverlay?.visibility = View.VISIBLE
+        celebrationOverlay?.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        confettiView?.startCelebration()
+
+        whatsAppBtn?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            shareToWhatsAppStatus(videoFile)
+        }
+
+        instagramBtn?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            shareToInstagramReels(videoFile)
+        }
+
+        moreShareBtn?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            shareUniversal(videoFile, "Share Status Video")
+        }
+
+        doneBtn?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            finish()
         }
     }
 

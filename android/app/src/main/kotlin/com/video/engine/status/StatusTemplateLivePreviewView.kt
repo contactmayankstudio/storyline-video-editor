@@ -26,6 +26,7 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
     var template: StatusTemplate? = null
         set(value) {
             field = value
+            particlesInitialized = false
             startTime = SystemClock.uptimeMillis()
             ensureSampleSlides()
             postInvalidateOnAnimation()
@@ -85,6 +86,87 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
     // 4 Procedurally rendered aesthetic portrait model slides
     private val sampleSlides = mutableListOf<Bitmap>()
     private var customPhotoBitmap: Bitmap? = null
+
+    // Magical Particle Overlays (Love Hearts, Phonk Sparks, Birthday Glitter, Devotional Petals)
+    private enum class ParticleTheme {
+        LOVE, ATTITUDE_PHONK, BIRTHDAY_SPARKLE, SPIRITUAL_DEVOTIONAL
+    }
+
+    private class StatusParticle {
+        var x: Float = 0f
+        var y: Float = 0f
+        var vx: Float = 0f
+        var vy: Float = 0f
+        var size: Float = 24f
+        var alpha: Float = 1f
+        var rotation: Float = 0f
+        var rotSpeed: Float = 0f
+        var symbol: String = ""
+        var color: Int = Color.WHITE
+        var swayOffset: Float = 0f
+        var swaySpeed: Float = 1f
+        var life: Float = 0f
+        var maxLife: Float = 100f
+
+        fun reset(w: Float, h: Float, theme: ParticleTheme, randomStart: Boolean = false) {
+            val rng = java.util.concurrent.ThreadLocalRandom.current()
+            life = if (randomStart) rng.nextFloat() * 100f else 0f
+            maxLife = 90f + rng.nextFloat() * 70f
+            swayOffset = rng.nextFloat() * 6.28f
+            swaySpeed = 1.5f + rng.nextFloat() * 2f
+            rotation = rng.nextFloat() * 360f
+            rotSpeed = -2f + rng.nextFloat() * 4f
+
+            when (theme) {
+                ParticleTheme.LOVE -> {
+                    x = rng.nextFloat() * w
+                    y = if (randomStart) rng.nextFloat() * h else h + (rng.nextFloat() * 30f)
+                    vx = -0.3f + rng.nextFloat() * 0.6f
+                    vy = -(1.2f + rng.nextFloat() * 1.8f)
+                    size = 20f + rng.nextFloat() * 18f
+                    symbol = if (rng.nextBoolean()) "❤️" else "💕"
+                    color = if (rng.nextBoolean()) Color.parseColor("#FF2D55") else Color.parseColor("#FF69B4")
+                }
+                ParticleTheme.ATTITUDE_PHONK -> {
+                    x = rng.nextFloat() * w
+                    y = if (randomStart) rng.nextFloat() * h else h * 0.85f + (rng.nextFloat() * h * 0.2f)
+                    vx = -1.2f + rng.nextFloat() * 2.4f
+                    vy = -(2.5f + rng.nextFloat() * 4.5f)
+                    size = 18f + rng.nextFloat() * 16f
+                    symbol = if (rng.nextFloat() < 0.45f) "🔥" else if (rng.nextFloat() < 0.8f) "⚡" else "💥"
+                    color = if (rng.nextBoolean()) Color.parseColor("#00F2FE") else Color.parseColor("#FF9500")
+                }
+                ParticleTheme.BIRTHDAY_SPARKLE -> {
+                    x = rng.nextFloat() * w
+                    y = rng.nextFloat() * h
+                    vx = -0.5f + rng.nextFloat() * 1.0f
+                    vy = -0.6f + rng.nextFloat() * 1.2f
+                    size = 18f + rng.nextFloat() * 22f
+                    symbol = if (rng.nextFloat() < 0.5f) "✨" else "🌟"
+                    color = if (rng.nextBoolean()) Color.parseColor("#FFD700") else Color.parseColor("#FFF8DC")
+                }
+                ParticleTheme.SPIRITUAL_DEVOTIONAL -> {
+                    x = rng.nextFloat() * w
+                    y = if (randomStart) rng.nextFloat() * h else -30f - (rng.nextFloat() * 30f)
+                    vx = -0.8f + rng.nextFloat() * 1.6f
+                    vy = 1.0f + rng.nextFloat() * 2.0f
+                    size = 20f + rng.nextFloat() * 18f
+                    symbol = if (rng.nextFloat() < 0.6f) "🌸" else if (rng.nextFloat() < 0.85f) "🪔" else "✨"
+                    color = Color.parseColor("#FF9933")
+                }
+            }
+        }
+    }
+
+    private val particles = Array(32) { StatusParticle() }
+    private var particlesInitialized = false
+    private val particlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+    }
+    private val auraRayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2.5f
+    }
 
     init {
         setOnClickListener {
@@ -157,7 +239,8 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
                 sampleSize *= 2
             }
             val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-            val bmp = BitmapFactory.decodeFile(filePath, decodeOptions)
+            val rawBmp = BitmapFactory.decodeFile(filePath, decodeOptions)
+            val bmp = rawBmp?.let { StatusMediaHelper.smartCropToPortrait916(it) }
             if (bmp != null) {
                 customPhotoBitmap?.recycle()
                 customPhotoBitmap = bmp
@@ -368,6 +451,9 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
 
         canvas.restore()
 
+        // 5.5. Mast-Style Magical Animated Canvas Particle Overlays
+        drawMagicalParticles(canvas, w, h, tm, elapsedMs, beatPulse)
+
         // 6. Kinetic Glowing Lyrical Typography
         drawKineticLyrics(canvas, w, h, tm, elapsedMs, totalDurationMs, beatPulse)
 
@@ -535,6 +621,88 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         canvas.drawText(timeStr, w / 2f, 48f, badgePaint)
     }
 
+    private fun resolveParticleTheme(tm: StatusTemplate): ParticleTheme {
+        val cat = tm.category.lowercase()
+        val title = tm.title.lowercase()
+        return when {
+            cat.contains("love") || title.contains("love") || title.contains("romantic") || tm.emoji in listOf("💖", "❤️", "💕") ->
+                ParticleTheme.LOVE
+            cat.contains("attitude") || title.contains("phonk") || title.contains("bass") || title.contains("swag") || tm.emoji in listOf("🔥", "⚡", "💥", "😎") ->
+                ParticleTheme.ATTITUDE_PHONK
+            cat.contains("birthday") || title.contains("birthday") || title.contains("bday") || cat.contains("celebration") || tm.emoji in listOf("🎂", "👑", "🎉") ->
+                ParticleTheme.BIRTHDAY_SPARKLE
+            cat.contains("bhakti") || cat.contains("devotional") || title.contains("ram") || title.contains("krishna") || title.contains("divine") || tm.emoji in listOf("🪔", "🪶", "🚩", "🙏") ->
+                ParticleTheme.SPIRITUAL_DEVOTIONAL
+            else -> ParticleTheme.BIRTHDAY_SPARKLE
+        }
+    }
+
+    private fun drawMagicalParticles(
+        canvas: Canvas,
+        w: Float,
+        h: Float,
+        tm: StatusTemplate,
+        elapsedMs: Long,
+        beatPulse: Float
+    ) {
+        val theme = resolveParticleTheme(tm)
+        if (!particlesInitialized) {
+            particles.forEach { it.reset(w, h, theme, randomStart = true) }
+            particlesInitialized = true
+        }
+
+        // Draw Saffron Divine Aura rays for spiritual/devotional templates
+        if (theme == ParticleTheme.SPIRITUAL_DEVOTIONAL) {
+            val centerX = w * 0.5f
+            val centerY = h * 0.15f
+            auraRayPaint.color = Color.argb((25 + (beatPulse * 45)).toInt(), 255, 153, 51)
+            val numRays = 12
+            val rayLen = w * 0.75f
+            for (i in 0 until numRays) {
+                val angle = ((elapsedMs * 0.015f) + (i * (360f / numRays))) * (Math.PI / 180.0)
+                val rx = centerX + (Math.cos(angle) * rayLen).toFloat()
+                val ry = centerY + (Math.sin(angle) * rayLen).toFloat()
+                canvas.drawLine(centerX, centerY, rx, ry, auraRayPaint)
+            }
+        }
+
+        // Draw animated particles
+        particles.forEach { p ->
+            p.life += 1f
+            if (p.life >= p.maxLife || p.y < -50f || p.y > h + 60f) {
+                p.reset(w, h, theme, randomStart = false)
+            }
+
+            val beatBoost = if (beatPulse > 0.5f) (beatPulse - 0.5f) * 2f else 0f
+            val currentSway = (Math.sin(p.swayOffset + (elapsedMs / 400.0) * p.swaySpeed).toFloat()) * 1.5f
+
+            p.x += p.vx + currentSway
+            p.y += p.vy * (1.0f + beatBoost * 1.2f)
+            p.rotation += p.rotSpeed
+
+            val lifeProgress = (p.life / p.maxLife).coerceIn(0f, 1f)
+            val alphaProgress = if (lifeProgress < 0.2f) {
+                lifeProgress / 0.2f
+            } else if (lifeProgress > 0.75f) {
+                (1f - lifeProgress) / 0.25f
+            } else {
+                1f
+            }
+
+            val finalAlpha = (alphaProgress * 230).toInt().coerceIn(0, 255)
+            particlePaint.textSize = p.size + (beatPulse * 4f)
+            particlePaint.alpha = finalAlpha
+            particlePaint.setShadowLayer(10f + beatPulse * 8f, 0f, 0f, p.color)
+
+            canvas.save()
+            canvas.translate(p.x, p.y)
+            canvas.rotate(p.rotation)
+            canvas.drawText(p.symbol, 0f, 0f, particlePaint)
+            canvas.restore()
+        }
+        particlePaint.setShadowLayer(0f, 0f, 0f, 0)
+    }
+
     private fun drawPauseOverlay(canvas: Canvas, w: Float, h: Float) {
         canvas.drawRect(0f, 0f, w, h, dimPaint)
         canvas.drawText("▶", w / 2f, h / 2f + 20f, playIconPaint)
@@ -546,6 +714,7 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
     fun bindTemplate(tmpl: StatusTemplate, mp: android.media.MediaPlayer? = null) {
         this.template = tmpl
         this.mediaPlayer = mp
+        this.particlesInitialized = false
         this.startTime = SystemClock.uptimeMillis()
         this.isPlaying = true
         ensureSampleSlides()

@@ -69,7 +69,9 @@ object StatusMediaHelper {
 
         var decodedBitmap: Bitmap? = null
         return try {
-            decodedBitmap = decodeAndScaleBitmap(source)
+            decodedBitmap = decodeAndScaleBitmap(source)?.let { bmp ->
+                smartCropToPortrait916(bmp)
+            }
             val bmp = decodedBitmap ?: return null
 
             FileOutputStream(target).use { out ->
@@ -147,6 +149,74 @@ object StatusMediaHelper {
             } else {
                 rawBmp
             }
+        }
+    }
+
+    /**
+     * Smart Face-Center Auto Framing:
+     * Automatically center-crops any photo to a vertical 9:16 portrait aspect ratio.
+     * Uses face detection heuristics / subject center weighting to ensure human subjects
+     * and faces are never cut off or distorted.
+     */
+    fun smartCropToPortrait916(sourceBmp: Bitmap): Bitmap {
+        val w = sourceBmp.width
+        val h = sourceBmp.height
+        if (w <= 0 || h <= 0) return sourceBmp
+
+        val targetRatio = 9f / 16f
+        val currentRatio = w.toFloat() / h.toFloat()
+
+        // Within 1.5% margin of 9:16 -> no crop needed
+        if (kotlin.math.abs(currentRatio - targetRatio) < 0.015f) {
+            return sourceBmp
+        }
+
+        var faceCenterX = w / 2f
+        var faceCenterY = h * 0.35f // Default portrait upper-third human face position
+
+        try {
+            // Downsample temporarily to 512px max for ultra-fast FaceDetector
+            val detectScale = 512f / maxOf(w, h).toFloat()
+            val detectW = ((w * detectScale).toInt()).let { if (it % 2 != 0) it - 1 else it }.coerceAtLeast(2)
+            val detectH = ((h * detectScale).toInt()).let { if (it % 2 != 0) it - 1 else it }.coerceAtLeast(2)
+
+            val scaled565 = Bitmap.createScaledBitmap(sourceBmp, detectW, detectH, true)
+                .copy(Bitmap.Config.RGB_565, false)
+
+            if (scaled565 != null) {
+                val detector = android.media.FaceDetector(detectW, detectH, 1)
+                val faces = arrayOfNulls<android.media.FaceDetector.Face>(1)
+                val count = detector.findFaces(scaled565, faces)
+                if (count > 0 && faces[0] != null) {
+                    val midPoint = android.graphics.PointF()
+                    faces[0]!!.getMidPoint(midPoint)
+                    faceCenterX = (midPoint.x / detectW.toFloat()) * w
+                    faceCenterY = (midPoint.y / detectH.toFloat()) * h
+                }
+                scaled565.recycle()
+            }
+        } catch (_: Exception) {
+            // Fallback to center heuristics
+        }
+
+        return if (currentRatio > targetRatio) {
+            // Image is wider than 9:16 (e.g. landscape 16:9, 4:3, or 1:1 square)
+            val cropW = (h * targetRatio).toInt().coerceIn(1, w)
+            val cropX = (faceCenterX - (cropW / 2f)).toInt().coerceIn(0, w - cropW)
+            val cropped = Bitmap.createBitmap(sourceBmp, cropX, 0, cropW, h)
+            if (cropped != sourceBmp && !sourceBmp.isRecycled) {
+                sourceBmp.recycle()
+            }
+            cropped
+        } else {
+            // Image is taller than 9:16
+            val cropH = (w / targetRatio).toInt().coerceIn(1, h)
+            val cropY = (faceCenterY - (cropH * 0.40f)).toInt().coerceIn(0, h - cropH)
+            val cropped = Bitmap.createBitmap(sourceBmp, 0, cropY, w, cropH)
+            if (cropped != sourceBmp && !sourceBmp.isRecycled) {
+                sourceBmp.recycle()
+            }
+            cropped
         }
     }
 

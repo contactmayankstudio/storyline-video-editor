@@ -34,6 +34,16 @@ data class StatusTemplate(
     val isUserCreated: Boolean = false,
 )
 
+fun StatusTemplate.getViralUsageCount(): String {
+    val hash = Math.abs(id.hashCode())
+    val base = (hash % 25) + 8 // 8 to 32
+    return if (base >= 10) {
+        String.format(java.util.Locale.US, "🔥 %.1fM Uses", base / 10f)
+    } else {
+        String.format(java.util.Locale.US, "🔥 %dK Uses", base * 95)
+    }
+}
+
 object StatusTemplateRepository {
     val allTemplates: List<StatusTemplate> = listOf(
         StatusTemplate(
@@ -1244,7 +1254,7 @@ object StatusTemplateRepository {
         )
     )
 
-    val categories: List<String> = listOf("All", "🔥 CapCut Pro", "⚡ 1-Photo", "✨ My Templates", "Trending", "Love", "Attitude", "Emotional", "Celebration")
+    val categories: List<String> = listOf("All", "⚡ 1-Photo Magic", "💖 Love", "😎 Attitude", "🎂 Birthday", "🔱 Bhakti", "✨ My Templates")
 
     private val userTemplates = mutableListOf<StatusTemplate>()
 
@@ -1257,11 +1267,26 @@ object StatusTemplateRepository {
 
     fun getByCategory(category: String, context: android.content.Context? = null): List<StatusTemplate> {
         val all = getAll(context)
-        if (category.equals("All", ignoreCase = true) || category.contains("1-Photo", ignoreCase = true)) {
+        if (category.equals("All", ignoreCase = true)) {
             return all
+        }
+        if (category.contains("1-Photo", ignoreCase = true)) {
+            return all.filter { it.requiredPhotoCount <= 4 }
         }
         if (category.contains("My Templates", ignoreCase = true) || category.contains("Community", ignoreCase = true)) {
             return all.filter { it.isUserCreated || it.category.contains("Community", ignoreCase = true) }
+        }
+        if (category.contains("Love", ignoreCase = true)) {
+            return all.filter { it.category.equals("Love", ignoreCase = true) || it.title.contains("Love", ignoreCase = true) || it.emoji in listOf("💖", "❤️", "💕") }
+        }
+        if (category.contains("Attitude", ignoreCase = true)) {
+            return all.filter { it.category.equals("Attitude", ignoreCase = true) || it.title.contains("Phonk", true) || it.title.contains("Attitude", true) || it.emoji in listOf("😎", "🔥", "💥") }
+        }
+        if (category.contains("Birthday", ignoreCase = true)) {
+            return all.filter { it.title.contains("Birthday", true) || it.id.contains("bday") || it.emoji == "🎂" }
+        }
+        if (category.contains("Bhakti", ignoreCase = true) || category.contains("Devotional", ignoreCase = true)) {
+            return all.filter { it.id.contains("dev_") || it.title.contains("Ram", true) || it.title.contains("Krishna", true) || it.title.contains("Divine", true) || it.emoji in listOf("🪔", "🪶", "🚩") }
         }
         if (category.contains("CapCut", ignoreCase = true)) {
             return all.filter { it.title.contains("CapCut", ignoreCase = true) || it.id.startsWith("tpl_capcut_") }

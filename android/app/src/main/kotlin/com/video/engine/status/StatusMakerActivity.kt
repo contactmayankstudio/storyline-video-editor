@@ -58,7 +58,7 @@ class StatusMakerActivity : ComponentActivity() {
     private var activeCustomAudioPath: String? = null
     private var activeCustomAudioTitle: String? = null
     private var onAudioSelectedCallback: ((String, String) -> Unit)? = null
-    private var isReelsFeedMode: Boolean = true
+    private var isGridMode: Boolean = true
     private var activePlayingTemplateId: String? = null
 
     // Phone audio picker
@@ -136,7 +136,7 @@ class StatusMakerActivity : ComponentActivity() {
             lastPhotoPaths = listOf(localPath)
             runOnUiThread {
                 activePreviewDialog?.findViewById<StatusTemplateLivePreviewView>(R.id.statusLivePreviewView)?.setCustomPhoto(localPath)
-                activePreviewDialog?.findViewById<TextView>(R.id.statusPreviewTestPhotoText)?.text = "Change Photo 🔄"
+                activePreviewDialog?.findViewById<TextView>(R.id.statusPreviewTestPhotoText)?.text = "Swap Photo 📸"
                 activePreviewDialog?.findViewById<TextView>(R.id.statusPreviewCtaText)?.text = "⚡ 1-CLICK EXPORT TO GALLERY"
                 activePreviewDialog?.findViewById<TextView>(R.id.statusPreviewPhotosChip)?.text = "📸 Photo Loaded"
             }
@@ -171,6 +171,51 @@ class StatusMakerActivity : ComponentActivity() {
             finish()
         }
 
+        // Wire Top Hero Carousel Cards
+        findViewById<View>(R.id.heroCardViral)?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            currentCategory = "All"
+            setupCategoryChips()
+            updateTemplatesList()
+        }
+        findViewById<View>(R.id.heroCardLove)?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            currentCategory = "💖 Love"
+            setupCategoryChips()
+            updateTemplatesList()
+        }
+        findViewById<View>(R.id.heroCardAttitude)?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            currentCategory = "😎 Attitude"
+            setupCategoryChips()
+            updateTemplatesList()
+        }
+        findViewById<View>(R.id.heroCardBirthday)?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            currentCategory = "🎂 Birthday"
+            setupCategoryChips()
+            updateTemplatesList()
+        }
+
+        // Hero Card background gradients
+        val density = resources.displayMetrics.density
+        findViewById<View>(R.id.heroCardViralBg)?.background = GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(Color.parseColor("#FF0844"), Color.parseColor("#FFB199"))
+        ).apply { cornerRadius = 16f * density }
+        findViewById<View>(R.id.heroCardLoveBg)?.background = GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(Color.parseColor("#F857A6"), Color.parseColor("#FF5858"))
+        ).apply { cornerRadius = 16f * density }
+        findViewById<View>(R.id.heroCardAttitudeBg)?.background = GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(Color.parseColor("#8E2DE2"), Color.parseColor("#4A00E0"))
+        ).apply { cornerRadius = 16f * density }
+        findViewById<View>(R.id.heroCardBirthdayBg)?.background = GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(Color.parseColor("#F7971E"), Color.parseColor("#FFD200"))
+        ).apply { cornerRadius = 16f * density }
+
         // Prominent 1-Photo Instant Hero Card: click -> pick photo -> immediate live preview!
         findViewById<View>(R.id.statusInstantHeroCard)?.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
@@ -180,15 +225,21 @@ class StatusMakerActivity : ComponentActivity() {
 
         categoryContainer = findViewById(R.id.statusCategoryChipsContainer)
         templatesRecycler = findViewById(R.id.statusTemplatesRecyclerView)
-        templatesRecycler.layoutManager = LinearLayoutManager(this)
+        templatesRecycler.layoutManager = androidx.recyclerview.widget.GridLayoutManager(this, 2)
 
         findViewById<TextView>(R.id.statusViewModeToggleBtn)?.let { toggleBtn ->
-            toggleBtn.text = if (isReelsFeedMode) "🎬 Reels Feed" else "📋 List Mode"
+            toggleBtn.text = if (isGridMode) "🎬 Reels Feed" else "📱 Mast 2-Grid"
+            toggleBtn.setTextColor(if (isGridMode) Color.parseColor("#00F2FE") else Color.parseColor("#FFE500"))
             toggleBtn.setOnClickListener {
                 it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                isReelsFeedMode = !isReelsFeedMode
-                toggleBtn.text = if (isReelsFeedMode) "🎬 Reels Feed" else "📋 List Mode"
-                toggleBtn.setTextColor(if (isReelsFeedMode) Color.parseColor("#00F2FE") else Color.parseColor("#388BFD"))
+                isGridMode = !isGridMode
+                templatesRecycler.layoutManager = if (isGridMode) {
+                    androidx.recyclerview.widget.GridLayoutManager(this, 2)
+                } else {
+                    androidx.recyclerview.widget.LinearLayoutManager(this)
+                }
+                toggleBtn.text = if (isGridMode) "🎬 Reels Feed" else "📱 Mast 2-Grid"
+                toggleBtn.setTextColor(if (isGridMode) Color.parseColor("#00F2FE") else Color.parseColor("#FFE500"))
                 updateTemplatesList()
             }
         }
@@ -223,14 +274,12 @@ class StatusMakerActivity : ComponentActivity() {
             val count = StatusTemplateRepository.getByCategory(category, this).size
             val label = when {
                 category.equals("all", ignoreCase = true) -> "🔥 All ($count)"
-                category.contains("CapCut", ignoreCase = true) -> "⚡ CapCut Pro ($count)"
-                category.contains("1-Photo", ignoreCase = true) -> "📸 1-Photo Instant ($count)"
+                category.contains("1-Photo", ignoreCase = true) -> "⚡ 1-Photo Magic ($count)"
+                category.contains("Love", ignoreCase = true) -> "💖 Love ($count)"
+                category.contains("Attitude", ignoreCase = true) -> "😎 Attitude ($count)"
+                category.contains("Birthday", ignoreCase = true) -> "🎂 Birthday ($count)"
+                category.contains("Bhakti", ignoreCase = true) -> "🔱 Bhakti ($count)"
                 category.contains("My Templates", ignoreCase = true) -> "✨ My Templates ($count)"
-                category.equals("trending", ignoreCase = true) -> "🔥 Viral & Trending ($count)"
-                category.equals("love", ignoreCase = true) -> "💖 Love & Couple ($count)"
-                category.equals("attitude", ignoreCase = true) -> "😎 Attitude & Swag ($count)"
-                category.equals("emotional", ignoreCase = true) -> "🥺 Emotional & Memories ($count)"
-                category.equals("celebration", ignoreCase = true) -> "🎉 Celebration & Festival ($count)"
                 else -> "$category ($count)"
             }
 
@@ -252,7 +301,7 @@ class StatusMakerActivity : ComponentActivity() {
                     if (isSelected) {
                         setColor(Color.parseColor("#388BFD"))
                     } else {
-                        setColor(Color.parseColor("#262C36"))
+                        setColor(Color.parseColor("#141822"))
                         setStroke(1.dpToPx(context), Color.parseColor("#33FFFFFF"))
                     }
                 }
@@ -275,7 +324,7 @@ class StatusMakerActivity : ComponentActivity() {
         val list = StatusTemplateRepository.getByCategory(currentCategory, this)
         templatesRecycler.adapter = StatusTemplateAdapter(
             templates = list,
-            isReelsFeed = isReelsFeedMode,
+            isGrid = isGridMode,
             onCardClick = { template ->
                 stopPreviewAudio()
                 showTemplateLivePreviewDialog(template)
@@ -442,12 +491,16 @@ class StatusMakerActivity : ComponentActivity() {
             bpmChip?.text = "🎵 ${tmpl.bpm} BPM"
             descTv?.text = if (activePhotoPath != null) "⚡ Live animated preview of your photo with ${tmpl.title}! Tap Export to save." else tmpl.description
             ctaText?.text = if (activePhotoPath != null) "⚡ 1-CLICK EXPORT TO GALLERY" else "⚡ CREATE 1-PHOTO / REELS STATUS"
-            testPhotoText?.text = if (activePhotoPath != null) "Change Photo 🔄" else "Test With My Photo 📷"
+            testPhotoText?.text = if (activePhotoPath != null) "Swap Photo 📸" else "Pick Photo 📸"
             if (!activeCustomText.isNullOrBlank()) {
                 editTextTitle?.text = "✏️ ${activeCustomText!!.take(12)}"
+            } else {
+                editTextTitle?.text = "Put My Name ✏️"
             }
             if (!activeCustomAudioTitle.isNullOrBlank()) {
                 changeMusicText?.text = "🎵 ${activeCustomAudioTitle!!.take(12)}"
+            } else {
+                changeMusicText?.text = "Change Music 🎵"
             }
 
             val density = resources.displayMetrics.density
@@ -877,7 +930,7 @@ class StatusMakerActivity : ComponentActivity() {
 
     private class StatusTemplateAdapter(
         private val templates: List<StatusTemplate>,
-        private val isReelsFeed: Boolean,
+        private val isGrid: Boolean,
         private val onCardClick: (StatusTemplate) -> Unit,
         private val onUseTemplate: (StatusTemplate) -> Unit,
         private val onToggleSound: ((StatusTemplate, (Boolean) -> Unit) -> Unit)? = null,
@@ -885,24 +938,18 @@ class StatusMakerActivity : ComponentActivity() {
 
         companion object {
             const val VIEW_TYPE_REELS = 1
-            const val VIEW_TYPE_LIST = 2
+            const val VIEW_TYPE_MAST_GRID = 2
         }
 
-        class ListViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-            val emoji: TextView = view.findViewById(R.id.templateEmoji)
-            val title: TextView = view.findViewById(R.id.templateTitle)
-            val durationChip: TextView = view.findViewById(R.id.templateDurationChip)
-            val photosChip: TextView = view.findViewById(R.id.templatePhotosChip)
-            val bpmChip: TextView = view.findViewById(R.id.templateBpmChip)
-            val desc: TextView = view.findViewById(R.id.templateDesc)
-            val previewBtn: View = view.findViewById(R.id.previewTemplateButton)
-            val useBtn: View = view.findViewById(R.id.useTemplateButton)
-            val useBtnText: TextView = view.findViewById(R.id.useTemplateButtonText)
-            val previewBanner: View = view.findViewById(R.id.templatePreviewBanner)
-            val bannerBg: View = view.findViewById(R.id.templateBannerBg)
-            val bannerBadge: TextView = view.findViewById(R.id.templateBannerBadge)
-            val bannerBpmPill: TextView = view.findViewById(R.id.templateBannerBpmPill)
-            val bannerLyricText: TextView = view.findViewById(R.id.templateBannerLyricText)
+        class MastGridViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+            val cardBg: View = view.findViewById(R.id.mastCardBg)
+            val emoji: TextView = view.findViewById(R.id.mastCardEmoji)
+            val lyricText: TextView = view.findViewById(R.id.mastCardLyricText)
+            val photoPill: TextView = view.findViewById(R.id.mastCardPhotoPill)
+            val usageBadge: TextView = view.findViewById(R.id.mastCardUsageBadge)
+            val title: TextView = view.findViewById(R.id.mastCardTitle)
+            val bpm: TextView = view.findViewById(R.id.mastCardBpm)
+            val makeBtn: View = view.findViewById(R.id.mastCardMakeBtn)
         }
 
         class ReelsFeedViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -921,15 +968,15 @@ class StatusMakerActivity : ComponentActivity() {
         }
 
         override fun getItemViewType(position: Int): Int {
-            return if (isReelsFeed) VIEW_TYPE_REELS else VIEW_TYPE_LIST
+            return if (isGrid) VIEW_TYPE_MAST_GRID else VIEW_TYPE_REELS
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
             val inflater = LayoutInflater.from(parent.context)
-            return if (viewType == VIEW_TYPE_REELS) {
-                ReelsFeedViewHolder(inflater.inflate(R.layout.item_reels_feed_card, parent, false))
+            return if (viewType == VIEW_TYPE_MAST_GRID) {
+                MastGridViewHolder(inflater.inflate(R.layout.item_mast_template_card, parent, false))
             } else {
-                ListViewHolder(inflater.inflate(R.layout.item_status_template, parent, false))
+                ReelsFeedViewHolder(inflater.inflate(R.layout.item_reels_feed_card, parent, false))
             }
         }
 
@@ -937,7 +984,41 @@ class StatusMakerActivity : ComponentActivity() {
             val item = templates[position]
             val density = holder.itemView.context.resources.displayMetrics.density
 
-            if (holder is ReelsFeedViewHolder) {
+            if (holder is MastGridViewHolder) {
+                holder.emoji.text = item.emoji
+                holder.title.text = item.title
+                holder.bpm.text = "${item.bpm} BPM"
+                val sampleLyric = item.textOverlays.firstOrNull()?.text ?: "${item.emoji} ${item.title}"
+                holder.lyricText.text = sampleLyric
+                holder.photoPill.text = "📸 ${item.requiredPhotoCount} Photo${if (item.requiredPhotoCount > 1) "s" else ""}"
+                holder.usageBadge.text = item.getViralUsageCount()
+
+                try {
+                    val startC = Color.parseColor(item.gradientStartHex)
+                    val endC = Color.parseColor(item.gradientEndHex)
+                    val bg = GradientDrawable(
+                        GradientDrawable.Orientation.TL_BR,
+                        intArrayOf(startC, endC)
+                    ).apply { cornerRadius = 16f * density }
+                    holder.cardBg.background = bg
+
+                    val btnBg = GradientDrawable(
+                        GradientDrawable.Orientation.LEFT_RIGHT,
+                        intArrayOf(startC, endC)
+                    ).apply { cornerRadius = 10f * density }
+                    holder.makeBtn.background = btnBg
+                } catch (_: Exception) {}
+
+                holder.itemView.setOnClickListener {
+                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    onCardClick(item)
+                }
+
+                holder.makeBtn.setOnClickListener {
+                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    onUseTemplate(item)
+                }
+            } else if (holder is ReelsFeedViewHolder) {
                 holder.centerEmoji.text = item.emoji
                 holder.title.text = item.title
                 holder.desc.text = item.description
@@ -981,60 +1062,6 @@ class StatusMakerActivity : ComponentActivity() {
                         holder.soundIcon.text = if (playing) "⏸️" else "🎵"
                         holder.soundTitle.setTextColor(if (playing) Color.parseColor("#FFE500") else Color.parseColor("#00F2FE"))
                     }
-                }
-
-                holder.itemView.setOnClickListener {
-                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                    onCardClick(item)
-                }
-
-                holder.useBtn.setOnClickListener {
-                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                    onUseTemplate(item)
-                }
-            } else if (holder is ListViewHolder) {
-                holder.emoji.text = item.emoji
-                holder.title.text = item.title
-                holder.durationChip.text = "${item.durationMs / 1000}s"
-                holder.photosChip.text = "⚡ ${item.requiredPhotoCount}-Photo Ready"
-                holder.bpmChip.text = "${item.bpm} BPM"
-                holder.desc.text = item.description
-                holder.useBtnText.text = "⚡ 1-Photo Create"
-                holder.bannerBpmPill.text = "🎵 ${item.bpm} BPM"
-                val sampleLyric = item.textOverlays.firstOrNull()?.text ?: "${item.emoji} ${item.title}"
-                holder.bannerLyricText.text = sampleLyric
-
-                try {
-                    val startC = Color.parseColor(item.gradientStartHex)
-                    val endC = Color.parseColor(item.gradientEndHex)
-
-                    val emojiBg = GradientDrawable(
-                        GradientDrawable.Orientation.TL_BR,
-                        intArrayOf(startC, endC)
-                    ).apply { cornerRadius = 14f * density }
-                    holder.emoji.background = emojiBg
-
-                    val bannerBgDrawable = GradientDrawable(
-                        GradientDrawable.Orientation.TL_BR,
-                        intArrayOf(startC, endC)
-                    ).apply { cornerRadius = 14f * density }
-                    holder.bannerBg.background = bannerBgDrawable
-
-                    val btnBg = GradientDrawable(
-                        GradientDrawable.Orientation.LEFT_RIGHT,
-                        intArrayOf(startC, endC)
-                    ).apply { cornerRadius = 12f * density }
-                    holder.useBtn.background = btnBg
-                } catch (_: Exception) {}
-
-                holder.previewBanner.setOnClickListener {
-                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                    onCardClick(item)
-                }
-
-                holder.previewBtn.setOnClickListener {
-                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                    onCardClick(item)
                 }
 
                 holder.itemView.setOnClickListener {

@@ -106,15 +106,15 @@
                 </FrameLayout>
             </FrameLayout>
 
-            <!-- Quick Editor Action Buttons (Photo, Text/Name, Music, Next Template) -->
+            <!-- Floating 4-in-1 Quick Customizer Bar in Live Preview -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
+                android:layout_marginTop="12dp"
                 android:gravity="center"
                 android:orientation="vertical">
 
-                <!-- Row 1: Change Photo & Edit Text / Name -->
+                <!-- Row 1: 📸 Swap Photo & ✏️ Put My Name -->
                 <LinearLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -124,7 +124,7 @@
                     <FrameLayout
                         android:id="@+id/statusPreviewTestPhotoBtn"
                         android:layout_width="wrap_content"
-                        android:layout_height="32dp"
+                        android:layout_height="34dp"
                         android:background="@drawable/launch_count_chip_background"
                         android:clickable="true"
                         android:focusable="true"
@@ -141,17 +141,17 @@
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="📷"
-                                android:textSize="12sp" />
+                                android:text="📸"
+                                android:textSize="13sp" />
 
                             <TextView
                                 android:id="@+id/statusPreviewTestPhotoText"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginStart="6dp"
-                                android:text="Test With My Photo"
+                                android:text="Swap Photo"
                                 android:textColor="#388BFD"
-                                android:textSize="11.5sp"
+                                android:textSize="12sp"
                                 android:textStyle="bold" />
                         </LinearLayout>
                     </FrameLayout>
@@ -159,7 +159,7 @@
                     <FrameLayout
                         android:id="@+id/statusPreviewEditTextBtn"
                         android:layout_width="wrap_content"
-                        android:layout_height="32dp"
+                        android:layout_height="34dp"
                         android:layout_marginStart="8dp"
                         android:background="@drawable/launch_count_chip_background"
                         android:clickable="true"
@@ -178,22 +178,22 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="✏️"
-                                android:textSize="12sp" />
+                                android:textSize="13sp" />
 
                             <TextView
                                 android:id="@+id/statusPreviewEditText"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginStart="6dp"
-                                android:text="Edit Text / Name"
+                                android:text="Put My Name"
                                 android:textColor="#FFD700"
-                                android:textSize="11.5sp"
+                                android:textSize="12sp"
                                 android:textStyle="bold" />
                         </LinearLayout>
                     </FrameLayout>
                 </LinearLayout>
 
-                <!-- Row 2: Change Music & Next Template -->
+                <!-- Row 2: 🎵 Change Music & ⏭️ Next Style -->
                 <LinearLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -204,7 +204,7 @@
                     <FrameLayout
                         android:id="@+id/statusPreviewChangeMusicBtn"
                         android:layout_width="wrap_content"
-                        android:layout_height="32dp"
+                        android:layout_height="34dp"
                         android:background="@drawable/launch_count_chip_background"
                         android:clickable="true"
                         android:focusable="true"
@@ -222,7 +222,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="🎵"
-                                android:textSize="12sp" />
+                                android:textSize="13sp" />
 
                             <TextView
                                 android:id="@+id/statusPreviewChangeMusicText"
@@ -231,7 +231,7 @@
                                 android:layout_marginStart="6dp"
                                 android:text="Change Music"
                                 android:textColor="#00F2FE"
-                                android:textSize="11.5sp"
+                                android:textSize="12sp"
                                 android:textStyle="bold" />
                         </LinearLayout>
                     </FrameLayout>
@@ -239,7 +239,7 @@
                     <FrameLayout
                         android:id="@+id/statusPreviewNextTemplateBtn"
                         android:layout_width="wrap_content"
-                        android:layout_height="32dp"
+                        android:layout_height="34dp"
                         android:layout_marginStart="8dp"
                         android:background="@drawable/launch_count_chip_background"
                         android:clickable="true"
@@ -258,16 +258,16 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="⏭️"
-                                android:textSize="12sp" />
+                                android:textSize="13sp" />
 
                             <TextView
                                 android:id="@+id/statusPreviewNextTemplateText"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginStart="6dp"
-                                android:text="Next Template"
+                                android:text="Next Style"
                                 android:textColor="#D946EF"
-                                android:textSize="11.5sp"
+                                android:textSize="12sp"
                                 android:textStyle="bold" />
                         </LinearLayout>
                     </FrameLayout>
