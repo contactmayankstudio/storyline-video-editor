@@ -10,6 +10,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.SurfaceTexture
 import android.graphics.Typeface
@@ -43,11 +44,14 @@ import android.view.Surface
 import android.view.TextureView
 import android.view.View
 import android.view.WindowManager
+import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.GridLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import android.widget.VideoView
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -60,6 +64,7 @@ import com.video.engine.R
 import com.video.engine.photo.PhotoEditorActivity
 import com.video.engine.status.StatusMakerActivity
 import com.video.engine.status.StatusMediaHelper
+import com.video.engine.stickers.StickerOverlayView
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -107,6 +112,38 @@ class FunCameraActivity : ComponentActivity() {
 
     // Snapchat Camera Pro: Warm Amber Screen Flash (Selfie Glow)
     private var warmAmberFlashView: View? = null
+
+    // Snapchat Pro Vertical Tool Rail
+    private var cameraActiveSoundBadge: TextView? = null
+    private var cameraSpeedBtn: TextView? = null
+    private var cameraBeautyBtn: TextView? = null
+    private var cameraLockTarget: LinearLayout? = null
+    private var cameraLockLabel: TextView? = null
+    private var cameraLockIcon: TextView? = null
+    private var videoRecordSpeed: Float = 1.0f
+    private var flashModeState: Int = 0
+
+    // Snapchat Post-Capture Screen
+    private var postCaptureContainer: FrameLayout? = null
+    private var postCaptureImageView: ImageView? = null
+    private var postCaptureVideoView: VideoView? = null
+    private var postCaptureFilterOverlay: PostCaptureFilterOverlayView? = null
+    private var postCaptureDoodleCanvas: DoodleCanvasView? = null
+    private var postCaptureStickersContainer: FrameLayout? = null
+    private var postCaptureCaptionContainer: FrameLayout? = null
+    private var postCaptureCaptionTv: TextView? = null
+    private var postCaptureDoodleBar: LinearLayout? = null
+    private var postCaptureFilterBadge: TextView? = null
+    private var postCaptureSwipeToast: TextView? = null
+    private var currentPostCaptureMediaFile: File? = null
+    private var isPostCaptureVideo: Boolean = false
+    private var currentPostCaptureBitmap: Bitmap? = null
+    private var currentCaptionText: String = ""
+    private var isDoodleModeActive: Boolean = false
+
+    // Carousel snapping handler
+    private val snapHandler = Handler(Looper.getMainLooper())
+    private var snapRunnable: Runnable? = null
 
     private val pickCameraAudioLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
@@ -218,23 +255,24 @@ class FunCameraActivity : ComponentActivity() {
         shutterFlashView = findViewById(R.id.cameraShutterFlash)
         cameraMusicBtn = findViewById(R.id.cameraMusicBtn)
         cameraTimerBtn = findViewById(R.id.cameraTimerBtn)
+        cameraActiveSoundBadge = findViewById(R.id.cameraActiveSoundBadge)
+        cameraSpeedBtn = findViewById(R.id.cameraSpeedBtn)
+        cameraBeautyBtn = findViewById(R.id.cameraBeautyBtn)
+        cameraLockTarget = findViewById(R.id.cameraLockTarget)
+        cameraLockLabel = findViewById(R.id.cameraLockLabel)
+        cameraLockIcon = findViewById(R.id.cameraLockIcon)
         warmAmberFlashView = findViewById(R.id.cameraWarmAmberFlash)
         countdownOverlay = findViewById(R.id.cameraCountdownOverlay)
         countdownText = findViewById(R.id.cameraCountdownText)
 
         findViewById<FrameLayout>(R.id.cameraBackBtn)?.setOnClickListener { finish() }
 
-        findViewById<FrameLayout>(R.id.cameraFlipBtn)?.setOnClickListener {
-            if (!isRecordingVideo) {
-                it.animate().rotationBy(180f).setDuration(280L).start()
-                flipCamera()
-            }
-        }
-
+        setupVerticalToolRail()
         setupTopBarControls()
         setupViewfinderGestures()
         setupModeSelector()
         setupShutterControl()
+        setupPostCaptureScreen()
 
         // Load lenses (default to popular fun puppy or aviator lens so face sync is immediately active)
         allLenses = LensRepository.getLenses(this)
@@ -340,7 +378,7 @@ class FunCameraActivity : ComponentActivity() {
     }
 
     private fun setupShutterControl() {
-        shutterButton.maxRecordingDurationMs = 15_000L
+        shutterButton.maxRecordingDurationMs = 30_000L
 
         shutterButton.onPhotoCapture = {
             if (countdownSeconds > 0 && !isRecordingVideo) {
@@ -370,8 +408,30 @@ class FunCameraActivity : ComponentActivity() {
             }
         }
 
+        shutterButton.onDragLockProgress = { prog ->
+            cameraLockTarget?.let { target ->
+                if (prog > 0.05f) {
+                    target.visibility = View.VISIBLE
+                    target.alpha = (prog * 1.5f).coerceIn(0.4f, 1.0f)
+                    val s = 1.0f + prog * 0.25f
+                    target.scaleX = s
+                    target.scaleY = s
+                } else if (!shutterButton.isLocked && !shutterButton.isRecording) {
+                    target.visibility = View.GONE
+                }
+            }
+        }
+
         shutterButton.onRecordLock = {
-            showSwipeToast("🔒 Recording Locked")
+            cameraLockTarget?.let { target ->
+                target.visibility = View.VISIBLE
+                target.alpha = 1.0f
+                target.scaleX = 1.15f
+                target.scaleY = 1.15f
+                cameraLockLabel?.text = "Locked"
+                target.setBackgroundColor(Color.parseColor("#55FFD700"))
+            }
+            showSwipeToast("🔒 Hands-Free Recording Locked")
         }
 
         shutterButton.onDragZoom = { zoomFraction ->
@@ -381,6 +441,12 @@ class FunCameraActivity : ComponentActivity() {
                 showZoomPill(targetZoom)
             } else {
                 mainHandler.postDelayed({ zoomPill?.visibility = View.GONE }, 600L)
+            }
+        }
+
+        cameraLockTarget?.setOnClickListener {
+            if (shutterButton.isRecording) {
+                shutterButton.stopRecording()
             }
         }
     }
@@ -500,6 +566,14 @@ class FunCameraActivity : ComponentActivity() {
             mr.setOutputFile(currentVideoFile!!.absolutePath)
             mr.setVideoEncodingBitRate(10_000_000)
             mr.setVideoFrameRate(30)
+            if (videoRecordSpeed != 1.0f) {
+                try {
+                    val captureRate = (30 * videoRecordSpeed).toDouble()
+                    mr.setCaptureRate(captureRate)
+                } catch (e: Exception) {
+                    Log.w(TAG, "setCaptureRate not supported", e)
+                }
+            }
 
             // Landscape-aligned dimensions for hardware encoder (e.g. 1280x720) with 16-pixel multiples
             val pWidth = optimalPreviewSize.width
@@ -591,7 +665,7 @@ class FunCameraActivity : ComponentActivity() {
             Thread {
                 val saved = saveVideoToGallery(recorded)
                 runOnUiThread {
-                    showVideoSavedDialog(saved ?: recorded)
+                    enterPostCaptureMode(saved ?: recorded, isVideo = true, baseBitmap = null)
                 }
             }.start()
         } else {
@@ -606,6 +680,12 @@ class FunCameraActivity : ComponentActivity() {
         } else {
             recordingTimerBadge.visibility = View.GONE
             lensBadge.visibility = View.VISIBLE
+            cameraLockTarget?.visibility = View.GONE
+            cameraLockTarget?.alpha = 0f
+            cameraLockTarget?.scaleX = 1.0f
+            cameraLockTarget?.scaleY = 1.0f
+            cameraLockLabel?.text = "Lock"
+            cameraLockTarget?.setBackgroundResource(R.drawable.camera_glass_button_bg)
         }
     }
 
@@ -704,7 +784,7 @@ class FunCameraActivity : ComponentActivity() {
     }
 
     private fun showVideoSavedDialog(videoFile: File) {
-        showPostCaptureModal(videoFile, isVideo = true)
+        enterPostCaptureMode(videoFile, isVideo = true)
     }
 
     private fun setupCategoryTabs() {
@@ -752,6 +832,10 @@ class FunCameraActivity : ComponentActivity() {
     private fun setupLensCarousel() {
         filterContainer.removeAllViews()
 
+        val screenW = resources.displayMetrics.widthPixels
+        val halfW = (screenW / 2 - 32.dpToPx(this)).coerceAtLeast(16.dpToPx(this))
+        filterContainer.setPadding(halfW, 0, halfW, 6.dpToPx(this))
+
         val filteredLenses = if (currentCategory == "ALL") {
             allLenses
         } else {
@@ -762,6 +846,7 @@ class FunCameraActivity : ComponentActivity() {
             val isSelected = lens.id == selectedLens?.id
 
             val lensItemView = LinearLayout(this).apply {
+                tag = lens
                 orientation = LinearLayout.VERTICAL
                 gravity = android.view.Gravity.CENTER
                 val params = LinearLayout.LayoutParams(
@@ -843,6 +928,9 @@ class FunCameraActivity : ComponentActivity() {
                     updateLensBadge(lens)
                     setupLensCarousel()
                     showFloatingLensPill(lens)
+                    val scroll = cameraLensScrollView ?: return@setOnClickListener
+                    val scrollX = left - (scroll.width - width) / 2
+                    scroll.smoothScrollTo(scrollX.coerceAtLeast(0), 0)
                 }
             }
 
@@ -855,6 +943,38 @@ class FunCameraActivity : ComponentActivity() {
                     scroll.smoothScrollTo(scrollX.coerceAtLeast(0), 0)
                 }
             }
+        }
+
+        cameraLensScrollView?.setOnScrollChangeListener { _, _, _, _, _ ->
+            snapHandler.removeCallbacks(snapRunnable ?: return@setOnScrollChangeListener)
+            snapRunnable = Runnable {
+                val scroll = cameraLensScrollView ?: return@Runnable
+                val centerX = scroll.scrollX + scroll.width / 2
+                var closestChild: View? = null
+                var closestDist = Int.MAX_VALUE
+                for (i in 0 until filterContainer.childCount) {
+                    val child = filterContainer.getChildAt(i)
+                    val childCenter = child.left + child.width / 2
+                    val dist = Math.abs(centerX - childCenter)
+                    if (dist < closestDist) {
+                        closestDist = dist
+                        closestChild = child
+                    }
+                }
+                closestChild?.let { target ->
+                    val targetLens = target.tag as? LensItem
+                    if (targetLens != null && targetLens.id != selectedLens?.id) {
+                        selectedLens = targetLens
+                        overlayView.currentLens = targetLens
+                        updateLensBadge(targetLens)
+                        showFloatingLensPill(targetLens)
+                        try { target.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP) } catch (_: Exception) {}
+                        val targetScrollX = target.left - (scroll.width - target.width) / 2
+                        scroll.smoothScrollTo(targetScrollX.coerceAtLeast(0), 0)
+                    }
+                }
+            }
+            snapHandler.postDelayed(snapRunnable!!, 130L)
         }
     }
 
@@ -1005,7 +1125,7 @@ class FunCameraActivity : ComponentActivity() {
             val savedFile = saveBitmapToGallery(finalPhoto)
             runOnUiThread {
                 if (savedFile != null) {
-                    showPhotoSavedDialog(savedFile)
+                    enterPostCaptureMode(savedFile, isVideo = false, baseBitmap = finalPhoto)
                 } else {
                     Toast.makeText(this, "Failed to save photo", Toast.LENGTH_SHORT).show()
                 }
@@ -1091,7 +1211,7 @@ class FunCameraActivity : ComponentActivity() {
     }
 
     private fun showPhotoSavedDialog(photoFile: File) {
-        showPostCaptureModal(photoFile, isVideo = false)
+        enterPostCaptureMode(photoFile, isVideo = false)
     }
 
     private fun triggerShutterFlashAnimation() {
@@ -1111,10 +1231,317 @@ class FunCameraActivity : ComponentActivity() {
             ?.start()
     }
 
-    private fun showPostCaptureModal(mediaFile: File, isVideo: Boolean) {
-        val dialogView = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(24.dpToPx(context), 24.dpToPx(context), 24.dpToPx(context), 24.dpToPx(context))
+    private fun enterPostCaptureMode(mediaFile: File, isVideo: Boolean, baseBitmap: Bitmap? = null) {
+        currentPostCaptureMediaFile = mediaFile
+        isPostCaptureVideo = isVideo
+        currentPostCaptureBitmap = baseBitmap
+        currentCaptionText = ""
+        isDoodleModeActive = false
+
+        val container = findViewById<FrameLayout>(R.id.postCaptureContainer) ?: return
+        val imgView = findViewById<ImageView>(R.id.postCaptureImageView)
+        val videoView = findViewById<VideoView>(R.id.postCaptureVideoView)
+        val filterOverlay = findViewById<PostCaptureFilterOverlayView>(R.id.postCaptureFilterOverlay)
+        val doodleCanvas = findViewById<DoodleCanvasView>(R.id.postCaptureDoodleCanvas)
+        val stickersContainer = findViewById<FrameLayout>(R.id.postCaptureStickersContainer)
+        val captionContainer = findViewById<FrameLayout>(R.id.postCaptureCaptionContainer)
+        val captionTv = findViewById<TextView>(R.id.postCaptureCaptionTv)
+        val doodleBar = findViewById<LinearLayout>(R.id.postCaptureDoodleBar)
+        val filterBadge = findViewById<TextView>(R.id.postCaptureFilterBadge)
+
+        container.visibility = View.VISIBLE
+        filterOverlay?.currentFilter = PostCaptureGeofilter.CLEAN
+        filterBadge?.visibility = View.VISIBLE
+        filterBadge?.text = "✨ Original (Swipe for Geofilters)"
+        doodleCanvas?.clear()
+        doodleCanvas?.isDrawingEnabled = false
+        doodleBar?.visibility = View.GONE
+        stickersContainer?.removeAllViews()
+        captionContainer?.visibility = View.GONE
+        captionTv?.text = ""
+
+        if (isVideo) {
+            imgView?.visibility = View.GONE
+            videoView?.visibility = View.VISIBLE
+            try {
+                videoView?.setVideoPath(mediaFile.absolutePath)
+                videoView?.setOnPreparedListener { mp ->
+                    mp.isLooping = true
+                    mp.start()
+                }
+                videoView?.start()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to start post-capture video preview", e)
+            }
+        } else {
+            videoView?.visibility = View.GONE
+            imgView?.visibility = View.VISIBLE
+            val bmp = baseBitmap ?: BitmapFactory.decodeFile(mediaFile.absolutePath)
+            currentPostCaptureBitmap = bmp
+            imgView?.setImageBitmap(bmp)
+        }
+    }
+
+    private fun exitPostCaptureMode() {
+        try {
+            findViewById<VideoView>(R.id.postCaptureVideoView)?.stopPlayback()
+        } catch (_: Exception) {}
+        findViewById<FrameLayout>(R.id.postCaptureContainer)?.visibility = View.GONE
+        currentPostCaptureBitmap = null
+        currentPostCaptureMediaFile = null
+        isDoodleModeActive = false
+        findViewById<DoodleCanvasView>(R.id.postCaptureDoodleCanvas)?.isDrawingEnabled = false
+        findViewById<LinearLayout>(R.id.postCaptureDoodleBar)?.visibility = View.GONE
+        findViewById<TextView>(R.id.postCaptureFilterBadge)?.visibility = View.VISIBLE
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (findViewById<FrameLayout>(R.id.postCaptureContainer)?.visibility == View.VISIBLE) {
+            exitPostCaptureMode()
+            return
+        }
+        super.onBackPressed()
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupPostCaptureScreen() {
+        postCaptureContainer = findViewById(R.id.postCaptureContainer)
+        postCaptureImageView = findViewById(R.id.postCaptureImageView)
+        postCaptureVideoView = findViewById(R.id.postCaptureVideoView)
+        postCaptureFilterOverlay = findViewById(R.id.postCaptureFilterOverlay)
+        postCaptureDoodleCanvas = findViewById(R.id.postCaptureDoodleCanvas)
+        postCaptureStickersContainer = findViewById(R.id.postCaptureStickersContainer)
+        postCaptureCaptionContainer = findViewById(R.id.postCaptureCaptionContainer)
+        postCaptureCaptionTv = findViewById(R.id.postCaptureCaptionTv)
+        postCaptureDoodleBar = findViewById(R.id.postCaptureDoodleBar)
+        postCaptureFilterBadge = findViewById(R.id.postCaptureFilterBadge)
+        postCaptureSwipeToast = findViewById(R.id.postCaptureSwipeToast)
+
+        setupDoodleColorPalette()
+
+        // 1. Swipe Geofilter Gesture Detector
+        val swipeDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                if (isDoodleModeActive) return false
+                if (e1 == null) return false
+                val dx = e2.x - e1.x
+                val dy = e2.y - e1.y
+                if (Math.abs(dx) > Math.abs(dy) && Math.abs(velocityX) > 260f) {
+                    val overlay = findViewById<PostCaptureFilterOverlayView>(R.id.postCaptureFilterOverlay) ?: return false
+                    val filter = if (dx < 0 || velocityX < 0) {
+                        overlay.nextFilter()
+                    } else {
+                        overlay.prevFilter()
+                    }
+                    val badgeText = overlay.getFilterNameWithEmoji()
+                    findViewById<TextView>(R.id.postCaptureFilterBadge)?.text = badgeText
+                    showPostCaptureSwipeToast(badgeText)
+                    try { overlay.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP) } catch (_: Exception) {}
+                    return true
+                }
+                return false
+            }
+        })
+
+        postCaptureContainer?.setOnTouchListener { _, event ->
+            if (!isDoodleModeActive) {
+                swipeDetector.onTouchEvent(event)
+                true
+            } else {
+                false
+            }
+        }
+
+        // 2. Discard / Close Button
+        findViewById<FrameLayout>(R.id.postCaptureCloseBtn)?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            exitPostCaptureMode()
+        }
+
+        // 3. 🔤 Caption Action
+        findViewById<FrameLayout>(R.id.postCaptureCaptionBtn)?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            promptCaptionInput()
+        }
+        postCaptureCaptionTv?.setOnClickListener {
+            promptCaptionInput()
+        }
+
+        // Draggable Caption along Y axis
+        var captionDownRawY = 0f
+        var captionStartY = 0f
+        postCaptureCaptionContainer?.setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    captionDownRawY = event.rawY
+                    captionStartY = v.y
+                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val newY = captionStartY + (event.rawY - captionDownRawY)
+                    val parentH = (v.parent as? View)?.height?.toFloat() ?: 1200f
+                    v.y = newY.coerceIn(80f, parentH - v.height - 120f)
+                    true
+                }
+                else -> false
+            }
+        }
+
+        // 4. ✏️ Doodle Pen Action
+        findViewById<FrameLayout>(R.id.postCaptureDoodleBtn)?.setOnClickListener { btn ->
+            btn.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            isDoodleModeActive = !isDoodleModeActive
+            findViewById<DoodleCanvasView>(R.id.postCaptureDoodleCanvas)?.isDrawingEnabled = isDoodleModeActive
+            val doodleBar = findViewById<LinearLayout>(R.id.postCaptureDoodleBar)
+            val filterBadge = findViewById<TextView>(R.id.postCaptureFilterBadge)
+            if (isDoodleModeActive) {
+                doodleBar?.visibility = View.VISIBLE
+                filterBadge?.visibility = View.GONE
+                btn.setBackgroundColor(Color.parseColor("#55FF007F"))
+                showPostCaptureSwipeToast("✏️ Doodle Mode ON: Draw on screen!")
+            } else {
+                doodleBar?.visibility = View.GONE
+                filterBadge?.visibility = View.VISIBLE
+                btn.setBackgroundResource(R.drawable.camera_glass_button_bg)
+            }
+        }
+
+        findViewById<TextView>(R.id.postCaptureDoodleUndoBtn)?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            findViewById<DoodleCanvasView>(R.id.postCaptureDoodleCanvas)?.undo()
+        }
+
+        findViewById<TextView>(R.id.postCaptureDoodleClearBtn)?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            findViewById<DoodleCanvasView>(R.id.postCaptureDoodleCanvas)?.clear()
+            showPostCaptureSwipeToast("🗑️ Canvas Cleared")
+        }
+
+        // 5. 🎭 Stickers Action
+        findViewById<FrameLayout>(R.id.postCaptureStickersBtn)?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            showStickersPicker()
+        }
+
+        // 6. ⚡ Send to Status Maker
+        val onStatusMakerClick = View.OnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            val mediaFile = currentPostCaptureMediaFile ?: return@OnClickListener
+            if (isPostCaptureVideo) {
+                val statusIntent = Intent(this@FunCameraActivity, StatusMakerActivity::class.java).apply {
+                    putExtra(StatusMakerActivity.EXTRA_INITIAL_PHOTO_PATH, mediaFile.absolutePath)
+                }
+                startActivity(statusIntent)
+            } else {
+                Thread {
+                    val composite = compositeCurrentPhoto()
+                    val savedFile = saveBitmapToGallery(composite) ?: mediaFile
+                    runOnUiThread {
+                        val statusIntent = Intent(this@FunCameraActivity, StatusMakerActivity::class.java).apply {
+                            putExtra(StatusMakerActivity.EXTRA_INITIAL_PHOTO_PATH, savedFile.absolutePath)
+                        }
+                        startActivity(statusIntent)
+                    }
+                }.start()
+            }
+        }
+
+        findViewById<FrameLayout>(R.id.postCaptureStatusMakerBtn)?.setOnClickListener(onStatusMakerClick)
+        findViewById<TextView>(R.id.postCaptureSendActionBtn)?.setOnClickListener(onStatusMakerClick)
+
+        // 7. 💾 Save to Gallery
+        findViewById<FrameLayout>(R.id.postCaptureSaveBtn)?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            if (isPostCaptureVideo) {
+                Toast.makeText(this, "💾 Video saved to Gallery!", Toast.LENGTH_SHORT).show()
+            } else {
+                Thread {
+                    val composite = compositeCurrentPhoto()
+                    val saved = saveBitmapToGallery(composite)
+                    runOnUiThread {
+                        if (saved != null) {
+                            Toast.makeText(this, "💾 Photo saved to Gallery!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(this, "Saved to Gallery", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }.start()
+            }
+        }
+
+        // 8. 📤 Share / Send
+        findViewById<FrameLayout>(R.id.postCaptureShareBtn)?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            val mediaFile = currentPostCaptureMediaFile ?: return@setOnClickListener
+            if (isPostCaptureVideo) {
+                shareMediaFile(mediaFile, isVideo = true)
+            } else {
+                Thread {
+                    val composite = compositeCurrentPhoto()
+                    val saved = saveBitmapToGallery(composite) ?: mediaFile
+                    runOnUiThread {
+                        shareMediaFile(saved, isVideo = false)
+                    }
+                }.start()
+            }
+        }
+    }
+
+    private fun setupDoodleColorPalette() {
+        val paletteContainer = findViewById<LinearLayout>(R.id.postCaptureColorPalette) ?: return
+        paletteContainer.removeAllViews()
+
+        val colors = listOf(
+            Pair("#FF007F", "Neon Pink"),
+            Pair("#00F2FE", "Neon Cyan"),
+            Pair("#FFD700", "Neon Gold"),
+            Pair("#00FF66", "Neon Lime"),
+            Pair("#FFFFFF", "Crisp White"),
+            Pair("#FF3B30", "Sunset Red")
+        )
+
+        colors.forEach { (colorHex, name) ->
+            val colorInt = Color.parseColor(colorHex)
+            val circleView = View(this).apply {
+                val size = 28.dpToPx(this@FunCameraActivity)
+                val params = LinearLayout.LayoutParams(size, size).apply {
+                    marginEnd = 8.dpToPx(this@FunCameraActivity)
+                }
+                layoutParams = params
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(colorInt)
+                    setStroke(2.dpToPx(this@FunCameraActivity), Color.WHITE)
+                }
+                isClickable = true
+                isFocusable = true
+                contentDescription = name
+                setOnClickListener {
+                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    findViewById<DoodleCanvasView>(R.id.postCaptureDoodleCanvas)?.currentColor = colorInt
+                    it.animate().scaleX(1.25f).scaleY(1.25f).setDuration(100L).withEndAction {
+                        it.animate().scaleX(1.0f).scaleY(1.0f).setDuration(120L).start()
+                    }.start()
+                    showPostCaptureSwipeToast("✏️ Brush: $name")
+                }
+            }
+            paletteContainer.addView(circleView)
+        }
+    }
+
+    private fun showStickersPicker() {
+        val stickers = listOf(
+            "🔥", "❤️", "✨", "⚡",
+            "😎", "🎂", "💯", "🎉",
+            "👑", "🌸", "🐶", "📸",
+            "🚀", "💫", "🧸", "💎"
+        )
+
+        val grid = GridLayout(this).apply {
+            columnCount = 4
+            setPadding(16.dpToPx(context), 16.dpToPx(context), 16.dpToPx(context), 24.dpToPx(context))
             background = GradientDrawable().apply {
                 cornerRadius = 24.dpToPx(context).toFloat()
                 setColor(Color.parseColor("#1B212C"))
@@ -1122,222 +1549,211 @@ class FunCameraActivity : ComponentActivity() {
             }
         }
 
-        // Title
-        val titleTv = TextView(this).apply {
-            text = if (isVideo) "🎬 Video Recorded in HD!" else "🎉 Studio Photo Captured!"
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            setTypeface(null, Typeface.BOLD)
-        }
-        dialogView.addView(titleTv)
-
-        // Subtitle
-        val subTv = TextView(this).apply {
-            text = "Saved to Gallery. Choose instant action:"
-            textSize = 13f
-            setTextColor(Color.parseColor("#8E9AA8"))
-            setPadding(0, 4.dpToPx(context), 0, 18.dpToPx(context))
-        }
-        dialogView.addView(subTv)
-
         var dialog: AlertDialog? = null
 
-        // 1. Primary Action: Make Status Video (Instant 9:16 Live Preview)
-        val makeStatusBtn = TextView(this).apply {
-            text = "⚡ Make Status Video (9:16 Live Preview)"
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            setPadding(16.dpToPx(context), 14.dpToPx(context), 16.dpToPx(context), 14.dpToPx(context))
-            val bg = GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(Color.parseColor("#FF512F"), Color.parseColor("#DD2476"))
-            ).apply {
-                cornerRadius = 14.dpToPx(context).toFloat()
-            }
-            background = bg
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                dialog?.dismiss()
-                val statusIntent = Intent(this@FunCameraActivity, StatusMakerActivity::class.java).apply {
-                    if (!isVideo) {
-                        putExtra(StatusMakerActivity.EXTRA_INITIAL_PHOTO_PATH, mediaFile.absolutePath)
-                    }
-                }
-                startActivity(statusIntent)
-            }
-        }
-        dialogView.addView(makeStatusBtn)
-
-        // 2. Secondary Action: Edit in Storyline
-        val editStorylineBtn = TextView(this).apply {
-            text = "✂️ Edit in Storyline Video Editor"
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            setPadding(16.dpToPx(context), 14.dpToPx(context), 16.dpToPx(context), 14.dpToPx(context))
-            val params = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = 10.dpToPx(context)
-            }
-            layoutParams = params
-            val bg = GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(Color.parseColor("#0052D4"), Color.parseColor("#4364F7"))
-            ).apply {
-                cornerRadius = 14.dpToPx(context).toFloat()
-            }
-            background = bg
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                dialog?.dismiss()
-                val nextIntent = com.video.engine.EditorLaunchIntents.markForEditorBoot(
-                    this@FunCameraActivity,
-                    Intent(this@FunCameraActivity, com.video.engine.VideoEditorActivity::class.java)
-                ).putExtra(
-                    com.video.engine.EditorLaunchIntents.EXTRA_START_SHELL_ACTION,
-                    com.video.engine.EditorLaunchIntents.START_ACTION_IMPORT
-                ).putExtra(
-                    com.video.engine.EditorLaunchIntents.EXTRA_START_MEDIA_PATH,
-                    mediaFile.absolutePath
-                )
-                startActivity(nextIntent)
-            }
-        }
-        dialogView.addView(editStorylineBtn)
-
-        // Row of 2 buttons: (Photo Editor / Play) + Share
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            val params = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = 10.dpToPx(context)
-            }
-            layoutParams = params
-        }
-
-        val extraBtn = TextView(this).apply {
-            text = if (isVideo) "👁️ Play Video" else "🎨 Photo FX"
-            textSize = 13f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#D0D8E0"))
-            gravity = Gravity.CENTER
-            setPadding(12.dpToPx(context), 12.dpToPx(context), 12.dpToPx(context), 12.dpToPx(context))
-            val params = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = 6.dpToPx(context)
-            }
-            layoutParams = params
-            val bg = GradientDrawable().apply {
-                cornerRadius = 12.dpToPx(context).toFloat()
-                setColor(Color.parseColor("#262C38"))
-                setStroke(1.dpToPx(context), Color.parseColor("#33FFFFFF"))
-            }
-            background = bg
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                dialog?.dismiss()
-                if (isVideo) {
-                    val uri = FileProvider.getUriForFile(
-                        this@FunCameraActivity,
-                        "${applicationContext.packageName}.fileprovider",
-                        mediaFile
-                    )
-                    val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(uri, "video/mp4")
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    startActivity(Intent.createChooser(viewIntent, "Play Video"))
-                } else {
-                    val intent = Intent(this@FunCameraActivity, PhotoEditorActivity::class.java).apply {
-                        putExtra(PhotoEditorActivity.EXTRA_RESUME_PHOTO, false)
-                        putExtra(PhotoEditorActivity.EXTRA_PHOTO_PROJECT_PATH, mediaFile.absolutePath)
-                    }
-                    startActivity(intent)
+        stickers.forEach { emoji ->
+            val tv = TextView(this).apply {
+                text = emoji
+                textSize = 34f
+                gravity = Gravity.CENTER
+                setPadding(12.dpToPx(context), 12.dpToPx(context), 12.dpToPx(context), 12.dpToPx(context))
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    dialog?.dismiss()
+                    addStickerToPreview(emoji)
                 }
             }
+            grid.addView(tv)
         }
-        row.addView(extraBtn)
-
-        val shareBtn = TextView(this).apply {
-            text = "🚀 Share"
-            textSize = 13f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#D0D8E0"))
-            gravity = Gravity.CENTER
-            setPadding(12.dpToPx(context), 12.dpToPx(context), 12.dpToPx(context), 12.dpToPx(context))
-            val params = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = 6.dpToPx(context)
-            }
-            layoutParams = params
-            val bg = GradientDrawable().apply {
-                cornerRadius = 12.dpToPx(context).toFloat()
-                setColor(Color.parseColor("#262C38"))
-                setStroke(1.dpToPx(context), Color.parseColor("#33FFFFFF"))
-            }
-            background = bg
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                dialog?.dismiss()
-                val mime = if (isVideo) "video/mp4" else "image/jpeg"
-                val uri = FileProvider.getUriForFile(
-                    this@FunCameraActivity,
-                    "${applicationContext.packageName}.fileprovider",
-                    mediaFile
-                )
-                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = mime
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                startActivity(Intent.createChooser(shareIntent, "Share"))
-            }
-        }
-        row.addView(shareBtn)
-        dialogView.addView(row)
-
-        // Dismiss / Retake button
-        val retakeBtn = TextView(this).apply {
-            text = "📸 Take Another"
-            textSize = 13f
-            setTextColor(Color.parseColor("#8E9AA8"))
-            gravity = Gravity.CENTER
-            setPadding(12.dpToPx(context), 12.dpToPx(context), 12.dpToPx(context), 8.dpToPx(context))
-            val params = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = 8.dpToPx(context)
-            }
-            layoutParams = params
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                dialog?.dismiss()
-            }
-        }
-        dialogView.addView(retakeBtn)
 
         dialog = AlertDialog.Builder(this)
-            .setView(dialogView)
-            .setCancelable(true)
-            .create()
+            .setTitle("🎭 Select Snapchat Sticker")
+            .setView(grid)
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
 
-        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-        dialog.show()
+    private fun addStickerToPreview(emoji: String) {
+        val container = findViewById<FrameLayout>(R.id.postCaptureStickersContainer) ?: return
+        val sticker = StickerOverlayView(this).apply {
+            setSticker(emoji, 5000)
+            showControls(true)
+            onDeleteRequested = {
+                container.removeView(this)
+            }
+        }
+        val params = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.CENTER
+        }
+        container.addView(sticker, params)
+        showPostCaptureSwipeToast("🎭 Sticker added! Drag & pinch to resize")
+    }
+
+    private fun promptCaptionInput() {
+        val input = EditText(this).apply {
+            setText(currentCaptionText)
+            setSelection(currentCaptionText.length)
+            hint = "Add a caption... (e.g. Vibes 🔥)"
+            setPadding(16.dpToPx(context), 16.dpToPx(context), 16.dpToPx(context), 16.dpToPx(context))
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.GRAY)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("🔤 Add Caption")
+            .setView(input)
+            .setPositiveButton("Done") { _, _ ->
+                val text = input.text.toString().trim()
+                currentCaptionText = text
+                val captionContainer = findViewById<FrameLayout>(R.id.postCaptureCaptionContainer)
+                val captionTv = findViewById<TextView>(R.id.postCaptureCaptionTv)
+                if (text.isNotEmpty()) {
+                    captionTv?.text = text
+                    captionContainer?.visibility = View.VISIBLE
+                } else {
+                    captionContainer?.visibility = View.GONE
+                }
+            }
+            .setNegativeButton("Clear") { _, _ ->
+                currentCaptionText = ""
+                findViewById<FrameLayout>(R.id.postCaptureCaptionContainer)?.visibility = View.GONE
+            }
+            .show()
+    }
+
+    private fun compositeCurrentPhoto(): Bitmap {
+        val base = currentPostCaptureBitmap ?: run {
+            val file = currentPostCaptureMediaFile ?: return Bitmap.createBitmap(1080, 1920, Bitmap.Config.ARGB_8888)
+            BitmapFactory.decodeFile(file.absolutePath)
+        }
+
+        val result = Bitmap.createBitmap(base.width, base.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(result)
+
+        val basePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        findViewById<PostCaptureFilterOverlayView>(R.id.postCaptureFilterOverlay)?.getColorFilterForBase()?.let {
+            basePaint.colorFilter = it
+        }
+        canvas.drawBitmap(base, 0f, 0f, basePaint)
+
+        val bw = base.width.toFloat()
+        val bh = base.height.toFloat()
+
+        // 1. Geofilter
+        findViewById<PostCaptureFilterOverlayView>(R.id.postCaptureFilterOverlay)?.drawGeofilter(canvas, bw, bh)
+
+        // 2. Doodle canvas
+        findViewById<DoodleCanvasView>(R.id.postCaptureDoodleCanvas)?.let { doodle ->
+            val scaleX = bw / doodle.width.coerceAtLeast(1)
+            val scaleY = bh / doodle.height.coerceAtLeast(1)
+            canvas.save()
+            canvas.scale(scaleX, scaleY)
+            doodle.renderStrokes(canvas)
+            canvas.restore()
+        }
+
+        // 3. Caption
+        val captionContainer = findViewById<FrameLayout>(R.id.postCaptureCaptionContainer)
+        if (captionContainer?.visibility == View.VISIBLE && currentCaptionText.isNotEmpty()) {
+            val containerH = findViewById<FrameLayout>(R.id.postCaptureContainer)?.height?.toFloat() ?: bh
+            val relY = if (containerH > 0) captionContainer.y / containerH else 0.5f
+            val captionCenterY = relY * bh + (captionContainer.height / 2f) * (bh / containerH)
+
+            val barHeight = 52f * resources.displayMetrics.density * (bh / 1920f).coerceAtLeast(1f)
+            val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.parseColor("#99000000")
+                style = Paint.Style.FILL
+            }
+            canvas.drawRect(0f, captionCenterY - barHeight / 2f, bw, captionCenterY + barHeight / 2f, barPaint)
+
+            val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = 24f * resources.displayMetrics.density * (bw / 1080f).coerceAtLeast(1f)
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textAlign = Paint.Align.CENTER
+            }
+            val textY = captionCenterY - (textPaint.descent() + textPaint.ascent()) / 2f
+            canvas.drawText(currentCaptionText, bw / 2f, textY, textPaint)
+        }
+
+        // 4. Stickers
+        val stickersContainer = findViewById<FrameLayout>(R.id.postCaptureStickersContainer)
+        if (stickersContainer != null) {
+            val sw = stickersContainer.width.toFloat().coerceAtLeast(1f)
+            val sh = stickersContainer.height.toFloat().coerceAtLeast(1f)
+            val scaleX = bw / sw
+            val scaleY = bh / sh
+
+            for (i in 0 until stickersContainer.childCount) {
+                val child = stickersContainer.getChildAt(i)
+                if (child is StickerOverlayView) {
+                    val cx = (child.x + child.width / 2f) * scaleX
+                    val cy = (child.y + child.height / 2f) * scaleY
+                    val stickerScale = child.scaleX * scaleX
+                    val stickerRotation = child.rotation
+                    val emoji = child.stickerText
+
+                    if (emoji.isNotEmpty()) {
+                        canvas.save()
+                        canvas.translate(cx, cy)
+                        canvas.rotate(stickerRotation)
+                        canvas.scale(stickerScale, stickerScale)
+
+                        val emojiPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            textSize = 36f * resources.displayMetrics.density
+                            textAlign = Paint.Align.CENTER
+                        }
+                        val yPos = -(emojiPaint.descent() + emojiPaint.ascent()) / 2f
+                        canvas.drawText(emoji, 0f, yPos, emojiPaint)
+                        canvas.restore()
+                    }
+                }
+            }
+        }
+
+        return result
+    }
+
+    private fun shareMediaFile(file: File, isVideo: Boolean) {
+        val uri = FileProvider.getUriForFile(
+            this,
+            "${applicationContext.packageName}.fileprovider",
+            file
+        )
+        val mime = if (isVideo) "video/mp4" else "image/jpeg"
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = mime
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(shareIntent, "Share Snap via"))
+    }
+
+    private fun showPostCaptureSwipeToast(text: String) {
+        val toast = findViewById<TextView>(R.id.postCaptureSwipeToast) ?: return
+        toast.text = text
+        toast.visibility = View.VISIBLE
+        toast.alpha = 1.0f
+        toast.scaleX = 0.85f
+        toast.scaleY = 0.85f
+        toast.animate()?.cancel()
+        toast.animate()
+            ?.scaleX(1.0f)
+            ?.scaleY(1.0f)
+            ?.setDuration(160L)
+            ?.withEndAction {
+                toast.animate()
+                    ?.alpha(0f)
+                    ?.setStartDelay(1000L)
+                    ?.setDuration(300L)
+                    ?.withEndAction { toast.visibility = View.GONE }
+                    ?.start()
+            }
+            ?.start()
     }
 
     private fun playShutterSound() {
@@ -1425,14 +1841,74 @@ class FunCameraActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private fun setupTopBarControls() {
-        // 1. Live BGM Music Toggle & Picker
+    private fun setupVerticalToolRail() {
+        // 1. 🔄 Flip Camera (Smooth 3D Y-Axis Flip)
+        findViewById<FrameLayout>(R.id.cameraFlipBtn)?.setOnClickListener {
+            if (!isRecordingVideo) {
+                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                val flipIcon = findViewById<ImageView>(R.id.cameraFlipIcon) ?: it
+                flipIcon.animate()
+                    .rotationYBy(180f)
+                    .scaleX(0.82f)
+                    .scaleY(0.82f)
+                    .setDuration(180L)
+                    .withEndAction {
+                        flipIcon.animate().scaleX(1.0f).scaleY(1.0f).setDuration(160L).start()
+                    }
+                    .start()
+                flipCamera()
+            }
+        }
+
+        // 2. 💡 Ring Light / Flash (Off -> Torch -> Warm Amber Glow)
+        val flashBtn = findViewById<TextView>(R.id.cameraNightFlashBtn)
+        flashBtn?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            flashModeState = (flashModeState + 1) % 3
+            when (flashModeState) {
+                1 -> {
+                    overlayView.isNightFlashEnabled = true
+                    val windowParams = window.attributes
+                    previousScreenBrightness = windowParams.screenBrightness
+                    windowParams.screenBrightness = 1.0f
+                    window.attributes = windowParams
+
+                    flashBtn.setTextColor(Color.parseColor("#FFD700"))
+                    flashBtn.setBackgroundColor(Color.parseColor("#55FFD700"))
+                    setTorchMode(true)
+                    val msg = if (isFrontFacing) "💡 Warm Amber Selfie Glow ON" else "💡 Camera Torch ON"
+                    showSwipeToast(msg)
+                }
+                2 -> {
+                    overlayView.isNightFlashEnabled = true
+                    warmAmberFlashView?.visibility = View.VISIBLE
+                    warmAmberFlashView?.alpha = 0.45f
+                    flashBtn.setTextColor(Color.parseColor("#FFA000"))
+                    flashBtn.setBackgroundColor(Color.parseColor("#55FFA000"))
+                    showSwipeToast("💡 Warm Amber Studio Glow")
+                }
+                else -> {
+                    overlayView.isNightFlashEnabled = false
+                    warmAmberFlashView?.visibility = View.GONE
+                    setTorchMode(false)
+                    val windowParams = window.attributes
+                    windowParams.screenBrightness = if (previousScreenBrightness >= 0f) previousScreenBrightness else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                    window.attributes = windowParams
+
+                    flashBtn.setTextColor(Color.WHITE)
+                    flashBtn.setBackgroundResource(R.drawable.camera_glass_button_bg)
+                    showSwipeToast("💡 Flash OFF")
+                }
+            }
+        }
+
+        // 3. 🎵 Add Music
         cameraMusicBtn?.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             showMusicSelectionDialog()
         }
 
-        // 2. Hands-Free Countdown Timer Toggle (Off -> 3s -> 10s -> Off)
+        // 4. ⏱️ Hands-Free Countdown Timer (Off -> 3s -> 10s)
         cameraTimerBtn?.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             countdownSeconds = when (countdownSeconds) {
@@ -1445,34 +1921,59 @@ class FunCameraActivity : ComponentActivity() {
             showSwipeToast(msg)
         }
 
-        val nightFlashBtn = findViewById<TextView>(R.id.cameraNightFlashBtn)
-        nightFlashBtn?.setOnClickListener {
+        // 5. 🏎️ Video Record Speed Toggle (0.5x, 1x, 2x)
+        cameraSpeedBtn?.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-            val newState = !overlayView.isNightFlashEnabled
-            overlayView.isNightFlashEnabled = newState
-
-            // Front Screen Warm Selfie Glow brightness integration
-            val windowParams = window.attributes
-            if (newState) {
-                previousScreenBrightness = windowParams.screenBrightness
-                windowParams.screenBrightness = 1.0f
-                nightFlashBtn.setTextColor(Color.parseColor("#FFD700"))
-                nightFlashBtn.setBackgroundColor(Color.parseColor("#55FFD700"))
-            } else {
-                windowParams.screenBrightness = if (previousScreenBrightness >= 0f) previousScreenBrightness else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-                nightFlashBtn.setTextColor(Color.WHITE)
-                nightFlashBtn.setBackgroundResource(R.drawable.camera_glass_button_bg)
+            videoRecordSpeed = when (videoRecordSpeed) {
+                1.0f -> 0.5f
+                0.5f -> 2.0f
+                else -> 1.0f
             }
-            window.attributes = windowParams
-
-            val msg = if (newState) {
-                if (isFrontFacing) "💡 Warm Amber Selfie Glow ON" else "💡 Night Fill Light ON"
+            val label = when (videoRecordSpeed) {
+                0.5f -> "0.5x"
+                2.0f -> "2x"
+                else -> "1x"
+            }
+            cameraSpeedBtn?.text = label
+            if (videoRecordSpeed != 1.0f) {
+                cameraSpeedBtn?.setTextColor(Color.parseColor("#00F2FE"))
+                cameraSpeedBtn?.setBackgroundColor(Color.parseColor("#5500F2FE"))
             } else {
-                "💡 Night Light OFF"
+                cameraSpeedBtn?.setTextColor(Color.WHITE)
+                cameraSpeedBtn?.setBackgroundResource(R.drawable.camera_glass_button_bg)
+            }
+            val msg = when (videoRecordSpeed) {
+                0.5f -> "🏎️ 0.5x Slow-Motion Recording"
+                2.0f -> "🏎️ 2x Fast-Forward Recording"
+                else -> "🏎️ 1x Normal Speed"
             }
             showSwipeToast(msg)
         }
 
+        // 6. ✨ Beauty Glow Filter Toggle & Intensity
+        cameraBeautyBtn?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            val beautyProfiles = listOf("NORMAL", "BEAUTY", "BEAUTY_PEACH", "BEAUTY_PORCELAIN")
+            val currIdx = beautyProfiles.indexOf(overlayView.filterStyle).coerceAtLeast(0)
+            val nextIdx = (currIdx + 1) % beautyProfiles.size
+            overlayView.filterStyle = beautyProfiles[nextIdx]
+            if (overlayView.filterStyle != "NORMAL") {
+                cameraBeautyBtn?.setTextColor(Color.parseColor("#FF69B4"))
+                cameraBeautyBtn?.setBackgroundColor(Color.parseColor("#55FF69B4"))
+            } else {
+                cameraBeautyBtn?.setTextColor(Color.WHITE)
+                cameraBeautyBtn?.setBackgroundResource(R.drawable.camera_glass_button_bg)
+            }
+            val msg = when (overlayView.filterStyle) {
+                "BEAUTY" -> "✨ Beauty Radiance Soft Glow"
+                "BEAUTY_PEACH" -> "🌸 Beauty Peach Blush Glow"
+                "BEAUTY_PORCELAIN" -> "💎 Beauty Porcelain Smooth"
+                else -> "✨ Beauty Filter OFF"
+            }
+            showSwipeToast(msg)
+        }
+
+        // 7. ▦ Rule-of-Thirds Grid Toggle
         val gridBtn = findViewById<TextView>(R.id.cameraGridBtn)
         gridBtn?.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
@@ -1486,30 +1987,23 @@ class FunCameraActivity : ComponentActivity() {
             }
             showSwipeToast(if (overlayView.isGridEnabled) "▦ 3x3 Grid ON" else "▦ Grid OFF")
         }
+    }
 
-        val styleBtn = findViewById<TextView>(R.id.cameraFilterStyleBtn)
-        styleBtn?.setOnClickListener {
-            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-            val styles = listOf("NORMAL", "BEAUTY", "VHS_90S", "CYBERPUNK", "WARM_SUNSET")
-            val currIdx = styles.indexOf(overlayView.filterStyle).coerceAtLeast(0)
-            val nextIdx = (currIdx + 1) % styles.size
-            overlayView.filterStyle = styles[nextIdx]
-            styleBtn.text = when (styles[nextIdx]) {
-                "BEAUTY" -> "🌸 BEAUTY"
-                "VHS_90S" -> "📼 VHS"
-                "CYBERPUNK" -> "⚡ CYBER"
-                "WARM_SUNSET" -> "🌅 SUNSET"
-                else -> "🎨 FX"
+    private fun setTorchMode(enable: Boolean) {
+        if (!isFrontFacing) {
+            val builder = previewRequestBuilder ?: return
+            val session = captureSession ?: return
+            try {
+                builder.set(CaptureRequest.FLASH_MODE, if (enable) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF)
+                session.setRepeatingRequest(builder.build(), null, backgroundHandler)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to toggle torch", e)
             }
-            val labels = mapOf(
-                "NORMAL" to "🎨 Normal Lens",
-                "BEAUTY" to "🌸 Beauty Soft Glow",
-                "VHS_90S" to "📼 90s VHS Camcorder",
-                "CYBERPUNK" to "⚡ Cyberpunk Neon",
-                "WARM_SUNSET" to "🌅 Golden Sunset"
-            )
-            showSwipeToast(labels[overlayView.filterStyle] ?: overlayView.filterStyle)
         }
+    }
+
+    private fun setupTopBarControls() {
+        // Handled via setupVerticalToolRail()
     }
 
     private fun showMusicSelectionDialog() {
@@ -1546,21 +2040,21 @@ class FunCameraActivity : ComponentActivity() {
         activeBgmTitle = title
         activeBgmIsAsset = isAsset
 
-        val btn = cameraMusicBtn ?: return
+        val btn = cameraMusicBtn
+        val activeBadge = cameraActiveSoundBadge
         if (path != null && title != null) {
             val shortTitle = if (title.length > 8) title.take(7) + "…" else title
-            btn.text = "🎵 $shortTitle"
-            btn.setTextColor(Color.WHITE)
-            val bg = GradientDrawable().apply {
-                cornerRadius = 19.dpToPx(this@FunCameraActivity).toFloat()
-                setColor(Color.parseColor("#FF1053")) // Vibrant energetic pink/red BGM badge
-            }
-            btn.background = bg
+            btn?.text = "🎵"
+            btn?.setTextColor(Color.parseColor("#FF007F"))
+            btn?.setBackgroundColor(Color.parseColor("#55FF007F"))
+            activeBadge?.visibility = View.VISIBLE
+            activeBadge?.text = "🎵 $shortTitle"
             showSwipeToast("🎵 Live BGM: $title")
         } else {
-            btn.text = "🎵 Music"
-            btn.setTextColor(Color.WHITE)
-            btn.setBackgroundResource(R.drawable.camera_mode_pill_bg)
+            btn?.text = "🎵"
+            btn?.setTextColor(Color.WHITE)
+            btn?.setBackgroundResource(R.drawable.camera_glass_button_bg)
+            activeBadge?.visibility = View.GONE
             showSwipeToast("🎵 BGM Muted")
         }
     }
@@ -1600,16 +2094,11 @@ class FunCameraActivity : ComponentActivity() {
     private fun updateTimerBtnUi() {
         val btn = cameraTimerBtn ?: return
         if (countdownSeconds > 0) {
-            btn.text = "⏱️ ${countdownSeconds}s"
+            btn.text = "${countdownSeconds}s"
             btn.setTextColor(Color.parseColor("#FFD700"))
-            val bg = GradientDrawable().apply {
-                cornerRadius = 19.dpToPx(this@FunCameraActivity).toFloat()
-                setColor(Color.parseColor("#44FFD700"))
-                setStroke(1.dpToPx(this@FunCameraActivity), Color.parseColor("#FFD700"))
-            }
-            btn.background = bg
+            btn.setBackgroundColor(Color.parseColor("#55FFD700"))
         } else {
-            btn.text = "⏱️ Off"
+            btn.text = "⏱️"
             btn.setTextColor(Color.WHITE)
             btn.setBackgroundResource(R.drawable.camera_glass_button_bg)
         }

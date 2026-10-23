@@ -112,6 +112,9 @@ class StickerOverlayView(context: Context) : FrameLayout(context) {
         deleteButton.setOnClickListener { onDeleteRequested?.invoke() }
     }
 
+    val stickerText: String
+        get() = label.text.toString()
+
     fun setSticker(text: String, durationMs: Int) {
         label.text = text
         contentDescription = "Sticker $text $durationMs"

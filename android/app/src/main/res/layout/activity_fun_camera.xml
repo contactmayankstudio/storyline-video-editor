@@ -48,149 +48,187 @@
                 app:tint="#FFFFFF" />
         </FrameLayout>
 
-        <!-- Top Tool Actions (Music, Timer, Flash, Grid, Filter FX) -->
-        <HorizontalScrollView
+        <!-- Lens Name Badge / Music sound badge centered -->
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="6dp"
-            android:layout_marginEnd="6dp"
-            android:overScrollMode="never"
-            android:scrollbars="none">
+            android:gravity="center"
+            android:orientation="horizontal">
 
-            <LinearLayout
+            <TextView
+                android:id="@+id/cameraActiveSoundBadge"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/launch_count_chip_background"
+                android:paddingStart="10dp"
+                android:paddingTop="5dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="5dp"
+                android:text="🎵 No Sound"
+                android:textColor="#CCFFFFFF"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
 
-                <!-- Live BGM Music Overlay Toggle -->
-                <TextView
-                    android:id="@+id/cameraMusicBtn"
-                    android:layout_width="wrap_content"
-                    android:layout_height="38dp"
-                    android:background="@drawable/camera_mode_pill_bg"
-                    android:gravity="center"
-                    android:paddingStart="12dp"
-                    android:paddingEnd="12dp"
-                    android:text="🎵 Music"
-                    android:textColor="#FFFFFF"
-                    android:textSize="12sp"
-                    android:textStyle="bold"
-                    android:clickable="true"
-                    android:focusable="true" />
+            <TextView
+                android:id="@+id/cameraLensNameBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/launch_count_chip_background"
+                android:paddingStart="12dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="6dp"
+                android:text="✨ Beauty Glow"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold" />
 
-                <!-- Hands-Free Countdown Timer (Off -> 3s -> 10s) -->
-                <TextView
-                    android:id="@+id/cameraTimerBtn"
-                    android:layout_width="wrap_content"
-                    android:layout_height="38dp"
-                    android:layout_marginStart="6dp"
-                    android:background="@drawable/camera_glass_button_bg"
-                    android:gravity="center"
-                    android:paddingStart="10dp"
-                    android:paddingEnd="10dp"
-                    android:text="⏱️ Off"
-                    android:textColor="#FFFFFF"
-                    android:textSize="12sp"
-                    android:textStyle="bold"
-                    android:clickable="true"
-                    android:focusable="true" />
+            <!-- Video Recording Timer Badge -->
+            <TextView
+                android:id="@+id/cameraRecordingTimer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/launch_count_chip_background"
+                android:paddingStart="12dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="6dp"
+                android:text="🔴 REC 00:00"
+                android:textColor="#FF4444"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+        </LinearLayout>
 
-                <!-- Night Flash Toggle (Warm Amber Studio Glow) -->
-                <TextView
-                    android:id="@+id/cameraNightFlashBtn"
-                    android:layout_width="38dp"
-                    android:layout_height="38dp"
-                    android:layout_marginStart="6dp"
-                    android:background="@drawable/camera_glass_button_bg"
-                    android:gravity="center"
-                    android:text="💡"
-                    android:textSize="16sp"
-                    android:clickable="true"
-                    android:focusable="true" />
+        <!-- Hidden legacy reference anchor for compatibility -->
+        <View
+            android:id="@+id/cameraTopBarSpacer"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:visibility="invisible" />
+    </LinearLayout>
 
-                <!-- Grid Toggle -->
-                <TextView
-                    android:id="@+id/cameraGridBtn"
-                    android:layout_width="38dp"
-                    android:layout_height="38dp"
-                    android:layout_marginStart="6dp"
-                    android:background="@drawable/camera_glass_button_bg"
-                    android:gravity="center"
-                    android:text="▦"
-                    android:textColor="#FFFFFF"
-                    android:textSize="16sp"
-                    android:clickable="true"
-                    android:focusable="true" />
+    <!-- Snapchat Right-Side Vertical Glass Tool Rail -->
+    <LinearLayout
+        android:id="@+id/cameraRightToolRail"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end|top"
+        android:layout_marginTop="64dp"
+        android:layout_marginEnd="12dp"
+        android:background="@drawable/camera_glass_rail_bg"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingStart="5dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="5dp"
+        android:paddingBottom="8dp"
+        android:elevation="12dp">
 
-                <!-- Filter Style (Normal, Beauty, VHS 90s, Cyberpunk, Sunset) -->
-                <TextView
-                    android:id="@+id/cameraFilterStyleBtn"
-                    android:layout_width="wrap_content"
-                    android:layout_height="38dp"
-                    android:layout_marginStart="6dp"
-                    android:background="@drawable/camera_mode_pill_bg"
-                    android:gravity="center"
-                    android:paddingStart="10dp"
-                    android:paddingEnd="10dp"
-                    android:text="🎨 FX"
-                    android:textColor="#FFFFFF"
-                    android:textSize="12sp"
-                    android:textStyle="bold"
-                    android:clickable="true"
-                    android:focusable="true" />
-            </LinearLayout>
-        </HorizontalScrollView>
-
-        <!-- Lens Name Badge -->
-        <TextView
-            android:id="@+id/cameraLensNameBadge"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:background="@drawable/launch_count_chip_background"
-            android:paddingStart="12dp"
-            android:paddingTop="6dp"
-            android:paddingEnd="12dp"
-            android:paddingBottom="6dp"
-            android:text="✨ Beauty Glow"
-            android:textColor="#FFFFFF"
-            android:textSize="12sp"
-            android:textStyle="bold" />
-
-        <!-- Video Recording Timer Badge -->
-        <TextView
-            android:id="@+id/cameraRecordingTimer"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:background="@drawable/launch_count_chip_background"
-            android:paddingStart="12dp"
-            android:paddingTop="6dp"
-            android:paddingEnd="12dp"
-            android:paddingBottom="6dp"
-            android:text="🔴 REC 00:00"
-            android:textColor="#FF4444"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:visibility="gone" />
-
+        <!-- 1. 🔄 Flip Camera (Smooth 3D Y-Axis Flip) -->
         <FrameLayout
             android:id="@+id/cameraFlipBtn"
             android:layout_width="42dp"
             android:layout_height="42dp"
-            android:layout_marginStart="8dp"
+            android:layout_marginBottom="8dp"
             android:background="@drawable/camera_glass_button_bg"
             android:clickable="true"
             android:focusable="true">
 
             <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
+                android:id="@+id/cameraFlipIcon"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
                 android:layout_gravity="center"
                 android:contentDescription="Flip Camera"
                 android:src="@drawable/ic_rotate_mirror"
                 app:tint="#FFFFFF" />
         </FrameLayout>
+
+        <!-- 2. 💡 Ring Light / Flash (Off -> Torch -> Warm Amber Glow) -->
+        <TextView
+            android:id="@+id/cameraNightFlashBtn"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/camera_glass_button_bg"
+            android:gravity="center"
+            android:text="💡"
+            android:textSize="18sp"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <!-- 3. 🎵 Add Music (Trending sound selector with sync speaker play) -->
+        <TextView
+            android:id="@+id/cameraMusicBtn"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/camera_glass_button_bg"
+            android:gravity="center"
+            android:text="🎵"
+            android:textSize="18sp"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <!-- 4. ⏱️ Hands-Free Countdown Timer (Off -> 3s -> 10s) -->
+        <TextView
+            android:id="@+id/cameraTimerBtn"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/camera_glass_button_bg"
+            android:gravity="center"
+            android:text="⏱️"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <!-- 5. 🏎️ Video Record Speed Toggle (0.5x, 1x, 2x) -->
+        <TextView
+            android:id="@+id/cameraSpeedBtn"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/camera_glass_button_bg"
+            android:gravity="center"
+            android:text="1x"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <!-- 6. ✨ Beauty Glow (1-tap skin smooth & beauty filter) -->
+        <TextView
+            android:id="@+id/cameraBeautyBtn"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/camera_glass_button_bg"
+            android:gravity="center"
+            android:text="✨"
+            android:textSize="18sp"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <!-- 7. ▦ Rule-of-Thirds Grid Toggle -->
+        <TextView
+            android:id="@+id/cameraGridBtn"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:background="@drawable/camera_glass_button_bg"
+            android:gravity="center"
+            android:text="▦"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:clickable="true"
+            android:focusable="true" />
     </LinearLayout>
 
     <!-- Bottom Controls Container -->
@@ -202,7 +240,7 @@
         android:background="@drawable/camera_bottom_scrim"
         android:gravity="center_horizontal"
         android:orientation="vertical"
-        android:paddingTop="16dp"
+        android:paddingTop="12dp"
         android:paddingBottom="24dp">
 
         <!-- Category Filter Pills (All, Comedy, Glasses, Hats, Animals, Effects) -->
@@ -220,7 +258,7 @@
                 android:orientation="horizontal"
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
-                android:paddingBottom="8dp" />
+                android:paddingBottom="6dp" />
         </HorizontalScrollView>
 
         <!-- Snapchat Style Circular Lens Carousel -->
@@ -239,7 +277,7 @@
                 android:orientation="horizontal"
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
-                android:paddingBottom="8dp" />
+                android:paddingBottom="6dp" />
         </HorizontalScrollView>
 
         <!-- Photo / Video Mode Selector Switch -->
@@ -250,8 +288,8 @@
             android:orientation="horizontal"
             android:background="@drawable/camera_mode_pill_bg"
             android:padding="3dp"
-            android:layout_marginTop="4dp"
-            android:layout_marginBottom="10dp">
+            android:layout_marginTop="2dp"
+            android:layout_marginBottom="8dp">
 
             <TextView
                 android:id="@+id/cameraPhotoModeBtn"
@@ -286,12 +324,54 @@
                 android:focusable="true" />
         </LinearLayout>
 
-        <!-- Snapchat-Style Pro Shutter Button -->
-        <com.video.engine.camera.CameraShutterButton
-            android:id="@+id/cameraShutterButton"
-            android:layout_width="90dp"
-            android:layout_height="90dp"
-            android:layout_marginBottom="4dp" />
+        <!-- Shutter Button & Padlock Lock Target Container -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <!-- Snapchat-Style Pro Shutter Button Centered -->
+            <com.video.engine.camera.CameraShutterButton
+                android:id="@+id/cameraShutterButton"
+                android:layout_width="92dp"
+                android:layout_height="92dp"
+                android:layout_gravity="center"
+                android:layout_marginBottom="4dp" />
+
+            <!-- Slide-to-Lock Padlock Target Floating to the Right -->
+            <LinearLayout
+                android:id="@+id/cameraLockTarget"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical|end"
+                android:layout_marginEnd="36dp"
+                android:background="@drawable/camera_glass_button_bg"
+                android:gravity="center"
+                android:orientation="horizontal"
+                android:paddingStart="12dp"
+                android:paddingTop="8dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="8dp"
+                android:alpha="0"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/cameraLockIcon"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🔒"
+                    android:textSize="20sp" />
+
+                <TextView
+                    android:id="@+id/cameraLockLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:text="Lock"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </FrameLayout>
     </LinearLayout>
 
     <!-- Floating Animated Lens Name Pill -->
@@ -402,6 +482,352 @@
             android:paddingTop="6dp"
             android:paddingEnd="14dp"
             android:paddingBottom="6dp" />
+    </FrameLayout>
+
+    <!-- Post-Capture Snapchat Preview Screen -->
+    <FrameLayout
+        android:id="@+id/postCaptureContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#000000"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <!-- Background Media Preview -->
+        <ImageView
+            android:id="@+id/postCaptureImageView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="Captured Photo Preview"
+            android:scaleType="centerCrop"
+            android:visibility="gone" />
+
+        <VideoView
+            android:id="@+id/postCaptureVideoView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="center"
+            android:visibility="gone" />
+
+        <!-- Swipe Geofilter Overlay View (Clock, Date, B&W Noir, Sunset, Cyberpunk) -->
+        <com.video.engine.camera.PostCaptureFilterOverlayView
+            android:id="@+id/postCaptureFilterOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <!-- Interactive Neon Doodle Canvas -->
+        <com.video.engine.camera.DoodleCanvasView
+            android:id="@+id/postCaptureDoodleCanvas"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <!-- Interactive Floating Stickers Container -->
+        <FrameLayout
+            android:id="@+id/postCaptureStickersContainer"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <!-- Draggable Bold Caption Container -->
+        <FrameLayout
+            android:id="@+id/postCaptureCaptionContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/postCaptureCaptionTv"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#99000000"
+                android:gravity="center"
+                android:paddingStart="24dp"
+                android:paddingTop="12dp"
+                android:paddingEnd="24dp"
+                android:paddingBottom="12dp"
+                android:text="Tap to Add Caption"
+                android:textColor="#FFFFFF"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+        </FrameLayout>
+
+        <!-- Top Bar: Close Button, Doodle Palette, Filter Badge -->
+        <LinearLayout
+            android:id="@+id/postCaptureTopBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/camera_top_scrim"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingTop="16dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="12dp">
+
+            <!-- Discard & Return Button -->
+            <FrameLayout
+                android:id="@+id/postCaptureCloseBtn"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:background="@drawable/camera_glass_button_bg"
+                android:clickable="true"
+                android:focusable="true">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="✕"
+                    android:textColor="#FFFFFF"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+            </FrameLayout>
+
+            <!-- Doodle Controls Bar (Visible when Doodle Pen is active) -->
+            <LinearLayout
+                android:id="@+id/postCaptureDoodleBar"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <!-- Undo Button -->
+                <TextView
+                    android:id="@+id/postCaptureDoodleUndoBtn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:background="@drawable/camera_glass_button_bg"
+                    android:gravity="center"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:text="⮌ Undo"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <!-- Clear Button -->
+                <TextView
+                    android:id="@+id/postCaptureDoodleClearBtn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/camera_glass_button_bg"
+                    android:gravity="center"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:text="🗑️"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <!-- Color Palette Swatches Container -->
+                <HorizontalScrollView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="6dp"
+                    android:scrollbars="none"
+                    android:overScrollMode="never">
+
+                    <LinearLayout
+                        android:id="@+id/postCaptureColorPalette"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal" />
+                </HorizontalScrollView>
+            </LinearLayout>
+
+            <!-- Filter Badge Pill centered (when doodle bar is hidden) -->
+            <TextView
+                android:id="@+id/postCaptureFilterBadge"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="✨ Original (Swipe for Geofilters)"
+                android:textColor="#CCFFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- Right-Side Vertical Glass Action Rail (Snapchat Style) -->
+        <LinearLayout
+            android:id="@+id/postCaptureActionRail"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end|top"
+            android:layout_marginTop="72dp"
+            android:layout_marginEnd="12dp"
+            android:background="@drawable/camera_glass_rail_bg"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:paddingStart="5dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="5dp"
+            android:paddingBottom="8dp"
+            android:elevation="14dp">
+
+            <!-- 🔤 Add Caption -->
+            <FrameLayout
+                android:id="@+id/postCaptureCaptionBtn"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginBottom="10dp"
+                android:background="@drawable/camera_glass_button_bg"
+                android:clickable="true"
+                android:focusable="true">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="🔤"
+                    android:textSize="20sp" />
+            </FrameLayout>
+
+            <!-- ✏️ Doodle Pen -->
+            <FrameLayout
+                android:id="@+id/postCaptureDoodleBtn"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginBottom="10dp"
+                android:background="@drawable/camera_glass_button_bg"
+                android:clickable="true"
+                android:focusable="true">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="✏️"
+                    android:textSize="20sp" />
+            </FrameLayout>
+
+            <!-- 🎭 Stickers -->
+            <FrameLayout
+                android:id="@+id/postCaptureStickersBtn"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginBottom="10dp"
+                android:background="@drawable/camera_glass_button_bg"
+                android:clickable="true"
+                android:focusable="true">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="🎭"
+                    android:textSize="20sp" />
+            </FrameLayout>
+
+            <!-- ⚡ Send to Status Maker -->
+            <FrameLayout
+                android:id="@+id/postCaptureStatusMakerBtn"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginBottom="10dp"
+                android:background="@drawable/camera_glass_button_bg"
+                android:clickable="true"
+                android:focusable="true">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="⚡"
+                    android:textSize="20sp" />
+            </FrameLayout>
+
+            <!-- 💾 Save to Gallery -->
+            <FrameLayout
+                android:id="@+id/postCaptureSaveBtn"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginBottom="10dp"
+                android:background="@drawable/camera_glass_button_bg"
+                android:clickable="true"
+                android:focusable="true">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="💾"
+                    android:textSize="20sp" />
+            </FrameLayout>
+
+            <!-- 📤 Share / Send -->
+            <FrameLayout
+                android:id="@+id/postCaptureShareBtn"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="@drawable/camera_glass_button_bg"
+                android:clickable="true"
+                android:focusable="true">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="📤"
+                    android:textSize="20sp" />
+            </FrameLayout>
+        </LinearLayout>
+
+        <!-- Bottom Quick Send Bar -->
+        <LinearLayout
+            android:id="@+id/postCaptureBottomBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:background="@drawable/camera_bottom_scrim"
+            android:gravity="center"
+            android:orientation="horizontal"
+            android:paddingStart="24dp"
+            android:paddingTop="16dp"
+            android:paddingEnd="24dp"
+            android:paddingBottom="24dp">
+
+            <TextView
+                android:id="@+id/postCaptureSendActionBtn"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:background="@drawable/camera_mode_pill_bg"
+                android:gravity="center"
+                android:text="⚡ Make Status Video (9:16 Live Preview)"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:elevation="6dp" />
+        </LinearLayout>
+
+        <!-- Floating Filter Swipe Pill -->
+        <TextView
+            android:id="@+id/postCaptureSwipeToast"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:background="@drawable/launch_count_chip_background"
+            android:paddingStart="22dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="22dp"
+            android:paddingBottom="10dp"
+            android:text="✨ Filter"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:elevation="16dp"
+            android:visibility="gone" />
+
     </FrameLayout>
 
 </FrameLayout>

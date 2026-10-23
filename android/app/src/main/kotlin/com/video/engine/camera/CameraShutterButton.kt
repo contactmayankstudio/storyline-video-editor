@@ -45,7 +45,7 @@ class CameraShutterButton @JvmOverloads constructor(
     var isLocked: Boolean = false
         private set
 
-    var maxRecordingDurationMs: Long = 15_000L
+    var maxRecordingDurationMs: Long = 30_000L
     private var recordingStartTime: Long = 0L
 
     // Progress [0..1]
@@ -60,6 +60,7 @@ class CameraShutterButton @JvmOverloads constructor(
     var onRecordStart: (() -> Unit)? = null
     var onRecordStop: (() -> Unit)? = null
     var onRecordLock: (() -> Unit)? = null
+    var onDragLockProgress: ((progress: Float) -> Unit)? = null
     var onDragZoom: ((zoomFraction: Float) -> Unit)? = null
 
     // Touch tracking for Drag-to-Zoom & Slide-to-Lock
@@ -126,15 +127,14 @@ class CameraShutterButton @JvmOverloads constructor(
         val padding = stroke / 2f + 2f * resources.displayMetrics.density
         ringBounds.set(padding, padding, w - padding, h - padding)
 
-        // Gradient: Vibrant Snapchat/Storyline Sunset to Neon Rose
+        // Gradient: Vibrant Snapchat Red/Sunset Recording Ring
         val colors = intArrayOf(
-            Color.parseColor("#FF007F"), // Neon Rose
-            Color.parseColor("#FF5E3A"), // Coral Orange
-            Color.parseColor("#FFD200"), // Sunlight Gold
-            Color.parseColor("#00F2FE"), // Cyan Electric
-            Color.parseColor("#FF007F")  // Loop back
+            Color.parseColor("#FF0055"), // Snapchat Neon Rose / Red
+            Color.parseColor("#FF3B30"), // Sunset Red
+            Color.parseColor("#FF9500"), // Sunlight Amber
+            Color.parseColor("#FF0055")  // Loop back
         )
-        val positions = floatArrayOf(0f, 0.25f, 0.5f, 0.75f, 1.0f)
+        val positions = floatArrayOf(0f, 0.35f, 0.75f, 1.0f)
         val sweep = SweepGradient(w / 2f, h / 2f, colors, positions)
         val matrix = Matrix().apply { postRotate(-90f, w / 2f, h / 2f) }
         sweep.setLocalMatrix(matrix)
@@ -228,11 +228,16 @@ class CameraShutterButton @JvmOverloads constructor(
             MotionEvent.ACTION_MOVE -> {
                 if (isRecording && !isLocked) {
                     val deltaY = initialTouchY - event.rawY
-                    val deltaX = initialTouchX - event.rawX
+                    val deltaXRight = event.rawX - initialTouchX
+                    val deltaXLeft = initialTouchX - event.rawX
+                    val maxDeltaX = Math.max(deltaXRight, deltaXLeft)
 
-                    // Slide to the left (>= 45dp) to lock recording hands-free (Snapchat style)
-                    val lockThreshold = 45f * resources.displayMetrics.density
-                    if (deltaX >= lockThreshold) {
+                    // Slide finger to the right (>= 40dp) to lock hands-free recording
+                    val lockThreshold = 40f * resources.displayMetrics.density
+                    val lockProg = (maxDeltaX / lockThreshold).coerceIn(0f, 1f)
+                    onDragLockProgress?.invoke(lockProg)
+
+                    if (maxDeltaX >= lockThreshold) {
                         isLocked = true
                         performHapticFeedback(HapticFeedbackConstants.CONFIRM)
                         onRecordLock?.invoke()
@@ -247,6 +252,7 @@ class CameraShutterButton @JvmOverloads constructor(
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 removeCallbacks(holdToRecordRunnable)
+                onDragLockProgress?.invoke(0f)
                 if (mode == Mode.PHOTO) {
                     if (isRecording) {
                         if (!isLocked) {
@@ -284,6 +290,7 @@ class CameraShutterButton @JvmOverloads constructor(
         isRecording = false
         isLocked = false
         progress = 0f
+        onDragLockProgress?.invoke(0f)
         removeCallbacks(progressRunnable)
         animateMorph(0f)
         onRecordStop?.invoke()
