@@ -11,9 +11,25 @@
 -keep class com.video.engine.NativeBridge {
     *;
 }
+-keep class com.video.engine.VideoPreviewView {
+    native <methods>;
+    *;
+}
+-keep class com.video.engine.photo.PhotoNativeBridge {
+    *;
+}
 -keep class com.video.engine.ExportCallback {
     *;
 }
+
+# ML Kit Vision & Face Detection
+-keep class com.google.mlkit.vision.** { *; }
+-keep interface com.google.mlkit.vision.** { *; }
+-dontwarn com.google.mlkit.vision.**
+
+# MediaCodec, HardwareBuffer, and Android Media internals
+-keep class android.media.** { *; }
+-keep class android.hardware.** { *; }
 
 # Keep view classes instantiated via reflection or XML
 -keep public class * extends android.view.View {

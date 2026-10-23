@@ -1050,6 +1050,23 @@ class StatusMakerActivity : ComponentActivity() {
         super.onPause()
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
+            level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
+            activePreviewDialog?.dismiss()
+            stopPreviewAudio()
+            System.gc()
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        activePreviewDialog?.dismiss()
+        stopPreviewAudio()
+        System.gc()
+    }
+
     override fun onDestroy() {
         activePreviewDialog?.dismiss()
         stopPreviewAudio()

@@ -5118,24 +5118,43 @@ class VideoEditorActivity : ComponentActivity() {
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         when {
+            level >= android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE ||
             level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL -> {
-                // Critical memory — evict all caches immediately
+                // Critical memory or background trim — evict all caches immediately
                 TimelineThumbnailCache.evictAll()
                 TimelineThumbnailCache.suspendRequests(5_000L)
-                Log.w("[PERF]", "onTrimMemory CRITICAL: evicted thumbnail cache")
+                AudioWaveformCache.evictAll()
+                AudioWaveformCache.suspendRequests(5_000L)
+                System.gc()
+                Log.w("[PERF]", "onTrimMemory CRITICAL/COMPLETE: evicted thumbnail & waveform caches")
             }
-            level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> {
-                // Low memory — evict and suspend thumbnail generation
+            level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
+            level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND -> {
+                // Low memory — evict and suspend thumbnail & waveform generation
                 TimelineThumbnailCache.evictAll()
                 TimelineThumbnailCache.suspendRequests(3_000L)
-                Log.w("[PERF]", "onTrimMemory LOW: evicted thumbnail cache")
+                AudioWaveformCache.evictAll()
+                AudioWaveformCache.suspendRequests(3_000L)
+                System.gc()
+                Log.w("[PERF]", "onTrimMemory LOW/BACKGROUND: evicted thumbnail & waveform caches")
             }
             level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE -> {
                 // Moderate pressure — suspend new thumbnail requests briefly
                 TimelineThumbnailCache.suspendRequests(1_500L)
+                AudioWaveformCache.suspendRequests(1_500L)
                 Log.i("[PERF]", "onTrimMemory MODERATE: suspended thumbnail requests")
             }
         }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        TimelineThumbnailCache.evictAll()
+        TimelineThumbnailCache.suspendRequests(10_000L)
+        AudioWaveformCache.evictAll()
+        AudioWaveformCache.suspendRequests(10_000L)
+        System.gc()
+        Log.w("[PERF]", "onLowMemory: evicted all thumbnail and waveform caches")
     }
 
     override fun onDestroy() {

@@ -39,6 +39,13 @@ object AudioWaveformCache {
         suspendedUntilElapsedMs = 0L
     }
 
+    fun evictAll() {
+        synchronized(lock) {
+            cache.evictAll()
+            inFlight.clear()
+        }
+    }
+
     fun request(clip: ClipSegment, barCount: Int, callback: (String, FloatArray) -> Unit) {
         val key = "${clip.sourcePath}#${clip.sourceInMs}#${clip.sourceOutMs}#$barCount"
         synchronized(lock) { cache[key]?.let { mainHandler.post { callback(key, it) }; return } }

@@ -1829,6 +1829,29 @@ class FunCameraActivity : ComponentActivity() {
         super.onPause()
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        overlayView.clearAssetCache()
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
+            level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
+            if (findViewById<FrameLayout>(R.id.postCaptureContainer)?.visibility != View.VISIBLE) {
+                currentPostCaptureBitmap?.recycle()
+                currentPostCaptureBitmap = null
+            }
+            System.gc()
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        overlayView.clearAssetCache()
+        if (findViewById<FrameLayout>(R.id.postCaptureContainer)?.visibility != View.VISIBLE) {
+            currentPostCaptureBitmap?.recycle()
+            currentPostCaptureBitmap = null
+        }
+        System.gc()
+    }
+
     override fun onDestroy() {
         cancelCountdownTimer()
         stopBgmPlayback()
@@ -1838,6 +1861,9 @@ class FunCameraActivity : ComponentActivity() {
             window.attributes = params
         }
         faceTracker.release()
+        overlayView.clearAssetCache()
+        currentPostCaptureBitmap?.recycle()
+        currentPostCaptureBitmap = null
         super.onDestroy()
     }
 

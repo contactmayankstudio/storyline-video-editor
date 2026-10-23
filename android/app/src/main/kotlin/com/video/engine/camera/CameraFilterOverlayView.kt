@@ -193,6 +193,12 @@ class CameraFilterOverlayView @JvmOverloads constructor(
     // Cached decoded 3D PNG assets
     private val assetCache = object : LruCache<String, Bitmap>(50) {}
 
+    fun clearAssetCache() {
+        assetCache.evictAll()
+        warpBufferBmp?.recycle()
+        warpBufferBmp = null
+    }
+
     fun preloadLensAsset(lens: LensItem) {
         val paths = listOf(lens.assetPath, lens.secondaryAssetPath)
         for (path in paths) {
