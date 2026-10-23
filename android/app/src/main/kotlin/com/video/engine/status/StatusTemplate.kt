@@ -35,137 +35,240 @@ data class StatusTemplate(
 object StatusTemplateRepository {
     val allTemplates: List<StatusTemplate> = listOf(
         StatusTemplate(
-            id = "tpl_tr_beat_drop",
-            title = "Viral Bass Drop Reels",
+            id = "tpl_capcut_3d_zoom_pro",
+            title = "CapCut 3D Zoom Pro 🔥",
             category = "Trending",
             emoji = "🔥",
             durationMs = 12000L,
             requiredPhotoCount = 4,
-            bpm = 128,
-            description = "High-energy fast cuts synced to heavy bass beats with flash and zoom transitions.",
-            gradientStartHex = "#FF416C",
-            gradientEndHex = "#8A2387",
-            audioAssetPath = "music_bgm/energetic_reels_trap_beat.wav",
-            lutFilter = "vibrant_pop_reels.cube",
-            slots = listOf(
-                StatusSlot(1, 3000L, "flash"),
-                StatusSlot(2, 3000L, "zoom_in"),
-                StatusSlot(3, 3000L, "whip_right"),
-                StatusSlot(4, 3000L, "glitch")
-            ),
-            textOverlays = listOf(
-                StatusTextOverlay("WAIT FOR THE DROP 🔥", 0L, 3000L, 0.22f, 1.25f, "0xFFFFE500"),
-                StatusTextOverlay("BEAT SYNC ⚡", 6000L, 10000L, 0.82f, 1.05f, "0xFFFFFFFF")
-            )
-        ),
-        StatusTemplate(
-            id = "tpl_tr_cyberpunk_glitch",
-            title = "Cyberpunk Neon Glitch",
-            category = "Trending",
-            emoji = "⚡",
-            durationMs = 14000L,
-            requiredPhotoCount = 5,
-            bpm = 135,
-            description = "Futuristic neon RGB split glitch montage with gaming sound effects.",
-            gradientStartHex = "#00F2FE",
-            gradientEndHex = "#4FACFE",
-            audioAssetPath = "music_bgm/energetic_reels_trap_beat.wav",
-            lutFilter = "cyberpunk_neon.cube",
-            slots = listOf(
-                StatusSlot(1, 2800L, "glitch"),
-                StatusSlot(2, 2800L, "flash"),
-                StatusSlot(3, 2800L, "wipe"),
-                StatusSlot(4, 2800L, "slide"),
-                StatusSlot(5, 2800L, "glitch")
-            ),
-            textOverlays = listOf(
-                StatusTextOverlay("NEON VIBES 🌌", 500L, 4000L, 0.2f, 1.3f, "0xFF00E5FF"),
-                StatusTextOverlay("CYBER REELS ⚡", 7000L, 13000L, 0.85f, 1.05f, "0xFFFFFFFF")
-            )
-        ),
-        StatusTemplate(
-            id = "tpl_tr_velocity_speed",
-            title = "Velocity Smooth Flow",
-            category = "Trending",
-            emoji = "🚀",
-            durationMs = 10000L,
-            requiredPhotoCount = 4,
             bpm = 130,
-            description = "Smooth speed-ramping flow with motion blur transitions.",
-            gradientStartHex = "#11998E",
-            gradientEndHex = "#38EF7D",
+            description = "Viral CapCut 3D depth zoom with camera roll, beat drop shake, and high-impact bass cuts.",
+            gradientStartHex = "#FF0844",
+            gradientEndHex = "#FFB199",
             audioAssetPath = "music_bgm/attitude_bass_drop.wav",
-            lutFilter = "cinematic_teal_and_orange.cube",
-            slots = listOf(
-                StatusSlot(1, 2500L, "zoom_in"),
-                StatusSlot(2, 2500L, "slide"),
-                StatusSlot(3, 2500L, "whip_right"),
-                StatusSlot(4, 2500L, "flash")
-            ),
-            textOverlays = listOf(
-                StatusTextOverlay("VELOCITY FLOW 🚀", 0L, 3500L, 0.25f, 1.2f, "0xFF38EF7D"),
-                StatusTextOverlay("FEEL THE VIBE ✨", 5000L, 9500L, 0.8f, 1.0f, "0xFFFFFFFF")
-            )
-        ),
-        StatusTemplate(
-            id = "tpl_tr_3d_zoom_parallax",
-            title = "3D Dynamic Zoom Parallax",
-            category = "Trending",
-            emoji = "🌀",
-            durationMs = 12000L,
-            requiredPhotoCount = 4,
-            bpm = 125,
-            description = "Immersive 3D depth zooms that pull the subject right out of the frame.",
-            gradientStartHex = "#8E2DE2",
-            gradientEndHex = "#4A00E0",
-            audioAssetPath = "music_bgm/energetic_reels_trap_beat.wav",
             lutFilter = "vibrant_pop_reels.cube",
             slots = listOf(
                 StatusSlot(1, 3000L, "zoom_in"),
-                StatusSlot(2, 3000L, "crossfade"),
-                StatusSlot(3, 3000L, "zoom_in"),
+                StatusSlot(2, 3000L, "flash"),
+                StatusSlot(3, 3000L, "glitch"),
+                StatusSlot(4, 3000L, "zoom_in")
+            ),
+            textOverlays = listOf(
+                StatusTextOverlay("WAIT FOR THE DROP 🔥", 0L, 3000L, 0.22f, 1.25f, "0xFFFFE500"),
+                StatusTextOverlay("3D ZOOM PRO ⚡", 3000L, 7500L, 0.82f, 1.15f, "0xFFFFFFFF"),
+                StatusTextOverlay("UNSTOPPABLE 🚀", 7500L, 12000L, 0.50f, 1.10f, "0xFF00F2FE")
+            )
+        ),
+        StatusTemplate(
+            id = "tpl_capcut_velocity_flow",
+            title = "CapCut Velocity Speed-Ramp ⚡",
+            category = "Trending",
+            emoji = "⚡",
+            durationMs = 11000L,
+            requiredPhotoCount = 4,
+            bpm = 135,
+            description = "Ultra-smooth speed ramping flow with slow-to-fast curve transitions, motion blur, and whip pans.",
+            gradientStartHex = "#00F2FE",
+            gradientEndHex = "#4FACFE",
+            audioAssetPath = "music_bgm/energetic_reels_trap_beat.wav",
+            lutFilter = "cinematic_teal_and_orange.cube",
+            slots = listOf(
+                StatusSlot(1, 2750L, "flash"),
+                StatusSlot(2, 2750L, "slide"),
+                StatusSlot(3, 2750L, "whip_right"),
+                StatusSlot(4, 2750L, "flash")
+            ),
+            textOverlays = listOf(
+                StatusTextOverlay("VELOCITY FLOW ⚡", 0L, 3500L, 0.22f, 1.25f, "0xFF00E5FF"),
+                StatusTextOverlay("FEEL THE SPEED 🏎️", 3500L, 7500L, 0.82f, 1.05f, "0xFFFFFFFF"),
+                StatusTextOverlay("NEXT LEVEL ✨", 7500L, 11000L, 0.50f, 1.10f, "0xFFFFD700")
+            )
+        ),
+        StatusTemplate(
+            id = "tpl_capcut_sigma_phonk",
+            title = "CapCut Sigma Phonk Bass Drop 💥",
+            category = "Trending",
+            emoji = "💥",
+            durationMs = 12000L,
+            requiredPhotoCount = 4,
+            bpm = 138,
+            description = "Aggressive phonk bass drops with dutch angle tilts, RGB split glitches, and dark contrast.",
+            gradientStartHex = "#8E2DE2",
+            gradientEndHex = "#4A00E0",
+            audioAssetPath = "music_bgm/attitude_bass_drop.wav",
+            lutFilter = "moody_dark_film.cube",
+            slots = listOf(
+                StatusSlot(1, 3000L, "glitch"),
+                StatusSlot(2, 3000L, "flash"),
+                StatusSlot(3, 3000L, "glitch"),
                 StatusSlot(4, 3000L, "flash")
             ),
             textOverlays = listOf(
-                StatusTextOverlay("3D PARALLAX 🌀", 500L, 4000L, 0.22f, 1.25f, "0xFFE040FB"),
-                StatusTextOverlay("NEXT LEVEL 🌟", 6000L, 11000L, 0.82f, 1.0f, "0xFFFFFFFF")
+                StatusTextOverlay("SIGMA ATTITUDE 🗿", 0L, 3500L, 0.22f, 1.30f, "0xFFFF1744"),
+                StatusTextOverlay("BASS BOOSTED 💥", 3500L, 8000L, 0.82f, 1.15f, "0xFFFFFFFF"),
+                StatusTextOverlay("RULE THE GAME 👑", 8000L, 12000L, 0.50f, 1.20f, "0xFFFFD700")
             )
         ),
         StatusTemplate(
-            id = "tpl_tr_flip_transition",
-            title = "3D Cube Flip Montage",
+            id = "tpl_capcut_cyber_neon",
+            title = "CapCut Cyberpunk Neon Rave 🌌",
             category = "Trending",
-            emoji = "🧊",
-            durationMs = 11000L,
+            emoji = "🌌",
+            durationMs = 13000L,
             requiredPhotoCount = 4,
-            bpm = 120,
-            description = "Clean geometrical cube rotation cuts perfectly timed on the beat.",
-            gradientStartHex = "#FC466B",
-            gradientEndHex = "#3F5EFB",
-            audioAssetPath = "music_bgm/attitude_bass_drop.wav",
-            lutFilter = "vibrant_pop_reels.cube",
+            bpm = 132,
+            description = "Futuristic neon holograms, chromatic RGB aberration, and electronic rave trap beats.",
+            gradientStartHex = "#FF007F",
+            gradientEndHex = "#7928CA",
+            audioAssetPath = "music_bgm/energetic_reels_trap_beat.wav",
+            lutFilter = "cyberpunk_neon.cube",
             slots = listOf(
-                StatusSlot(1, 2750L, "slide"),
-                StatusSlot(2, 2750L, "wipe"),
-                StatusSlot(3, 2750L, "slide"),
-                StatusSlot(4, 2750L, "fade")
+                StatusSlot(1, 3250L, "glitch"),
+                StatusSlot(2, 3250L, "zoom_in"),
+                StatusSlot(3, 3250L, "flash"),
+                StatusSlot(4, 3250L, "glitch")
             ),
             textOverlays = listOf(
-                StatusTextOverlay("FLIP IT UP 🔄", 0L, 3500L, 0.25f, 1.2f, "0xFFFFD700"),
-                StatusTextOverlay("TRENDING NOW 🔥", 5500L, 10500L, 0.8f, 1.05f, "0xFFFFFFFF")
+                StatusTextOverlay("NEON CITY 🌌", 0L, 4000L, 0.20f, 1.30f, "0xFF00E5FF"),
+                StatusTextOverlay("CYBER REELS ⚡", 4000L, 8500L, 0.82f, 1.10f, "0xFFE040FB"),
+                StatusTextOverlay("FUTURE IS NOW 🔮", 8500L, 13000L, 0.50f, 1.15f, "0xFFFFFFFF")
             )
         ),
         StatusTemplate(
-            id = "tpl_tr_cinematic_hype",
-            title = "Cinematic Hype Intro",
+            id = "tpl_capcut_golden_hour",
+            title = "CapCut Golden Hour 35mm Film ✨",
+            category = "Trending",
+            emoji = "✨",
+            durationMs = 14000L,
+            requiredPhotoCount = 4,
+            bpm = 92,
+            description = "Vintage 35mm film burn, nostalgic amber lens flares, and aesthetic Ken Burns drift.",
+            gradientStartHex = "#F7971E",
+            gradientEndHex = "#FFD200",
+            audioAssetPath = "music_bgm/lofi_chill_vlog_beat.wav",
+            lutFilter = "vintage_warm_70s.cube",
+            slots = listOf(
+                StatusSlot(1, 3500L, "fade"),
+                StatusSlot(2, 3500L, "crossfade"),
+                StatusSlot(3, 3500L, "zoom_in"),
+                StatusSlot(4, 3500L, "fade")
+            ),
+            textOverlays = listOf(
+                StatusTextOverlay("GOLDEN HOUR ✨", 0L, 4500L, 0.22f, 1.25f, "0xFFFFD54F"),
+                StatusTextOverlay("TIMELESS MEMORIES 🎞️", 4500L, 9500L, 0.82f, 1.05f, "0xFFFFFFFF"),
+                StatusTextOverlay("PURE NOSTALGIA ☕", 9500L, 14000L, 0.50f, 1.10f, "0xFFFFF8E1")
+            )
+        ),
+        StatusTemplate(
+            id = "tpl_capcut_mafia_swag",
+            title = "CapCut Mafia Boss Swag 😎",
+            category = "Attitude",
+            emoji = "😎",
+            durationMs = 12000L,
+            requiredPhotoCount = 4,
+            bpm = 130,
+            description = "Heavy gangster 808 bass punch with dramatic zoom snaps, dark vignette, and attitude swag.",
+            gradientStartHex = "#232526",
+            gradientEndHex = "#414345",
+            audioAssetPath = "music_bgm/attitude_bass_drop.wav",
+            lutFilter = "moody_dark_film.cube",
+            slots = listOf(
+                StatusSlot(1, 3000L, "zoom_in"),
+                StatusSlot(2, 3000L, "glitch"),
+                StatusSlot(3, 3000L, "flash"),
+                StatusSlot(4, 3000L, "zoom_in")
+            ),
+            textOverlays = listOf(
+                StatusTextOverlay("APNA TIME AAYEGA 😎", 0L, 3500L, 0.22f, 1.30f, "0xFFFFD700"),
+                StatusTextOverlay("KING OF MY WORLD 👑", 3500L, 8000L, 0.82f, 1.15f, "0xFFFFFFFF"),
+                StatusTextOverlay("NO COMPARISON 💣", 8000L, 12000L, 0.50f, 1.20f, "0xFFFF1744")
+            )
+        ),
+        StatusTemplate(
+            id = "tpl_capcut_romantic_heartbeat",
+            title = "CapCut Lyrical Heartbeat Glow 💖",
+            category = "Love",
+            emoji = "💖",
+            durationMs = 14000L,
+            requiredPhotoCount = 4,
+            bpm = 90,
+            description = "Dreamy acoustic guitar strums with rhythmic heartbeat pulse zooms and glowing love lyrics.",
+            gradientStartHex = "#FF758C",
+            gradientEndHex = "#FF7EB3",
+            audioAssetPath = "music_bgm/romantic_acoustic_love.wav",
+            lutFilter = "vibrant_pop_reels.cube",
+            slots = listOf(
+                StatusSlot(1, 3500L, "zoom_in"),
+                StatusSlot(2, 3500L, "crossfade"),
+                StatusSlot(3, 3500L, "fade"),
+                StatusSlot(4, 3500L, "crossfade")
+            ),
+            textOverlays = listOf(
+                StatusTextOverlay("TUM HI HO DIL MEIN ❤️", 0L, 4500L, 0.22f, 1.25f, "0xFFFF4081"),
+                StatusTextOverlay("EVERY HEARTBEAT SAYS YOUR NAME 💍", 4500L, 9500L, 0.82f, 1.05f, "0xFFFFFFFF"),
+                StatusTextOverlay("FOREVER & ALWAYS ✨", 9500L, 14000L, 0.50f, 1.10f, "0xFFFF80AB")
+            )
+        ),
+        StatusTemplate(
+            id = "tpl_capcut_mahakal_tandav",
+            title = "CapCut Mahakal Tandav Trance 🔱",
+            category = "Celebration",
+            emoji = "🔱",
+            durationMs = 14000L,
+            requiredPhotoCount = 4,
+            bpm = 125,
+            description = "Divine Damru trance drops with fiery saffron-gold smoke glow and dramatic power zooms.",
+            gradientStartHex = "#F12711",
+            gradientEndHex = "#F5AF19",
+            audioAssetPath = "music_bgm/devotional_ambient_flute.wav",
+            lutFilter = "cinematic_teal_and_orange.cube",
+            slots = listOf(
+                StatusSlot(1, 3500L, "flash"),
+                StatusSlot(2, 3500L, "zoom_in"),
+                StatusSlot(3, 3500L, "fade"),
+                StatusSlot(4, 3500L, "flash")
+            ),
+            textOverlays = listOf(
+                StatusTextOverlay("HAR HAR MAHADEV 🔱", 0L, 4500L, 0.22f, 1.35f, "0xFFFF6F00"),
+                StatusTextOverlay("JAI SHIV SHAMBHU 🕉️", 4500L, 9500L, 0.82f, 1.15f, "0xFFFFD54F"),
+                StatusTextOverlay("MAHAKAL KI KRIPA ✨", 9500L, 14000L, 0.50f, 1.20f, "0xFFFFFFFF")
+            )
+        ),
+        StatusTemplate(
+            id = "tpl_capcut_flash_rave",
+            title = "CapCut Flash Beat Rave 🔊",
+            category = "Trending",
+            emoji = "🔊",
+            durationMs = 10000L,
+            requiredPhotoCount = 3,
+            bpm = 136,
+            description = "Ultra-fast strobe lighting synced to peak EDM bass kicks with explosive speed cuts.",
+            gradientStartHex = "#FC466B",
+            gradientEndHex = "#3F5EFB",
+            audioAssetPath = "music_bgm/energetic_reels_trap_beat.wav",
+            lutFilter = "vibrant_pop_reels.cube",
+            slots = listOf(
+                StatusSlot(1, 3333L, "flash"),
+                StatusSlot(2, 3333L, "flash"),
+                StatusSlot(3, 3334L, "whip_right")
+            ),
+            textOverlays = listOf(
+                StatusTextOverlay("RAVE ON 🔊", 0L, 3500L, 0.22f, 1.30f, "0xFFFFD700"),
+                StatusTextOverlay("DROP THE BASS ⚡", 3500L, 7000L, 0.82f, 1.15f, "0xFF00E5FF"),
+                StatusTextOverlay("PARTY NEVER DIES 🔥", 7000L, 10000L, 0.50f, 1.10f, "0xFFFFFFFF")
+            )
+        ),
+        StatusTemplate(
+            id = "tpl_capcut_cinematic_hype",
+            title = "CapCut Cinematic Trailer Intro 🎬",
             category = "Trending",
             emoji = "🎬",
             durationMs = 15000L,
             requiredPhotoCount = 5,
-            bpm = 115,
-            description = "Dramatic Hollywood-style widescreen trailer intro with letterbox styling.",
-            gradientStartHex = "#232526",
-            gradientEndHex = "#414345",
+            bpm = 118,
+            description = "Epic widescreen letterbox intro with cinematic teal-orange color grading and blockbuster cuts.",
+            gradientStartHex = "#141E30",
+            gradientEndHex = "#243B55",
             audioAssetPath = "music_bgm/attitude_bass_drop.wav",
             lutFilter = "cinematic_teal_and_orange.cube",
             slots = listOf(
@@ -176,103 +279,9 @@ object StatusTemplateRepository {
                 StatusSlot(5, 3000L, "fade")
             ),
             textOverlays = listOf(
-                StatusTextOverlay("PRESENTING 🎬", 500L, 4000L, 0.2f, 1.3f, "0xFF64B5F6"),
-                StatusTextOverlay("THE BLOCKBUSTER 🔥", 7000L, 14000L, 0.85f, 1.1f, "0xFFFFFFFF")
-            )
-        ),
-        StatusTemplate(
-            id = "tpl_tr_rgb_split_bass",
-            title = "RGB Split Bass Shake",
-            category = "Trending",
-            emoji = "💥",
-            durationMs = 10000L,
-            requiredPhotoCount = 3,
-            bpm = 132,
-            description = "Chromatic aberration shakes that bounce directly to the sub-bass kick.",
-            gradientStartHex = "#FF0844",
-            gradientEndHex = "#FFB199",
-            audioAssetPath = "music_bgm/energetic_reels_trap_beat.wav",
-            lutFilter = "vibrant_pop_reels.cube",
-            slots = listOf(
-                StatusSlot(1, 3333L, "flash"),
-                StatusSlot(2, 3333L, "glitch"),
-                StatusSlot(3, 3333L, "flash")
-            ),
-            textOverlays = listOf(
-                StatusTextOverlay("BASS BOOSTED 💥", 0L, 3500L, 0.22f, 1.3f, "0xFFFF1744"),
-                StatusTextOverlay("SHAKE IT 🔥", 5000L, 9500L, 0.8f, 1.0f, "0xFFFFFFFF")
-            )
-        ),
-        StatusTemplate(
-            id = "tpl_tr_retro_vhs_tape",
-            title = "90s Camcorder VHS Tape",
-            category = "Trending",
-            emoji = "📼",
-            durationMs = 12000L,
-            requiredPhotoCount = 4,
-            bpm = 95,
-            description = "Authentic retro tracking lines, static grain, and timestamp styling.",
-            gradientStartHex = "#F7971E",
-            gradientEndHex = "#FFD200",
-            audioAssetPath = "music_bgm/lofi_chill_vlog_beat.wav",
-            lutFilter = "vintage_warm_70s.cube",
-            slots = listOf(
-                StatusSlot(1, 3000L, "fade"),
-                StatusSlot(2, 3000L, "crossfade"),
-                StatusSlot(3, 3000L, "slide"),
-                StatusSlot(4, 3000L, "fade")
-            ),
-            textOverlays = listOf(
-                StatusTextOverlay("REC ● 1998 📼", 500L, 4500L, 0.22f, 1.1f, "0xFF00E676"),
-                StatusTextOverlay("VINTAGE GOLD 📻", 6000L, 11500L, 0.82f, 1.05f, "0xFFFFEA00")
-            )
-        ),
-        StatusTemplate(
-            id = "tpl_tr_aesthetic_vlog",
-            title = "Aesthetic Daily Vlog",
-            category = "Trending",
-            emoji = "☕",
-            durationMs = 14000L,
-            requiredPhotoCount = 5,
-            bpm = 90,
-            description = "Soft pastel tones, peaceful minimalist transitions, and clean typography.",
-            gradientStartHex = "#E0C3FC",
-            gradientEndHex = "#8EC5FC",
-            audioAssetPath = "music_bgm/lofi_chill_vlog_beat.wav",
-            lutFilter = "vibrant_pop_reels.cube",
-            slots = listOf(
-                StatusSlot(1, 2800L, "crossfade"),
-                StatusSlot(2, 2800L, "fade"),
-                StatusSlot(3, 2800L, "crossfade"),
-                StatusSlot(4, 2800L, "slide"),
-                StatusSlot(5, 2800L, "fade")
-            ),
-            textOverlays = listOf(
-                StatusTextOverlay("A LITTLE SLICE OF LIFE ☕", 500L, 5000L, 0.25f, 1.1f, "0xFFFFFFFF"),
-                StatusTextOverlay("PEACEFUL MOMENTS 🌸", 6500L, 13000L, 0.8f, 1.0f, "0xFFF3E5F5")
-            )
-        ),
-        StatusTemplate(
-            id = "tpl_tr_flash_strobe",
-            title = "Flash Strobe Party Cut",
-            category = "Trending",
-            emoji = "⚡",
-            durationMs = 9000L,
-            requiredPhotoCount = 3,
-            bpm = 135,
-            description = "High-octane club strobe flashes synced to peak bass hits.",
-            gradientStartHex = "#F857A6",
-            gradientEndHex = "#FF5858",
-            audioAssetPath = "music_bgm/attitude_bass_drop.wav",
-            lutFilter = "vibrant_pop_reels.cube",
-            slots = listOf(
-                StatusSlot(1, 3000L, "flash"),
-                StatusSlot(2, 3000L, "flash"),
-                StatusSlot(3, 3000L, "whip_right")
-            ),
-            textOverlays = listOf(
-                StatusTextOverlay("STROBE MODE ⚡", 0L, 3000L, 0.22f, 1.3f, "0xFFFFFF00"),
-                StatusTextOverlay("TURN UP 🔊", 4500L, 8500L, 0.82f, 1.1f, "0xFFFFFFFF")
+                StatusTextOverlay("PRESENTING 🎬", 0L, 4500L, 0.20f, 1.30f, "0xFF64B5F6"),
+                StatusTextOverlay("THE MAIN CHARACTER 🔥", 4500L, 10000L, 0.82f, 1.15f, "0xFFFFFFFF"),
+                StatusTextOverlay("COMING SOON 🌟", 10000L, 15000L, 0.50f, 1.10f, "0xFFFFD700")
             )
         ),
         StatusTemplate(
@@ -1233,11 +1242,14 @@ object StatusTemplateRepository {
         )
     )
 
-    val categories: List<String> = listOf("All", "⚡ 1-Photo", "Trending", "Love", "Attitude", "Emotional", "Celebration")
+    val categories: List<String> = listOf("All", "🔥 CapCut Pro", "⚡ 1-Photo", "Trending", "Love", "Attitude", "Emotional", "Celebration")
 
     fun getByCategory(category: String): List<StatusTemplate> {
         if (category.equals("All", ignoreCase = true) || category.contains("1-Photo", ignoreCase = true)) {
             return allTemplates
+        }
+        if (category.contains("CapCut", ignoreCase = true)) {
+            return allTemplates.filter { it.title.contains("CapCut", ignoreCase = true) || it.id.startsWith("tpl_capcut_") }
         }
         return allTemplates.filter { it.category.equals(category, ignoreCase = true) }
     }

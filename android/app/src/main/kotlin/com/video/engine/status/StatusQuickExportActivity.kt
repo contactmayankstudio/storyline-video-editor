@@ -77,6 +77,7 @@ class StatusQuickExportActivity : ComponentActivity() {
     private lateinit var musicEmojiText: TextView
 
     private var previewView: VideoPreviewView? = null
+    private var livePreviewView: StatusTemplateLivePreviewView? = null
     private var previewMediaPlayer: MediaPlayer? = null
     private var isPlaying = false
     private var isExporting = false
@@ -227,6 +228,22 @@ class StatusQuickExportActivity : ComponentActivity() {
         }
         previewView = pv
         previewContainer.addView(pv, 0)
+
+        // Instant Live Canvas Preview on top with Ken Burns, beat pulse, and visualizer!
+        val lpv = StatusTemplateLivePreviewView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+        livePreviewView = lpv
+        currentTemplate?.let { tm ->
+            lpv.bindTemplate(tm, previewMediaPlayer)
+            if (photoPaths.isNotEmpty()) {
+                lpv.setCustomPhoto(photoPaths[0])
+            }
+        }
+        previewContainer.addView(lpv)
 
         pv.onSurfaceReady = {
             runOnUiThread {
@@ -448,6 +465,7 @@ class StatusQuickExportActivity : ComponentActivity() {
         exportProgressOverlay.visibility = View.VISIBLE
         exportProgressBar.progress = 0
         exportPercentText.text = "Exporting Status Video... 0%"
+        livePreviewView?.visibility = View.GONE
 
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val safeTitle = templateTitle.replace(Regex("[^a-zA-Z0-9]"), "_")
@@ -479,6 +497,7 @@ class StatusQuickExportActivity : ComponentActivity() {
                 } else {
                     runOnUiThread {
                         exportProgressOverlay.visibility = View.GONE
+                        livePreviewView?.visibility = View.VISIBLE
                         isExporting = false
                         Toast.makeText(
                             this@StatusQuickExportActivity,
@@ -490,6 +509,7 @@ class StatusQuickExportActivity : ComponentActivity() {
             } catch (e: Exception) {
                 runOnUiThread {
                     exportProgressOverlay.visibility = View.GONE
+                    livePreviewView?.visibility = View.VISIBLE
                     isExporting = false
                     Toast.makeText(this@StatusQuickExportActivity, "Export error: ${e.message}", Toast.LENGTH_SHORT).show()
                 }

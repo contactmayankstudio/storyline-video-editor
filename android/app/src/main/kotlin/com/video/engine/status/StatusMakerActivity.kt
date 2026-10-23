@@ -48,20 +48,18 @@ class StatusMakerActivity : ComponentActivity() {
     private var audioManager: AudioManager? = null
     private var audioFocusRequest: AudioFocusRequest? = null
     private var hasAudioFocus: Boolean = false
+    private var lastCustomPhotoPath: String? = null
+    private var lastPhotoPaths: List<String> = emptyList()
 
     // Multiple photo picker
     private val pickPhotosLauncher = registerForActivityResult(
         ActivityResultContracts.GetMultipleContents()
     ) { uris: List<Uri> ->
-        val template = pendingTemplate
-        if (template == null || uris.isEmpty()) {
-            Toast.makeText(this, "Select a photo to generate status video", Toast.LENGTH_SHORT).show()
+        val template = pendingTemplate ?: StatusTemplateRepository.allTemplates.first()
+        if (uris.isEmpty()) {
+            Toast.makeText(this, "Select a photo to preview status video", Toast.LENGTH_SHORT).show()
             return@registerForActivityResult
         }
-
-        val isSingle = uris.size == 1
-        val msg = if (isSingle) "Building 1-Photo Pro Status: ${template.title}..." else "Building ${template.title} (${uris.size} photos)..."
-        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
         Thread {
             val localPaths = uris.mapNotNull { uri ->
@@ -75,37 +73,45 @@ class StatusMakerActivity : ComponentActivity() {
                 return@Thread
             }
 
-            val projectFile = StatusProjectBuilder.buildProjectFile(this, template, localPaths)
+            lastPhotoPaths = localPaths
+            lastCustomPhotoPath = localPaths.first()
+
+            // Pre-build project in background for instant 1-click export
+            var prebuiltProject: File? = null
+            try {
+                prebuiltProject = StatusProjectBuilder.buildProjectFile(this, template, localPaths)
+            } catch (_: Exception) {}
+
             runOnUiThread {
-                if (projectFile != null && projectFile.exists()) {
-                    // Open 1-Click Quick Export Screen directly!
-                    val quickExportIntent = Intent(this, StatusQuickExportActivity::class.java).apply {
-                        putExtra(StatusQuickExportActivity.EXTRA_PROJECT_PATH, projectFile.absolutePath)
-                        putExtra(StatusQuickExportActivity.EXTRA_TEMPLATE_ID, template.id)
-                        putExtra(StatusQuickExportActivity.EXTRA_TEMPLATE_TITLE, template.title)
-                        putExtra(StatusQuickExportActivity.EXTRA_TEMPLATE_DURATION_MS, template.durationMs)
-                        putExtra(StatusQuickExportActivity.EXTRA_TEMPLATE_GRADIENT_START, template.gradientStartHex)
-                        putExtra(StatusQuickExportActivity.EXTRA_TEMPLATE_GRADIENT_END, template.gradientEndHex)
-                        putStringArrayListExtra(StatusQuickExportActivity.EXTRA_PHOTO_PATHS, ArrayList(localPaths))
-                    }
-                    startActivity(quickExportIntent)
-                } else {
-                    Toast.makeText(this, "Failed to create status project", Toast.LENGTH_SHORT).show()
-                }
+                // PHOTO DALTE HI LIVE PREVIEW START HO JAYEGA!
+                showTemplateLivePreviewDialog(
+                    initialTemplate = template,
+                    customPhotoPath = lastCustomPhotoPath,
+                    selectedPhotoPaths = localPaths,
+                    prebuiltProjectFile = prebuiltProject
+                )
             }
         }.start()
     }
 
-    // Single photo picker to test in live preview dialog
+    // Single photo picker to test/change in live preview dialog
     private val pickSinglePhotoForPreviewLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri == null) return@registerForActivityResult
-        val localPath = StatusMediaHelper.normalizeImageUriForStatus(this, uri)
-            ?: resolveUriToLocalFile(this, uri)
-            ?: return@registerForActivityResult
-        activePreviewDialog?.findViewById<StatusTemplateLivePreviewView>(R.id.statusLivePreviewView)?.setCustomPhoto(localPath)
-        activePreviewDialog?.findViewById<TextView>(R.id.statusPreviewTestPhotoText)?.text = "Photo Loaded ✓"
+        Thread {
+            val localPath = StatusMediaHelper.normalizeImageUriForStatus(this, uri)
+                ?: resolveUriToLocalFile(this, uri)
+                ?: return@Thread
+            lastCustomPhotoPath = localPath
+            lastPhotoPaths = listOf(localPath)
+            runOnUiThread {
+                activePreviewDialog?.findViewById<StatusTemplateLivePreviewView>(R.id.statusLivePreviewView)?.setCustomPhoto(localPath)
+                activePreviewDialog?.findViewById<TextView>(R.id.statusPreviewTestPhotoText)?.text = "Change Photo 🔄"
+                activePreviewDialog?.findViewById<TextView>(R.id.statusPreviewCtaText)?.text = "⚡ 1-CLICK EXPORT TO GALLERY"
+                activePreviewDialog?.findViewById<TextView>(R.id.statusPreviewPhotosChip)?.text = "📸 Photo Loaded"
+            }
+        }.start()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -136,6 +142,13 @@ class StatusMakerActivity : ComponentActivity() {
             finish()
         }
 
+        // Prominent 1-Photo Instant Hero Card: click -> pick photo -> immediate live preview!
+        findViewById<View>(R.id.statusInstantHeroCard)?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            pendingTemplate = StatusTemplateRepository.allTemplates.first()
+            pickPhotosLauncher.launch("image/*")
+        }
+
         categoryContainer = findViewById(R.id.statusCategoryChipsContainer)
         templatesRecycler = findViewById(R.id.statusTemplatesRecyclerView)
         templatesRecycler.layoutManager = LinearLayoutManager(this)
@@ -149,13 +162,15 @@ class StatusMakerActivity : ComponentActivity() {
         StatusTemplateRepository.categories.forEach { category ->
             val isSelected = category.equals(currentCategory, ignoreCase = true)
             val count = StatusTemplateRepository.getByCategory(category).size
-            val label = when (category.lowercase()) {
-                "all" -> "🔥 All (50)"
-                "trending" -> "⚡ Viral & Trending ($count)"
-                "love" -> "💖 Love & Couple ($count)"
-                "attitude" -> "😎 Attitude & Swag ($count)"
-                "emotional" -> "🥺 Emotional & Memories ($count)"
-                "celebration" -> "🎉 Celebration & Festival ($count)"
+            val label = when {
+                category.equals("all", ignoreCase = true) -> "🔥 All ($count)"
+                category.contains("CapCut", ignoreCase = true) -> "⚡ CapCut Pro ($count)"
+                category.contains("1-Photo", ignoreCase = true) -> "📸 1-Photo Instant ($count)"
+                category.equals("trending", ignoreCase = true) -> "🔥 Viral & Trending ($count)"
+                category.equals("love", ignoreCase = true) -> "💖 Love & Couple ($count)"
+                category.equals("attitude", ignoreCase = true) -> "😎 Attitude & Swag ($count)"
+                category.equals("emotional", ignoreCase = true) -> "🥺 Emotional & Memories ($count)"
+                category.equals("celebration", ignoreCase = true) -> "🎉 Celebration & Festival ($count)"
                 else -> "$category ($count)"
             }
 
@@ -280,9 +295,19 @@ class StatusMakerActivity : ComponentActivity() {
         abandonAudioFocus()
     }
 
-    private fun showTemplateLivePreviewDialog(template: StatusTemplate) {
+    private fun showTemplateLivePreviewDialog(
+        initialTemplate: StatusTemplate,
+        customPhotoPath: String? = null,
+        selectedPhotoPaths: List<String>? = null,
+        prebuiltProjectFile: File? = null
+    ) {
         stopPreviewAudio()
         activePreviewDialog?.dismiss()
+
+        var currentActiveTemplate = initialTemplate
+        var currentProjectFile = prebuiltProjectFile
+        val activePhotoPath = customPhotoPath ?: lastCustomPhotoPath
+        val activePhotoPaths = selectedPhotoPaths ?: (if (activePhotoPath != null) listOf(activePhotoPath) else lastPhotoPaths)
 
         // Inflate custom 9:16 Live Preview dialog layout
         val dialogView = LayoutInflater.from(this).inflate(
@@ -303,49 +328,73 @@ class StatusMakerActivity : ComponentActivity() {
         val ctaBtn = dialogView.findViewById<View>(R.id.statusPreviewCtaBtn)
         val ctaText = dialogView.findViewById<TextView>(R.id.statusPreviewCtaText)
         val testPhotoBtn = dialogView.findViewById<View>(R.id.statusPreviewTestPhotoBtn)
+        val testPhotoText = dialogView.findViewById<TextView>(R.id.statusPreviewTestPhotoText)
+        val nextTemplateBtn = dialogView.findViewById<View>(R.id.statusPreviewNextTemplateBtn)
 
-        // Bind metadata chips & text
-        titleTv?.text = template.title
-        categoryBadge?.text = "${template.emoji} ${template.category.uppercase()}"
-        durationChip?.text = "⏱️ ${template.durationMs / 1000}s"
-        photosChip?.text = "⚡ 1-Photo Ready"
-        bpmChip?.text = "🎵 ${template.bpm} BPM"
-        descTv?.text = template.description
-        ctaText?.text = "⚡ CREATE 1-PHOTO / REELS STATUS"
+        fun bindTemplateState(tmpl: StatusTemplate) {
+            currentActiveTemplate = tmpl
+            titleTv?.text = if (activePhotoPath != null) "Preview: ${tmpl.title}" else tmpl.title
+            categoryBadge?.text = "${tmpl.emoji} ${tmpl.category.uppercase()}"
+            durationChip?.text = "⏱️ ${tmpl.durationMs / 1000}s"
+            photosChip?.text = if (activePhotoPath != null) "📸 Photo Loaded" else "⚡ 1-Photo Ready"
+            bpmChip?.text = "🎵 ${tmpl.bpm} BPM"
+            descTv?.text = if (activePhotoPath != null) "⚡ Live animated preview of your photo with ${tmpl.title}! Tap Export to save." else tmpl.description
+            ctaText?.text = if (activePhotoPath != null) "⚡ 1-CLICK EXPORT TO GALLERY" else "⚡ CREATE 1-PHOTO / REELS STATUS"
+            testPhotoText?.text = if (activePhotoPath != null) "Change Photo 🔄" else "Test With My Photo 📷"
+
+            val density = resources.displayMetrics.density
+            val startColor = try { Color.parseColor(tmpl.gradientStartHex) } catch (_: Exception) { Color.parseColor("#FF416C") }
+            val endColor = try { Color.parseColor(tmpl.gradientEndHex) } catch (_: Exception) { Color.parseColor("#8A2387") }
+            val ctaGradient = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(startColor, endColor)
+            ).apply {
+                cornerRadius = 16 * density
+            }
+            ctaBtn?.background = ctaGradient
+
+            stopPreviewAudio()
+            requestAudioFocus()
+            try {
+                assets.openFd(tmpl.audioAssetPath).use { afd ->
+                    val mp = MediaPlayer().apply {
+                        setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                        isLooping = true
+                        prepare()
+                        start()
+                    }
+                    previewMediaPlayer = mp
+                }
+            } catch (_: Exception) {}
+
+            livePreviewView?.bindTemplate(tmpl, previewMediaPlayer)
+            if (activePhotoPath != null) {
+                livePreviewView?.setCustomPhoto(activePhotoPath)
+            }
+        }
+
+        bindTemplateState(initialTemplate)
+
+        // Next Template switcher on the fly!
+        nextTemplateBtn?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            val all = StatusTemplateRepository.allTemplates
+            val currentIdx = all.indexOfFirst { it.id == currentActiveTemplate.id }
+            val nextIdx = if (currentIdx >= 0) (currentIdx + 1) % all.size else 0
+            val nextTmpl = all[nextIdx]
+            currentProjectFile = null
+            bindTemplateState(nextTmpl)
+            if (activePhotoPaths.isNotEmpty()) {
+                Thread {
+                    currentProjectFile = StatusProjectBuilder.buildProjectFile(this@StatusMakerActivity, nextTmpl, activePhotoPaths)
+                }.start()
+            }
+        }
 
         testPhotoBtn?.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             pickSinglePhotoForPreviewLauncher.launch("image/*")
         }
-
-        // Dynamically theme CTA button with template gradient
-        val density = resources.displayMetrics.density
-        val startColor = try { Color.parseColor(template.gradientStartHex) } catch (_: Exception) { Color.parseColor("#FF416C") }
-        val endColor = try { Color.parseColor(template.gradientEndHex) } catch (_: Exception) { Color.parseColor("#8A2387") }
-        val ctaGradient = GradientDrawable(
-            GradientDrawable.Orientation.LEFT_RIGHT,
-            intArrayOf(startColor, endColor)
-        ).apply {
-            cornerRadius = 16 * density
-        }
-        ctaBtn?.background = ctaGradient
-
-        // Request audio focus and play template BGM audio
-        requestAudioFocus()
-        try {
-            assets.openFd(template.audioAssetPath).use { afd ->
-                val mp = MediaPlayer().apply {
-                    setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                    isLooping = true
-                    prepare()
-                    start()
-                }
-                previewMediaPlayer = mp
-            }
-        } catch (_: Exception) {}
-
-        // Bind Live Preview View with template and MediaPlayer
-        livePreviewView?.bindTemplate(template, previewMediaPlayer)
 
         val dialog = AlertDialog.Builder(this)
             .setView(dialogView)
@@ -364,24 +413,63 @@ class StatusMakerActivity : ComponentActivity() {
             dialog.dismiss()
         }
 
-        // 1-Click CTA Action: Launch photo picker directly
-        val onSelectPhotosClick = View.OnClickListener {
+        val onCtaAction = View.OnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-            dialog.dismiss()
-            pendingTemplate = template
-            pickPhotosLauncher.launch("image/*")
+            if (activePhotoPath != null) {
+                dialog.dismiss()
+                val photosToUse = activePhotoPaths.ifEmpty { listOf(activePhotoPath) }
+                if (currentProjectFile != null && currentProjectFile!!.exists()) {
+                    launchQuickExport(currentProjectFile!!, currentActiveTemplate, photosToUse)
+                } else {
+                    Toast.makeText(this@StatusMakerActivity, "Preparing Export...", Toast.LENGTH_SHORT).show()
+                    Thread {
+                        val proj = StatusProjectBuilder.buildProjectFile(this@StatusMakerActivity, currentActiveTemplate, photosToUse)
+                        runOnUiThread {
+                            if (proj != null && proj.exists()) {
+                                launchQuickExport(proj, currentActiveTemplate, photosToUse)
+                            } else {
+                                Toast.makeText(this@StatusMakerActivity, "Failed to build status project", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }.start()
+                }
+            } else {
+                dialog.dismiss()
+                pendingTemplate = currentActiveTemplate
+                pickPhotosLauncher.launch("image/*")
+            }
         }
-        ctaBtn?.setOnClickListener(onSelectPhotosClick)
+
+        ctaBtn?.setOnClickListener(onCtaAction)
         livePreviewView?.setOnCreateStatusClickListener {
-            dialog.dismiss()
-            pendingTemplate = template
-            pickPhotosLauncher.launch("image/*")
+            if (activePhotoPath == null) {
+                dialog.dismiss()
+                pendingTemplate = currentActiveTemplate
+                pickPhotosLauncher.launch("image/*")
+            }
         }
 
         dialog.show()
         dialog.window?.let { window ->
             val dm = resources.displayMetrics
             val targetW = (dm.widthPixels * 0.92f).toInt().coerceAtMost((420 * dm.density).toInt())
+            window.setLayout(targetW, WindowManager.LayoutParams.WRAP_CONTENT)
+            window.setGravity(Gravity.CENTER)
+        }
+    }
+
+    private fun launchQuickExport(projectFile: File, template: StatusTemplate, photoPaths: List<String>) {
+        val quickExportIntent = Intent(this, StatusQuickExportActivity::class.java).apply {
+            putExtra(StatusQuickExportActivity.EXTRA_PROJECT_PATH, projectFile.absolutePath)
+            putExtra(StatusQuickExportActivity.EXTRA_TEMPLATE_ID, template.id)
+            putExtra(StatusQuickExportActivity.EXTRA_TEMPLATE_TITLE, template.title)
+            putExtra(StatusQuickExportActivity.EXTRA_TEMPLATE_DURATION_MS, template.durationMs)
+            putExtra(StatusQuickExportActivity.EXTRA_TEMPLATE_GRADIENT_START, template.gradientStartHex)
+            putExtra(StatusQuickExportActivity.EXTRA_TEMPLATE_GRADIENT_END, template.gradientEndHex)
+            putStringArrayListExtra(StatusQuickExportActivity.EXTRA_PHOTO_PATHS, ArrayList(photoPaths))
+        }
+        startActivity(quickExportIntent)
+    }
             window.setLayout(targetW, WindowManager.LayoutParams.WRAP_CONTENT)
             window.setGravity(Gravity.CENTER)
         }

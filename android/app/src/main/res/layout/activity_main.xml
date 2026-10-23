@@ -723,18 +723,19 @@
         <androidx.constraintlayout.widget.ConstraintLayout
             android:id="@+id/playbackUndoRedoRow"
             android:layout_width="match_parent"
-            android:layout_height="48dp"
+            android:layout_height="56dp"
             android:layoutDirection="ltr"
             android:layout_gravity="bottom"
             android:layout_marginStart="10dp"
             android:layout_marginEnd="10dp"
             android:layout_marginBottom="0dp">
 
-            <!-- Persistent Direct Active AI Copilot Pill (Clean: only AI Copilot) -->
+            <!-- Persistent Direct Active AI Copilot Pill (Hidden per user request: toolbar only) -->
             <LinearLayout
                 android:id="@+id/editorAiDirectPill"
                 android:layout_width="wrap_content"
                 android:layout_height="32dp"
+                android:visibility="gone"
                 android:layout_marginStart="2dp"
                 android:background="@drawable/ai_copilot_direct_pill_bg"
                 android:clickable="true"
@@ -788,8 +789,8 @@
 
             <androidx.constraintlayout.widget.ConstraintLayout
                 android:id="@+id/playbackControlRail"
-                android:layout_width="156dp"
-                android:layout_height="48dp"
+                android:layout_width="168dp"
+                android:layout_height="56dp"
                 android:layoutDirection="ltr"
                 android:background="@android:color/transparent"
                 android:elevation="0dp"
@@ -800,9 +801,9 @@
 
                 <ImageButton
                     android:id="@+id/undoButton"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:layout_marginEnd="6dp"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:layout_marginEnd="10dp"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="@string/undo_label"
                     android:padding="7dp"
@@ -814,11 +815,11 @@
 
                 <ImageButton
                     android:id="@+id/previewPlayPauseButton"
-                    android:layout_width="50dp"
-                    android:layout_height="50dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:background="@drawable/button_play_pause_background"
                     android:contentDescription="@string/play_button"
-                    android:padding="4dp"
+                    android:padding="12dp"
                     android:src="@drawable/ic_play_toolbar"
                     android:tint="@color/text_primary"
                     app:layout_constraintStart_toStartOf="parent"
@@ -828,9 +829,9 @@
 
                 <ImageButton
                     android:id="@+id/redoButton"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:layout_marginStart="6dp"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:layout_marginStart="10dp"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="@string/redo_label"
                     android:padding="7dp"
