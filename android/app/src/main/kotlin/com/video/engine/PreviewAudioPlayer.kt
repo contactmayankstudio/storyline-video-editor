@@ -222,8 +222,15 @@ class PreviewAudioPlayer(
     }
 
     fun pause() {
+        synchronized(requestLock) {
+            requestedAutoPlay = false
+        }
+        audioHandler.removeCallbacks(applyRequestedState)
+        // Immediately pause on caller thread to prevent sound leaking during async thread hop
+        runCatching { mediaPlayer?.pause() }
         runOnAudioThread {
             playing = false
+            pendingAutoPlay = false
             stopTicker()
             setAudioMasterClockEnabled(false)
             abandonAudioFocusIfNeeded()
@@ -233,10 +240,7 @@ class PreviewAudioPlayer(
             seekInFlight = false
             deferredSeekTargetMs = Int.MIN_VALUE
             deferredSeekAutoPlay = false
-            val isActuallyPlaying = runCatching { mediaPlayer?.isPlaying == true }.getOrDefault(false)
-            if (isActuallyPlaying) {
-                runCatching { mediaPlayer?.pause() }
-            }
+            runCatching { mediaPlayer?.pause() }
             lastAppliedAutoPlay = false
         }
     }
@@ -475,6 +479,7 @@ class PreviewAudioPlayer(
             if (!autoPlay) {
                 setAudioMasterClockEnabled(false)
                 stopTicker()
+                runCatching { mediaPlayer?.pause() }
             }
             lastAppliedSelectionKey = selection.key
             lastAppliedAutoPlay = autoPlay
@@ -625,14 +630,14 @@ class PreviewAudioPlayer(
                 audioHandler.removeCallbacks(seekCompletionFallback)
                 pendingStartAfterSeek = false
                 pendingSeekTargetMs = Int.MIN_VALUE
-                if (pendingAutoPlay) {
+                if (pendingAutoPlay && playing) {
                     Log.d(TAG, "playerPrepared start key=${selection.key} timelineMs=$pendingTimelineMs")
                     if (requestAudioFocusIfNeeded()) {
                         applyVolume(effectiveVolumeAt(selection, pendingTimelineMs), force = true)
                         runCatching { preparedPlayer.start() }
                     }
                     val isActuallyPlaying = runCatching { preparedPlayer.isPlaying }.getOrDefault(false)
-                    if (isActuallyPlaying) {
+                    if (isActuallyPlaying && playing) {
                         setAudioMasterClockEnabled(true)
                         startTicker()
                         lastAppliedAutoPlay = true
@@ -640,17 +645,19 @@ class PreviewAudioPlayer(
                         setAudioMasterClockEnabled(false)
                         stopTicker()
                         lastAppliedAutoPlay = false
+                        runCatching { preparedPlayer.pause() }
                     }
                 } else {
                     Log.d(TAG, "playerPrepared idle key=${selection.key} timelineMs=$pendingTimelineMs")
                     setAudioMasterClockEnabled(false)
                     stopTicker()
                     lastAppliedAutoPlay = false
+                    runCatching { preparedPlayer.pause() }
                 }
                 return@setOnPreparedListener
             }
-            seekPlayer(targetMs, autoPlayAfterSeek = pendingAutoPlay)
-            if (pendingAutoPlay) {
+            seekPlayer(targetMs, autoPlayAfterSeek = pendingAutoPlay && playing)
+            if (pendingAutoPlay && playing) {
                 Log.d(TAG, "playerPrepared awaitSeek key=${selection.key} timelineMs=$pendingTimelineMs")
                 setAudioMasterClockEnabled(false)
                 stopTicker()
@@ -658,7 +665,9 @@ class PreviewAudioPlayer(
             } else {
                 Log.d(TAG, "playerPrepared idle key=${selection.key} timelineMs=$pendingTimelineMs")
                 setAudioMasterClockEnabled(false)
+                stopTicker()
                 lastAppliedAutoPlay = false
+                runCatching { preparedPlayer.pause() }
             }
         }
         player.setOnSeekCompleteListener { completedPlayer ->
@@ -705,6 +714,7 @@ class PreviewAudioPlayer(
                 setAudioMasterClockEnabled(false)
                 stopTicker()
                 lastAppliedAutoPlay = false
+                runCatching { completedPlayer.pause() }
             }
         }
         player.setOnCompletionListener {

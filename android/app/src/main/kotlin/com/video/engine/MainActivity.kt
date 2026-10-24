@@ -4153,6 +4153,8 @@ class VideoEditorActivity : ComponentActivity() {
             previewView?.setLayerType(View.LAYER_TYPE_NONE, null)
         } else {
             cancelContinuePreviewAudioSeek()
+            cancelPendingPreviewAudioSeek()
+            previewAudioPlayer?.pause()
             val restoreRunnable = Runnable {
                 if (isPlaying) return@Runnable
                 if (selectedClipKind() == ClipKind.NONE) {
