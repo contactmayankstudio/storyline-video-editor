@@ -2,13 +2,15 @@ package com.video.engine.pro.timeline
 
 import android.content.Context
 import android.graphics.*
+import android.os.Build
 import android.os.SystemClock
 import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import com.video.engine.DesignSystem
 import com.video.engine.DeviceDetector
 import com.video.engine.transition.TransitionStore
 import com.video.engine.transition.TransitionType
-import android.os.Vibrator
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
@@ -372,7 +374,12 @@ class TimelineCanvasView @JvmOverloads constructor(
         })
 
     // ── Vibrator ──────────────────────────────────────────────────────────────
-    private val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+    private val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
+    } else {
+        @Suppress("DEPRECATION")
+        context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+    }
     private var lastHapticSnapMs: Long? = null
 
     // ── Fling ─────────────────────────────────────────────────────────────────

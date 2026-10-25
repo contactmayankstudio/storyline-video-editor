@@ -16,6 +16,7 @@ import android.graphics.Shader
 import android.graphics.Typeface
 import android.os.SystemClock
 import android.util.AttributeSet
+import android.util.TypedValue
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
@@ -587,7 +588,11 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
             val currentOverlay = overlays[overlayIdx]
 
             val text = currentOverlay.text
-            val textSizeSp = (currentOverlay.scale * 20f) * resources.displayMetrics.scaledDensity
+            val textSizeSp = TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_SP,
+                currentOverlay.scale * 20f,
+                resources.displayMetrics
+            )
             val bounce = beatPulse * 4f
 
             textPaint.apply {
@@ -623,7 +628,11 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         val customText = customStatusText
         if (!customText.isNullOrBlank()) {
             val customBounce = beatPulse * 4f
-            val baseSize = (19f * resources.displayMetrics.scaledDensity) * customTextScaleFactor
+            val baseSize = TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_SP,
+                19f,
+                resources.displayMetrics
+            ) * customTextScaleFactor
             val customTextSize = baseSize + customBounce
             customTextPaint.apply {
                 color = Color.parseColor("#FFFDF0")

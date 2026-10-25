@@ -158,9 +158,34 @@ class PreviewActivity : AppCompatActivity() {
         loadVideo()
     }
 
+    private fun buildPipParams(): PictureInPictureParams? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val builder = PictureInPictureParams.Builder()
+                .setAspectRatio(Rational(16, 9))
+            if (::previewView.isInitialized) {
+                val rect = android.graphics.Rect()
+                previewView.getGlobalVisibleRect(rect)
+                if (rect.width() > 0 && rect.height() > 0) {
+                    builder.setSourceRectHint(rect)
+                }
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                builder.setAutoEnterEnabled(videoDurationMs > 0)
+            }
+            return builder.build()
+        }
+        return null
+    }
+
+    private fun updatePipParams() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            buildPipParams()?.let { setPictureInPictureParams(it) }
+        }
+    }
+
     fun enterPipMode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val params = PictureInPictureParams.Builder()
+            val params = buildPipParams() ?: PictureInPictureParams.Builder()
                 .setAspectRatio(Rational(16, 9))
                 .build()
             enterPictureInPictureMode(params)
@@ -221,6 +246,7 @@ class PreviewActivity : AppCompatActivity() {
         // Render first frame
         previewView.seekToTime(0)
         updateTimeDisplay(0)
+        updatePipParams()
         
         Log.d(TAG, "[Scrub] Video loaded, duration: ${videoDurationMs}ms")
     }

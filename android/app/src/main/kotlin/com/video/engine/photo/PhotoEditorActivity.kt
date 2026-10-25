@@ -31,6 +31,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.video.engine.AdsController
@@ -94,6 +95,38 @@ class PhotoEditorActivity : ComponentActivity() {
         "Purple" to Color.rgb(171, 71, 188),
     )
 
+    private val pickImageLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        setPendingPhotoPicker(false)
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        val resultData = result.data ?: return@registerForActivityResult
+        val uri = resultData.data ?: return@registerForActivityResult
+        contentResolver.takePersistableUriPermissionSafe(resultData, uri)
+        val bitmap = decodeBitmap(uri)
+        if (bitmap == null) {
+            Toast.makeText(this, "Image import failed", Toast.LENGTH_SHORT).show()
+            return@registerForActivityResult
+        }
+        showImportPlacementDialog(uri.toString(), bitmap)
+    }
+
+    private val pickBackgroundImageLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        setPendingPhotoPicker(false)
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        val resultData = result.data ?: return@registerForActivityResult
+        val uri = resultData.data ?: return@registerForActivityResult
+        contentResolver.takePersistableUriPermissionSafe(resultData, uri)
+        val bitmap = decodeBitmap(uri)
+        if (bitmap == null) {
+            Toast.makeText(this, "Image import failed", Toast.LENGTH_SHORT).show()
+            return@registerForActivityResult
+        }
+        setImportedBackgroundImage(uri.toString(), bitmap)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -149,27 +182,6 @@ class PhotoEditorActivity : ComponentActivity() {
         adsHandler.removeCallbacks(photoBannerRunnable)
         adsController?.onDestroy()
         super.onDestroy()
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        val photoPickerRequest = requestCode == PICK_IMAGE_REQUEST || requestCode == PICK_BACKGROUND_IMAGE_REQUEST
-        if (photoPickerRequest) setPendingPhotoPicker(false)
-        if (!photoPickerRequest || resultCode != RESULT_OK) return
-        val resultData = data ?: return
-        val uri = resultData.data ?: return
-        contentResolver.takePersistableUriPermissionSafe(resultData, uri)
-        val bitmap = decodeBitmap(uri)
-        if (bitmap == null) {
-            Toast.makeText(this, "Image import failed", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val imageUri = uri.toString()
-        if (requestCode == PICK_BACKGROUND_IMAGE_REQUEST) {
-            setImportedBackgroundImage(imageUri, bitmap)
-        } else {
-            showImportPlacementDialog(imageUri, bitmap)
-        }
     }
 
     private fun showImportPlacementDialog(uri: String, bitmap: Bitmap) {
@@ -2483,7 +2495,7 @@ class PhotoEditorActivity : ComponentActivity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         }
-        startActivityForResult(intent, PICK_IMAGE_REQUEST)
+        pickImageLauncher.launch(intent)
     }
 
     private fun pickBackgroundImage() {
@@ -2494,7 +2506,7 @@ class PhotoEditorActivity : ComponentActivity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         }
-        startActivityForResult(intent, PICK_BACKGROUND_IMAGE_REQUEST)
+        pickBackgroundImageLauncher.launch(intent)
     }
 
     private fun addText() {

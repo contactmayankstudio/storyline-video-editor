@@ -2134,18 +2134,6 @@ class VideoEditorActivity : ComponentActivity() {
         Log.d(TAG, "onCreate - preparing shell")
 
         setContentView(R.layout.activity_main)
-        findViewById<View>(android.R.id.content)?.let { root ->
-            ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
-                val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-                findViewById<View>(R.id.topBar)?.let { topBar ->
-                    topBar.setPadding(topBar.paddingLeft, systemBars.top, topBar.paddingRight, topBar.paddingBottom)
-                }
-                findViewById<View>(R.id.bottomContainer)?.let { bottom ->
-                    bottom.setPadding(bottom.paddingLeft, bottom.paddingTop, bottom.paddingRight, systemBars.bottom)
-                }
-                insets
-            }
-        }
         editorTopBannerContainer = findViewById(R.id.editorTopBannerContainer)
         startTopBannerContainer = findViewById(R.id.startTopBannerContainer)
         editorAiStatusPill = findViewById(R.id.editorAiStatusPill)

@@ -55,8 +55,8 @@ android {
         applicationId = "com.storyline.videoeditor"
         minSdk = 21
         targetSdk = 36
-        versionCode = 19
-        versionName = "1.0.1"
+        versionCode = 20
+        versionName = "1.0.2"
         resValue "string", "aws_control_plane_url", stringResourceValue("")
         resValue "string", "aws_control_plane_device_key", stringResourceValue("")
         resValue "string", "release_portal_url", stringResourceValue("")
@@ -81,6 +81,9 @@ android {
     packagingOptions {
         jniLibs {
             useLegacyPackaging = false
+            excludes += [
+                '**/libc++_shared.so'
+            ]
         }
     }
 
@@ -116,8 +119,8 @@ android {
     productFlavors {
         play {
             dimension "store"
-            versionCode 19
-            versionName "1.0.1"
+            versionCode 20
+            versionName "1.0.2"
         }
     }
 
@@ -224,8 +227,8 @@ dependencies {
     // Google ML Kit Face Detection (On-device, offline, fast face tracking)
     implementation 'com.google.mlkit:face-detection:16.1.7'
 
-    // TensorFlow Lite (Selfie segmentation & AI smart cutout)
-    implementation 'org.tensorflow:tensorflow-lite:2.14.0'
+    // LiteRT (TensorFlow Lite runtime with 16 KB page-size compliance)
+    implementation 'com.google.ai.edge.litert:litert:1.4.0'
 
     // Testing
     testImplementation "junit:junit:4.13.2"
