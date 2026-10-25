@@ -13,16 +13,84 @@ import java.util.Locale
 object SmartConversationalEngine {
 
     /**
-     * Process conversational inputs and produce a rich, human-like response.
-     * Returns a ParsedCommand with VideoEditIntent.Conversational if recognized, or null for standard parser.
+     * Top-level App Master, Navigation, Shayari, and World Trends queries.
+     * Evaluated first to ensure navigation commands like "status maker kholo" or "camera kholo"
+     * are never misidentified as timeline editing actions.
      */
-    fun process(rawText: String): ParsedCommand? {
+    fun processAppMaster(rawText: String): ParsedCommand? {
         val clean = rawText.trim()
         val lower = clean.lowercase(Locale.ROOT)
             .replace(Regex("[?!.,]+$"), "")
             .trim()
 
-        // 1. Greetings & Chit-chat
+        // 1. World Trends & Creator Intelligence (Duniya Me Kya Chal Raha Hai)
+        if (isWorldTrendsQuery(lower)) {
+            val reply = getWorldTrendsReport()
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, null), 0.99f, reply)
+        }
+
+        // 2. Shayari & Poetic Creative Studio (Mujhe Shayari Likh Ke Do)
+        if (isShayariQuery(lower)) {
+            val (shayariText, categoryName) = pickShayari(lower)
+            val reply = "📜 **$categoryName Shayari (Aapke Liye):**\n\n" +
+                "\"$shayariText\"\n\n" +
+                "👉 *Is shayari ko video par glowing text lagana hai ya Status Maker me use karna hai? Neeche 1-tap options se chunein!*"
+            return ParsedCommand(
+                rawText = rawText,
+                intent = VideoEditIntent.Conversational(reply, VideoEditIntent.AddShayariOverlay(shayariText)),
+                confidence = 0.99f,
+                feedbackMessage = reply,
+            )
+        }
+
+        // 3. Pure App Ka Master (Full App Control & Navigation)
+        if (isAppMasterQuery(lower)) {
+            val reply = getAppMasterReport()
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, null), 0.99f, reply)
+        }
+
+        // App Navigation Commands
+        if (isOpenFunCamera(lower)) {
+            val reply = "Fun Camera launch ho raha hai bhai! 📸 Snapchat-style lenses, amber night glow aur hands-free recording ready hai."
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.OpenFunCamera), 0.99f, reply)
+        }
+
+        if (isOpenStatusMaker(lower)) {
+            val reply = "Status Maker Pro launch ho raha hai bhai! 🌟 1-Photo se dynamic lyrical status tayyar ho raha hai."
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.OpenStatusMaker), 0.99f, reply)
+        }
+
+        if (isOpenPhotoEditor(lower)) {
+            val reply = "Photo Editor Studio launch ho raha hai bhai! 🖼️ AI cutouts, presets aur typography tools tayyar hain."
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.OpenPhotoEditor), 0.99f, reply)
+        }
+
+        if (isAutoBeatCut(lower)) {
+            val reply = "Auto Beat Cut chalu kar raha hoon bhai! 🎵 Audio waveform ke transients analyze karke har beat drop par auto-split aur flash zoom cut lagaye ja rahe hain."
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.AutoBeatCut), 0.99f, reply)
+        }
+
+        if (isChromaKey(lower)) {
+            val reply = "AI Green Screen Chroma Key apply kar diya hai bhai! 🟢 Background cleanly transparent ho gaya hai."
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.ChromaKey), 0.99f, reply)
+        }
+
+        return null
+    }
+
+    /**
+     * Process conversational inputs and produce a rich, human-like response.
+     * Returns a ParsedCommand with VideoEditIntent.Conversational if recognized, or null for standard parser.
+     */
+    fun process(rawText: String): ParsedCommand? {
+        processAppMaster(rawText)?.let { return it }
+
+        val clean = rawText.trim()
+        val lower = clean.lowercase(Locale.ROOT)
+            .replace(Regex("[?!.,]+$"), "")
+            .trim()
+
+        // 4. Greetings & Chit-chat
         if (isGreeting(lower)) {
             val reply = listOf(
                 "Hey bhai! Ek dum badhiya! Aaj kaunsi video ko viral banana hai? Bolo — cut karna hai, silence hatana hai, ya cinematic look chahiye? 🎬",
@@ -260,7 +328,7 @@ object SmartConversationalEngine {
     }
 
     private fun isGreeting(text: String): Boolean {
-        return text in listOf("kese ho", "kaise ho", "kya haal hai", "kya haal", "hello", "hi", "hey", "namaste", "pranam", "sup", "wassup", "hii", "heyy", "kaise ho bhai", "kese ho bhai", "kya chal raha hai") ||
+        return text in listOf("kese ho", "kaise ho", "kya haal hai", "kya haal", "hello", "hi", "hey", "namaste", "pranam", "sup", "wassup", "hii", "heyy", "kaise ho bhai", "kese ho bhai") ||
             text.startsWith("kaise ho") || text.startsWith("kese ho") || text.startsWith("hello") || text.startsWith("hi ") || text.startsWith("hey ")
     }
 
@@ -355,5 +423,153 @@ object SmartConversationalEngine {
     private fun matchesConversationalVolume(text: String): Boolean {
         return text.contains("volume") || text.contains("awaaz") || text.contains("aawaz") ||
             text.contains("awaz") || text.contains("sound badha") || text.contains("sound kam")
+    }
+
+    fun getWorldTrendsReport(): String {
+        return "🌍 **Duniya Me Abhi Ye 4 Sabse Bade Trends Dhoom Macha Rahe Hain:**\n\n" +
+            "1️⃣ 🎬 **Aesthetic Shayari & Lyrical Reels:** 9:16 portrait video par slow-motion visuals + golden neon kinetic shayari + Urdu/Lofi music Instagram aur YouTube Shorts par #1 viral trend hai!\n\n" +
+            "2️⃣ ⚡ **1-Tap AI Beat-Drop Cuts:** Audio waveform ke har kick aur drop par 0.2s flash zoom cuts. Audience retention 90%+ boost ho jati hai!\n\n" +
+            "3️⃣ 🤖 **AI Smart Cutout & Duet Splits:** Podcast hooks aur viral memes par side-by-side reaction aur clean background replacement.\n\n" +
+            "4️⃣ 📼 **Retro 90s Camcorder & Cyberpunk VHS:** Vintage timestamp overlay, CRT lines aur warm nostalgic glow.\n\n" +
+            "💡 **Mera Mashwara:** Abhi apni video par '🎵 Auto Beat Cut' lagao ya '📜 Shayari Likh Do' bolo, reel instant viral hogi!"
+    }
+
+    fun getAppMasterReport(): String {
+        return "👑 **Main Storyline Video Editor Ka Master AI Copilot Hoon!** 🚀\n\n" +
+            "Aapki ek aawaaz ya chat message par main poore app ke saare tools control kar sakta hoon:\n\n" +
+            "• 📸 **Fun Camera:** 'Camera kholo' bolo -> Snapchat lenses & selfie glow camera launch hoga!\n" +
+            "• 🌟 **Status Maker:** 'Status maker kholo' -> 1-Photo se Mast video maker status banega!\n" +
+            "• 🖼️ **Photo Editor:** 'Photo editor kholo' -> Studio thumbnails & magic cutout designer!\n" +
+            "• 🎵 **1-Tap Beat Cut:** 'Beat cut karo' -> Gaane ke har drop par video auto-split & flash!\n" +
+            "• 📜 **Shayari Studio:** 'Shayari likho' -> Romantic, Attitude, Sad shayari with 1-tap text overlay!\n" +
+            "• 🌍 **World Trends:** 'Duniya me kya chal raha' -> Viral content ideas & creative advice!\n" +
+            "• 🟢 **Chroma Key:** 'Green screen hatao' -> Clean transparent background!\n" +
+            "• ⚡ **Timeline Master:** Split, Silence Trim, 2x Fast, Slow-Mo, 9:16 Reframe, 4K Export!\n\n" +
+            "Bolo bhai, abhi kya order hai? Main turant execute kar dunga! 🎬🔥"
+    }
+
+    private val romanticShayaris = listOf(
+        "तेरी आँखों की कशिश दिल को बहका देती है,\nतू मुस्कुरा दे तो हर उदासी मिट जाती है... ✨❤️",
+        "हज़ार चाहने वालों से बेहतर है वो एक शख्स,\nजो तुम्हारी ख़ामोशी को भी पढ़ ले... 🌹",
+        "इश्क़ वो नहीं जो तुझे मेरा कर दे,\nइश्क़ वो है जो तुझे किसी और का होने न दे... 💫",
+        "कुछ ख़ास नहीं इन हाथों की लकीरों में,\nमगर तुम मिल जाओ तो तकदीर सँवर जाए... 💖",
+        "तुम्हारी सादगी पर दिल निसार करते हैं,\nहम तुमसे बेपनाह और बेइंतहा प्यार करते हैं... 🥀"
+    )
+
+    private val attitudeShayaris = listOf(
+        "हम वो नहीं जो भीड़ में खो जाएं,\nहम जहां खड़े होते हैं काफिला वहीं से शुरू होता है! 👑🔥",
+        "खामोशी हमारी कमजोरी नहीं शान है,\nशेर शिकार से पहले कभी शोर नहीं मचाता! 🦁⚡",
+        "अंदाज़ ज़रा अलग है हमारा,\nहम वक्त देखकर बात नहीं करते, वक्त बदल कर दिखाते हैं! 🕶️💥",
+        "बराबरी तो दूर की बात है,\nहमारे चर्चे भी तेरे समझ से बाहर हैं! 🚀🔥",
+        "तेवर तो हम वक्त आने पर दिखाएंगे,\nशहर तू खरीद ले, उस पर राज हम चलाएंगे! 🏰⚡"
+    )
+
+    private val sadShayaris = listOf(
+        "कुछ ज़ख़्म ऐसे होते हैं जो दिखाई नहीं देते,\nपर वो दर्द हर सांस के साथ महसूस होता है... 💔🌧️",
+        "अक्सर वही लोग खामोश हो जाते हैं,\nजिनके पास कहने को बहुत कुछ होता है... 🥀",
+        "मुस्कुराहटें झूठी भी हुआ करती हैं जनाब,\nहर हँसता हुआ चेहरा खुशहाल नहीं होता... 💧",
+        "वक्त ने सिखा दिया हर गम सहना,\nअब कोई छोड़ भी जाए तो आंखें नम नहीं होतीं... 🍂"
+    )
+
+    private val zindagiShayaris = listOf(
+        "ज़िंदगी की दौड़ में तजुर्बे ने ये सिखाया है,\nमंज़िल से ज़्यादा खूबसूरत सफर का हौसला होता है... 🚀✨",
+        "वक़्त सबको मिलता है ज़िंदगी बदलने के लिए,\nपर ज़िंदगी दोबारा नहीं मिलती वक़्त बदलने के लिए... ⏳🌿",
+        "हवाओं के रुख से जो डर जाए वो कश्ती क्या,\nजो लहरों से टकराए वही असली मुसाफिर है! 🌊⚓",
+        "किस्मत के लिखे पर कभी मलाल मत करना,\nखुदा का फैसला हर इंसान की सोच से बेहतर होता है... 🌙🕊️"
+    )
+
+    private val dostiShayaris = listOf(
+        "दोस्त वो नहीं जो खुशी में साथ हँसे,\nदोस्त वो है जो आंसुओं में भी मुस्कुराना सिखा दे... 🤝💙",
+        "दौलत से तो दुनिया की हर चीज़ खरीदी जा सकती है,\nमगर सच्चे यार नसीब वालों को ही मिलते हैं! 🍻🔥",
+        "हमारी यारी का अंदाज़ ही कुछ ऐसा है,\nजब मिलते हैं तो ज़माना देखता रह जाता है! ⚡🤜🤛"
+    )
+
+    private val motivationalShayaris = listOf(
+        "मंज़िलें उन्हीं को मिलती हैं जिनके सपनों में जान होती है,\nपंखों से कुछ नहीं होता हौसलों से उड़ान होती है! 🦅🔥",
+        "मेहनत इतनी खामोशी से करो कि,\nतुम्हारी कामयाबी पूरी दुनिया में शोर मचा दे! 🏆⚡",
+        "गिरकर संभलना ही तो असली हुनर है,\nजो हार कर भी ना रुके वही सिकंदर है! 🥇🚀"
+    )
+
+    fun pickShayari(query: String): Pair<String, String> {
+        return when {
+            query.contains("romantic") || query.contains("love") || query.contains("pyaar") || query.contains("ishq") || query.contains("mohabbat") ->
+                Pair(romanticShayaris.random(), "Romantic")
+            query.contains("attitude") || query.contains("swag") || query.contains("king") || query.contains("badshah") || query.contains("sher") || query.contains("aukat") ->
+                Pair(attitudeShayaris.random(), "Attitude")
+            query.contains("sad") || query.contains("dard") || query.contains("gam") || query.contains("gham") || query.contains("judai") || query.contains("bewafa") || query.contains("rona") ->
+                Pair(sadShayaris.random(), "Dard-e-Dil")
+            query.contains("dosti") || query.contains("yaar") || query.contains("yaari") || query.contains("friend") ->
+                Pair(dostiShayaris.random(), "Dosti")
+            query.contains("motivation") || query.contains("hustle") || query.contains("mehnat") || query.contains("kamyaab") || query.contains("jeet") ->
+                Pair(motivationalShayaris.random(), "Motivational")
+            query.contains("zindagi") || query.contains("life") || query.contains("deep") || query.contains("waqt") ->
+                Pair(zindagiShayaris.random(), "Zindagi")
+            else -> {
+                val all = listOf(
+                    Pair(romanticShayaris.random(), "Romantic"),
+                    Pair(attitudeShayaris.random(), "Attitude"),
+                    Pair(sadShayaris.random(), "Dard-e-Dil"),
+                    Pair(zindagiShayaris.random(), "Zindagi"),
+                    Pair(motivationalShayaris.random(), "Motivational"),
+                )
+                all.random()
+            }
+        }
+    }
+
+    private fun isWorldTrendsQuery(text: String): Boolean {
+        if (text.contains("edit") || text.contains("trim") || text.contains("banao") || text.contains("karo")) return false
+        return text.contains("duniya me kya chal") || text.contains("duniya me kya ho") ||
+            text.contains("duniya me") || text.contains("kya chal raha") ||
+            text.contains("trending") || text.contains("viral trend") ||
+            text.contains("trend kya") || text.contains("aaj kal kya chal") ||
+            text.contains("market me kya") || text.contains("what's trending") ||
+            text.contains("whats trending") || text.contains("current trend") ||
+            text.contains("kya scene hai") || text.contains("viral reels trend")
+    }
+
+    private fun isShayariQuery(text: String): Boolean {
+        return text.contains("sayri") || text.contains("shayari") || text.contains("shayri") ||
+            text.contains("shairi") || text.contains("शायरी") || text.contains("poetry") ||
+            text.contains("kavita") || text.contains("sher") || text.contains("sher o shayari")
+    }
+
+    private fun isAppMasterQuery(text: String): Boolean {
+        if (text.contains("volume") || text.contains("sound") || text.contains("awaaz")) return false
+        return text.contains("pure app ka master") || text.contains("app ka master") ||
+            text.contains("app master") || text.contains("super agent") ||
+            text.contains("tum kya kar sakte ho") || text.contains("kya kya kar sakte ho") ||
+            text.contains("all features") || text.contains("poore app ka") ||
+            text == "master" || text.startsWith("master ") || text.endsWith(" master")
+    }
+
+    private fun isOpenFunCamera(text: String): Boolean {
+        return (text.contains("camera") || text.contains("कैमरा") || text.contains("selfie") || text.contains("lens")) &&
+            (text.contains("khol") || text.contains("open") || text.contains("chalu") || text.contains("start") || text.contains("snapchat"))
+    }
+
+    private fun isOpenStatusMaker(text: String): Boolean {
+        return (text.contains("status maker") || text.contains("mast video") || text.contains("reels maker")) &&
+            (text.contains("khol") || text.contains("open") || text.contains("chalu") || text.contains("start"))
+    }
+
+    private fun isOpenPhotoEditor(text: String): Boolean {
+        return (text.contains("photo editor") || text.contains("thumbnail") || text.contains("photo edit")) &&
+            (text.contains("khol") || text.contains("open") || text.contains("chalu") || text.contains("start"))
+    }
+
+    private fun isAutoBeatCut(text: String): Boolean {
+        if (text.contains("fast beat cut") || text.contains("beat sync") ||
+            text.contains("sync to beat") || text.contains("rhythm sync") || text.contains("punchy cut")) {
+            return false
+        }
+        return text.contains("auto beat cut") || text.contains("beat drop cut") ||
+            text.contains("auto beat") || (text.contains("beat cut") && text.contains("karo")) ||
+            text.contains("बीट कट करो")
+    }
+
+    private fun isChromaKey(text: String): Boolean {
+        return text.contains("chroma") || text.contains("green screen") || text.contains("green parda") ||
+            text.contains("greenscreen") || text.contains("parda hata") || text.contains("hara parda")
     }
 }

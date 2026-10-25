@@ -85,6 +85,41 @@ object AiTtsVoiceoverManager {
         }
     }
 
+    /**
+     * Speaks text directly through the speaker in a friendly conversational voice.
+     */
+    fun speak(context: Context, text: String, lang: String = "hi") {
+        init(context) {
+            val engine = tts ?: return@init
+            val locale = if (lang.equals("hi", ignoreCase = true) || lang.equals("hinglish", ignoreCase = true)) {
+                Locale("hi", "IN")
+            } else {
+                Locale.US
+            }
+            try {
+                engine.language = locale
+            } catch (_: Throwable) {
+                engine.language = Locale.US
+            }
+            val speakable = text.replace(Regex("[*#_`~]"), "")
+                .replace(Regex("[\\uD83C-\\uDBFF\\uDC00-\\uDFFF]+"), "")
+                .replace(Regex("https?://\\S+"), "")
+                .trim()
+            if (speakable.isNotBlank()) {
+                engine.speak(speakable, TextToSpeech.QUEUE_FLUSH, null, "copilot_speech_${System.currentTimeMillis()}")
+            }
+        }
+    }
+
+    /**
+     * Stops any currently active spoken speech playback.
+     */
+    fun stopSpeaking() {
+        try {
+            tts?.stop()
+        } catch (_: Throwable) {}
+    }
+
     fun release() {
         try {
             tts?.stop()

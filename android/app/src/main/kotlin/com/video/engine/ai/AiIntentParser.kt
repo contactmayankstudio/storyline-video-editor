@@ -58,6 +58,12 @@ sealed class VideoEditIntent {
     object Undo : VideoEditIntent()
     object Redo : VideoEditIntent()
     data class StatusMakerPro(val style: String = "Trending") : VideoEditIntent()
+    object OpenFunCamera : VideoEditIntent()
+    object OpenStatusMaker : VideoEditIntent()
+    object OpenPhotoEditor : VideoEditIntent()
+    object AutoBeatCut : VideoEditIntent()
+    object ChromaKey : VideoEditIntent()
+    data class AddShayariOverlay(val shayariText: String) : VideoEditIntent()
     data class Conversational(val reply: String, val executeIntent: VideoEditIntent? = null) : VideoEditIntent()
     object Unknown : VideoEditIntent()
 }
@@ -120,6 +126,9 @@ object AiIntentParser {
         val normalized = clean.lowercase(Locale.ROOT)
             .replace(Regex("[?!.,]+$"), "")
             .trim()
+
+        // 0-master. App Master & Conversational Studio Queries (Shayari, World Trends, Full App Master, Navigation)
+        SmartConversationalEngine.processAppMaster(clean)?.let { return it }
 
         // 0-template. Export as Reusable Template (.vne)
         if (matchesSaveAsTemplate(normalized)) {
@@ -725,6 +734,10 @@ object AiIntentParser {
     }
 
     private fun matchesFastBeatCuts(text: String): Boolean {
+        if (text.contains("auto beat cut") || text.contains("beat drop cut") ||
+            text.contains("beat sync cut") || text.contains("music beat cut")) {
+            return false
+        }
         // English
         if (text.contains("fast beat cuts") || text.contains("fast beat cut") ||
             text.contains("beat cut") || text.contains("beat cuts") ||
@@ -940,6 +953,9 @@ object AiIntentParser {
     }
 
     private fun matchesStatusMakerPro(text: String): Boolean {
+        if (text.contains("khol") || text.contains("open") || text.contains("launch")) {
+            return false
+        }
         return text.contains("status") || text.contains("स्टेटस") ||
             text.contains("1 photo") || text.contains("ek photo") ||
             text.contains("one photo") || text.contains("1 pic") ||

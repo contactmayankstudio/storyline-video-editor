@@ -8164,6 +8164,61 @@ class VideoEditorActivity : ComponentActivity() {
                 exportVideo(resolution)
                 return true
             }
+
+            override fun openFunCamera(): Boolean {
+                runOnUiThread {
+                    startActivity(Intent(this@VideoEditorActivity, com.video.engine.camera.FunCameraActivity::class.java))
+                }
+                return true
+            }
+
+            override fun openStatusMaker(): Boolean {
+                runOnUiThread {
+                    startActivity(Intent(this@VideoEditorActivity, com.video.engine.status.StatusMakerActivity::class.java))
+                }
+                return true
+            }
+
+            override fun openPhotoEditor(): Boolean {
+                runOnUiThread {
+                    startActivity(Intent(this@VideoEditorActivity, com.video.engine.photo.PhotoEditorActivity::class.java))
+                }
+                return true
+            }
+
+            override fun autoBeatCut(): Boolean {
+                runOnUiThread {
+                    showAutoBeatCutSheet()
+                }
+                return true
+            }
+
+            override fun chromaKey(): Boolean {
+                runOnUiThread {
+                    applyAutomationChromaKey(
+                        enabled = true,
+                        useBlueKey = false,
+                        similarity = 0.35f,
+                        smoothness = 0.12f,
+                        spill = 0.06f,
+                    )
+                    safeToast("🟢 AI Green Screen Chroma Key applied!", Toast.LENGTH_SHORT)
+                }
+                return true
+            }
+
+            override fun addShayariTextOverlay(shayari: String): Boolean {
+                runOnUiThread {
+                    val preset = textOverlayPresets.firstOrNull { it.label == "Title" }
+                        ?: textOverlayPresets.firstOrNull()
+                    if (preset != null) {
+                        val overlay = buildTextOverlayFromPreset(preset, shayari)
+                        addTextOverlay(overlay, "Shayari added to video")
+                        safeToast("📜 Shayari video timeline par add ho gayi!", Toast.LENGTH_SHORT)
+                    }
+                }
+                return true
+            }
         }
     }
 

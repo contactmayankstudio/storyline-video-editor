@@ -265,6 +265,36 @@ interface AiCommandDispatcher {
     fun aiCutout(glowColor: String = "cyan", background: String = "grid"): Boolean = false
 
     /**
+     * Opens Fun Camera (Snapchat style filters & lenses).
+     */
+    fun openFunCamera(): Boolean = false
+
+    /**
+     * Opens Status Maker Pro (Mast style 1-photo lyrical video maker).
+     */
+    fun openStatusMaker(): Boolean = false
+
+    /**
+     * Opens Photo Editor Studio (magic cutout & typography designer).
+     */
+    fun openPhotoEditor(): Boolean = false
+
+    /**
+     * Triggers 1-Tap AI Beat-Sync Cut on timeline audio & video.
+     */
+    fun autoBeatCut(): Boolean = false
+
+    /**
+     * Opens AI Chroma Key & Green Screen removal tool.
+     */
+    fun chromaKey(): Boolean = false
+
+    /**
+     * Adds glowing kinetic Shayari text overlay to video timeline.
+     */
+    fun addShayariTextOverlay(shayari: String): Boolean = false
+
+    /**
      * Exports and saves the current project timeline as a reusable Status/Reels template (.vne).
      */
     fun saveAsTemplate(title: String = "Viral Reel Template", category: String = "Trending"): Boolean = false
@@ -356,6 +386,12 @@ interface AiCommandDispatcher {
             is VideoEditIntent.TogglePlayback -> togglePlayback()
             is VideoEditIntent.Undo -> undo()
             is VideoEditIntent.Redo -> redo()
+            is VideoEditIntent.OpenFunCamera -> openFunCamera()
+            is VideoEditIntent.OpenStatusMaker -> openStatusMaker()
+            is VideoEditIntent.OpenPhotoEditor -> openPhotoEditor()
+            is VideoEditIntent.AutoBeatCut -> autoBeatCut()
+            is VideoEditIntent.ChromaKey -> chromaKey()
+            is VideoEditIntent.AddShayariOverlay -> addShayariTextOverlay(intent.shayariText)
             is VideoEditIntent.Conversational -> {
                 intent.executeIntent?.let { dispatchSingle(it) } ?: true
             }

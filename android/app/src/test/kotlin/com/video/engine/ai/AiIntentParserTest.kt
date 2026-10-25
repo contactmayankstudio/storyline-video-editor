@@ -665,6 +665,81 @@ class AiIntentParserTest {
     }
 
     @Test
+    fun parse_shayariQueries() {
+        val queries = listOf(
+            "mujhe sayri likh ke do",
+            "ek romantic shayari likho",
+            "attitude shayari sunao",
+            "dard bhari shayari",
+            "dosti wali shayari",
+            "sayri sunao",
+        )
+        for (q in queries) {
+            val res = AiIntentParser.parse(q)
+            assertTrue("Expected Conversational for '$q', got ${res.intent}", res.intent is VideoEditIntent.Conversational)
+            val conv = res.intent as VideoEditIntent.Conversational
+            assertTrue("Expected AddShayariOverlay executeIntent for '$q'", conv.executeIntent is VideoEditIntent.AddShayariOverlay)
+            assertTrue(conv.reply.contains("Shayari"))
+        }
+    }
+
+    @Test
+    fun parse_worldTrendsQueries() {
+        val queries = listOf(
+            "duniya me kya chal raha",
+            "duniya me kya chal raha hai",
+            "aaj kal kya chal raha hai",
+            "trending kya hai",
+            "viral trends batao",
+            "market me kya chal raha hai",
+        )
+        for (q in queries) {
+            val res = AiIntentParser.parse(q)
+            assertTrue("Expected Conversational for '$q', got ${res.intent}", res.intent is VideoEditIntent.Conversational)
+            val conv = res.intent as VideoEditIntent.Conversational
+            assertTrue("Expected world trends report in reply for '$q'", conv.reply.contains("Duniya Me Abhi Ye"))
+        }
+    }
+
+    @Test
+    fun parse_appMasterQueries() {
+        val queries = listOf(
+            "pure app ka master",
+            "tum pure app ka master ho",
+            "tum kya kar sakte ho",
+        )
+        for (q in queries) {
+            val res = AiIntentParser.parse(q)
+            assertTrue("Expected Conversational for '$q', got ${res.intent}", res.intent is VideoEditIntent.Conversational)
+            val conv = res.intent as VideoEditIntent.Conversational
+            assertTrue("Expected master report in reply for '$q'", conv.reply.contains("Master AI Copilot Hoon"))
+        }
+    }
+
+    @Test
+    fun parse_appNavigationQueries() {
+        val camRes = AiIntentParser.parse("camera kholo")
+        assertTrue(camRes.intent is VideoEditIntent.Conversational)
+        assertEquals(VideoEditIntent.OpenFunCamera, (camRes.intent as VideoEditIntent.Conversational).executeIntent)
+
+        val statusRes = AiIntentParser.parse("status maker kholo")
+        assertTrue(statusRes.intent is VideoEditIntent.Conversational)
+        assertEquals(VideoEditIntent.OpenStatusMaker, (statusRes.intent as VideoEditIntent.Conversational).executeIntent)
+
+        val photoRes = AiIntentParser.parse("photo editor kholo")
+        assertTrue(photoRes.intent is VideoEditIntent.Conversational)
+        assertEquals(VideoEditIntent.OpenPhotoEditor, (photoRes.intent as VideoEditIntent.Conversational).executeIntent)
+
+        val beatRes = AiIntentParser.parse("auto beat cut karo")
+        assertTrue(beatRes.intent is VideoEditIntent.Conversational)
+        assertEquals(VideoEditIntent.AutoBeatCut, (beatRes.intent as VideoEditIntent.Conversational).executeIntent)
+
+        val chromaRes = AiIntentParser.parse("green screen background hatao")
+        assertTrue(chromaRes.intent is VideoEditIntent.Conversational)
+        assertEquals(VideoEditIntent.ChromaKey, (chromaRes.intent as VideoEditIntent.Conversational).executeIntent)
+    }
+
+    @Test
     fun parse_blankAndUnknown() {
         val emptyRes = AiIntentParser.parse("")
         assertTrue(emptyRes.intent is VideoEditIntent.Unknown)
