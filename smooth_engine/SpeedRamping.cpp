@@ -99,10 +99,33 @@ int64_t mapTimelineToSourceWithProfile(
             startSpeed = clampPositiveSpeed(std::max(baseSpeed, 1.0f));
             midSpeed = clampPositiveSpeed(std::max(baseSpeed * 1.45f, strength * 1.2f));
             endSpeed = clampPositiveSpeed(std::max(baseSpeed * 2.0f, strength * 1.8f));
+        } else if (curveProfile == "bullet_drop") {
+            startSpeed = clampPositiveSpeed(baseSpeed * std::clamp(2.2f * strength, 1.2f, 4.0f));
+            midSpeed = clampPositiveSpeed(baseSpeed * std::clamp(0.35f / strength, 0.15f, 0.8f));
+            endSpeed = clampPositiveSpeed(baseSpeed * std::clamp(0.45f / strength, 0.2f, 0.9f));
+        } else if (curveProfile == "montage") {
+            startSpeed = clampPositiveSpeed(baseSpeed * 1.6f);
+            midSpeed = clampPositiveSpeed(baseSpeed * 0.4f);
+            endSpeed = clampPositiveSpeed(baseSpeed * 1.6f);
+        } else if (curveProfile == "hero_flow") {
+            startSpeed = clampPositiveSpeed(baseSpeed * 1.8f);
+            midSpeed = clampPositiveSpeed(baseSpeed * 0.35f);
+            endSpeed = clampPositiveSpeed(baseSpeed * 1.8f);
+        } else if (curveProfile == "flash_cut") {
+            startSpeed = clampPositiveSpeed(baseSpeed * 2.5f);
+            midSpeed = clampPositiveSpeed(baseSpeed * 0.8f);
+            endSpeed = clampPositiveSpeed(baseSpeed * 0.4f);
+        } else if (curveProfile == "smooth_slowmo") {
+            startSpeed = clampPositiveSpeed(baseSpeed * 0.5f);
+            midSpeed = clampPositiveSpeed(baseSpeed * 0.35f);
+            endSpeed = clampPositiveSpeed(baseSpeed * 0.5f);
         }
 
         mapper.addSpeedPoint(0, startSpeed);
-        if (curveProfile == "ease_in_out" || curveProfile == "hyperlapse") {
+        if (curveProfile == "ease_in_out" || curveProfile == "hyperlapse" ||
+            curveProfile == "bullet_drop" || curveProfile == "montage" ||
+            curveProfile == "hero_flow" || curveProfile == "flash_cut" ||
+            curveProfile == "smooth_slowmo") {
             mapper.addSpeedPoint(midUnit, midSpeed);
         }
         mapper.addSpeedPoint(endUnit, endSpeed);

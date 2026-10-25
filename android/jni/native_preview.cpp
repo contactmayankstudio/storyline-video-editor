@@ -611,13 +611,22 @@ void preciseRenderWait(
         return it != g_timelineClipPaths.end() ? it->durationMs : 0;
     }
 
+    static std::unordered_map<std::string, int64_t> g_probedMediaFileDurationCache;
+    static std::mutex g_probedMediaFileDurationMutex;
+
     static int64_t probeClipDurationMs(const std::string& path) {
+        if (path.empty()) {
+            return 0;
+        }
         if (isStillImagePath(path)) {
             return kDefaultStillImageDurationMs;
         }
-        const int64_t cachedDurationMs = lookupCachedClipDurationMs(path);
-        if (cachedDurationMs > 0) {
-            return cachedDurationMs;
+        {
+            std::lock_guard<std::mutex> lock(g_probedMediaFileDurationMutex);
+            auto it = g_probedMediaFileDurationCache.find(path);
+            if (it != g_probedMediaFileDurationCache.end() && it->second > 0) {
+                return it->second;
+            }
         }
 
         AVFormatContext* inputFmt = nullptr;
@@ -661,7 +670,12 @@ void preciseRenderWait(
             LOGW("[Timeline] Failed to probe duration for %s: missing valid media duration", path.c_str());
             return 0;
         }
-        return std::max<int64_t>(1, durationUs / 1000);
+        const int64_t probedMs = std::max<int64_t>(1, durationUs / 1000);
+        {
+            std::lock_guard<std::mutex> lock(g_probedMediaFileDurationMutex);
+            g_probedMediaFileDurationCache[path] = probedMs;
+        }
+        return probedMs;
     }
 
     static void cacheClipExportSource(int clipId, const std::string& path, int64_t durationMs) {
@@ -1680,8 +1694,8 @@ void preciseRenderWait(
                         return true;
                     }
                 }
-                decodedOut = state.lastDecoded;
-                return true;
+                // If sequential decoding failed to reach target (packet/EOF glitch),
+                // fall through to seekTo below to force resynchronization.
             }
         }
 
@@ -2523,10 +2537,22 @@ void preciseRenderWait(
                 outputHeight,
                 canvas);
         } else if (!hasCompositedVisualLayer && clipSpec.opacity >= 0.999f) {
-            std::copy(
-                state.processedLayerRgba.begin(),
-                state.processedLayerRgba.end(),
-                canvas.begin());
+            if (clipSpec.chromaEnabled) {
+                const size_t pixelCount = static_cast<size_t>(outputWidth) * static_cast<size_t>(outputHeight);
+                for (size_t i = 0; i < pixelCount; ++i) {
+                    const size_t idx = i * 4;
+                    const uint8_t a = state.processedLayerRgba[idx + 3];
+                    canvas[idx + 0] = static_cast<uint8_t>((static_cast<uint16_t>(state.processedLayerRgba[idx + 0]) * a) / 255);
+                    canvas[idx + 1] = static_cast<uint8_t>((static_cast<uint16_t>(state.processedLayerRgba[idx + 1]) * a) / 255);
+                    canvas[idx + 2] = static_cast<uint8_t>((static_cast<uint16_t>(state.processedLayerRgba[idx + 2]) * a) / 255);
+                    canvas[idx + 3] = 0xFF;
+                }
+            } else {
+                std::copy(
+                    state.processedLayerRgba.begin(),
+                    state.processedLayerRgba.end(),
+                    canvas.begin());
+            }
         } else {
             blendFullFrameRgba(
                 state.processedLayerRgba,
