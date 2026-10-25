@@ -44,6 +44,11 @@ class EffectsPanel(
             section("Trending Effects")
             val effectCards = listOf(
                 ModernSheet.VisualCard(
+                    id = "Deep Cinema",
+                    label = "Deep Cinema",
+                    swatchGradient = Pair(android.graphics.Color.parseColor("#0F2027"), android.graphics.Color.parseColor("#2C5364")),
+                ),
+                ModernSheet.VisualCard(
                     id = "Beauty Lift",
                     label = "Beauty Lift",
                     swatchGradient = Pair(android.graphics.Color.parseColor("#FF758C"), android.graphics.Color.parseColor("#FF7EB3")),

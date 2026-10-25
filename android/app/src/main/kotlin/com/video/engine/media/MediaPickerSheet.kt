@@ -557,12 +557,13 @@ object MediaPickerSheet {
         }
         recyclerView.adapter = adapter
 
+        val isLayerOrOverlay = initialTrackType == TrackType.LAYER || initialTrackType == TrackType.OVERLAY
         videoTab.setOnClickListener {
-            targetTrackType = TrackType.VIDEO
+            targetTrackType = if (isLayerOrOverlay) initialTrackType else TrackType.VIDEO
             loadMediaForTab(MediaType.VIDEO)
         }
         photoTab.setOnClickListener {
-            targetTrackType = TrackType.OVERLAY
+            targetTrackType = if (isLayerOrOverlay) initialTrackType else TrackType.OVERLAY
             loadMediaForTab(MediaType.PHOTO)
         }
         audioTab.setOnClickListener {

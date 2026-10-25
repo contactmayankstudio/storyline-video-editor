@@ -35,6 +35,8 @@ object ProFilterPresets {
         ProFilterSection(
             title = "Cinematic",
             presets = listOf(
+                ProFilterPreset("Deep Cinema", "Deep moody dramatic tone", EffectParams(brightness = -0.08f, contrast = 1.38f, saturation = 1.25f)),
+                ProFilterPreset("Deep", "Deep moody tone", EffectParams(brightness = -0.08f, contrast = 1.38f, saturation = 1.25f)),
                 ProFilterPreset("Cine Matte", "Soft matte montage look", EffectParams(brightness = 0.06f, contrast = 0.82f, saturation = 0.72f)),
                 ProFilterPreset("Teal Punch", "Cool blockbuster contrast", EffectParams(brightness = -0.08f, contrast = 1.36f, saturation = 1.18f)),
                 ProFilterPreset("Night Neon", "Blue-magenta nightlife mood", EffectParams(brightness = -0.10f, contrast = 1.34f, saturation = 1.42f)),

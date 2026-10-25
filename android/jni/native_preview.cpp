@@ -43,6 +43,10 @@
 #include <sched.h>
 #include <sys/resource.h>
 
+#if defined(__ARM_NEON) || defined(__aarch64__)
+#include <arm_neon.h>
+#endif
+
 #include "native_preview_shared.h"
 #include "engine/preview_controller.h"
 #include "core/timeline.h"
@@ -1108,8 +1112,8 @@ void preciseRenderWait(
             ctx.codecCtx->gop_size = ctx.fps * 2;
             ctx.codecCtx->max_b_frames = 0;
             ctx.codecCtx->sample_aspect_ratio = AVRational{1, 1};
-            ctx.codecCtx->thread_count = 4; // use 4 threads for faster encoding
-            ctx.codecCtx->thread_type = FF_THREAD_FRAME;
+            ctx.codecCtx->thread_count = 0; // 0 = auto-detect all available CPU cores in FFmpeg
+            ctx.codecCtx->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
             ctx.videoStream->time_base = ctx.codecCtx->time_base;
             ctx.videoStream->avg_frame_rate = ctx.codecCtx->framerate;
             ctx.pixelFormat = ctx.codecCtx->pix_fmt;
@@ -1137,6 +1141,7 @@ void preciseRenderWait(
                 ctx.codecCtx->max_b_frames = 0;
                 av_dict_set(&codecOptions, "ndk_codec", "1", 0);
             } else if (std::strcmp(candidate.name, "libx264") == 0) {
+                av_dict_set(&codecOptions, "threads", "auto", 0);
                 av_dict_set(&codecOptions, "preset", "ultrafast", 0);
                 av_dict_set(&codecOptions, "tune", "zerolatency", 0);
                 av_dict_set(&codecOptions, "profile", "baseline", 0);
@@ -1841,28 +1846,161 @@ void preciseRenderWait(
         int width,
         int height,
         const TimelineClipExportSpec& spec) {
-        if (!spec.effectsEnabled || rgba.empty()) {
+        if (!spec.effectsEnabled || rgba.empty() || width <= 0 || height <= 0) {
             return;
         }
         const float brightness = spec.brightness;
         const float contrast = spec.contrast;
         const float saturation = spec.saturation;
+
+        // Skip if effectively identity
+        if (std::abs(brightness) < 0.001f &&
+            std::abs(contrast - 1.0f) < 0.001f &&
+            std::abs(saturation - 1.0f) < 0.001f) {
+            return;
+        }
+
         const size_t pixelCount = static_cast<size_t>(width) * static_cast<size_t>(height);
-        for (size_t i = 0; i < pixelCount; ++i) {
-            uint8_t* px = rgba.data() + (i * 4);
-            float r = px[0] / 255.0f;
-            float g = px[1] / 255.0f;
-            float b = px[2] / 255.0f;
-            r = (r - 0.5f) * contrast + 0.5f + brightness;
-            g = (g - 0.5f) * contrast + 0.5f + brightness;
-            b = (b - 0.5f) * contrast + 0.5f + brightness;
-            const float luma = (0.2126f * r) + (0.7152f * g) + (0.0722f * b);
-            r = luma + (r - luma) * saturation;
-            g = luma + (g - luma) * saturation;
-            b = luma + (b - luma) * saturation;
-            px[0] = static_cast<uint8_t>(std::clamp(r, 0.0f, 1.0f) * 255.0f);
-            px[1] = static_cast<uint8_t>(std::clamp(g, 0.0f, 1.0f) * 255.0f);
-            px[2] = static_cast<uint8_t>(std::clamp(b, 0.0f, 1.0f) * 255.0f);
+        uint8_t* ptr = rgba.data();
+
+        // FAST PATH 1: Saturation == 1.0f -> pure per-channel 1D lookup table (256 entries in L1 cache)
+        if (std::abs(saturation - 1.0f) < 0.002f) {
+            uint8_t lut[256];
+            for (int v = 0; v < 256; ++v) {
+                float r = (static_cast<float>(v) / 255.0f - 0.5f) * contrast + 0.5f + brightness;
+                lut[v] = static_cast<uint8_t>(std::clamp(r, 0.0f, 1.0f) * 255.0f + 0.5f);
+            }
+            for (size_t i = 0; i < pixelCount; ++i) {
+                uint8_t* px = ptr + (i * 4);
+                px[0] = lut[px[0]];
+                px[1] = lut[px[1]];
+                px[2] = lut[px[2]];
+            }
+            return;
+        }
+
+        // FAST PATH 2: Full Color Matrix with fixed-point arithmetic & ARM NEON vectorization
+        const float oneMinusS = 1.0f - saturation;
+        const float m_rr = contrast * (oneMinusS * 0.2126f + saturation);
+        const float m_rg = contrast * (oneMinusS * 0.7152f);
+        const float m_rb = contrast * (oneMinusS * 0.0722f);
+
+        const float m_gr = contrast * (oneMinusS * 0.2126f);
+        const float m_gg = contrast * (oneMinusS * 0.7152f + saturation);
+        const float m_gb = contrast * (oneMinusS * 0.0722f);
+
+        const float m_br = contrast * (oneMinusS * 0.2126f);
+        const float m_bg = contrast * (oneMinusS * 0.7152f);
+        const float m_bb = contrast * (oneMinusS * 0.0722f + saturation);
+
+        const float k_bias = (0.5f * (1.0f - contrast) + brightness) * 255.0f;
+
+        // Scale by 1024 for fixed-point math
+        const int32_t Mrr = static_cast<int32_t>(std::round(m_rr * 1024.0f));
+        const int32_t Mrg = static_cast<int32_t>(std::round(m_rg * 1024.0f));
+        const int32_t Mrb = static_cast<int32_t>(std::round(m_rb * 1024.0f));
+
+        const int32_t Mgr = static_cast<int32_t>(std::round(m_gr * 1024.0f));
+        const int32_t Mgg = static_cast<int32_t>(std::round(m_gg * 1024.0f));
+        const int32_t Mgb = static_cast<int32_t>(std::round(m_gb * 1024.0f));
+
+        const int32_t Mbr = static_cast<int32_t>(std::round(m_br * 1024.0f));
+        const int32_t Mbg = static_cast<int32_t>(std::round(m_bg * 1024.0f));
+        const int32_t Mbb = static_cast<int32_t>(std::round(m_bb * 1024.0f));
+
+        const int32_t Kbias = static_cast<int32_t>(std::round(k_bias * 1024.0f)) + 512; // +512 for round-to-nearest
+
+        size_t i = 0;
+#if defined(__ARM_NEON) || defined(__aarch64__)
+        const int16_t sMrr = static_cast<int16_t>(Mrr);
+        const int16_t sMrg = static_cast<int16_t>(Mrg);
+        const int16_t sMrb = static_cast<int16_t>(Mrb);
+        const int16_t sMgr = static_cast<int16_t>(Mgr);
+        const int16_t sMgg = static_cast<int16_t>(Mgg);
+        const int16_t sMgb = static_cast<int16_t>(Mgb);
+        const int16_t sMbr = static_cast<int16_t>(Mbr);
+        const int16_t sMbg = static_cast<int16_t>(Mbg);
+        const int16_t sMbb = static_cast<int16_t>(Mbb);
+
+        const size_t neonLimit = pixelCount >= 8 ? (pixelCount - 7) : 0;
+        for (; i < neonLimit; i += 8) {
+            uint8_t* px = ptr + (i * 4);
+            uint8x8x4_t v = vld4_u8(px);
+
+            int16x8_t r16 = vreinterpretq_s16_u16(vmovl_u8(v.val[0]));
+            int16x8_t g16 = vreinterpretq_s16_u16(vmovl_u8(v.val[1]));
+            int16x8_t b16 = vreinterpretq_s16_u16(vmovl_u8(v.val[2]));
+
+            int16x4_t r_low = vget_low_s16(r16);
+            int16x4_t g_low = vget_low_s16(g16);
+            int16x4_t b_low = vget_low_s16(b16);
+
+            int16x4_t r_high = vget_high_s16(r16);
+            int16x4_t g_high = vget_high_s16(g16);
+            int16x4_t b_high = vget_high_s16(b16);
+
+            // Compute R
+            int32x4_t r_out_low = vdupq_n_s32(Kbias);
+            r_out_low = vmlal_n_s16(r_out_low, r_low, sMrr);
+            r_out_low = vmlal_n_s16(r_out_low, g_low, sMrg);
+            r_out_low = vmlal_n_s16(r_out_low, b_low, sMrb);
+
+            int32x4_t r_out_high = vdupq_n_s32(Kbias);
+            r_out_high = vmlal_n_s16(r_out_high, r_high, sMrr);
+            r_out_high = vmlal_n_s16(r_out_high, g_high, sMrg);
+            r_out_high = vmlal_n_s16(r_out_high, b_high, sMrb);
+
+            int16x4_t r_narrow_low = vqshrn_n_s32(r_out_low, 10);
+            int16x4_t r_narrow_high = vqshrn_n_s32(r_out_high, 10);
+            v.val[0] = vqmovun_s16(vcombine_s16(r_narrow_low, r_narrow_high));
+
+            // Compute G
+            int32x4_t g_out_low = vdupq_n_s32(Kbias);
+            g_out_low = vmlal_n_s16(g_out_low, r_low, sMgr);
+            g_out_low = vmlal_n_s16(g_out_low, g_low, sMgg);
+            g_out_low = vmlal_n_s16(g_out_low, b_low, sMgb);
+
+            int32x4_t g_out_high = vdupq_n_s32(Kbias);
+            g_out_high = vmlal_n_s16(g_out_high, r_high, sMgr);
+            g_out_high = vmlal_n_s16(g_out_high, g_high, sMgg);
+            g_out_high = vmlal_n_s16(g_out_high, b_high, sMgb);
+
+            int16x4_t g_narrow_low = vqshrn_n_s32(g_out_low, 10);
+            int16x4_t g_narrow_high = vqshrn_n_s32(g_out_high, 10);
+            v.val[1] = vqmovun_s16(vcombine_s16(g_narrow_low, g_narrow_high));
+
+            // Compute B
+            int32x4_t b_out_low = vdupq_n_s32(Kbias);
+            b_out_low = vmlal_n_s16(b_out_low, r_low, sMbr);
+            b_out_low = vmlal_n_s16(b_out_low, g_low, sMbg);
+            b_out_low = vmlal_n_s16(b_out_low, b_low, sMbb);
+
+            int32x4_t b_out_high = vdupq_n_s32(Kbias);
+            b_out_high = vmlal_n_s16(b_out_high, r_high, sMbr);
+            b_out_high = vmlal_n_s16(b_out_high, b_high, sMbg);
+            b_out_high = vmlal_n_s16(b_out_high, b_high, sMbb);
+
+            int16x4_t b_narrow_low = vqshrn_n_s32(b_out_low, 10);
+            int16x4_t b_narrow_high = vqshrn_n_s32(b_out_high, 10);
+            v.val[2] = vqmovun_s16(vcombine_s16(b_narrow_low, b_narrow_high));
+
+            vst4_u8(px, v);
+        }
+#endif
+        // Scalar fallback for remaining pixels
+        for (; i < pixelCount; ++i) {
+            uint8_t* px = ptr + (i * 4);
+            const int32_t r_in = px[0];
+            const int32_t g_in = px[1];
+            const int32_t b_in = px[2];
+
+            const int32_t r_calc = (Mrr * r_in + Mrg * g_in + Mrb * b_in + Kbias) >> 10;
+            const int32_t g_calc = (Mgr * r_in + Mgg * g_in + Mgb * b_in + Kbias) >> 10;
+            const int32_t b_calc = (Mbr * r_in + Mbg * g_in + Mbb * b_in + Kbias) >> 10;
+
+            px[0] = static_cast<uint8_t>(std::clamp(r_calc, 0, 255));
+            px[1] = static_cast<uint8_t>(std::clamp(g_calc, 0, 255));
+            px[2] = static_cast<uint8_t>(std::clamp(b_calc, 0, 255));
         }
     }
 
@@ -2708,7 +2846,7 @@ void preciseRenderWait(
                 outputWidth,
                 outputHeight,
                 encoder.pixelFormat,
-                SWS_BILINEAR,
+                SWS_FAST_BILINEAR,
                 nullptr,
                 nullptr,
                 nullptr);

@@ -299,78 +299,66 @@
 
                 <View
                     android:id="@+id/previewCropResizeTopLeftHandle"
-                    android:layout_width="26dp"
-                    android:layout_height="26dp"
+                    android:layout_width="13dp"
+                    android:layout_height="13dp"
                     android:layout_gravity="top|start"
-                    android:layout_marginStart="14dp"
-                    android:layout_marginTop="14dp"
                     android:background="@drawable/preview_corner_resize_handle_background"
                     android:visibility="gone" />
 
                 <View
                     android:id="@+id/previewCropResizeTopHandle"
-                    android:layout_width="42dp"
-                    android:layout_height="18dp"
+                    android:layout_width="16dp"
+                    android:layout_height="4dp"
                     android:layout_gravity="top|center_horizontal"
-                    android:layout_marginTop="18dp"
-                    android:background="@drawable/preview_corner_resize_handle_background"
+                    android:background="@drawable/preview_side_resize_handle_background"
                     android:visibility="gone" />
 
                 <View
                     android:id="@+id/previewCropResizeTopRightHandle"
-                    android:layout_width="26dp"
-                    android:layout_height="26dp"
+                    android:layout_width="13dp"
+                    android:layout_height="13dp"
                     android:layout_gravity="top|end"
-                    android:layout_marginTop="14dp"
-                    android:layout_marginEnd="14dp"
                     android:background="@drawable/preview_corner_resize_handle_background"
                     android:visibility="gone" />
 
                 <View
                     android:id="@+id/previewCropResizeRightHandle"
-                    android:layout_width="18dp"
-                    android:layout_height="42dp"
+                    android:layout_width="4dp"
+                    android:layout_height="16dp"
                     android:layout_gravity="center_vertical|end"
-                    android:layout_marginEnd="18dp"
-                    android:background="@drawable/preview_corner_resize_handle_background"
+                    android:background="@drawable/preview_side_resize_handle_background"
                     android:visibility="gone" />
 
                 <View
                     android:id="@+id/previewCropResizeBottomLeftHandle"
-                    android:layout_width="26dp"
-                    android:layout_height="26dp"
+                    android:layout_width="13dp"
+                    android:layout_height="13dp"
                     android:layout_gravity="bottom|start"
-                    android:layout_marginStart="14dp"
-                    android:layout_marginBottom="14dp"
                     android:background="@drawable/preview_corner_resize_handle_background"
                     android:visibility="gone" />
 
                 <View
                     android:id="@+id/previewCropResizeBottomHandle"
-                    android:layout_width="42dp"
-                    android:layout_height="18dp"
+                    android:layout_width="16dp"
+                    android:layout_height="4dp"
                     android:layout_gravity="bottom|center_horizontal"
-                    android:layout_marginBottom="18dp"
-                    android:background="@drawable/preview_corner_resize_handle_background"
+                    android:background="@drawable/preview_side_resize_handle_background"
                     android:visibility="gone" />
 
                 <View
                     android:id="@+id/previewCropResizeBottomRightHandle"
-                    android:layout_width="26dp"
-                    android:layout_height="26dp"
+                    android:layout_width="13dp"
+                    android:layout_height="13dp"
                     android:layout_gravity="bottom|end"
-                    android:layout_marginEnd="14dp"
-                    android:layout_marginBottom="14dp"
                     android:background="@drawable/preview_corner_resize_handle_background"
                     android:visibility="gone" />
 
                 <View
                     android:id="@+id/previewCropResizeLeftHandle"
-                    android:layout_width="18dp"
-                    android:layout_height="42dp"
+                    android:layout_width="4dp"
+                    android:layout_height="16dp"
                     android:layout_gravity="center_vertical|start"
-                    android:layout_marginStart="18dp"
-                    android:background="@drawable/preview_corner_resize_handle_background"
+                    android:background="@drawable/preview_side_resize_handle_background"
                     android:visibility="gone" />
 
                 <View

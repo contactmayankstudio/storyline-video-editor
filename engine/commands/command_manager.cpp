@@ -97,6 +97,10 @@ bool resolveProfessionalEffectParams(const std::string& presetName, ProEffectRes
                 out.brightness = 0.06f;
                 out.contrast = 0.82f;
                 out.saturation = 0.72f;
+            } else if (normalized == "deep" || normalized == "deepcinema") {
+                out.brightness = -0.08f;
+                out.contrast = 1.38f;
+                out.saturation = 1.25f;
             } else if (normalized == "tealfade") {
                 out.brightness = -0.04f;
                 out.contrast = 1.08f;

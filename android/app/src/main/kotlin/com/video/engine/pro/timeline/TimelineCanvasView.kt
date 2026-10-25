@@ -1085,7 +1085,8 @@ class TimelineCanvasView @JvmOverloads constructor(
 
         val baseLabel = when (clip.trackType) {
             TrackType.VIDEO -> "Video $indexStr"
-            TrackType.OVERLAY, TrackType.LAYER -> "Overlay $indexStr"
+            TrackType.OVERLAY -> "Overlay $indexStr"
+            TrackType.LAYER -> "Layer $indexStr"
             TrackType.TEXT -> {
                 val textContent = clip.metadata["text"]?.takeIf { it.isNotBlank() }
                 if (textContent != null && textContent.length <= 12) textContent else "Text $indexStr"

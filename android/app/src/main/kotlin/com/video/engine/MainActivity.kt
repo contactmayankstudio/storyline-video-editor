@@ -1026,6 +1026,7 @@ class VideoEditorActivity : ComponentActivity() {
     private var isPlaying = false
     private var currentTimeMs = 0L
         set(value) {
+            if (field == value) return
             field = value
             if (Looper.myLooper() == Looper.getMainLooper()) {
                 refreshOverlayVisibilityAndPose()
@@ -2677,7 +2678,6 @@ class VideoEditorActivity : ComponentActivity() {
             currentTimeMsProvider = { currentTimeMs },
             setCurrentTimeMs = { timeMs ->
                 currentTimeMs = timeMs
-                refreshOverlayVisibilityAndPose()
             },
             isPlayingProvider = { isPlaying },
             setIsPlaying = { updatePlayingState(it) },
@@ -3003,6 +3003,9 @@ class VideoEditorActivity : ComponentActivity() {
                         nativeClipZOrder[clipId] = nativeClipZOrder[clipId] ?: 0
                     }
                 }
+                restoredNativeClipTrackTypeOverrides[clipId] = trackType
+                restoredNativeClipLaneOverrides[clipId] = nativeClipLane[clipId] ?: 0
+                restoredNativeClipZOrderOverrides[clipId] = nativeClipZOrder[clipId] ?: 0
                 resetImportedVisualClipPreviewTransform(clipId, trackType)
                 setSelectedImportTrackType(trackType)
                 importController?.setNextImportTrackType(trackType)
@@ -4561,18 +4564,13 @@ class VideoEditorActivity : ComponentActivity() {
             previewObjectBaseSizePx(clipId, allowMediaProbe = !isPreviewInteractionBusy())
         val renderedWidth = (baseWidth * transform.zoom * transform.scaleX).coerceAtLeast(previewDp(24f))
         val renderedHeight = (baseHeight * transform.zoom * transform.scaleY).coerceAtLeast(previewDp(24f))
-        val radians = Math.toRadians(transform.rotationDeg.toDouble())
-        val cosValue = kotlin.math.abs(kotlin.math.cos(radians)).toFloat()
-        val sinValue = kotlin.math.abs(kotlin.math.sin(radians)).toFloat()
-        val boundsWidth = (renderedWidth * cosValue) + (renderedHeight * sinValue)
-        val boundsHeight = (renderedWidth * sinValue) + (renderedHeight * cosValue)
         val centerX = (overlayWidth * 0.5f) + transform.panXPx
         val centerY = (overlayHeight * 0.5f) + transform.panYPx
         return RectF(
-            centerX - boundsWidth * 0.5f,
-            centerY - boundsHeight * 0.5f,
-            centerX + boundsWidth * 0.5f,
-            centerY + boundsHeight * 0.5f,
+            centerX - renderedWidth * 0.5f,
+            centerY - renderedHeight * 0.5f,
+            centerX + renderedWidth * 0.5f,
+            centerY + renderedHeight * 0.5f,
         )
     }
 
@@ -4607,29 +4605,61 @@ class VideoEditorActivity : ComponentActivity() {
             overlay.post { layoutSelectedPreviewObjectFrame() }
             return
         }
-        val frameRect = selectedPreviewObjectFrameRect() ?: return
-        val cornerSize = previewDp(26f)
-        val sideLong = previewDp(42f)
-        val sideShort = previewDp(18f)
-        val minFrameSide = previewDp(36f)
-        val frameWidth = frameRect.width().coerceAtLeast(minFrameSide)
-        val frameHeight = frameRect.height().coerceAtLeast(minFrameSide)
-        val left = frameRect.centerX() - frameWidth * 0.5f
-        val top = frameRect.centerY() - frameHeight * 0.5f
-        val right = left + frameWidth
-        val bottom = top + frameHeight
-        val centerX = (left + right) * 0.5f
-        val centerY = (top + bottom) * 0.5f
+        val clipId = selectedVideoClipId() ?: return
+        if (!canDirectPreviewTransformSelectedClip()) return
+        val overlayWidth = overlay.width.toFloat()
+        val overlayHeight = overlay.height.toFloat()
+        val transform = currentClipPreviewTransform(clipId, allowNativeFetch = !isPreviewInteractionBusy())
+        val (baseWidth, baseHeight) =
+            previewObjectBaseSizePx(clipId, allowMediaProbe = !isPreviewInteractionBusy())
+        val minFrameSide = previewDp(24f)
+        val frameWidth = (baseWidth * transform.zoom * transform.scaleX).coerceAtLeast(minFrameSide)
+        val frameHeight = (baseHeight * transform.zoom * transform.scaleY).coerceAtLeast(minFrameSide)
+        val centerX = (overlayWidth * 0.5f) + transform.panXPx
+        val centerY = (overlayHeight * 0.5f) + transform.panYPx
+        val left = centerX - frameWidth * 0.5f
+        val top = centerY - frameHeight * 0.5f
 
+        previewCropFrameGuideView?.rotation = transform.rotationDeg
+        previewCropFrameGuideView?.pivotX = frameWidth * 0.5f
+        previewCropFrameGuideView?.pivotY = frameHeight * 0.5f
         placePreviewOverlayChild(previewCropFrameGuideView, left, top, frameWidth, frameHeight)
-        placePreviewOverlayChild(previewResizeTopLeftHandleView, left - cornerSize * 0.5f, top - cornerSize * 0.5f, cornerSize, cornerSize)
-        placePreviewOverlayChild(previewResizeTopHandleView, centerX - sideLong * 0.5f, top - sideShort * 0.5f, sideLong, sideShort)
-        placePreviewOverlayChild(previewResizeTopRightHandleView, right - cornerSize * 0.5f, top - cornerSize * 0.5f, cornerSize, cornerSize)
-        placePreviewOverlayChild(previewResizeRightHandleView, right - sideShort * 0.5f, centerY - sideLong * 0.5f, sideShort, sideLong)
-        placePreviewOverlayChild(previewResizeBottomRightHandleView, right - cornerSize * 0.5f, bottom - cornerSize * 0.5f, cornerSize, cornerSize)
-        placePreviewOverlayChild(previewResizeBottomHandleView, centerX - sideLong * 0.5f, bottom - sideShort * 0.5f, sideLong, sideShort)
-        placePreviewOverlayChild(previewResizeBottomLeftHandleView, left - cornerSize * 0.5f, bottom - cornerSize * 0.5f, cornerSize, cornerSize)
-        placePreviewOverlayChild(previewResizeLeftHandleView, left - sideShort * 0.5f, centerY - sideLong * 0.5f, sideShort, sideLong)
+
+        val cornerSize = previewDp(13f)
+        val sideLong = previewDp(16f)
+        val sideShort = previewDp(4f)
+        val rad = Math.toRadians(transform.rotationDeg.toDouble())
+        val cosVal = kotlin.math.cos(rad).toFloat()
+        val sinVal = kotlin.math.sin(rad).toFloat()
+        fun rotatePoint(dx: Float, dy: Float): Pair<Float, Float> {
+            return (centerX + dx * cosVal - dy * sinVal) to (centerY + dx * sinVal + dy * cosVal)
+        }
+        val halfW = frameWidth * 0.5f
+        val halfH = frameHeight * 0.5f
+
+        val (tlX, tlY) = rotatePoint(-halfW, -halfH)
+        val (trX, trY) = rotatePoint(halfW, -halfH)
+        val (brX, brY) = rotatePoint(halfW, halfH)
+        val (blX, blY) = rotatePoint(-halfW, halfH)
+        val (tX, tY) = rotatePoint(0f, -halfH)
+        val (rX, rY) = rotatePoint(halfW, 0f)
+        val (bX, bY) = rotatePoint(0f, halfH)
+        val (lX, lY) = rotatePoint(-halfW, 0f)
+
+        placePreviewOverlayChild(previewResizeTopLeftHandleView, tlX - cornerSize * 0.5f, tlY - cornerSize * 0.5f, cornerSize, cornerSize)
+        placePreviewOverlayChild(previewResizeTopRightHandleView, trX - cornerSize * 0.5f, trY - cornerSize * 0.5f, cornerSize, cornerSize)
+        placePreviewOverlayChild(previewResizeBottomRightHandleView, brX - cornerSize * 0.5f, brY - cornerSize * 0.5f, cornerSize, cornerSize)
+        placePreviewOverlayChild(previewResizeBottomLeftHandleView, blX - cornerSize * 0.5f, blY - cornerSize * 0.5f, cornerSize, cornerSize)
+
+        previewResizeTopHandleView?.rotation = transform.rotationDeg
+        previewResizeBottomHandleView?.rotation = transform.rotationDeg
+        previewResizeLeftHandleView?.rotation = transform.rotationDeg
+        previewResizeRightHandleView?.rotation = transform.rotationDeg
+
+        placePreviewOverlayChild(previewResizeTopHandleView, tX - sideLong * 0.5f, tY - sideShort * 0.5f, sideLong, sideShort)
+        placePreviewOverlayChild(previewResizeRightHandleView, rX - sideShort * 0.5f, rY - sideLong * 0.5f, sideShort, sideLong)
+        placePreviewOverlayChild(previewResizeBottomHandleView, bX - sideLong * 0.5f, bY - sideShort * 0.5f, sideLong, sideShort)
+        placePreviewOverlayChild(previewResizeLeftHandleView, lX - sideShort * 0.5f, lY - sideLong * 0.5f, sideShort, sideLong)
     }
 
     private fun selectedPreviewObjectHitRectOnScreen(extraPaddingPx: Float? = null): RectF? {
@@ -4968,7 +4998,7 @@ class VideoEditorActivity : ComponentActivity() {
             }
         }
         val showPanZoomControls = showCropUi && previewPanZoomControlsVisible
-        val showDirectResizeHandles = showCropUi && canDirectPreviewTransformSelectedClip()
+        val showDirectResizeHandles = showCropUi && canDirectPreviewTransformSelectedClip() && !isPlaying
         previewCropOverlayView?.visibility = if (showCropUi) View.VISIBLE else View.GONE
         previewCropFrameGuideView?.visibility = if (showDirectResizeHandles) View.VISIBLE else View.GONE
         previewCropFrameGuideView?.alpha = if (showDirectResizeHandles) 1f else 0f
@@ -9729,7 +9759,40 @@ class VideoEditorActivity : ComponentActivity() {
         return true
     }
 
+    private val activeCaptionWordIndexById = mutableMapOf<Int, Int>()
+
     private fun refreshOverlayVisibilityAndPose() {
+        if (isPlaying) {
+            val playheadMs = currentPlayheadMs().coerceAtLeast(0L)
+            allTextOverlays().forEach { overlay ->
+                val view = overlayViews[overlay.id] ?: return@forEach
+                val activeAtCurrentTime =
+                    overlay.visible &&
+                        playheadMs >= overlay.startTimeMs.toLong() &&
+                        playheadMs < overlay.endTimeMs.toLong().coerceAtLeast(overlay.startTimeMs.toLong() + 1L)
+                val targetVis = if (activeAtCurrentTime) View.VISIBLE else View.INVISIBLE
+                if (view.visibility != targetVis) {
+                    view.visibility = targetVis
+                }
+                if (overlay.aiTrackKeyframes.isNotEmpty()) {
+                    applyTextOverlayPose(overlay)
+                }
+                if (overlay.captionStyle != null && activeAtCurrentTime) {
+                    val activeIdx = overlay.activeWordIndexAt(playheadMs)
+                    if (activeCaptionWordIndexById[overlay.id] != activeIdx) {
+                        activeCaptionWordIndexById[overlay.id] = activeIdx
+                        applyTextOverlayState(overlay)
+                    }
+                }
+            }
+            StickerClipStore.all().forEach { clip ->
+                if (clip.aiTrackKeyframes.isNotEmpty()) {
+                    applyStickerLayerState(clip)
+                    applyStickerOverlayPose(clip)
+                }
+            }
+            return
+        }
         allTextOverlays().forEach { overlay ->
             applyTextOverlayState(overlay)
             applyTextOverlayPose(overlay)
@@ -10316,33 +10379,41 @@ class VideoEditorActivity : ComponentActivity() {
         val sorted = clips.sortedWith(compareBy<ClipSegment> { it.startTimeMs }.thenBy { it.zOrder })
         val laneEndTimes = mutableListOf<Long>()
         return sorted.map { clip ->
-            val explicitSub = clip.metadata["subTrack"]?.toIntOrNull()
-            val laneIndex = if (explicitSub != null && explicitSub > 0) {
-                (explicitSub - 1).coerceIn(0, 3)
+            val requestedSub = clip.metadata["subTrack"]?.toIntOrNull()
+            val preferredLane = if (requestedSub != null && requestedSub > 0) (requestedSub - 1).coerceIn(0, 3) else null
+
+            var chosen = -1
+            if (preferredLane != null && preferredLane < laneEndTimes.size && clip.startTimeMs >= laneEndTimes[preferredLane]) {
+                chosen = preferredLane
+            } else if (preferredLane != null && preferredLane >= laneEndTimes.size) {
+                while (laneEndTimes.size < preferredLane) {
+                    laneEndTimes.add(0L)
+                }
+                chosen = preferredLane
             } else {
-                var chosen = -1
                 for (i in laneEndTimes.indices) {
                     if (clip.startTimeMs >= laneEndTimes[i]) {
                         chosen = i
                         break
                     }
                 }
-                if (chosen == -1) {
-                    chosen = laneEndTimes.size.coerceAtMost(3)
-                    if (chosen >= laneEndTimes.size) {
-                        laneEndTimes.add(clip.endTimeMs())
-                    } else {
-                        laneEndTimes[chosen] = clip.endTimeMs()
-                    }
+            }
+            if (chosen == -1) {
+                chosen = laneEndTimes.size.coerceAtMost(3)
+                if (chosen >= laneEndTimes.size) {
+                    laneEndTimes.add(clip.endTimeMs())
                 } else {
-                    laneEndTimes[chosen] = clip.endTimeMs()
+                    laneEndTimes[chosen] = maxOf(laneEndTimes[chosen], clip.endTimeMs())
                 }
-                chosen
+            } else {
+                if (chosen >= laneEndTimes.size) {
+                    while (laneEndTimes.size <= chosen) {
+                        laneEndTimes.add(0L)
+                    }
+                }
+                laneEndTimes[chosen] = maxOf(laneEndTimes[chosen], clip.endTimeMs())
             }
-            if (laneIndex < laneEndTimes.size) {
-                laneEndTimes[laneIndex] = maxOf(laneEndTimes[laneIndex], clip.endTimeMs())
-            }
-            clip.copy(metadata = clip.metadata + ("subTrack" to (laneIndex + 1).toString()))
+            clip.copy(metadata = clip.metadata + ("subTrack" to (chosen + 1).toString()))
         }
     }
 
@@ -14529,6 +14600,26 @@ class VideoEditorActivity : ComponentActivity() {
     }
 
     private fun isTouchInsideSelectedPreviewBounds(event: MotionEvent): Boolean {
+        val frameView = previewCropFrameGuideView
+        if (frameView != null && frameView.visibility == View.VISIBLE && frameView.width > 0 && frameView.height > 0) {
+            val edgeTouchSlopPx = previewDp(24f)
+            val frameLocation = IntArray(2)
+            frameView.getLocationOnScreen(frameLocation)
+            val centerX = frameLocation[0] + frameView.width * 0.5f
+            val centerY = frameLocation[1] + frameView.height * 0.5f
+            val rad = -Math.toRadians(frameView.rotation.toDouble())
+            val cosVal = kotlin.math.cos(rad).toFloat()
+            val sinVal = kotlin.math.sin(rad).toFloat()
+            val dx = event.rawX - centerX
+            val dy = event.rawY - centerY
+            val localX = dx * cosVal - dy * sinVal
+            val localY = dx * sinVal + dy * cosVal
+            val halfW = frameView.width * 0.5f + edgeTouchSlopPx
+            val halfH = frameView.height * 0.5f + edgeTouchSlopPx
+            if (kotlin.math.abs(localX) <= halfW && kotlin.math.abs(localY) <= halfH) {
+                return true
+            }
+        }
         val objectHitRect = selectedPreviewObjectHitRectOnScreen()
         if (objectHitRect != null && objectHitRect.contains(event.rawX, event.rawY)) {
             return true
@@ -14776,28 +14867,30 @@ class VideoEditorActivity : ComponentActivity() {
         val edgeTouchSlopPx = maxOf(20f, resources.displayMetrics.density * PREVIEW_RESIZE_EDGE_TOUCH_SLOP_DP)
         val frameLocation = IntArray(2)
         frameView.getLocationOnScreen(frameLocation)
-        val touchX = (event.rawX - frameLocation[0]).coerceIn(0f, frameWidthPx.toFloat())
-        val touchY = (event.rawY - frameLocation[1]).coerceIn(0f, frameHeightPx.toFloat())
-        val expandedFrame =
-            RectF(
-                frameLocation[0] - edgeTouchSlopPx,
-                frameLocation[1] - edgeTouchSlopPx,
-                frameLocation[0] + frameWidthPx + edgeTouchSlopPx,
-                frameLocation[1] + frameHeightPx + edgeTouchSlopPx,
-            )
-        if (!expandedFrame.contains(event.rawX, event.rawY)) {
+        val centerX = frameLocation[0] + frameWidthPx * 0.5f
+        val centerY = frameLocation[1] + frameHeightPx * 0.5f
+        val rad = -Math.toRadians(frameView.rotation.toDouble())
+        val cosVal = kotlin.math.cos(rad).toFloat()
+        val sinVal = kotlin.math.sin(rad).toFloat()
+        val dx = event.rawX - centerX
+        val dy = event.rawY - centerY
+        val localX = (dx * cosVal - dy * sinVal) + frameWidthPx * 0.5f
+        val localY = (dx * sinVal + dy * cosVal) + frameHeightPx * 0.5f
+        if (localX < -edgeTouchSlopPx || localX > frameWidthPx + edgeTouchSlopPx ||
+            localY < -edgeTouchSlopPx || localY > frameHeightPx + edgeTouchSlopPx
+        ) {
             return null
         }
         val signX =
             when {
-                touchX <= edgeTouchSlopPx -> -1f
-                touchX >= frameWidthPx - edgeTouchSlopPx -> 1f
+                localX <= edgeTouchSlopPx -> -1f
+                localX >= frameWidthPx - edgeTouchSlopPx -> 1f
                 else -> 0f
             }
         val signY =
             when {
-                touchY <= edgeTouchSlopPx -> -1f
-                touchY >= frameHeightPx - edgeTouchSlopPx -> 1f
+                localY <= edgeTouchSlopPx -> -1f
+                localY >= frameHeightPx - edgeTouchSlopPx -> 1f
                 else -> 0f
             }
         return if (signX != 0f || signY != 0f) signX to signY else null
@@ -16555,31 +16648,71 @@ class VideoEditorActivity : ComponentActivity() {
             safeToast("Select video clip first", Toast.LENGTH_SHORT)
             return
         }
-        execCmd(
-            action = "EXTRACT_AUDIO",
-            params = mapOf("clipId" to clipId)
-        ) { result ->
-            if (!result.success) {
-                safeToast("Extract audio failed", Toast.LENGTH_SHORT)
-            } else {
-                val sourcePath = result.data.optString("sourcePath")
-                if (sourcePath.isBlank()) {
-                    safeToast("Audio source unavailable", Toast.LENGTH_SHORT)
+        val sourcePath = nativeClipSourcePath[clipId].orEmpty()
+        val timing = selectedVideoTiming(clipId)
+        val startTimeMs = timing?.first ?: (nativeClipStartMs[clipId] ?: 0L)
+        val durationMs = timing?.second ?: (nativeClipDurationMs[clipId] ?: 0L)
+        if (sourcePath.isBlank() || !File(sourcePath).exists()) {
+            execCmd(
+                action = "EXTRACT_AUDIO",
+                params = mapOf("clipId" to clipId)
+            ) { result ->
+                if (!result.success) {
+                    safeToast("Extract audio failed", Toast.LENGTH_SHORT)
                 } else {
-                    val timing = selectedVideoTiming(clipId)
-                    val durationMs = timing?.second ?: result.data.optLong("durationMs", 0L)
-                    val imported = audioImportController?.importFromPath(
-                        path = sourcePath,
-                        startTimeMs = timing?.first ?: 0L,
-                        durationOverrideMs = durationMs.takeIf { it > 0L },
-                        displayNameOverride = "Clip $clipId Audio",
-                    )
-                    if (imported != null) {
-                        safeToast("Audio extracted", Toast.LENGTH_SHORT)
+                    val resolvedPath = result.data.optString("sourcePath")
+                    extractAndAttachAudioFromPath(clipId, resolvedPath, startTimeMs, durationMs)
+                }
+            }
+        } else {
+            extractAndAttachAudioFromPath(clipId, sourcePath, startTimeMs, durationMs)
+        }
+    }
+
+    private fun extractAndAttachAudioFromPath(
+        clipId: Int,
+        sourcePath: String,
+        startTimeMs: Long,
+        durationMs: Long,
+    ) {
+        if (sourcePath.isBlank()) {
+            safeToast("Audio source unavailable", Toast.LENGTH_SHORT)
+            return
+        }
+        safeToast("⏳ Extracting audio...", Toast.LENGTH_SHORT)
+        commandExecutor.execute {
+            val file = File(sourcePath)
+            val uri = Uri.fromFile(file)
+            val extractionResult = AudioExtractorHelper.extractAudioFromVideoUri(
+                context = this,
+                videoUri = uri,
+                baseFileName = "extracted_clip_${clipId}_${System.currentTimeMillis()}",
+            )
+            mainHandler.post {
+                val extractedPath = extractionResult?.file?.absolutePath ?: sourcePath
+                val finalDurationMs = extractionResult?.durationMs?.takeIf { it > 0L } ?: durationMs
+                val imported = audioImportController?.importFromPath(
+                    path = extractedPath,
+                    startTimeMs = startTimeMs,
+                    durationOverrideMs = finalDurationMs.takeIf { it > 0L },
+                    displayNameOverride = "Clip $clipId Audio",
+                )
+                if (imported != null) {
+                    // Mute the original video clip
+                    videoClipGainOverrides[clipId] = 0f
+                    execCmd(
+                        action = "SET_CLIP_VOLUME",
+                        params = mapOf("clipId" to clipId, "volume" to 0.0)
+                    ) {
                         refreshMainTimelineTracks()
-                    } else {
-                        safeToast("Audio import failed", Toast.LENGTH_SHORT)
+                        syncPreviewAudioAt(currentTimeMs, continuePlaying = isPlaying)
                     }
+                    safeToast("Audio extracted to timeline", Toast.LENGTH_SHORT)
+                    refreshMainTimelineTracks()
+                    refreshPreviewAtPlayhead(resyncAudio = true)
+                    triggerEditorHaptic(EditorHapticEffect.Success)
+                } else {
+                    safeToast("Audio extract failed", Toast.LENGTH_SHORT)
                 }
             }
         }
@@ -18470,18 +18603,82 @@ class VideoEditorActivity : ComponentActivity() {
         }
     }
 
+    private fun duplicateVideoClipToLayer(clipId: Int) {
+        val clipLabel = selectedNativeClipLabel()
+        safeToast("⏳ Adding video as layer...", Toast.LENGTH_SHORT)
+        execCmd(
+            action = "DUPLICATE_CLIP",
+            params = mapOf("clipId" to clipId)
+        ) { result ->
+            if (!result.success) {
+                safeToast("Add layer failed", Toast.LENGTH_SHORT)
+                return@execCmd
+            }
+            val newClipId = result.data.optInt("newClipId", -1).takeIf { it > 0 }
+            if (newClipId == null) {
+                safeToast("Add layer failed", Toast.LENGTH_SHORT)
+                return@execCmd
+            }
+            execCmd(
+                action = "SET_CLIP_TRACK",
+                params = mapOf(
+                    "clipId" to newClipId,
+                    "trackType" to "LAYER",
+                    "trackLane" to 0,
+                    "zOrder" to 120,
+                )
+            ) {
+                nativeClipTrackType[newClipId] = TrackType.LAYER
+                restoredNativeClipTrackTypeOverrides[newClipId] = TrackType.LAYER
+                nativeClipLane[newClipId] = 0
+                restoredNativeClipLaneOverrides[newClipId] = 0
+                nativeClipZOrder[newClipId] = 120
+                restoredNativeClipZOrderOverrides[newClipId] = 120
+
+                // Inherit source and timing
+                nativeClipSourcePath[clipId]?.let { nativeClipSourcePath[newClipId] = it }
+                nativeClipStartMs[clipId]?.let { nativeClipStartMs[newClipId] = it }
+                nativeClipDurationMs[clipId]?.let { nativeClipDurationMs[newClipId] = it }
+                nativeClipSourceInMs[clipId]?.let { nativeClipSourceInMs[newClipId] = it }
+                nativeClipSourceOutMs[clipId]?.let { nativeClipSourceOutMs[newClipId] = it }
+
+                // Give PIP scale so it is visibly a layer on top
+                val pipTransform = ClipPreviewTransform(zoom = 0.65f, scaleX = 1f, scaleY = 1f, panXPx = 0f, panYPx = 0f)
+                clipPreviewTransforms[newClipId] = pipTransform
+                applyNormalizedClipPreviewTransformToNative(newClipId, pipTransform, immediate = true)
+
+                // Inherit effects
+                videoClipReverseOverrides[clipId]?.let { videoClipReverseOverrides[newClipId] = it }
+                videoClipFreezeOverrides[clipId]?.let { videoClipFreezeOverrides[newClipId] = it }
+                videoClipCurveProfiles[clipId]?.let { videoClipCurveProfiles[newClipId] = it }
+
+                selectedTimelineClipKey = "layer-$newClipId"
+                syncTimelineShellFromNative(selectedClipId = newClipId)
+                refreshMainTimelineTracks()
+                refreshPreviewAtPlayhead(resyncAudio = false)
+                triggerEditorHaptic(EditorHapticEffect.Success)
+                safeToast("Video added to Layer (L1)", Toast.LENGTH_SHORT)
+            }
+        }
+    }
+
     private fun performSelectedClipAddLayerAction() {
         noteAppHealthAction("clip_layer_action_handled")
         val clipId = resolveSelectedVisualClipId(syncSelectionIfNeeded = true)
+        if (clipId != null && (nativeClipTrackType[clipId] == TrackType.VIDEO || selectedClipKind() == ClipKind.VIDEO)) {
+            duplicateVideoClipToLayer(clipId)
+            return
+        }
         if (clipId != null && (nativeClipTrackType[clipId] == TrackType.OVERLAY || nativeClipTrackType[clipId] == TrackType.LAYER)) {
             ModernSheet.show(this, "PIP & Layer Options") {
-                chips("Action", listOf("📱 PIP / Duet Layout", "📥 Import New Overlay Layer"), -1) { i, _ ->
+                chips("Action", listOf("📱 PIP / Duet Layout", "📥 Import New Overlay Layer", "📋 Duplicate Layer"), -1) { i, _ ->
                     when (i) {
                         0 -> showPipPresetsSheet(clipId)
                         1 -> {
                             setSelectedImportTrackType(TrackType.LAYER)
                             openLayerTrackImport()
                         }
+                        2 -> duplicateVideoClipToLayer(clipId)
                     }
                 }
             }

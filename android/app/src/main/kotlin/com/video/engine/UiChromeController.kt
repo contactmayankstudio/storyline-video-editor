@@ -227,6 +227,7 @@ class UiChromeController(
 
     private fun effectPresetByName(name: String): EffectParams {
         return ProFilterPresets.findByName(name)?.params ?: when (name) {
+            "Deep", "Deep Cinema" -> EffectParams(brightness = -0.08f, contrast = 1.38f, saturation = 1.25f)
             "Vivid" -> EffectParams(brightness = 0.10f, contrast = 1.24f, saturation = 1.55f)
             "Matte" -> EffectParams(brightness = 0.12f, contrast = 0.78f, saturation = 0.62f)
             "Warm" -> EffectParams(brightness = 0.14f, contrast = 1.12f, saturation = 1.28f)
