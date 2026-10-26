@@ -92,8 +92,8 @@ class ExportController(
     companion object {
         private const val TAG = "[UI]"
         private const val EXPORT_NOTIFICATION_CHANNEL_ID = "video_export"
-        private const val MAX_EXPORT_WIDTH = 1280
-        private const val MAX_EXPORT_HEIGHT = 720
+        private const val DEFAULT_EXPORT_WIDTH = 1920
+        private const val DEFAULT_EXPORT_HEIGHT = 1080
         private const val GALLERY_FOLDER_NAME = "Storyline"
         private val GALLERY_RELATIVE_PATH = "${Environment.DIRECTORY_MOVIES}/$GALLERY_FOLDER_NAME"
     }
@@ -830,14 +830,22 @@ class ExportController(
     )
 
     private fun clampRequestedExportSize(width: Int, height: Int): Pair<Int, Int> {
+        val tier = DeviceDetector.getDeviceTier()
+        val (maxLongEdge, maxShortEdge) = when (tier) {
+            DeviceDetector.DeviceTier.HIGH -> 3840 to 2160
+            DeviceDetector.DeviceTier.MID -> 1920 to 1080
+            DeviceDetector.DeviceTier.LOW -> 1280 to 720
+        }
         if (width <= 0 || height <= 0) {
-            return MAX_EXPORT_WIDTH to MAX_EXPORT_HEIGHT
+            return if (width >= height) maxLongEdge to maxShortEdge else maxShortEdge to maxLongEdge
         }
         val isLandscape = width >= height
-        val maxWidth = if (isLandscape) MAX_EXPORT_WIDTH.toFloat() else MAX_EXPORT_HEIGHT.toFloat()
-        val maxHeight = if (isLandscape) MAX_EXPORT_HEIGHT.toFloat() else MAX_EXPORT_WIDTH.toFloat()
+        val maxWidth = if (isLandscape) maxLongEdge.toFloat() else maxShortEdge.toFloat()
+        val maxHeight = if (isLandscape) maxShortEdge.toFloat() else maxLongEdge.toFloat()
         val scale = minOf(maxWidth / width.toFloat(), maxHeight / height.toFloat(), 1f)
-        return maxOf((width * scale).toInt(), 1) to maxOf((height * scale).toInt(), 1)
+        val clampedW = maxOf(((width * scale).roundToInt() / 2) * 2, 2)
+        val clampedH = maxOf(((height * scale).roundToInt() / 2) * 2, 2)
+        return clampedW to clampedH
     }
 
     private fun inspectExportComplexity(): ExportComplexity {

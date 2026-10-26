@@ -10,6 +10,7 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
@@ -756,16 +757,31 @@ class StatusQuickExportActivity : ComponentActivity() {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
                     put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
                     put(MediaStore.MediaColumns.RELATIVE_PATH, "Movies/Storyline_Status")
+                    put(MediaStore.Video.Media.IS_PENDING, 1)
                 }
                 val uri = contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues)
                 if (uri != null) {
                     contentResolver.openOutputStream(uri)?.use { out ->
                         FileInputStream(videoFile).use { it.copyTo(out) }
                     }
+                    contentResolver.update(
+                        uri,
+                        ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) },
+                        null,
+                        null
+                    )
                 }
+            } else {
+                val pubMovies = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
+                val statusDir = File(pubMovies, "Storyline_Status").also { it.mkdirs() }
+                val target = File(statusDir, fileName)
+                FileInputStream(videoFile).use { input ->
+                    FileOutputStream(target).use { output -> input.copyTo(output) }
+                }
+                android.media.MediaScannerConnection.scanFile(this, arrayOf(target.absolutePath), arrayOf("video/mp4"), null)
             }
 
-            // Also copy to reliable local status directory
+            // Also copy to reliable app files status directory & scan
             val statusDir = File(getExternalFilesDir(null), "exported_status").also { it.mkdirs() }
             val localCopy = File(statusDir, fileName)
             FileInputStream(videoFile).use { input ->
@@ -773,6 +789,7 @@ class StatusQuickExportActivity : ComponentActivity() {
                     input.copyTo(output)
                 }
             }
+            android.media.MediaScannerConnection.scanFile(this, arrayOf(localCopy.absolutePath), arrayOf("video/mp4"), null)
             localCopy
         } catch (e: Exception) {
             Log.e(TAG, "Error saving video to gallery", e)

@@ -415,35 +415,46 @@ class CanvasVideoEncoder(
                 val limitUs = if (maxDurationUs > 0) maxDurationUs else lastVideoPts
                 var currentAudioTimeOffsetUs = 0L
                 var wroteAudio = false
+                var lastAudioPts = -1L
 
                 var loopCount = 0
                 while (loopCount < 20) {
                     var readInThisPass = 0
+                    var maxPtsInThisPass = 0L
                     while (true) {
                         info.offset = 0
                         info.size = audioExtractor.readSampleData(buffer, 0)
                         if (info.size < 0) break
 
                         val rawSampleTime = audioExtractor.sampleTime
-                        info.presentationTimeUs = currentAudioTimeOffsetUs + rawSampleTime
+                        val targetPts = currentAudioTimeOffsetUs + rawSampleTime
                         info.flags = audioExtractor.sampleFlags
 
-                        if (limitUs > 0 && info.presentationTimeUs > limitUs) {
+                        if (limitUs > 0 && targetPts > limitUs) {
                             break
                         }
+
+                        // Ensure strictly monotonic PTS for MediaMuxer
+                        val safePts = if (targetPts > lastAudioPts) targetPts else (lastAudioPts + 1000L)
+                        info.presentationTimeUs = safePts
+                        lastAudioPts = safePts
 
                         finalMuxer.writeSampleData(audioTrackIdx, buffer, info)
                         wroteAudio = true
                         readInThisPass++
+                        if (rawSampleTime > maxPtsInThisPass) {
+                            maxPtsInThisPass = rawSampleTime
+                        }
                         audioExtractor.advance()
                     }
 
-                    if (limitUs <= 0 || (wroteAudio && (currentAudioTimeOffsetUs + audioExtractor.sampleTime) >= limitUs)) {
+                    if (limitUs <= 0 || (wroteAudio && lastAudioPts >= limitUs) || readInThisPass == 0) {
                         break
                     }
 
-                    // Loop audio if shorter than video
-                    currentAudioTimeOffsetUs += 15_000_000L
+                    // Loop audio if shorter than video: offset by the actual pass duration
+                    val passDurationUs = if (maxPtsInThisPass > 0L) maxPtsInThisPass + 20_000L else 15_000_000L
+                    currentAudioTimeOffsetUs += passDurationUs
                     audioExtractor.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
                     loopCount++
                 }
