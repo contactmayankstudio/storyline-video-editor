@@ -27,16 +27,17 @@ object MultiProviderAiRouter {
     private const val TAG = "MultiAiRouter"
 
     private val KEY_GROQ get() = System.getenv("GROQ_API_KEY") ?: ""
-    private val KEY_GEMINI get() = System.getenv("GEMINI_API_KEY") ?: ""
+    private fun getGeminiKey(context: android.content.Context?): String = OnlineGeminiClient.getApiKey(context)
     private val KEY_CEREBRAS get() = System.getenv("CEREBRAS_API_KEY") ?: ""
     private val KEY_MISTRAL get() = System.getenv("MISTRAL_API_KEY") ?: ""
 
     private const val SYSTEM_PROMPT =
-        "You are Storyline AI Editor, a top-tier professional video editor and creative co-creator. " +
-        "You chat naturally and warmly in fluent Hinglish (or English if the user speaks English), just like a seasoned human film editor sitting next to the creator. " +
-        "Understand user intents directly from natural conversation — NEVER ask users to type commands or syntax. " +
-        "Answer questions about storytelling, ideas, editing, pacing, music, or anything else warmly and concisely in 2-4 sentences. " +
-        "Never mention AI models, keys, or technical architecture. Always act as an intuitive, experienced human editor colleague."
+        "You are Storyline AI Copilot, a brilliant, warm, and unlimited AI companion powered by Google Gemini. " +
+        "You chat naturally in Hindi/Hinglish (or English if addressed in English), just like talking in the Google Gemini App. " +
+        "You are NOT limited to this video editor! You can answer ANY question about the entire world: " +
+        "real-world events, trending topics, science, history, storytelling, philosophy, sports, coding, tech, life advice, and custom creative poetry (shayari). " +
+        "When asked about video editing or creator growth, offer expert cinematic advice and actionable ideas. " +
+        "Keep your replies warm, concise, engaging, and beautifully formatted with emojis."
 
     private val executor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -69,17 +70,18 @@ object MultiProviderAiRouter {
                 return@execute
             }
 
-            // Tier 1: Groq (Fastest)
-            if (KEY_GROQ.isNotBlank()) {
-                tryGroq(prompt, systemPrompt)?.let { reply ->
+            // Tier 1: Gemini (Deep Knowledge & Real-time Conversational Brain)
+            val geminiKey = getGeminiKey(context)
+            if (geminiKey.isNotBlank()) {
+                tryGemini(prompt, systemPrompt, geminiKey)?.let { reply ->
                     mainHandler.post { onResponse(reply) }
                     return@execute
                 }
             }
 
-            // Tier 2: Gemini (Deep Knowledge)
-            if (KEY_GEMINI.isNotBlank()) {
-                tryGemini(prompt, systemPrompt)?.let { reply ->
+            // Tier 2: Groq (Fastest)
+            if (KEY_GROQ.isNotBlank()) {
+                tryGroq(prompt, systemPrompt)?.let { reply ->
                     mainHandler.post { onResponse(reply) }
                     return@execute
                 }
@@ -161,56 +163,62 @@ object MultiProviderAiRouter {
         }
     }
 
-    private fun tryGemini(prompt: String, systemPrompt: String): String? {
-        return try {
-            val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$KEY_GEMINI")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 8000
-                readTimeout = 12000
-                doOutput = true
-                doInput = true
-                setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-            }
+    private fun tryGemini(prompt: String, systemPrompt: String, apiKey: String): String? {
+        val endpoints = listOf(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent",
+        )
+        for (endpoint in endpoints) {
+            try {
+                val url = URL("$endpoint?key=$apiKey")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 8000
+                    readTimeout = 12000
+                    doOutput = true
+                    doInput = true
+                    setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                }
 
-            val body = JSONObject().apply {
-                put("system_instruction", JSONObject().apply {
-                    put("parts", JSONArray().apply {
-                        put(JSONObject().apply { put("text", systemPrompt) })
-                    })
-                })
-                put("contents", JSONArray().apply {
-                    put(JSONObject().apply {
+                val body = JSONObject().apply {
+                    put("system_instruction", JSONObject().apply {
                         put("parts", JSONArray().apply {
-                            put(JSONObject().apply { put("text", prompt) })
+                            put(JSONObject().apply { put("text", systemPrompt) })
                         })
                     })
-                })
-                put("generationConfig", JSONObject().apply {
-                    put("temperature", 0.7)
-                    put("maxOutputTokens", 350)
-                })
-            }
-
-            OutputStreamWriter(conn.outputStream, "UTF-8").use { it.write(body.toString()); it.flush() }
-
-            if (conn.responseCode == HttpURLConnection.HTTP_OK) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream, "UTF-8")).use { it.readText() }
-                val json = JSONObject(resp)
-                val candidates = json.optJSONArray("candidates")
-                val text = candidates?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)?.optString("text")?.trim()
-                if (!text.isNullOrBlank()) {
-                    Log.d(TAG, "Answered via Tier 2 (Gemini)")
-                    return text
+                    put("contents", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("parts", JSONArray().apply {
+                                put(JSONObject().apply { put("text", prompt) })
+                            })
+                        })
+                    })
+                    put("generationConfig", JSONObject().apply {
+                        put("temperature", 0.75)
+                        put("maxOutputTokens", 500)
+                    })
                 }
-            } else {
-                Log.w(TAG, "Tier 2 Gemini returned ${conn.responseCode}, switching to next tier...")
+
+                OutputStreamWriter(conn.outputStream, "UTF-8").use { it.write(body.toString()); it.flush() }
+
+                if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                    val resp = BufferedReader(InputStreamReader(conn.inputStream, "UTF-8")).use { it.readText() }
+                    val json = JSONObject(resp)
+                    val candidates = json.optJSONArray("candidates")
+                    val text = candidates?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)?.optString("text")?.trim()
+                    if (!text.isNullOrBlank()) {
+                        Log.d(TAG, "Answered via Tier 1 (Gemini Online)")
+                        return text
+                    }
+                } else {
+                    Log.w(TAG, "Gemini $endpoint returned ${conn.responseCode}, trying next endpoint...")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Gemini exception on $endpoint: ${e.message}")
             }
-            null
-        } catch (e: Exception) {
-            Log.w(TAG, "Tier 2 Gemini exception: ${e.message}, switching...")
-            null
         }
+        return null
     }
 
     private fun tryCerebras(prompt: String, systemPrompt: String): String? {

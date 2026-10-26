@@ -76,12 +76,14 @@ class AiVoiceCopilotSheet(
     private var chatModeContainer: LinearLayout? = null
     private var cliToggleButton: TextView? = null
     private var titleViewRef: TextView? = null
+    private var geminiPillRef: TextView? = null
     private var localeControlRef: View? = null
 
     private var speechRecognizerManager: SpeechRecognizerManager? = null
     private var isListening: Boolean = false
 
     private val suggestionChips = listOf(
+        Pair("✨ Connect Gemini AI", "gemini key setup"),
         Pair("🌍 Duniya Me Kya Chal Raha", "duniya me kya chal raha hai"),
         Pair("📜 Shayari Likh Do", "mujhe sayri likh ke do"),
         Pair("👑 Pure App Ka Master", "pure app ka master"),
@@ -307,6 +309,22 @@ class AiVoiceCopilotSheet(
         }
         header.addView(titleView)
         titleViewRef = titleView
+
+        // Google Gemini Online Status Pill (Static indicator, no user setup)
+        val geminiPill = TextView(activity).apply {
+            textSize = 11.5f
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(dp(9), dp(4), dp(9), dp(4))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                marginEnd = dp(6)
+            }
+        }
+        header.addView(geminiPill)
+        geminiPillRef = geminiPill
+        updateGeminiPillState()
 
         // Antigravity CLI Toggle Pill (Hidden for clean UI)
         val cliToggle = TextView(activity).apply {
@@ -831,6 +849,298 @@ class AiVoiceCopilotSheet(
         } catch (_: Throwable) {}
     }
 
+    private fun updateGeminiPillState() {
+        val hasKey = OnlineGeminiClient.hasApiKey(activity)
+        geminiPillRef?.apply {
+            if (hasKey) {
+                visibility = View.VISIBLE
+                text = "✨ Gemini 2.0"
+                setTextColor(Color.parseColor("#3FB950"))
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(999).toFloat()
+                    setColor(Color.parseColor("#132A1C"))
+                    setStroke(dp(1), Color.parseColor("#2EA043"))
+                }
+            } else {
+                visibility = View.GONE
+            }
+        }
+    }
+
+    private fun renderActionPillsUnderBubble(
+        bubbleTextView: TextView,
+        actionPills: List<Pair<String, () -> Unit>>,
+    ) {
+        val bubbleLayout = bubbleTextView.parent as? ViewGroup ?: return
+        val rootBubbleContainer = bubbleLayout.parent as? LinearLayout ?: return
+        val pillsScroll = HorizontalScrollView(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                topMargin = dp(6)
+                marginStart = dp(26)
+            }
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        val pillsLayout = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        actionPills.forEach { (label, action) ->
+            val pill = TextView(activity).apply {
+                text = label
+                textSize = 12f
+                setTypeface(typeface, Typeface.BOLD)
+                val isHighlight = label.contains("Export") || label.contains("Gemini") || label.contains("Add to Video")
+                setTextColor(if (isHighlight) COLOR_ACCENT_CYAN else Color.parseColor("#E6EDF3"))
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(999).toFloat()
+                    setColor(if (isHighlight) Color.parseColor("#1B293A") else Color.parseColor("#171D26"))
+                    setStroke(dp(1), if (isHighlight) COLOR_ACCENT_CYAN else Color.parseColor("#2B3646"))
+                }
+                setPadding(dp(10), dp(5), dp(10), dp(5))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    marginEnd = dp(6)
+                }
+                setOnClickListener {
+                    action.invoke()
+                }
+            }
+            pillsLayout.addView(pill)
+        }
+        pillsScroll.addView(pillsLayout)
+        rootBubbleContainer.addView(pillsScroll)
+    }
+
+    fun showGeminiApiKeyDialog() {
+        val currentKey = OnlineGeminiClient.getApiKey(activity)
+        val dialogView = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(16), dp(20), dp(20))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(16).toFloat()
+                setColor(Color.parseColor("#161B22"))
+                setStroke(dp(1), Color.parseColor("#30363D"))
+            }
+        }
+
+        // Title Row
+        val titleRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+        }
+        val sparkleIcon = TextView(activity).apply {
+            text = "✨"
+            textSize = 20f
+        }
+        titleRow.addView(sparkleIcon)
+
+        val dialogTitle = TextView(activity).apply {
+            text = " Google Gemini Online AI"
+            textSize = 17f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+        }
+        titleRow.addView(dialogTitle)
+        dialogView.addView(titleRow)
+
+        // Description
+        val descView = TextView(activity).apply {
+            text = "Online Gemini API connect karke app ke bahar poori duniya ki jankari, taaza khabar, custom shayari aur har sawal ka jawab bolkar paayein — bilkul Gemini app ki tarah!"
+            textSize = 13f
+            setTextColor(Color.parseColor("#8B949E"))
+            setPadding(0, dp(8), 0, dp(12))
+        }
+        dialogView.addView(descView)
+
+        // Free Key Banner / Link
+        val linkBanner = TextView(activity).apply {
+            text = "🔗 aistudio.google.com se Free API Key lein (1-Tap)"
+            textSize = 12.5f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(COLOR_ACCENT_CYAN)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.parseColor("#1B293A"))
+                setStroke(dp(1), Color.parseColor("#1F6FEB"))
+            }
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                bottomMargin = dp(14)
+            }
+            setOnClickListener {
+                try {
+                    val intent = android.content.Intent(
+                        android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse("https://aistudio.google.com/app/apikey"),
+                    )
+                    activity.startActivity(intent)
+                } catch (_: Throwable) {
+                    Toast.makeText(activity, "Browser open nahi ho saka", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        dialogView.addView(linkBanner)
+
+        // Key Input Box
+        val keyInput = EditText(activity).apply {
+            hint = "Yahan Gemini API Key paste karein (AIzaSy...)"
+            setHintTextColor(Color.parseColor("#484F58"))
+            setTextColor(Color.WHITE)
+            textSize = 13.5f
+            if (currentKey.isNotBlank()) setText(currentKey)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.parseColor("#0D1117"))
+                setStroke(dp(1), Color.parseColor("#30363D"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+        }
+        dialogView.addView(keyInput)
+
+        // Paste Button Row
+        val pasteRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+            setPadding(0, dp(6), 0, dp(12))
+        }
+        val pasteBtn = TextView(activity).apply {
+            text = "📋 Paste from Clipboard"
+            textSize = 12f
+            setTextColor(Color.parseColor("#58A6FF"))
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            setOnClickListener {
+                try {
+                    val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                    val clip = clipboard?.primaryClip?.getItemAt(0)?.text?.toString()?.trim()
+                    if (!clip.isNullOrBlank()) {
+                        keyInput.setText(clip)
+                        Toast.makeText(activity, "Pasted!", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (_: Throwable) {}
+            }
+        }
+        pasteRow.addView(pasteBtn)
+        dialogView.addView(pasteRow)
+
+        // Status text for validation
+        val statusText = TextView(activity).apply {
+            textSize = 12f
+            visibility = View.GONE
+            setPadding(0, 0, 0, dp(10))
+        }
+        dialogView.addView(statusText)
+
+        // Dialog creation
+        var alertDialog: android.app.AlertDialog? = null
+        val buttonsRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+
+        if (currentKey.isNotBlank()) {
+            val removeBtn = TextView(activity).apply {
+                text = "Disconnect Key"
+                textSize = 13f
+                setTextColor(Color.parseColor("#F85149"))
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                setOnClickListener {
+                    OnlineGeminiClient.clearApiKey(activity)
+                    updateGeminiPillState()
+                    Toast.makeText(activity, "Gemini Key removed. Switched to offline mode.", Toast.LENGTH_SHORT).show()
+                    alertDialog?.dismiss()
+                }
+            }
+            buttonsRow.addView(removeBtn)
+        }
+
+        val cancelBtn = TextView(activity).apply {
+            text = "Cancel"
+            textSize = 13f
+            setTextColor(Color.parseColor("#8B949E"))
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setOnClickListener { alertDialog?.dismiss() }
+        }
+        buttonsRow.addView(cancelBtn)
+
+        val saveBtn = TextView(activity).apply {
+            text = "🚀 Test & Connect"
+            textSize = 13f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.parseColor("#238636"))
+            }
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                marginStart = dp(8)
+            }
+            setOnClickListener {
+                val inputKey = keyInput.text.toString().trim()
+                if (inputKey.isBlank()) {
+                    Toast.makeText(activity, "Kripya API Key enter karein", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                statusText.visibility = View.VISIBLE
+                statusText.setTextColor(Color.parseColor("#E3B341"))
+                statusText.text = "Google Gemini se connect ho raha hai... ⏳"
+                isEnabled = false
+
+                OnlineGeminiClient.testApiKey(inputKey) { success, msg ->
+                    isEnabled = true
+                    if (success) {
+                        OnlineGeminiClient.setApiKey(activity, inputKey)
+                        updateGeminiPillState()
+                        Toast.makeText(activity, "🎉 Gemini 2.0 Connected Successfully!", Toast.LENGTH_LONG).show()
+                        addAssistantBubble(
+                            "🎉 **Google Gemini 2.0 Online Connected!** 🚀\n\nAb aap mujhse kuch bhi pooch sakte ho — duniya me kya chal raha, taaza trends, scientific sawal, ya custom shayari — main Gemini app ki tarah bolkar jawab dunga!",
+                            isSuccess = true,
+                        )
+                        AiTtsVoiceoverManager.speak(activity, "Google Gemini online connect ho gaya hai bhai! Ab aap mujhse poori duniya ke sawal pooch sakte ho.")
+                        alertDialog?.dismiss()
+                    } else {
+                        statusText.setTextColor(Color.parseColor("#F85149"))
+                        statusText.text = "⚠️ Connection error: $msg"
+                    }
+                }
+            }
+        }
+        buttonsRow.addView(saveBtn)
+        dialogView.addView(buttonsRow)
+
+        alertDialog = android.app.AlertDialog.Builder(activity)
+            .setView(dialogView)
+            .create()
+        alertDialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        alertDialog.show()
+    }
+
     private fun handleUserCommand(rawCommand: String) {
         val query = rawCommand.trim()
         if (query.isBlank()) return
@@ -842,49 +1152,57 @@ class AiVoiceCopilotSheet(
             cli.setStatus(AiTerminalConsolePanel.STATUS_RUNNING, "#00E5FF")
         }
 
+        val lower = query.lowercase(Locale.ROOT)
+
         // 2. Parse Intent
         val parsed = AiIntentParser.parse(query)
 
-        // Special Handler A: Shayari Creative Studio (Mujhe Shayari Likh Ke Do)
-        val isShayari = (parsed.intent is VideoEditIntent.Conversational &&
-            (parsed.intent as VideoEditIntent.Conversational).executeIntent is VideoEditIntent.AddShayariOverlay)
-        if (isShayari) {
+        // 2a. App Navigation Commands (Camera, Status Maker, Photo Editor, Beat Cut, Chroma)
+        if (parsed.intent is VideoEditIntent.Conversational &&
+            ((parsed.intent as VideoEditIntent.Conversational).executeIntent is VideoEditIntent.OpenFunCamera ||
+             (parsed.intent as VideoEditIntent.Conversational).executeIntent is VideoEditIntent.OpenStatusMaker ||
+             (parsed.intent as VideoEditIntent.Conversational).executeIntent is VideoEditIntent.OpenPhotoEditor ||
+             (parsed.intent as VideoEditIntent.Conversational).executeIntent is VideoEditIntent.AutoBeatCut ||
+             (parsed.intent as VideoEditIntent.Conversational).executeIntent is VideoEditIntent.ChromaKey)) {
             val conv = parsed.intent as VideoEditIntent.Conversational
-            val shayari = (conv.executeIntent as VideoEditIntent.AddShayariOverlay).shayariText
-            cliPanel?.let { cli ->
-                cli.appendLog("[AI]", conv.reply)
-                cli.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
-            }
-            val pills = listOf<Pair<String, () -> Unit>>(
-                Pair("🔤 Add to Video") { dispatcher.addShayariTextOverlay(shayari) },
-                Pair("🌟 Status Maker") { dispatcher.openStatusMaker() },
-                Pair("🗣️ Bolkar Suno") { AiTtsVoiceoverManager.speak(activity, shayari) },
-                Pair("📋 Copy Text") { copyToClipboard(shayari) },
-            )
-            addAssistantBubble(conv.reply, isSuccess = true, actionPills = pills)
-            AiTtsVoiceoverManager.speak(activity, shayari)
+            addAssistantBubble(conv.reply, isSuccess = true)
+            AiTtsVoiceoverManager.speak(activity, conv.reply)
+            conv.executeIntent?.let { dispatcher.dispatch(ParsedCommand(query, it, 1.0f, conv.reply)) }
             chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
             return
         }
 
-        // Special Handler B: World Trends & Viral Intelligence (Duniya Me Kya Chal Raha Hai)
-        val isWorldTrends = (parsed.intent is VideoEditIntent.Conversational &&
-            (parsed.intent as VideoEditIntent.Conversational).reply.contains("Duniya Me Abhi Ye"))
-        if (isWorldTrends) {
-            val reply = (parsed.intent as VideoEditIntent.Conversational).reply
+        // 2b. Explicit Timeline Editing Commands (cut, split, mute, speed, etc.)
+        val isExplicitTimelineEdit = parsed.intent !is VideoEditIntent.Unknown &&
+            parsed.intent !is VideoEditIntent.Conversational
+
+        if (isExplicitTimelineEdit) {
+            val (success, feedback) = dispatcher.dispatch(parsed)
             cliPanel?.let { cli ->
-                cli.appendLog("[AI]", reply)
-                cli.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
+                cli.appendLog(if (success) "[✓]" else "[!]", feedback)
+                cli.setStatus(
+                    if (success) AiTerminalConsolePanel.STATUS_READY else AiTerminalConsolePanel.STATUS_ERROR,
+                    if (success) "#3FB950" else "#F85149",
+                )
             }
-            val pills = listOf<Pair<String, () -> Unit>>(
-                Pair("🎵 Auto Beat Cut") { dispatcher.autoBeatCut() },
-                Pair("📜 Shayari Likh Do") { handleUserCommand("mujhe shayari likh ke do") },
-                Pair("🚀 Full AI Edit") { handleUserCommand("full ai edit") },
-                Pair("🌟 Status Maker") { dispatcher.openStatusMaker() },
-            )
-            addAssistantBubble(reply, isSuccess = true, actionPills = pills)
-            AiTtsVoiceoverManager.speak(activity, reply)
+            addAssistantBubble(feedback, isSuccess = success, actionPills = emptyList())
+            AiTtsVoiceoverManager.speak(activity, feedback)
             chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+            return
+        }
+
+        // 2c. Auto-Pilot Magic Edit with Live Agent Progress
+        val isAutoPilotAndExport = parsed.intent is VideoEditIntent.AutoPilotEditAndExport ||
+            (parsed.intent is VideoEditIntent.Conversational && (parsed.intent as VideoEditIntent.Conversational).executeIntent is VideoEditIntent.AutoPilotEditAndExport)
+        if (isAutoPilotAndExport) {
+            handleAutoPilotAndExportExecution(parsed)
+            return
+        }
+
+        val isAutoPilot = parsed.intent is VideoEditIntent.AutoPilotEdit ||
+            (parsed.intent is VideoEditIntent.Conversational && (parsed.intent as VideoEditIntent.Conversational).executeIntent is VideoEditIntent.AutoPilotEdit)
+        if (isAutoPilot) {
+            handleAutoPilotExecution(parsed)
             return
         }
 
@@ -911,72 +1229,118 @@ class AiVoiceCopilotSheet(
             return
         }
 
-        // Pure conversational general query or advice without timeline action
-        if (parsed.intent is VideoEditIntent.Conversational && (parsed.intent as VideoEditIntent.Conversational).executeIntent == null) {
+        // 3. Online Gemini AI for World Knowledge, Custom Shayari & Conversational Chat
+        if (OnlineGeminiClient.hasApiKey(activity)) {
+            val thinkingBubble = renderAssistantBubble("✨ Gemini online soch raha hai... ⏳", isSuccess = true)
+            chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+
+            val history = AiChatHistoryStore.getHistory(activity).takeLast(4).map {
+                Pair(it.sender, it.text)
+            }
+
+            OnlineGeminiClient.query(
+                context = activity,
+                prompt = query,
+                recentHistory = history,
+                onSuccess = { geminiAnswer ->
+                    thinkingBubble.text = geminiAnswer
+                    AiChatHistoryStore.addMessage(
+                        activity,
+                        AiChatHistoryStore.ChatMessage("assistant", geminiAnswer, isSuccess = true),
+                    )
+                    cliPanel?.appendLog("[Gemini]", geminiAnswer)
+                    cliPanel?.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
+                    AiTtsVoiceoverManager.speak(activity, geminiAnswer)
+
+                    val isShayariPrompt = lower.contains("sayri") || lower.contains("shayari") || lower.contains("poetry") || lower.contains("kavita")
+                    if (isShayariPrompt) {
+                        renderActionPillsUnderBubble(thinkingBubble, listOf(
+                            Pair("🔤 Add to Video") { dispatcher.addShayariTextOverlay(geminiAnswer) },
+                            Pair("🌟 Status Maker") { dispatcher.openStatusMaker() },
+                            Pair("🗣️ Bolkar Suno") { AiTtsVoiceoverManager.speak(activity, geminiAnswer) },
+                            Pair("📋 Copy Text") { copyToClipboard(geminiAnswer) },
+                        ))
+                    } else if (lower.contains("trend") || lower.contains("duniya me")) {
+                        renderActionPillsUnderBubble(thinkingBubble, listOf(
+                            Pair("🎵 Auto Beat Cut") { dispatcher.autoBeatCut() },
+                            Pair("📜 Shayari Likh Do") { handleUserCommand("mujhe shayari likh ke do") },
+                            Pair("🚀 Full AI Edit") { handleUserCommand("full ai edit") },
+                            Pair("🌟 Status Maker") { dispatcher.openStatusMaker() },
+                        ))
+                    }
+                    chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+                },
+                onFallback = { offlineFallback ->
+                    thinkingBubble.text = offlineFallback
+                    AiTtsVoiceoverManager.speak(activity, offlineFallback)
+                    chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+                },
+            )
+            return
+        }
+
+        // Offline Conversational Engine fallback
+        val isShayari = (parsed.intent is VideoEditIntent.Conversational &&
+            (parsed.intent as VideoEditIntent.Conversational).executeIntent is VideoEditIntent.AddShayariOverlay)
+        if (isShayari) {
+            val conv = parsed.intent as VideoEditIntent.Conversational
+            val shayari = (conv.executeIntent as VideoEditIntent.AddShayariOverlay).shayariText
+            cliPanel?.let { cli ->
+                cli.appendLog("[AI]", conv.reply)
+                cli.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
+            }
+            val pills = listOf<Pair<String, () -> Unit>>(
+                Pair("🔤 Add to Video") { dispatcher.addShayariTextOverlay(shayari) },
+                Pair("🌟 Status Maker") { dispatcher.openStatusMaker() },
+                Pair("🗣️ Bolkar Suno") { AiTtsVoiceoverManager.speak(activity, shayari) },
+                Pair("📋 Copy Text") { copyToClipboard(shayari) },
+            )
+            addAssistantBubble(conv.reply, isSuccess = true, actionPills = pills)
+            AiTtsVoiceoverManager.speak(activity, shayari)
+            chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+            return
+        }
+
+        val isWorldTrends = (parsed.intent is VideoEditIntent.Conversational &&
+            (parsed.intent as VideoEditIntent.Conversational).reply.contains("Duniya Me Abhi Ye"))
+        if (isWorldTrends) {
             val reply = (parsed.intent as VideoEditIntent.Conversational).reply
             cliPanel?.let { cli ->
                 cli.appendLog("[AI]", reply)
                 cli.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
             }
-            addAssistantBubble(reply, isSuccess = true, actionPills = emptyList())
+            val pills = listOf<Pair<String, () -> Unit>>(
+                Pair("🎵 Auto Beat Cut") { dispatcher.autoBeatCut() },
+                Pair("📜 Shayari Likh Do") { handleUserCommand("mujhe shayari likh ke do") },
+                Pair("🚀 Full AI Edit") { handleUserCommand("full ai edit") },
+                Pair("🌟 Status Maker") { dispatcher.openStatusMaker() },
+            )
+            addAssistantBubble(reply, isSuccess = true, actionPills = pills)
             AiTtsVoiceoverManager.speak(activity, reply)
             chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
             return
         }
 
-        // Check if query is completely unknown to local parsers
-        if (parsed.intent is VideoEditIntent.Unknown) {
-            val thinkingBubble = renderAssistantBubble("Thinking... ⏳", isSuccess = true)
-            chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
-            MultiProviderAiRouter.query(query, activity) { reply ->
-                thinkingBubble.text = reply
-                AiChatHistoryStore.addMessage(
-                    activity,
-                    AiChatHistoryStore.ChatMessage("assistant", reply, isSuccess = true),
-                )
-                cliPanel?.appendLog("[AI]", reply)
-                cliPanel?.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
-                AiTtsVoiceoverManager.speak(activity, reply)
-                chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
-            }
-            return
+        val fallbackReply = if (parsed.intent is VideoEditIntent.Conversational) {
+            (parsed.intent as VideoEditIntent.Conversational).reply
+        } else {
+            SmartConversationalEngine.generateHelpfulFallback(query)
         }
 
-        // 3. Auto-Pilot Magic Edit with Live Agent Progress
-        val isAutoPilotAndExport = parsed.intent is VideoEditIntent.AutoPilotEditAndExport ||
-            (parsed.intent is VideoEditIntent.Conversational && (parsed.intent as VideoEditIntent.Conversational).executeIntent is VideoEditIntent.AutoPilotEditAndExport)
-
-        if (isAutoPilotAndExport) {
-            handleAutoPilotAndExportExecution(parsed)
-            return
-        }
-
-        val isAutoPilot = parsed.intent is VideoEditIntent.AutoPilotEdit ||
-            (parsed.intent is VideoEditIntent.Conversational && (parsed.intent as VideoEditIntent.Conversational).executeIntent is VideoEditIntent.AutoPilotEdit)
-
-        if (isAutoPilot) {
-            handleAutoPilotExecution(parsed)
-            return
-        }
-
-        // 4. Dispatch to timeline actions
-        val (success, feedback) = dispatcher.dispatch(parsed)
         cliPanel?.let { cli ->
-            cli.appendLog(if (success) "[✓]" else "[!]", feedback)
-            cli.setStatus(
-                if (success) AiTerminalConsolePanel.STATUS_READY else AiTerminalConsolePanel.STATUS_ERROR,
-                if (success) "#3FB950" else "#F85149",
-            )
+            cli.appendLog("[AI]", fallbackReply)
+            cli.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
         }
 
-        // 5. Render Assistant Feedback Bubble
-        addAssistantBubble(feedback, isSuccess = success, actionPills = emptyList())
-        AiTtsVoiceoverManager.speak(activity, feedback)
-
-        // Scroll chat to bottom
-        chatScrollView.post {
-            chatScrollView.fullScroll(View.FOCUS_DOWN)
-        }
+        val pills = listOf<Pair<String, () -> Unit>>(
+            Pair("🌍 Trending Formats") { handleUserCommand("duniya me kya chal raha") },
+            Pair("📜 Shayari Likh Do") { handleUserCommand("mujhe shayari likh ke do") },
+            Pair("🚀 Full AI Edit") { handleUserCommand("full ai edit") },
+        )
+        addAssistantBubble(fallbackReply, isSuccess = true, actionPills = pills)
+        AiTtsVoiceoverManager.speak(activity, fallbackReply)
+        chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+        return
     }
 
     private fun handleAutoPilotAndExportExecution(command: ParsedCommand) {

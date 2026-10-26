@@ -12089,9 +12089,8 @@ class VideoEditorActivity : ComponentActivity() {
                 add(layerTrack)
             }
             add(videoTrack)
-            if (audioTrack.clips.isNotEmpty() || selectedImportTrackType() == TrackType.AUDIO) {
-                add(audioTrack)
-            }
+            // Audio track is always visible alongside video track
+            add(audioTrack)
         }
         val selectedClipKey =
             selectedTimelineClipKey ?: timelineManager?.getSelectedClipId()?.let(::selectionKeyForNativeClipId)

@@ -824,7 +824,7 @@ class MultiTrackTimelineView @JvmOverloads constructor(
 
         init {
             setBackgroundColor(Color.parseColor("#171717"))
-            val rowHeight = if (trackType == TrackType.VIDEO) dp(TRACK_ROW_HEIGHT_DP + 16) else dp(TRACK_ROW_HEIGHT_DP)
+            val rowHeight = if (trackType == TrackType.VIDEO) dp(TRACK_ROW_HEIGHT_DP + 8) else dp(TRACK_ROW_HEIGHT_DP)
             minimumHeight = rowHeight
 
             recyclerView.layoutManager = layoutManager

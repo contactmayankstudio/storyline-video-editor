@@ -647,7 +647,7 @@ class TimelineCanvasView @JvmOverloads constructor(
     }
 
     // ── Layout ────────────────────────────────────────────────────────────────
-    private val videoTrackHeightScale = 2.2f
+    private val videoTrackHeightScale = 1.4f
 
     private fun trackLaneHeightPx(track: TrackState): Int =
         if (track.type == TrackType.VIDEO) (laneHeightPx * videoTrackHeightScale).toInt() else laneHeightPx
@@ -1063,6 +1063,8 @@ class TimelineCanvasView @JvmOverloads constructor(
             }
             if (track.type == TrackType.VIDEO && track.clips.isEmpty()) {
                 canvas.drawText("Add media to start", laneRect.centerX(), laneRect.centerY() + dp(3.5f), emptyTrackHintPaint)
+            } else if (track.type == TrackType.AUDIO && track.clips.isEmpty()) {
+                canvas.drawText("🎵 Audio / BGM", laneRect.centerX().coerceAtLeast(dp(100).toFloat()), laneRect.centerY() + dp(3.5f), emptyTrackHintPaint)
             }
         }
     }
