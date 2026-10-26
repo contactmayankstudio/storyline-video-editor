@@ -1681,7 +1681,8 @@ class TimelineCanvasView @JvmOverloads constructor(
         // Touch is on clip body: default to scrolling unless long-press is held
         touchDownClipId = clip.id
         touchDownClip = clip
-        longPressHandler.postDelayed(clipMoveArmRunnable, 250L)
+        val isDragDirectTarget = clip.id == selectedClipId || clip.trackType == TrackType.AUDIO
+        longPressHandler.postDelayed(clipMoveArmRunnable, if (isDragDirectTarget) 80L else 220L)
     }
 
     private fun onMove(event: MotionEvent) {
@@ -1706,7 +1707,24 @@ class TimelineCanvasView @JvmOverloads constructor(
             if (abs(dx) < touchSlop && abs(dy) < touchSlop) return
             gestureStarted = true
             longPressHandler.removeCallbacks(longPressRunnable) // cancel long press on move
-            longPressHandler.removeCallbacks(clipMoveArmRunnable)
+            val clip = touchDownClip
+            val shouldMoveDirectly = clip != null && (clipMoveArmed || clip.id == selectedClipId || clip.trackType == TrackType.AUDIO)
+            if (shouldMoveDirectly && clip != null && trackLocked[clip.trackType] != true) {
+                clipMoveArmed = true
+                gesture = GestureKind.MOVE
+                gestureClipId = clip.id
+                gestureClipSnapshot = clip
+                gestureStartScrollX = scrollX
+                gestureStartScrollY = scrollY
+                vibrate()
+                if (clip.id != selectedClipId) {
+                    selectedClipId = clip.id
+                    listener?.onClipSelected(clip.id)
+                }
+                invalidate()
+            } else {
+                longPressHandler.removeCallbacks(clipMoveArmRunnable)
+            }
             pendingImportChipTrack = null
             if (lockedScrollAxis == ScrollAxis.NONE) {
                 lockedScrollAxis = if (abs(dx) >= abs(dy)) ScrollAxis.HORIZONTAL else ScrollAxis.VERTICAL

@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
@@ -239,7 +240,7 @@ class PhotoEditorActivity : ComponentActivity() {
                 addView(
                     magicWipeLineHandle,
                     FrameLayout.LayoutParams(
-                        dp(28),
+                        dp(44),
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         Gravity.START or Gravity.TOP,
                     ),
@@ -322,12 +323,35 @@ class PhotoEditorActivity : ComponentActivity() {
                     Gravity.CENTER,
                 ),
             )
+            // Grip badge for intuitive Before/After dragging
+            val thumbBadge = TextView(this@PhotoEditorActivity).apply {
+                text = "◀  ▶"
+                textSize = 9.5f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#E6121822"))
+                    setStroke(dp(1).coerceAtLeast(1), Color.parseColor("#00E5FF"))
+                    shape = GradientDrawable.OVAL
+                }
+                elevation = dp(4).toFloat()
+            }
+            addView(
+                thumbBadge,
+                FrameLayout.LayoutParams(
+                    dp(32),
+                    dp(32),
+                    Gravity.CENTER,
+                ),
+            )
             setOnTouchListener { view, event ->
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
                         magicWipeDragOffsetX = event.x
                         view.parent?.requestDisallowInterceptTouchEvent(true)
                         view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        view.alpha = 1f
                         canvasView.beginMagicSweep()
                         handleMagicWipeLineDrag(view, event.x)
                         true
@@ -338,7 +362,15 @@ class PhotoEditorActivity : ComponentActivity() {
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                         handleMagicWipeLineDrag(view, event.x)
-                        canvasView.commitMagicSweep()
+                        val fraction = canvasView.magicSweepRevealFraction()
+                        if (fraction >= 0.94f) {
+                            canvasView.commitMagicSweep(forceClose = true)
+                            updateMagicWipeLinePosition(1f)
+                        } else if (fraction <= 0.06f) {
+                            canvasView.previewMagicSweep(0f)
+                            updateMagicWipeLinePosition(0f)
+                        }
+                        view.alpha = if (activeStudioTab == PhotoStudioTab.MAGIC) 1f else 0.78f
                         view.parent?.requestDisallowInterceptTouchEvent(false)
                         true
                     }
@@ -557,6 +589,11 @@ class PhotoEditorActivity : ComponentActivity() {
                 addStudioTool("Filters", "FILM") { showImageFilterPanel() }
             }
             PhotoStudioTab.MAGIC -> {
+                addStudioTool("Compare", "SPLIT", isMagic = true) {
+                    val active = canvasView.toggleMagicSplitCompare()
+                    updateMagicWipeLinePosition(if (active) 0.5f else 1f)
+                    magicWipeLineHandle.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                }
                 addStudioTool("BG Remove", "CUT", isMagic = true) { applyAiBackgroundRemove() }
                 addStudioTool("Green Cut", "KEY", isMagic = true) { applyGreenScreenCutout() }
                 addStudioTool("White Cut", "WHT", isMagic = true) { applyLightCutout() }
@@ -913,9 +950,9 @@ class PhotoEditorActivity : ComponentActivity() {
         GradientDrawable(
             GradientDrawable.Orientation.TOP_BOTTOM,
             intArrayOf(
-                Color.argb(245, 255, 255, 255),
-                Color.rgb(255, 48, 64),
-                Color.argb(245, 255, 255, 255),
+                Color.argb(200, 0, 229, 255),
+                Color.rgb(255, 255, 255),
+                Color.argb(200, 0, 229, 255),
             ),
         ).apply {
             cornerRadius = dp(2).toFloat()

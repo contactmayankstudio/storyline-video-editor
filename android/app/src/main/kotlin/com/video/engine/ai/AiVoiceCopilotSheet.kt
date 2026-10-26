@@ -58,8 +58,11 @@ class AiVoiceCopilotSheet(
         private val COLOR_TEXT_MUTED = Color.parseColor("#8A99AD")
     }
 
-    private var dialog: BottomSheetDialog? = null
+    private var dialog: android.app.Dialog? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var isMinimized: Boolean = false
+    private var floatingCardView: LinearLayout? = null
+    private var chipsScrollView: HorizontalScrollView? = null
 
     private lateinit var chatContainer: LinearLayout
     private lateinit var chatScrollView: ScrollView
@@ -83,7 +86,7 @@ class AiVoiceCopilotSheet(
     private var isListening: Boolean = false
 
     private val suggestionChips = listOf(
-        Pair("✨ Connect Gemini AI", "gemini key setup"),
+        Pair("💡 Viral Hook Ideas", "video ke liye viral hooks batao"),
         Pair("🌍 Duniya Me Kya Chal Raha", "duniya me kya chal raha hai"),
         Pair("📜 Shayari Likh Do", "mujhe sayri likh ke do"),
         Pair("👑 Pure App Ka Master", "pure app ka master"),
@@ -132,48 +135,52 @@ class AiVoiceCopilotSheet(
     )
 
     fun show() {
-        val sheetDialog = BottomSheetDialog(activity)
-        dialog = sheetDialog
-        sheetDialog.setCanceledOnTouchOutside(false)
+        val floatDialog = android.app.Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar)
+        dialog = floatDialog
+        floatDialog.setCanceledOnTouchOutside(false)
 
-        val root = createViewHierarchy(sheetDialog)
-        sheetDialog.setContentView(root)
+        val dm = activity.resources.displayMetrics
+        val screenWidth = dm.widthPixels
+        val screenHeight = dm.heightPixels
+        val cardWidth = (screenWidth * 0.94f).roundToInt().coerceAtMost(dp(440))
+        val cardHeight = (screenHeight * 0.44f).roundToInt().coerceIn(dp(320), dp(540))
 
-        val screenHeight = activity.resources.displayMetrics.heightPixels
-        val fixedHeight = (screenHeight * 0.40f).roundToInt()
+        val overlayRoot = FrameLayout(activity).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            setBackgroundColor(Color.TRANSPARENT)
+        }
 
-        sheetDialog.window?.let { window ->
+        val card = createViewHierarchy(floatDialog, cardWidth, cardHeight)
+        floatingCardView = card as LinearLayout
+        val cardParams = FrameLayout.LayoutParams(cardWidth, cardHeight).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            bottomMargin = dp(16)
+        }
+        overlayRoot.addView(card, cardParams)
+
+        floatDialog.setContentView(overlayRoot)
+
+        floatDialog.window?.let { window ->
             window.setDimAmount(0f)
             window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
             window.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
             window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         }
 
-        sheetDialog.setOnShowListener {
-            val bottomSheet = sheetDialog.findViewById<FrameLayout>(com.google.android.material.R.id.design_bottom_sheet)
-            bottomSheet?.let { bs ->
-                bs.setBackgroundColor(Color.TRANSPARENT)
-                bs.layoutParams = bs.layoutParams.apply {
-                    height = fixedHeight
-                }
-                val behavior = BottomSheetBehavior.from(bs)
-                behavior.isDraggable = false
-                behavior.isHideable = true
-                behavior.peekHeight = fixedHeight
-                behavior.state = BottomSheetBehavior.STATE_EXPANDED
-            }
-        }
-
-        sheetDialog.setOnDismissListener {
+        floatDialog.setOnDismissListener {
             mainHandler.removeCallbacksAndMessages(null)
             speechRecognizerManager?.destroy()
             speechRecognizerManager = null
             AiTtsVoiceoverManager.stopSpeaking()
             dialog = null
+            floatingCardView = null
         }
 
         initSpeechRecognizer()
-        sheetDialog.show()
+        floatDialog.show()
         if (startInCliMode) {
             mainHandler.post {
                 toggleCliMode(true)
@@ -249,15 +256,15 @@ class AiVoiceCopilotSheet(
         })
     }
 
-    private fun createViewHierarchy(sheetDialog: BottomSheetDialog): View {
+    private fun createViewHierarchy(dialog: android.app.Dialog, defaultWidth: Int, defaultHeight: Int): View {
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                val r = dp(24).toFloat()
-                cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
-                setColor(COLOR_SHEET_BG)
-                setStroke(dp(1), Color.parseColor("#1B222C"))
+                val r = dp(22).toFloat()
+                cornerRadius = r
+                setColor(Color.parseColor("#F0121722"))
+                setStroke(dp(2).coerceAtLeast(1), Color.parseColor("#3300E5FF"))
             }
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -267,18 +274,53 @@ class AiVoiceCopilotSheet(
 
         // 1. Drag Handle
         val dragHandle = View(activity).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(36), dp(4)).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(44), dp(5)).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
-                topMargin = dp(10)
-                bottomMargin = dp(6)
+                topMargin = dp(8)
+                bottomMargin = dp(4)
             }
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(999).toFloat()
-                setColor(Color.parseColor("#3A4452"))
+                setColor(Color.parseColor("#00E5FF"))
+                alpha = 140
             }
         }
         root.addView(dragHandle)
+
+        // Drag touch listener allowing the user to move the floating chat box anywhere on screen
+        var startRawX = 0f
+        var startRawY = 0f
+        var initialX = 0f
+        var initialY = 0f
+        val dragTouchListener = View.OnTouchListener { v, event ->
+            when (event.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    startRawX = event.rawX
+                    startRawY = event.rawY
+                    initialX = root.x
+                    initialY = root.y
+                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                    true
+                }
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    val dX = event.rawX - startRawX
+                    val dY = event.rawY - startRawY
+                    val parentView = root.parent as? View
+                    val maxW = (parentView?.width ?: activity.resources.displayMetrics.widthPixels) - root.width
+                    val maxH = (parentView?.height ?: activity.resources.displayMetrics.heightPixels) - root.height
+                    root.x = (initialX + dX).coerceIn(0f, maxW.toFloat().coerceAtLeast(0f))
+                    root.y = (initialY + dY).coerceIn(0f, maxH.toFloat().coerceAtLeast(0f))
+                    true
+                }
+                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                    v.parent?.requestDisallowInterceptTouchEvent(false)
+                    true
+                }
+                else -> false
+            }
+        }
+        dragHandle.setOnTouchListener(dragTouchListener)
 
         // 2. Header Row
         val header = LinearLayout(activity).apply {
@@ -290,6 +332,7 @@ class AiVoiceCopilotSheet(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             )
         }
+        header.setOnTouchListener(dragTouchListener)
 
         val aiIcon = ImageView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(dp(22), dp(22)).apply {
@@ -310,9 +353,10 @@ class AiVoiceCopilotSheet(
         header.addView(titleView)
         titleViewRef = titleView
 
-        // Google Gemini Online Status Pill (Static indicator, no user setup)
+        // Status Pill (Purely local branding, no Gemini branding)
         val geminiPill = TextView(activity).apply {
             textSize = 11.5f
+            visibility = View.GONE
             setTypeface(typeface, Typeface.BOLD)
             setPadding(dp(9), dp(4), dp(9), dp(4))
             layoutParams = LinearLayout.LayoutParams(
@@ -324,7 +368,6 @@ class AiVoiceCopilotSheet(
         }
         header.addView(geminiPill)
         geminiPillRef = geminiPill
-        updateGeminiPillState()
 
         // Antigravity CLI Toggle Pill (Hidden for clean UI)
         val cliToggle = TextView(activity).apply {
@@ -360,6 +403,42 @@ class AiVoiceCopilotSheet(
         header.addView(localeControl)
         localeControlRef = localeControl
 
+        // Minimize / Maximize Button (Chota / Bada karne ke liye)
+        val minimizeBtn = TextView(activity).apply {
+            text = "🗕"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(COLOR_ACCENT_CYAN)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#1B222C"))
+            }
+            layoutParams = LinearLayout.LayoutParams(dp(28), dp(28)).apply {
+                marginStart = dp(6)
+            }
+            setOnClickListener {
+                isMinimized = !isMinimized
+                if (isMinimized) {
+                    text = "🗖"
+                    chatModeContainer?.visibility = View.GONE
+                    chipsScrollView?.visibility = View.GONE
+                    root.layoutParams = (root.layoutParams as? FrameLayout.LayoutParams ?: FrameLayout.LayoutParams(dp(170), ViewGroup.LayoutParams.WRAP_CONTENT)).apply {
+                        width = dp(170)
+                        height = ViewGroup.LayoutParams.WRAP_CONTENT
+                    }
+                } else {
+                    text = "🗕"
+                    chatModeContainer?.visibility = View.VISIBLE
+                    chipsScrollView?.visibility = View.VISIBLE
+                    root.layoutParams = (root.layoutParams as? FrameLayout.LayoutParams ?: FrameLayout.LayoutParams(defaultWidth, defaultHeight)).apply {
+                        width = defaultWidth
+                        height = defaultHeight
+                    }
+                }
+            }
+        }
+        header.addView(minimizeBtn)
+
         // Clear Chat History Button: [🗑️]
         val clearHistoryBtn = ImageView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(dp(28), dp(28)).apply {
@@ -381,11 +460,11 @@ class AiVoiceCopilotSheet(
 
         val closeButton = ImageView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(dp(28), dp(28)).apply {
-                marginStart = dp(10)
+                marginStart = dp(8)
             }
             setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
             setColorFilter(COLOR_TEXT_MUTED)
-            setOnClickListener { sheetDialog.dismiss() }
+            setOnClickListener { dialog.dismiss() }
         }
         header.addView(closeButton)
         root.addView(header)
@@ -442,6 +521,7 @@ class AiVoiceCopilotSheet(
             isHorizontalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
         }
+        chipsScrollView = chipsScroll
         val chipsContainer = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(12), dp(2), dp(12), dp(2))
@@ -1229,9 +1309,9 @@ class AiVoiceCopilotSheet(
             return
         }
 
-        // 3. Online Gemini AI for World Knowledge, Custom Shayari & Conversational Chat
+        // 3. Online AI for World Knowledge, Custom Shayari & Conversational Chat
         if (OnlineGeminiClient.hasApiKey(activity)) {
-            val thinkingBubble = renderAssistantBubble("✨ Gemini online soch raha hai... ⏳", isSuccess = true)
+            val thinkingBubble = renderAssistantBubble("✨ Storyline AI soch raha hai... ⏳", isSuccess = true)
             chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
 
             val history = AiChatHistoryStore.getHistory(activity).takeLast(4).map {
@@ -1248,7 +1328,7 @@ class AiVoiceCopilotSheet(
                         activity,
                         AiChatHistoryStore.ChatMessage("assistant", geminiAnswer, isSuccess = true),
                     )
-                    cliPanel?.appendLog("[Gemini]", geminiAnswer)
+                    cliPanel?.appendLog("[AI]", geminiAnswer)
                     cliPanel?.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
                     AiTtsVoiceoverManager.speak(activity, geminiAnswer)
 

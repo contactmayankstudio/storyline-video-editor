@@ -155,6 +155,7 @@ class PhotoCanvasView @JvmOverloads constructor(
     private var magicSweepInProgress = false
     private var magicSweepRevealFraction = 1f
     private var magicSweepBeforeBitmap: Bitmap? = null
+    private var originalUneditedBitmap: Bitmap? = null
     private var currentStroke: PhotoBrushStroke? = null
 
     private val undoStack = ArrayDeque<PhotoCanvasSnapshot>()
@@ -429,6 +430,7 @@ class PhotoCanvasView @JvmOverloads constructor(
     fun setBaseImage(bitmap: Bitmap?) {
         pushUndoSnapshot()
         baseImage = bitmap
+        originalUneditedBitmap = bitmap?.runCatching { copy(Bitmap.Config.ARGB_8888, false) }?.getOrNull()
         invalidateProcessedImageCache()
         if (bitmap == null) {
             if (selectedLayerType == PHOTO_LAYER_BACKGROUND) {
@@ -478,36 +480,66 @@ class PhotoCanvasView @JvmOverloads constructor(
         markDesignChanged()
     }
 
-    fun beginMagicSweep() {
-        if (magicSweepInProgress) return
-        val hasLockedBefore = magicSweepBeforeBitmap?.let { !it.isRecycled } == true
-        if (!hasLockedBefore) {
-            magicSweepBeforeBitmap?.let { if (!it.isRecycled) it.recycle() }
-            magicSweepBeforeBitmap = renderToBitmap(forceTransparentBackground = false)
-            magicSweepRevealFraction = 1f
+    fun renderBeforeSnapshot(): Bitmap {
+        val width = canvasOutputWidth.coerceIn(MIN_CANVAS_SIDE, MAX_CANVAS_SIDE)
+        val height = canvasOutputHeight.coerceIn(MIN_CANVAS_SIDE, MAX_CANVAS_SIDE)
+        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val c = Canvas(output)
+        c.scale(width / canvasRect.width(), height / canvasRect.height())
+        backgroundPaint.shader = null
+        backgroundPaint.style = Paint.Style.FILL
+        backgroundPaint.color = canvasBackgroundColor
+        c.drawRect(canvasRect, backgroundPaint)
+
+        val orig = originalUneditedBitmap ?: baseImage
+        if (orig != null && !orig.isRecycled) {
+            updateBaseImageDest(orig)
+            val origPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            c.save()
+            clipImageMask(c)
+            c.rotate(backgroundRotationDeg, imageDest.centerX(), imageDest.centerY())
+            c.drawBitmap(orig, null, imageDest, origPaint)
+            c.restore()
         }
-        pushUndoSnapshot()
-        suppressHistory = true
+        return output
+    }
+
+    fun beginMagicSweep() {
+        if (magicSweepInProgress && magicSweepBeforeBitmap?.isRecycled == false) return
+        magicSweepBeforeBitmap?.let { if (!it.isRecycled) it.recycle() }
+        magicSweepBeforeBitmap = renderBeforeSnapshot()
         magicSweepInProgress = true
     }
 
     fun previewMagicSweep(revealStartFraction: Float) {
-        if (!magicSweepInProgress) beginMagicSweep()
+        if (!magicSweepInProgress || magicSweepBeforeBitmap == null || magicSweepBeforeBitmap?.isRecycled == true) {
+            beginMagicSweep()
+        }
         magicSweepRevealFraction = revealStartFraction.coerceIn(0f, 1f)
-        applyMagicSweepValues(1f)
         invalidate()
         onSelectionChanged?.invoke(selectedLayerItem())
     }
 
-    fun commitMagicSweep() {
-        if (!magicSweepInProgress) return
-        magicSweepInProgress = false
-        magicSweepBeforeBitmap?.let { if (!it.isRecycled) it.recycle() }
-        magicSweepBeforeBitmap = null
-        magicSweepRevealFraction = 1f
-        suppressHistory = false
-        markDesignChanged()
-        onSelectionChanged?.invoke(selectedLayerItem())
+    fun commitMagicSweep(forceClose: Boolean = false) {
+        if (forceClose || magicSweepRevealFraction >= 0.96f) {
+            magicSweepInProgress = false
+            magicSweepBeforeBitmap?.let { if (!it.isRecycled) it.recycle() }
+            magicSweepBeforeBitmap = null
+            magicSweepRevealFraction = 1f
+            invalidate()
+            markDesignChanged()
+            onSelectionChanged?.invoke(selectedLayerItem())
+        }
+    }
+
+    fun toggleMagicSplitCompare(): Boolean {
+        return if (magicSweepRevealFraction < 0.96f) {
+            commitMagicSweep(forceClose = true)
+            false
+        } else {
+            previewMagicSweep(0.5f)
+            true
+        }
     }
 
     fun magicSweepViewportBounds(): RectF {
@@ -1942,10 +1974,10 @@ class PhotoCanvasView @JvmOverloads constructor(
     }
 
     private fun drawMagicSweepPreview(canvas: Canvas) {
-        val beforeBitmap = magicSweepBeforeBitmap
+        var beforeBitmap = magicSweepBeforeBitmap
         if (beforeBitmap == null || beforeBitmap.isRecycled) {
-            drawDesign(canvas, showSelection = true, transparentOutput = false)
-            return
+            beforeBitmap = renderBeforeSnapshot()
+            magicSweepBeforeBitmap = beforeBitmap
         }
         val splitX = canvasRect.left + canvasRect.width() * magicSweepRevealFraction.coerceIn(0f, 1f)
         canvas.save()
@@ -1961,16 +1993,54 @@ class PhotoCanvasView @JvmOverloads constructor(
         drawDesign(canvas, showSelection = false, transparentOutput = false)
         canvas.restore()
 
-        val lineWidth = 3f
+        // Glowing cyan/white divider line
+        val lineWidth = 3.5f
         strokePaint.reset()
         strokePaint.isAntiAlias = true
         strokePaint.style = Paint.Style.STROKE
-        strokePaint.strokeWidth = lineWidth + 8f
-        strokePaint.color = Color.argb(88, 255, 48, 64)
+        strokePaint.strokeWidth = lineWidth + 6f
+        strokePaint.color = Color.argb(110, 0, 229, 255)
         canvas.drawLine(splitX, canvasRect.top, splitX, canvasRect.bottom, strokePaint)
         strokePaint.strokeWidth = lineWidth
-        strokePaint.color = Color.rgb(255, 48, 64)
+        strokePaint.color = Color.rgb(255, 255, 255)
         canvas.drawLine(splitX, canvasRect.top, splitX, canvasRect.bottom, strokePaint)
+
+        // Clean BEFORE / AFTER badges
+        val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 24f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            color = Color.WHITE
+        }
+        val bgBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(180, 12, 17, 24)
+            style = Paint.Style.FILL
+        }
+
+        if (splitX > canvasRect.left + 110f) {
+            val text = "BEFORE"
+            val textWidth = labelPaint.measureText(text)
+            val badge = RectF(
+                splitX - textWidth - 32f,
+                canvasRect.top + 20f,
+                splitX - 12f,
+                canvasRect.top + 62f
+            )
+            canvas.drawRoundRect(badge, 12f, 12f, bgBadgePaint)
+            canvas.drawText(text, badge.left + 10f, badge.bottom - 12f, labelPaint)
+        }
+
+        if (splitX < canvasRect.right - 110f) {
+            val text = "AFTER"
+            val textWidth = labelPaint.measureText(text)
+            val badge = RectF(
+                splitX + 12f,
+                canvasRect.top + 20f,
+                splitX + textWidth + 32f,
+                canvasRect.top + 62f
+            )
+            canvas.drawRoundRect(badge, 12f, 12f, bgBadgePaint)
+            canvas.drawText(text, badge.left + 10f, badge.bottom - 12f, labelPaint)
+        }
     }
 
     private fun buildMagicBeforeFilter(): ColorMatrixColorFilter {

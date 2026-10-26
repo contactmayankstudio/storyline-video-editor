@@ -9,6 +9,8 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -24,6 +26,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.VideoView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -124,6 +127,264 @@ object MediaPickerSheet {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val thumbnailCache = object : LruCache<Long, Bitmap>(20 * 1024 * 1024) {
         override fun sizeOf(key: Long, value: Bitmap): Int = value.byteCount
+    }
+
+    private var previewMediaPlayer: MediaPlayer? = null
+    private var currentlyPlayingUri: Uri? = null
+
+    private fun toggleAudioPreview(context: Context, item: MediaItem, onUpdate: () -> Unit) {
+        if (currentlyPlayingUri == item.uri) {
+            stopAudioPreview()
+            onUpdate()
+            return
+        }
+        stopAudioPreview()
+        try {
+            val player = MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .build()
+                )
+                setDataSource(context, item.uri)
+                prepareAsync()
+                setOnPreparedListener { mp ->
+                    mp.start()
+                    currentlyPlayingUri = item.uri
+                    onUpdate()
+                }
+                setOnCompletionListener {
+                    stopAudioPreview()
+                    onUpdate()
+                }
+                setOnErrorListener { _, _, _ ->
+                    stopAudioPreview()
+                    onUpdate()
+                    true
+                }
+            }
+            previewMediaPlayer = player
+        } catch (e: Exception) {
+            e.printStackTrace()
+            stopAudioPreview()
+            onUpdate()
+        }
+    }
+
+    private fun stopAudioPreview() {
+        runCatching {
+            previewMediaPlayer?.stop()
+            previewMediaPlayer?.release()
+        }
+        previewMediaPlayer = null
+        currentlyPlayingUri = null
+    }
+
+    fun showVideoLivePreviewDialog(activity: Activity, item: MediaItem, onImport: () -> Unit) {
+        stopAudioPreview()
+        val previewDialog = BottomSheetDialog(activity)
+        val root = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#0F141C"))
+                cornerRadii = floatArrayOf(
+                    dp(activity, 20f), dp(activity, 20f),
+                    dp(activity, 20f), dp(activity, 20f),
+                    0f, 0f, 0f, 0f
+                )
+                setStroke(dpInt(activity, 1f), Color.parseColor("#1E2738"))
+            }
+            setPadding(dpInt(activity, 16f), dpInt(activity, 12f), dpInt(activity, 16f), dpInt(activity, 16f))
+        }
+
+        // Header: Title & Close
+        val header = FrameLayout(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpInt(activity, 40f)
+            )
+        }
+        val titleText = TextView(activity).apply {
+            text = "🎬 Video Live Preview"
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER_VERTICAL or Gravity.START
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                Gravity.START
+            )
+        }
+        val closeBtn = ImageView(activity).apply {
+            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+            setColorFilter(Color.parseColor("#8A99AD"))
+            setPadding(dpInt(activity, 6f), dpInt(activity, 6f), dpInt(activity, 6f), dpInt(activity, 6f))
+            layoutParams = FrameLayout.LayoutParams(
+                dpInt(activity, 32f),
+                dpInt(activity, 32f),
+                Gravity.END or Gravity.CENTER_VERTICAL
+            )
+            setOnClickListener { previewDialog.dismiss() }
+        }
+        header.addView(titleText)
+        header.addView(closeBtn)
+        root.addView(header)
+
+        // Video container with rounded corners and glowing border
+        val videoContainer = FrameLayout(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpInt(activity, 280f)
+            ).apply {
+                topMargin = dpInt(activity, 8f)
+                bottomMargin = dpInt(activity, 12f)
+            }
+            background = GradientDrawable().apply {
+                setColor(Color.BLACK)
+                cornerRadius = dp(activity, 14f)
+                setStroke(dpInt(activity, 1.5f), Color.parseColor("#26344A"))
+            }
+            clipToOutline = true
+        }
+
+        val videoView = VideoView(activity).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                Gravity.CENTER
+            )
+        }
+        videoContainer.addView(videoView)
+
+        // Play/Pause overlay badge on tap
+        val playStateOverlay = TextView(activity).apply {
+            text = "▶"
+            textSize = 28f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                setColor(Color.argb(160, 0, 0, 0))
+                shape = GradientDrawable.OVAL
+            }
+            layoutParams = FrameLayout.LayoutParams(
+                dpInt(activity, 56f),
+                dpInt(activity, 56f),
+                Gravity.CENTER
+            )
+            visibility = View.GONE
+        }
+        videoContainer.addView(playStateOverlay)
+
+        videoContainer.setOnClickListener {
+            if (videoView.isPlaying) {
+                videoView.pause()
+                playStateOverlay.text = "▶"
+                playStateOverlay.visibility = View.VISIBLE
+            } else {
+                videoView.start()
+                playStateOverlay.visibility = View.GONE
+            }
+        }
+
+        root.addView(videoContainer)
+
+        // Metadata specs bar
+        val specsBar = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = dpInt(activity, 14f)
+            }
+        }
+
+        val resStr = if (item.width > 0 && item.height > 0) "${item.width}x${item.height}" else "HD Video"
+        val durStr = formatDuration(item.durationMs)
+        val sizeMb = if (item.sizeBytes > 0) "%.1f MB".format(item.sizeBytes / (1024f * 1024f)) else ""
+        val detailsText = "$resStr  •  $durStr" + (if (sizeMb.isNotBlank()) "  •  $sizeMb" else "")
+
+        val metaText = TextView(activity).apply {
+            text = detailsText
+            setTextColor(Color.parseColor("#00E5FF"))
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.START
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        specsBar.addView(metaText)
+
+        root.addView(specsBar)
+
+        // Bottom CTAs: [ Cancel ] [ ✓ Add to Timeline ]
+        val buttonRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpInt(activity, 44f)
+            )
+        }
+
+        val cancelBtn = TextView(activity).apply {
+            text = "Cancel"
+            setTextColor(Color.parseColor("#8A99AD"))
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#151B24"))
+                setStroke(dpInt(activity, 1f), Color.parseColor("#263242"))
+                cornerRadius = dp(activity, 10f)
+            }
+            layoutParams = LinearLayout.LayoutParams(0, dpInt(activity, 42f), 1f).apply {
+                marginEnd = dpInt(activity, 8f)
+            }
+            setOnClickListener { previewDialog.dismiss() }
+        }
+        buttonRow.addView(cancelBtn)
+
+        val importBtn = TextView(activity).apply {
+            text = "✓ Add to Timeline"
+            setTextColor(Color.WHITE)
+            textSize = 13.5f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1F6FEB"))
+                cornerRadius = dp(activity, 10f)
+            }
+            layoutParams = LinearLayout.LayoutParams(0, dpInt(activity, 42f), 1.6f)
+            setOnClickListener {
+                videoView.stopPlayback()
+                previewDialog.dismiss()
+                onImport()
+            }
+        }
+        buttonRow.addView(importBtn)
+        root.addView(buttonRow)
+
+        previewDialog.setContentView(root)
+        previewDialog.setOnDismissListener {
+            videoView.stopPlayback()
+        }
+
+        // Start video playback
+        runCatching {
+            videoView.setVideoURI(item.uri)
+            videoView.setOnPreparedListener { mp ->
+                mp.isLooping = true
+                videoView.start()
+            }
+            videoView.setOnErrorListener { _, _, _ ->
+                true
+            }
+        }
+
+        previewDialog.show()
     }
 
     fun show(
@@ -481,6 +742,7 @@ object MediaPickerSheet {
         lateinit var adapter: MediaAdapter
 
         fun loadMediaForTab(tab: MediaType) {
+            stopAudioPreview()
             currentTab = tab
             selectedItems.clear()
             updateAddButtonState()
@@ -546,15 +808,34 @@ object MediaPickerSheet {
             }
         }
 
-        adapter = MediaAdapter(activity, mediaItems, selectedItems) { item, isSelected ->
-            if (isSelected) {
-                selectedItems.add(item)
-            } else {
-                selectedItems.remove(item)
+        adapter = MediaAdapter(
+            context = activity,
+            items = mediaItems,
+            selectedItems = selectedItems,
+            onItemClick = { item, isSelected ->
+                if (isSelected) {
+                    selectedItems.add(item)
+                } else {
+                    selectedItems.remove(item)
+                }
+                adapter.notifyDataSetChanged()
+                updateAddButtonState()
+            },
+            onVideoPreviewClick = { item ->
+                showVideoLivePreviewDialog(activity, item) {
+                    dialog.dismiss()
+                    onMediaSelected(listOf(item.uri), targetTrackType)
+                }
+            },
+            onAudioPlayToggle = { item ->
+                toggleAudioPreview(activity, item) {
+                    adapter.notifyDataSetChanged()
+                }
+            },
+            isPlayingAudio = { item ->
+                currentlyPlayingUri != null && currentlyPlayingUri == item.uri
             }
-            adapter.notifyDataSetChanged()
-            updateAddButtonState()
-        }
+        )
         recyclerView.adapter = adapter
 
         val isLayerOrOverlay = initialTrackType == TrackType.LAYER || initialTrackType == TrackType.OVERLAY
@@ -576,7 +857,10 @@ object MediaPickerSheet {
         dialog.behavior.peekHeight = dpInt(activity, 480f)
         dialog.behavior.skipCollapsed = true
         activeReloadCallback = { loadMediaForTab(currentTab) }
-        dialog.setOnDismissListener { activeReloadCallback = null }
+        dialog.setOnDismissListener {
+            activeReloadCallback = null
+            stopAudioPreview()
+        }
         dialog.show()
 
         loadMediaForTab(currentTab)
@@ -859,7 +1143,10 @@ object MediaPickerSheet {
         private val context: Context,
         private val items: List<MediaItem>,
         private val selectedItems: Set<MediaItem>,
-        private val onItemClick: (item: MediaItem, isSelected: Boolean) -> Unit
+        private val onItemClick: (item: MediaItem, isSelected: Boolean) -> Unit,
+        private val onVideoPreviewClick: (item: MediaItem) -> Unit,
+        private val onAudioPlayToggle: (item: MediaItem) -> Unit,
+        private val isPlayingAudio: (item: MediaItem) -> Boolean
     ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
         override fun getItemViewType(position: Int): Int {
@@ -945,6 +1232,27 @@ object MediaPickerSheet {
                 }
             }
 
+            private val previewBadge = TextView(context).apply {
+                text = "▶ Preview"
+                textSize = 9.5f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.parseColor("#00E5FF"))
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#E6090E17"))
+                    cornerRadius = dp(context, 4f)
+                    setStroke(dpInt(context, 0.75f), Color.parseColor("#00E5FF"))
+                }
+                setPadding(dpInt(context, 5f), dpInt(context, 2f), dpInt(context, 5f), dpInt(context, 2f))
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.BOTTOM or Gravity.START
+                ).also {
+                    it.marginStart = dpInt(context, 4f)
+                    it.bottomMargin = dpInt(context, 4f)
+                }
+            }
+
             private val checkBadge = TextView(context).apply {
                 text = "✓"
                 textSize = 11f
@@ -980,8 +1288,26 @@ object MediaPickerSheet {
             init {
                 container.addView(imageView)
                 container.addView(durationBadge)
+                container.addView(previewBadge)
                 container.addView(selectionBorder)
                 container.addView(checkBadge)
+
+                previewBadge.setOnClickListener {
+                    val pos = bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: adapterPosition
+                    if (pos != RecyclerView.NO_POSITION) {
+                        onVideoPreviewClick(items[pos])
+                    }
+                }
+
+                container.setOnLongClickListener {
+                    val pos = bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: adapterPosition
+                    if (pos != RecyclerView.NO_POSITION && items[pos].mediaType == MediaType.VIDEO) {
+                        onVideoPreviewClick(items[pos])
+                        true
+                    } else {
+                        false
+                    }
+                }
 
                 container.setOnClickListener {
                     val pos = bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: adapterPosition
@@ -998,6 +1324,7 @@ object MediaPickerSheet {
                 checkBadge.visibility = if (isSelected) View.VISIBLE else View.GONE
 
                 if (item.mediaType == MediaType.VIDEO) {
+                    previewBadge.visibility = View.VISIBLE
                     val formatted = formatDuration(item.durationMs)
                     if (formatted.isNotBlank()) {
                         durationBadge.visibility = View.VISIBLE
@@ -1012,6 +1339,7 @@ object MediaPickerSheet {
                         }
                     }
                 } else {
+                    previewBadge.visibility = View.GONE
                     durationBadge.visibility = View.GONE
                 }
 
@@ -1052,6 +1380,22 @@ object MediaPickerSheet {
                 maxLines = 1
             }
 
+            private val playPauseBtn = TextView(context).apply {
+                text = "▶"
+                textSize = 14f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#1C2533"))
+                    shape = GradientDrawable.OVAL
+                    setStroke(dpInt(context, 1f), Color.parseColor("#388BFD"))
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    dpInt(context, 34f),
+                    dpInt(context, 34f)
+                ).also { it.marginEnd = dpInt(context, 10f) }
+            }
+
             private val addBtn = TextView(context).apply {
                 text = "+ Add"
                 setTextColor(Color.WHITE)
@@ -1066,21 +1410,7 @@ object MediaPickerSheet {
             }
 
             init {
-                val icon = TextView(context).apply {
-                    text = "♪"
-                    textSize = 16f
-                    setTextColor(Color.parseColor("#388BFD"))
-                    gravity = Gravity.CENTER
-                    background = GradientDrawable().apply {
-                        setColor(Color.parseColor("#1C2433"))
-                        shape = GradientDrawable.OVAL
-                    }
-                    layoutParams = LinearLayout.LayoutParams(
-                        dpInt(context, 32f),
-                        dpInt(context, 32f)
-                    ).also { it.marginEnd = dpInt(context, 10f) }
-                }
-                row.addView(icon)
+                row.addView(playPauseBtn)
 
                 val textCol = LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
@@ -1094,6 +1424,13 @@ object MediaPickerSheet {
                 }
                 row.addView(textCol)
                 row.addView(addBtn)
+
+                playPauseBtn.setOnClickListener {
+                    val pos = bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: adapterPosition
+                    if (pos != RecyclerView.NO_POSITION) {
+                        onAudioPlayToggle(items[pos])
+                    }
+                }
 
                 addBtn.setOnClickListener {
                     val pos = bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: adapterPosition
@@ -1117,6 +1454,23 @@ object MediaPickerSheet {
                 titleText.text = item.displayName.replace('_', ' ')
                 val durStr = formatDuration(item.durationMs)
                 artistText.text = if (item.artist.isNotBlank() && item.artist != "<unknown>") "${item.artist} • $durStr" else durStr
+
+                val isPlaying = isPlayingAudio(item)
+                if (isPlaying) {
+                    playPauseBtn.text = "⏸"
+                    playPauseBtn.setTextColor(Color.parseColor("#00E5FF"))
+                    (playPauseBtn.background as? GradientDrawable)?.apply {
+                        setColor(Color.parseColor("#112435"))
+                        setStroke(dpInt(context, 1.5f), Color.parseColor("#00E5FF"))
+                    }
+                } else {
+                    playPauseBtn.text = "▶"
+                    playPauseBtn.setTextColor(Color.WHITE)
+                    (playPauseBtn.background as? GradientDrawable)?.apply {
+                        setColor(Color.parseColor("#1C2533"))
+                        setStroke(dpInt(context, 1f), Color.parseColor("#388BFD"))
+                    }
+                }
 
                 if (isSelected) {
                     addBtn.text = "✓ Added"

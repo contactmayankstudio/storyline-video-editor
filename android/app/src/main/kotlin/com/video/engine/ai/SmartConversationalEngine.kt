@@ -65,6 +65,14 @@ object SmartConversationalEngine {
             return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.OpenPhotoEditor), 0.99f, reply)
         }
 
+        if (isImageGenerateQuery(lower)) {
+            val reply = "Bhai Storyline app me photo creation aur stylish visuals ke do powerful studios direct built-in hain:\n\n" +
+                "🖼️ **Photo Editor Studio:** Yahan AI Cutout, Magic Sweep Before/After Lines, Neon brushes, aur aesthetic presets se apni photo ko pro level bana sakte ho!\n\n" +
+                "🌟 **Status Maker Pro:** Apni kisi bhi photo se 1-tap me trending lyrical musical status video bana sakte ho!\n\n" +
+                "Neeche diye options se turant Photo Editor ya Status Maker launch karein! 🚀"
+            return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.OpenPhotoEditor), 0.99f, reply)
+        }
+
         if (isAutoBeatCut(lower)) {
             val reply = "Auto Beat Cut chalu kar raha hoon bhai! 🎵 Audio waveform ke transients analyze karke har beat drop par auto-split aur flash zoom cut lagaye ja rahe hain."
             return ParsedCommand(rawText, VideoEditIntent.Conversational(reply, VideoEditIntent.AutoBeatCut), 0.99f, reply)
@@ -93,8 +101,11 @@ object SmartConversationalEngine {
         // 4. Greetings & Chit-chat
         if (isGreeting(lower)) {
             val reply = listOf(
-                "Hey bhai! Ek dum badhiya! Aaj kaunsi video ko viral banana hai? Bolo — cut karna hai, silence hatana hai, ya cinematic look chahiye? 🎬",
-                "Hello bhai! Main bilkul ready hoon. Aap bolo clip me kya tweak karein — color grade, speed ya auto captions? ✨",
+                "Main bilkul mast aur super energized hoon bhai! 😄🔥 Aap batao, aaj kaunsa dhamaka video ya creative idea plan ho raha hai?",
+                "Arey ek dum zabardast! Bas aapke agle viral video concept ka intezar tha. Bolo kya tweak ya magic karein aaj? 🎬✨",
+                "Hello bhai! Full power me ready baitha hoon. Clip me color grade, dynamic beat cuts ya cinematic look kya chahiye? 🔥",
+                "Bhai main toh hamesha fit aur active hoon! Aap sunao, aaj Instagram ya YouTube ke liye kya special edit ho raha hai? 📱",
+                "Namaste bhai! Ek dum badhiya mood me hoon. Aapki timeline par visuals ready hain, bolo kahan se shuru karein? 🚀",
                 "Arre bhai, mast! Timeline par clips ready hain. Batao kya magic karna hai aaj video me? 🔥"
             ).random()
             return ParsedCommand(rawText, VideoEditIntent.Conversational(reply), 0.98f, reply)
@@ -556,6 +567,11 @@ object SmartConversationalEngine {
     private fun isOpenPhotoEditor(text: String): Boolean {
         return (text.contains("photo editor") || text.contains("thumbnail") || text.contains("photo edit")) &&
             (text.contains("khol") || text.contains("open") || text.contains("chalu") || text.contains("start"))
+    }
+
+    private fun isImageGenerateQuery(text: String): Boolean {
+        return (text.contains("image") || text.contains("photo") || text.contains("tasveer") || text.contains("picture")) &&
+            (text.contains("generate") || text.contains("banao") || text.contains("create") || text.contains("karega") || text.contains("kar do") || text.contains("karna"))
     }
 
     private fun isAutoBeatCut(text: String): Boolean {

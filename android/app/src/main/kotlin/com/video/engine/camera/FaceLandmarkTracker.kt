@@ -231,8 +231,8 @@ class FaceLandmarkTracker {
             val dist = rawMouthBottom.y - rawNose.y
             mouthDistRatio = (dist / faceH).coerceIn(0f, 1f)
         }
-        val isMouthOpen = mouthDistRatio > 0.31f
-        val mouthOpenRatio = ((mouthDistRatio - 0.22f) / 0.18f).coerceIn(0f, 1f)
+        val isMouthOpen = mouthDistRatio > 0.35f
+        val mouthOpenRatio = ((mouthDistRatio - 0.28f) / 0.16f).coerceIn(0f, 1f)
 
         // Apply velocity-adaptive temporal smoothing (Snapchat / 1€ filter tier)
         val prev = smoothedData
@@ -267,7 +267,7 @@ class FaceLandmarkTracker {
 
         // Hysteresis thresholding to prevent edge flickering
         val activeSmiling = if (prev.isSmiling) rawSmilingProb > 0.45f else isSmiling
-        val activeMouthOpen = if (prev.isMouthOpen) mouthDistRatio > 0.24f else isMouthOpen
+        val activeMouthOpen = if (prev.isMouthOpen) mouthDistRatio > 0.32f else isMouthOpen
         val activeWinking = if (prev.isWinking) {
             isWinking || (leftOpen < 0.32f && rightOpen > 0.60f) || (rightOpen < 0.32f && leftOpen > 0.60f)
         } else {

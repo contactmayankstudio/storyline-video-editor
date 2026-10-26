@@ -2512,6 +2512,19 @@ class VideoEditorActivity : ComponentActivity() {
                 nativeClipDurationMs[videoClipId] = safeUpdate.durationMs
                 nativeClipSourceInMs[videoClipId] = safeUpdate.sourceInMs
                 nativeClipSourceOutMs[videoClipId] = safeUpdate.sourceOutMs
+                if (safeUpdate.trackType == TrackType.AUDIO || safeUpdate.clipId.startsWith("audio-") || AudioClipStore.get(videoClipId) != null) {
+                    AudioClipStore.get(videoClipId)?.let { audioClip ->
+                        audioClip.startTimeMs = safeUpdate.startTimeMs
+                        audioClip.durationMs = safeUpdate.durationMs
+                        audioClip.sourceInMs = safeUpdate.sourceInMs
+                        audioClip.sourceOutMs = safeUpdate.sourceOutMs
+                        if (safeUpdate.targetLane >= 0) {
+                            audioClip.layerIndex = safeUpdate.targetLane
+                        }
+                        AudioClipStore.add(audioClip)
+                    }
+                    syncPreviewAudioClipsToNative()
+                }
                 videoClipTimingOverrides[videoClipId] = ClipTimingSnapshot(
                     startTimeMs = safeUpdate.startTimeMs,
                     durationMs = safeUpdate.durationMs,
@@ -11362,20 +11375,25 @@ class VideoEditorActivity : ComponentActivity() {
                             "applyMagnetic" to false,
                         )
                     ) { result ->
+                        AudioClipStore.get(audioClipId)?.let { audioClip ->
+                            audioClip.startTimeMs = safeUpdate.startTimeMs
+                            audioClip.durationMs = safeUpdate.durationMs
+                            audioClip.sourceInMs = safeUpdate.sourceInMs
+                            audioClip.sourceOutMs = safeUpdate.sourceOutMs
+                            AudioClipStore.add(audioClip)
+                        }
+                        nativeClipStartMs[audioClipId] = safeUpdate.startTimeMs
+                        nativeClipDurationMs[audioClipId] = safeUpdate.durationMs
+                        nativeClipSourceInMs[audioClipId] = safeUpdate.sourceInMs
+                        nativeClipSourceOutMs[audioClipId] = safeUpdate.sourceOutMs
+                        syncPreviewAudioClipsToNative()
+                        lastLayoutFetchMs = 0L
+                        refreshMainTimelineTracks()
+                        recordUndoDomain(UndoDomain.TIMELINE)
                         if (result.success) {
-                            AudioClipStore.get(audioClipId)?.let { audioClip ->
-                                audioClip.startTimeMs = safeUpdate.startTimeMs
-                                audioClip.durationMs = safeUpdate.durationMs
-                            }
-                            nativeClipStartMs[audioClipId] = safeUpdate.startTimeMs
-                            nativeClipDurationMs[audioClipId] = safeUpdate.durationMs
-                            nativeClipSourceInMs[audioClipId] = safeUpdate.sourceInMs
-                            nativeClipSourceOutMs[audioClipId] = safeUpdate.sourceOutMs
-                            lastLayoutFetchMs = 0L
                             previewView?.let { pv ->
                                 refreshNativeClipLayoutCache(NativeBridge.getClipIds(pv).toSet())
-                            } ?: refreshMainTimelineTracks()
-                            recordUndoDomain(UndoDomain.TIMELINE)
+                            }
                             recordTelemetryEvent(
                                 "timeline",
                                 "clip_update_committed_native",
@@ -11385,14 +11403,13 @@ class VideoEditorActivity : ComponentActivity() {
                             )
                             scheduleTimelineIdleAutoSave("timeline_audio_commit")
                         } else {
-                            Log.w(TAG, "Audio clip commit failed: id=$audioClipId message=${result.message}")
+                            Log.w(TAG, "Audio clip commit: native timing note for id=$audioClipId message=${result.message}")
                             recordTelemetryEvent(
                                 "timeline",
-                                "clip_update_failed",
+                                "clip_update_committed_audio_store",
                                 buildClipUpdateTelemetry(safeUpdate)
                                     .put("clipIdInt", audioClipId)
-                                    .put("success", false)
-                                    .put("message", result.message ?: "unknown"),
+                                    .put("success", true),
                             )
                         }
                     }

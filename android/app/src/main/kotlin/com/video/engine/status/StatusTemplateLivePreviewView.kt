@@ -318,7 +318,15 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         setMeasuredDimension(desiredWidth, desiredHeight)
     }
 
-    fun setCustomPhoto(filePath: String) {
+    fun setCustomPhoto(filePath: String?) {
+        if (filePath.isNullOrBlank() || !java.io.File(filePath).exists()) {
+            customPhotoBitmap?.recycle()
+            customPhotoBitmap = null
+            sampleSlides.clear()
+            prepareSampleSlides()
+            postInvalidateOnAnimation()
+            return
+        }
         try {
             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(filePath, options)
@@ -1158,7 +1166,8 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         this.particlesInitialized = false
         this.startTime = SystemClock.uptimeMillis()
         this.isPlaying = true
-        ensureSampleSlides()
+        sampleSlides.clear()
+        prepareSampleSlides()
         postInvalidateOnAnimation()
     }
 

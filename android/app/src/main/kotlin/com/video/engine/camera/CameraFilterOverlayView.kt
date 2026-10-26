@@ -253,7 +253,9 @@ class CameraFilterOverlayView @JvmOverloads constructor(
 
         // 3. Smart Face Gesture Triggers (Mouth open, Smile, Wink)
         if (faceData.hasFace) {
-            if (faceData.isMouthOpen || faceData.mouthOpenRatio > 0.30f) {
+            val isMouthRainbowLens = currentLens.id.contains("mouth_rainbow", ignoreCase = true) ||
+                currentLens.anchor == "MOUTH_RAINBOW"
+            if (isMouthRainbowLens && (faceData.isMouthOpen || faceData.mouthOpenRatio > 0.40f)) {
                 drawMouthOpenEffects(canvas, w, h)
             }
             if (faceData.isSmiling) {
@@ -571,28 +573,35 @@ class CameraFilterOverlayView @JvmOverloads constructor(
         if (lens.secondaryAssetPath.isNotEmpty()) {
             drawPropAtNose(canvas, w, h, lens.secondaryAssetPath, scaleFactor = 0.55f)
         }
-        // Animated tongue when mouth opens
-        if (face.isMouthOpen || face.mouthOpenRatio > 0.25f) {
+        // Animated cute puppy tongue only when mouth actually opens wide
+        if (face.isMouthOpen && face.mouthOpenRatio > 0.35f) {
             val mouth = face.mouthCenter ?: return
-            val tongueW = (face.bounds.width() * w * 0.32f)
-            val tongueH = tongueW * 1.25f
+            val tongueW = (face.bounds.width() * w * 0.28f).coerceIn(24f * density, 80f * density)
+            val panting = ((SystemClock.uptimeMillis() % 450L) / 450f) * 2f
+            val bounce = if (panting > 1f) 2f - panting else panting
+            val tongueH = tongueW * (1.15f + bounce * 0.18f)
             val tx = mouth.x * w
-            val ty = mouth.y * h + tongueH * 0.15f
+            val ty = mouth.y * h + tongueH * 0.08f
             val rot = if (face.leftEye != null && face.rightEye != null) {
                 Math.toDegrees(atan2((face.rightEye!!.y - face.leftEye!!.y).toDouble(), (face.rightEye!!.x - face.leftEye!!.x).toDouble())).toFloat()
             } else face.headEulerZ
 
             canvas.save()
             canvas.rotate(rot, tx, mouth.y * h)
-            paint.color = Color.parseColor("#FF6B8B")
+            // Soft rounded tongue body
+            paint.color = Color.parseColor("#FF6B93")
             paint.style = Paint.Style.FILL
             reusableRect.set(tx - tongueW / 2f, ty, tx + tongueW / 2f, ty + tongueH)
-            canvas.drawRoundRect(reusableRect, tongueW / 2f, tongueW / 2f, paint)
-            // Tongue center crease
-            paint.color = Color.parseColor("#E04868")
-            paint.strokeWidth = 3f
+            canvas.drawRoundRect(reusableRect, tongueW / 2.2f, tongueW / 2.2f, paint)
+            // Subtle tongue tip highlight
+            paint.color = Color.parseColor("#FFA2B8")
+            reusableRect.set(tx - tongueW * 0.35f, ty + tongueH * 0.55f, tx + tongueW * 0.35f, ty + tongueH * 0.90f)
+            canvas.drawRoundRect(reusableRect, tongueW * 0.3f, tongueW * 0.3f, paint)
+            // Tongue center indentation crease
+            paint.color = Color.parseColor("#DB3F6D")
+            paint.strokeWidth = 2.5f * density
             paint.style = Paint.Style.STROKE
-            canvas.drawLine(tx, ty + tongueH * 0.15f, tx, ty + tongueH * 0.75f, paint)
+            canvas.drawLine(tx, ty + tongueH * 0.12f, tx, ty + tongueH * 0.78f, paint)
             canvas.restore()
         }
     }
@@ -1102,30 +1111,30 @@ class CameraFilterOverlayView @JvmOverloads constructor(
             val upX = dy / eyeDist
             val upY = -dx / eyeDist
 
-            // Anatomical head offset: eye-to-crown is ~1.30x eye distance
-            val headHeightOffset = eyeDist * 1.30f
+            // Anatomical head offset: eye-to-forehead/crown is ~0.65x eye distance
+            val headHeightOffset = eyeDist * 0.65f
             // 3D perspective shift on head yaw
-            val yawOffset = (face.headEulerY / 45f) * (eyeDist * 0.18f)
+            val yawOffset = (face.headEulerY / 45f) * (eyeDist * 0.14f)
 
             centerX = eyeCx + upX * headHeightOffset + (dx / eyeDist) * yawOffset
             centerY = eyeCy + upY * headHeightOffset + (dy / eyeDist) * yawOffset
 
-            hatWidth = (eyeDist * 2.75f).coerceIn(32f * density, w * 1.15f)
+            hatWidth = (eyeDist * 2.10f).coerceIn(32f * density, w * 0.95f)
             val rawRot = Math.toDegrees(kotlin.math.atan2(dy.toDouble(), dx.toDouble())).toFloat()
             rotation = if (kotlin.math.abs(rawRot) < 0.8f) 0f else rawRot
         } else {
             val fb = face.bounds
             centerX = fb.centerX() * w
-            hatWidth = (fb.width() * w * 1.15f).coerceIn(32f * density, w * 1.15f)
+            hatWidth = (fb.width() * w * 0.95f).coerceIn(32f * density, w * 0.95f)
             val hatHeight = hatWidth * (bmp.height.toFloat() / bmp.width.toFloat())
-            centerY = (fb.top * h) - (hatHeight * 0.35f)
+            centerY = (fb.top * h) + (hatHeight * 0.05f)
             rotation = face.headEulerZ
         }
 
         val scale = hatWidth / bmp.width.toFloat()
         matrix.reset()
-        // Anchor at bottom of hat / ear base so it locks onto the top of the skull
-        matrix.postTranslate(-bmp.width / 2f, -bmp.height * 0.72f)
+        // Anchor at center-bottom of ear base so it locks onto the top of the skull
+        matrix.postTranslate(-bmp.width / 2f, -bmp.height * 0.55f)
         matrix.postScale(scale, scale)
         matrix.postRotate(rotation)
         matrix.postTranslate(centerX, centerY)

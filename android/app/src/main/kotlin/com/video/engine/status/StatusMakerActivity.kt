@@ -568,9 +568,7 @@ class StatusMakerActivity : ComponentActivity() {
 
             livePreviewView?.bindTemplate(tmpl, previewMediaPlayer)
             livePreviewView?.customStatusText = activeCustomText
-            if (activePhotoPath != null) {
-                livePreviewView?.setCustomPhoto(activePhotoPath)
-            }
+            livePreviewView?.setCustomPhoto(activePhotoPath)
         }
 
         bindTemplateState(initialTemplate)
