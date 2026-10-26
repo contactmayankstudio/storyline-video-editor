@@ -138,6 +138,39 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         textAlign = Paint.Align.CENTER
     }
 
+    // Vinyl Disc & Floating Music Notes
+    private val vinylPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val vinylOuterPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val vinylGroovePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.2f
+    }
+    private val vinylLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val vinylHolePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val notePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.DEFAULT_BOLD
+    }
+
+    // Interactive Tap-to-Play/Pause Feedback Badge
+    private var tapFeedbackAlpha = 0f
+    private var tapFeedbackScale = 1.0f
+    private var tapFeedbackText = "▶"
+    private var touchDownTime = 0L
+    private val tapFeedbackBgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val tapFeedbackStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2.5f
+    }
+    private val tapFeedbackTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 42f
+        typeface = Typeface.DEFAULT_BOLD
+        textAlign = Paint.Align.CENTER
+    }
+
+    // Scrubber dot paint
+    private val scrubberDotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
     // 4 Procedurally rendered aesthetic portrait model slides
     private val sampleSlides = mutableListOf<Bitmap>()
     private var customPhotoBitmap: Bitmap? = null
@@ -641,11 +674,17 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         // 7. Live Neon Audio Visualizer Waveform Equalizer
         drawAudioVisualizer(canvas, w, h, tm, elapsedMs, beatPulse)
 
+        // 7.5. Rotating Vinyl Soundtrack Disc & Floating Musical Notes
+        drawVinylDiscAndNotes(canvas, w, h, tm, elapsedMs, safeBpm, beatPulse)
+
         // 8. Progress Time Scrubber Pill at Top
         drawProgressBadge(canvas, w, elapsedMs, totalDurationMs, tm)
 
+        // 8.5. Interactive Tap-to-Play/Pause Feedback
+        drawTapFeedbackBadge(canvas, w, h)
+
         // 9. Pause Overlay if paused
-        if (!isPlaying) {
+        if (!isPlaying && tapFeedbackAlpha <= 0f) {
             drawPauseOverlay(canvas, w, h)
         }
 
@@ -818,28 +857,117 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         elapsedMs: Long,
         beatPulse: Float
     ) {
-        val numBars = 26
-        val barWidth = (w * 0.85f) / numBars
-        val startX = w * 0.075f
-        val baseY = h * 0.88f
+        val numBars = 22
+        val availableW = w * 0.70f // Leave room on the right for spinning vinyl disc
+        val barWidth = availableW / numBars
+        val startX = w * 0.06f
+        val baseY = h * 0.89f
 
-        val neonColor = parseColorSafe(tm.gradientStartHex, Color.CYAN)
+        val neonStart = parseColorSafe(tm.gradientStartHex, Color.CYAN)
+        val neonEnd = parseColorSafe(tm.gradientEndHex, Color.MAGENTA)
+
         visualizerPaint.apply {
-            color = neonColor
             strokeCap = Paint.Cap.ROUND
-            strokeWidth = barWidth * 0.65f
-            setShadowLayer(8f, 0f, 0f, neonColor)
+            strokeWidth = barWidth * 0.60f
+            setShadowLayer(10f + (beatPulse * 6f), 0f, 0f, neonStart)
         }
 
         for (i in 0 until numBars) {
-            val wave = Math.sin((elapsedMs / 140.0) + (i * 0.35)).toFloat()
-            val rawH = (Math.abs(wave) * 38f) + (beatPulse * 22f * ((i % 3) + 1))
-            val barH = rawH.coerceIn(8f, 75f)
+            val normI = i.toFloat() / numBars.toFloat()
+            val wave1 = Math.sin((elapsedMs / 130.0) + (i * 0.42)).toFloat()
+            val wave2 = Math.cos((elapsedMs / 210.0) - (i * 0.28)).toFloat()
+            val combined = (Math.abs(wave1) * 0.65f) + (Math.abs(wave2) * 0.35f)
+
+            val freqMultiplier = when (i % 4) {
+                0 -> 1.35f
+                1 -> 0.85f
+                2 -> 1.25f
+                else -> 0.95f
+            }
+            val rawH = (combined * 36f * freqMultiplier) + (beatPulse * 28f * ((i % 3) + 1) * 0.45f)
+            val barH = rawH.coerceIn(8f, 70f)
+
+            val r = (Color.red(neonStart) * (1f - normI) + Color.red(neonEnd) * normI).toInt()
+            val g = (Color.green(neonStart) * (1f - normI) + Color.green(neonEnd) * normI).toInt()
+            val b = (Color.blue(neonStart) * (1f - normI) + Color.blue(neonEnd) * normI).toInt()
+            visualizerPaint.color = Color.rgb(r, g, b)
 
             val bx = startX + (i * barWidth) + (barWidth / 2f)
             canvas.drawLine(bx, baseY, bx, baseY - barH, visualizerPaint)
         }
         visualizerPaint.setShadowLayer(0f, 0f, 0f, 0)
+    }
+
+    private fun drawVinylDiscAndNotes(
+        canvas: Canvas,
+        w: Float,
+        h: Float,
+        tm: StatusTemplate,
+        elapsedMs: Long,
+        bpm: Int,
+        beatPulse: Float
+    ) {
+        val density = resources.displayMetrics.density
+        val discR = 24f * density
+        val discCx = w - (30f * density)
+        val discCy = h - (64f * density)
+
+        // 1. Vinyl disc outer edge shadow
+        vinylOuterPaint.color = Color.argb(160, 10, 10, 14)
+        canvas.drawCircle(discCx, discCy, discR + 2f, vinylOuterPaint)
+
+        // 2. Vinyl black body with concentric grooves
+        vinylPaint.color = Color.parseColor("#121216")
+        canvas.drawCircle(discCx, discCy, discR, vinylPaint)
+
+        vinylGroovePaint.color = Color.argb(60, 255, 255, 255)
+        canvas.drawCircle(discCx, discCy, discR * 0.78f, vinylGroovePaint)
+        canvas.drawCircle(discCx, discCy, discR * 0.58f, vinylGroovePaint)
+
+        // 3. Center Label (Rotating with BPM)
+        val rotAngle = ((elapsedMs * 0.18f * (bpm / 100f)) % 360f)
+        val labelR = discR * 0.38f
+        val accentColor = parseColorSafe(tm.gradientStartHex, Color.parseColor("#FF007F"))
+        vinylLabelPaint.color = accentColor
+
+        canvas.save()
+        canvas.rotate(rotAngle, discCx, discCy)
+        canvas.drawCircle(discCx, discCy, labelR, vinylLabelPaint)
+
+        // Spindle center hole
+        vinylHolePaint.color = Color.WHITE
+        canvas.drawCircle(discCx, discCy, 3f * density, vinylHolePaint)
+        vinylHolePaint.color = Color.BLACK
+        canvas.drawCircle(discCx, discCy, 1.8f * density, vinylHolePaint)
+        canvas.restore()
+
+        // 4. Floating Animated Musical Notes (♪, ♫, ♬) rising from the disc
+        val noteSymbols = arrayOf("♪", "♫", "♬")
+        for (i in 0 until 3) {
+            val noteCycle = 1800L
+            val noteOffset = i * 600L
+            val noteElapsed = (elapsedMs + noteOffset) % noteCycle
+            val progress = noteElapsed.toFloat() / noteCycle.toFloat()
+
+            val sway = Math.sin((progress * Math.PI * 2.5) + i).toFloat() * (12f * density)
+            val noteX = discCx - (16f * density) - (progress * 22f * density) + sway
+            val noteY = discCy - (progress * 80f * density)
+
+            val noteAlpha = if (progress < 0.2f) {
+                progress / 0.2f
+            } else {
+                (1f - progress) / 0.8f
+            }.coerceIn(0f, 1f)
+
+            notePaint.apply {
+                color = accentColor
+                alpha = (noteAlpha * 220).toInt().coerceIn(0, 255)
+                textSize = (13f * density) + (beatPulse * 3f * density)
+                setShadowLayer(8f, 0f, 0f, accentColor)
+            }
+            canvas.drawText(noteSymbols[i % noteSymbols.size], noteX, noteY, notePaint)
+        }
+        notePaint.setShadowLayer(0f, 0f, 0f, 0)
     }
 
     private fun drawProgressBadge(
@@ -849,19 +977,65 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         totalDurationMs: Long,
         tm: StatusTemplate
     ) {
-        // Thin top progress bar
+        val density = resources.displayMetrics.density
         val progress = (elapsedMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
-        canvas.drawLine(16f, 16f, w - 16f, 16f, bgPPaint)
-        canvas.drawLine(16f, 16f, 16f + (w - 32f) * progress, 16f, pPaint)
+        val padH = 14f * density
+        val trackY = 16f * density
+
+        // Background track with rounded ends
+        bgPPaint.strokeWidth = 3.5f * density
+        pPaint.strokeWidth = 3.5f * density
+        pPaint.color = parseColorSafe(tm.gradientStartHex, Color.parseColor("#388BFD"))
+
+        canvas.drawLine(padH, trackY, w - padH, trackY, bgPPaint)
+        val currentHeadX = padH + (w - (padH * 2f)) * progress
+        canvas.drawLine(padH, trackY, currentHeadX, trackY, pPaint)
+
+        // Glowing white scrubber dot at current head
+        scrubberDotPaint.color = Color.WHITE
+        scrubberDotPaint.setShadowLayer(6f * density, 0f, 0f, pPaint.color)
+        canvas.drawCircle(currentHeadX, trackY, 3.8f * density, scrubberDotPaint)
+        scrubberDotPaint.setShadowLayer(0f, 0f, 0f, 0)
 
         // Top playing badge
         val curSec = elapsedMs / 1000
         val totSec = totalDurationMs / 1000
         val timeStr = String.format("▶ %s • %02d:%02d / %02d:%02d", tm.emoji, curSec / 60, curSec % 60, totSec / 60, totSec % 60)
 
-        bgRect.set(w / 2f - 140f, 26f, w / 2f + 140f, 58f)
-        canvas.drawRoundRect(bgRect, 16f, 16f, pillBgPaint)
-        canvas.drawText(timeStr, w / 2f, 48f, badgePaint)
+        val badgeW = 250f * (density / 2.75f).coerceAtLeast(0.85f)
+        bgRect.set(w / 2f - badgeW / 2f, 26f * density, w / 2f + badgeW / 2f, 48f * density)
+        canvas.drawRoundRect(bgRect, 12f * density, 12f * density, pillBgPaint)
+        canvas.drawText(timeStr, w / 2f, 41f * density, badgePaint)
+    }
+
+    private fun triggerTapFeedback(isNowPlaying: Boolean) {
+        tapFeedbackText = if (isNowPlaying) "▶" else "⏸"
+        tapFeedbackAlpha = 1.0f
+        tapFeedbackScale = 0.85f
+        postInvalidateOnAnimation()
+    }
+
+    private fun drawTapFeedbackBadge(canvas: Canvas, w: Float, h: Float) {
+        if (tapFeedbackAlpha <= 0f) return
+        val cx = w / 2f
+        val cy = h / 2f
+
+        val radius = 38f * resources.displayMetrics.density * tapFeedbackScale
+        val alphaInt = (tapFeedbackAlpha * 200).toInt().coerceIn(0, 255)
+        tapFeedbackBgPaint.color = Color.argb(alphaInt, 15, 18, 25)
+        tapFeedbackStrokePaint.color = Color.argb((tapFeedbackAlpha * 140).toInt(), 255, 255, 255)
+        tapFeedbackTextPaint.alpha = (tapFeedbackAlpha * 255).toInt().coerceIn(0, 255)
+
+        canvas.drawCircle(cx, cy, radius, tapFeedbackBgPaint)
+        canvas.drawCircle(cx, cy, radius, tapFeedbackStrokePaint)
+        canvas.drawText(tapFeedbackText, cx, cy + (tapFeedbackTextPaint.textSize * 0.35f), tapFeedbackTextPaint)
+
+        // Animate out
+        tapFeedbackAlpha = (tapFeedbackAlpha - 0.045f).coerceAtLeast(0f)
+        tapFeedbackScale = (tapFeedbackScale + 0.012f).coerceAtMost(1.25f)
+        if (tapFeedbackAlpha > 0f) {
+            postInvalidateOnAnimation()
+        }
     }
 
     private fun resolveParticleTheme(tm: StatusTemplate): ParticleTheme {
@@ -948,7 +1122,31 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
 
     private fun drawPauseOverlay(canvas: Canvas, w: Float, h: Float) {
         canvas.drawRect(0f, 0f, w, h, dimPaint)
-        canvas.drawText("▶", w / 2f, h / 2f + 20f, playIconPaint)
+        val density = resources.displayMetrics.density
+        val cx = w / 2f
+        val cy = h / 2f
+        val pillR = 34f * density
+
+        tapFeedbackBgPaint.color = Color.argb(195, 15, 18, 25)
+        tapFeedbackStrokePaint.color = Color.argb(160, 255, 255, 255)
+        canvas.drawCircle(cx, cy, pillR, tapFeedbackBgPaint)
+        canvas.drawCircle(cx, cy, pillR, tapFeedbackStrokePaint)
+        canvas.drawText("▶", cx + (2.5f * density), cy + (playIconPaint.textSize * 0.32f), playIconPaint)
+    }
+
+    fun togglePlayPause() {
+        isPlaying = !isPlaying
+        if (!isPlaying) {
+            pausedTime = SystemClock.uptimeMillis()
+            try { mediaPlayer?.pause() } catch (_: Exception) {}
+            triggerTapFeedback(isNowPlaying = false)
+        } else {
+            startTime += (SystemClock.uptimeMillis() - pausedTime)
+            try { mediaPlayer?.start() } catch (_: Exception) {}
+            triggerTapFeedback(isNowPlaying = true)
+            postInvalidateOnAnimation()
+        }
+        try { performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY) } catch (_: Exception) {}
     }
 
     private var onCreateStatusClick: (() -> Unit)? = null
@@ -972,9 +1170,7 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         scaleGestureDetector.onTouchEvent(event)
 
         val customText = customStatusText
-        if (customText.isNullOrBlank()) {
-            return super.onTouchEvent(event)
-        }
+        val hasCustomText = !customText.isNullOrBlank()
 
         val touchSlop = 32f * resources.displayMetrics.density
         val hitRect = RectF(
@@ -986,16 +1182,19 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                if (hitRect.contains(event.x, event.y)) {
+                touchDownX = event.x
+                touchDownY = event.y
+                touchDownTime = SystemClock.uptimeMillis()
+
+                if (hasCustomText && hitRect.contains(event.x, event.y)) {
                     isDraggingText = true
                     isTouchInteractingWithText = true
-                    touchDownX = event.x
-                    touchDownY = event.y
                     performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                     parent?.requestDisallowInterceptTouchEvent(true)
                     postInvalidateOnAnimation()
                     return true
                 }
+                return true
             }
             MotionEvent.ACTION_MOVE -> {
                 if (isDraggingText && !scaleGestureDetector.isInProgress) {
@@ -1024,6 +1223,14 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
                     }, 1400L)
                     postInvalidateOnAnimation()
                     return true
+                } else {
+                    val dx = Math.abs(event.x - touchDownX)
+                    val dy = Math.abs(event.y - touchDownY)
+                    val dur = SystemClock.uptimeMillis() - touchDownTime
+                    if (dx < 25f && dy < 25f && dur < 350L) {
+                        togglePlayPause()
+                        return true
+                    }
                 }
             }
         }

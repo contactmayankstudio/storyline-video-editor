@@ -63,6 +63,26 @@
                     android:textStyle="bold"
                     tools:text="Viral Bass Drop Reels" />
 
+                <!-- Sound Mute/Unmute Toggle -->
+                <FrameLayout
+                    android:id="@+id/statusPreviewSoundBtn"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="8dp"
+                    android:background="@drawable/launch_secondary_icon_chip"
+                    android:clickable="true"
+                    android:contentDescription="Toggle sound"
+                    android:focusable="true">
+
+                    <TextView
+                        android:id="@+id/statusPreviewSoundIcon"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:text="🔊"
+                        android:textSize="15sp" />
+                </FrameLayout>
+
                 <FrameLayout
                     android:id="@+id/statusPreviewCloseBtn"
                     android:layout_width="36dp"
@@ -82,7 +102,7 @@
                 </FrameLayout>
             </LinearLayout>
 
-            <!-- 2. Centered 9:16 Frame Embedding StatusTemplateLivePreviewView -->
+            <!-- 2. Centered True 9:16 Frame Embedding StatusTemplateLivePreviewView -->
             <FrameLayout
                 android:id="@+id/statusPreviewContainer"
                 android:layout_width="match_parent"
@@ -92,12 +112,12 @@
                 <FrameLayout
                     android:id="@+id/statusPreviewFrame"
                     android:layout_width="230dp"
-                    android:layout_height="370dp"
+                    android:layout_height="408dp"
                     android:layout_gravity="center"
                     android:background="@drawable/status_preview_frame_background"
                     android:clipChildren="true"
                     android:clipToOutline="true"
-                    android:elevation="8dp">
+                    android:elevation="12dp">
 
                     <com.video.engine.status.StatusTemplateLivePreviewView
                         android:id="@+id/statusLivePreviewView"

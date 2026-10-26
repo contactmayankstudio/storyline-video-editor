@@ -181,6 +181,7 @@ class FunCameraActivity : ComponentActivity() {
 
     // Camera2 Zoom Characteristics & State
     private var optimalPreviewSize = Size(1280, 720)
+    private var optimalVideoSize = Size(1280, 720)
     private var activeArraySize: Rect? = null
     private var sensorOrientation: Int = 90
     private var maxDigitalZoom: Float = 5.0f
@@ -487,7 +488,7 @@ class FunCameraActivity : ComponentActivity() {
             val recordBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
                 addTarget(previewSurface)
                 addTarget(recorderSurface)
-                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
                 set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
             }
             previewRequestBuilder = recordBuilder
@@ -499,7 +500,16 @@ class FunCameraActivity : ComponentActivity() {
                     captureSession = session
                     try {
                         session.setRepeatingRequest(recordBuilder.build(), null, backgroundHandler)
-                        mediaRecorder?.start()
+                        try {
+                            mediaRecorder?.start()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "mediaRecorder.start failed", e)
+                            runOnUiThread {
+                                Toast.makeText(this@FunCameraActivity, "Record start failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                stopVideoRecording()
+                            }
+                            return
+                        }
                         isRecordingVideo = true
                         startBgmPlayback()
                         recordingStartTime = SystemClock.uptimeMillis()
@@ -564,25 +574,9 @@ class FunCameraActivity : ComponentActivity() {
             mr.setVideoSource(MediaRecorder.VideoSource.SURFACE)
             mr.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             mr.setOutputFile(currentVideoFile!!.absolutePath)
-            mr.setVideoEncodingBitRate(10_000_000)
+            mr.setVideoEncodingBitRate(8_000_000)
             mr.setVideoFrameRate(30)
-            if (videoRecordSpeed != 1.0f) {
-                try {
-                    val captureRate = (30 * videoRecordSpeed).toDouble()
-                    mr.setCaptureRate(captureRate)
-                } catch (e: Exception) {
-                    Log.w(TAG, "setCaptureRate not supported", e)
-                }
-            }
-
-            // Landscape-aligned dimensions for hardware encoder (e.g. 1280x720) with 16-pixel multiples
-            val pWidth = optimalPreviewSize.width
-            val pHeight = optimalPreviewSize.height
-            val recW = maxOf(pWidth, pHeight).coerceAtMost(1920)
-            val recH = minOf(pWidth, pHeight).coerceAtMost(1080)
-            val alignedW = (recW / 16) * 16
-            val alignedH = (recH / 16) * 16
-            mr.setVideoSize(alignedW, alignedH)
+            mr.setVideoSize(optimalVideoSize.width, optimalVideoSize.height)
             mr.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
 
             if (audioConfigured) {
@@ -628,7 +622,8 @@ class FunCameraActivity : ComponentActivity() {
     }
 
     private fun stopVideoRecording() {
-        if (!isRecordingVideo) return
+        if (!isRecordingVideo && mediaRecorder == null) return
+        val wasRecording = isRecordingVideo
         isRecordingVideo = false
         stopBgmPlayback()
         stopRecordingTimer()
@@ -636,39 +631,44 @@ class FunCameraActivity : ComponentActivity() {
             shutterButton.stopRecording()
         }
 
-        try {
-            captureSession?.stopRepeating()
-            captureSession?.abortCaptures()
-        } catch (e: Exception) {
-            Log.w(TAG, "Error aborting captureSession", e)
+        // Wait slightly if recording just started (< 800ms) to ensure at least 1 keyframe was captured
+        val elapsed = SystemClock.uptimeMillis() - recordingStartTime
+        if (wasRecording && elapsed < 800L) {
+            try {
+                Thread.sleep(800L - elapsed)
+            } catch (_: Exception) {}
         }
 
+        // Stop MediaRecorder safely FIRST before tearing down camera repeating request
         try {
             mediaRecorder?.stop()
         } catch (e: Exception) {
-            Log.e(TAG, "Error stopping mediaRecorder", e)
+            Log.w(TAG, "mediaRecorder.stop() failed", e)
         }
 
         try {
             mediaRecorder?.reset()
             mediaRecorder?.release()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error releasing mediaRecorder", e)
-        }
+        } catch (_: Exception) {}
         mediaRecorder = null
+
+        try {
+            captureSession?.stopRepeating()
+            captureSession?.abortCaptures()
+        } catch (_: Exception) {}
 
         setRecordingUiState(false)
         createCameraPreview()
 
         val recorded = currentVideoFile
-        if (recorded != null && recorded.exists() && recorded.length() > 4096) {
+        if (wasRecording && recorded != null && recorded.exists() && recorded.length() > 20_000) {
             Thread {
                 val saved = saveVideoToGallery(recorded)
                 runOnUiThread {
                     enterPostCaptureMode(saved ?: recorded, isVideo = true, baseBitmap = null)
                 }
             }.start()
-        } else {
+        } else if (wasRecording) {
             Toast.makeText(this, "Recording was too short", Toast.LENGTH_SHORT).show()
         }
     }
@@ -1058,6 +1058,17 @@ class FunCameraActivity : ComponentActivity() {
             }.maxByOrNull { it.width * it.height } ?: sizes.maxByOrNull { it.width * it.height } ?: Size(1280, 720)
             Log.i(TAG, "Selected optimal camera preview size: ${optimalPreviewSize.width}x${optimalPreviewSize.height}")
         }
+        val vSizes = map?.getOutputSizes(MediaRecorder::class.java)
+        if (!vSizes.isNullOrEmpty()) {
+            optimalVideoSize = vSizes.filter {
+                val ratio = if (it.width > it.height) it.width.toFloat() / it.height.toFloat() else it.height.toFloat() / it.width.toFloat()
+                Math.abs(ratio - (16f / 9f)) < 0.12f
+            }.firstOrNull { it.width == 1920 && it.height == 1080 }
+                ?: vSizes.firstOrNull { it.width == 1280 && it.height == 720 }
+                ?: vSizes.firstOrNull { it.width <= 1920 && it.height <= 1080 }
+                ?: Size(1280, 720)
+            Log.i(TAG, "Selected optimal camera video recording size: ${optimalVideoSize.width}x${optimalVideoSize.height}")
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val range = characteristics.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
             if (range != null) {
@@ -1238,6 +1249,12 @@ class FunCameraActivity : ComponentActivity() {
         currentCaptionText = ""
         isDoodleModeActive = false
 
+        // Completely hide live camera controls to eliminate double buttons
+        findViewById<View>(R.id.cameraTopBar)?.visibility = View.GONE
+        findViewById<View>(R.id.cameraRightToolRail)?.visibility = View.GONE
+        findViewById<View>(R.id.cameraBottomContainer)?.visibility = View.GONE
+        overlayView.visibility = View.GONE
+
         val container = findViewById<FrameLayout>(R.id.postCaptureContainer) ?: return
         val imgView = findViewById<ImageView>(R.id.postCaptureImageView)
         val videoView = findViewById<VideoView>(R.id.postCaptureVideoView)
@@ -1293,6 +1310,12 @@ class FunCameraActivity : ComponentActivity() {
         findViewById<DoodleCanvasView>(R.id.postCaptureDoodleCanvas)?.isDrawingEnabled = false
         findViewById<LinearLayout>(R.id.postCaptureDoodleBar)?.visibility = View.GONE
         findViewById<TextView>(R.id.postCaptureFilterBadge)?.visibility = View.VISIBLE
+
+        // Restore live camera controls cleanly
+        findViewById<View>(R.id.cameraTopBar)?.visibility = View.VISIBLE
+        findViewById<View>(R.id.cameraRightToolRail)?.visibility = View.VISIBLE
+        findViewById<View>(R.id.cameraBottomContainer)?.visibility = View.VISIBLE
+        overlayView.visibility = View.VISIBLE
     }
 
     @Deprecated("Deprecated in Java")
@@ -1448,11 +1471,10 @@ class FunCameraActivity : ComponentActivity() {
             }
         }
 
-        findViewById<FrameLayout>(R.id.postCaptureStatusMakerBtn)?.setOnClickListener(onStatusMakerClick)
-        findViewById<TextView>(R.id.postCaptureSendActionBtn)?.setOnClickListener(onStatusMakerClick)
+        findViewById<View>(R.id.postCaptureSendActionBtn)?.setOnClickListener(onStatusMakerClick)
 
         // 7. 💾 Save to Gallery
-        findViewById<FrameLayout>(R.id.postCaptureSaveBtn)?.setOnClickListener {
+        findViewById<View>(R.id.postCaptureSaveBtn)?.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             if (isPostCaptureVideo) {
                 Toast.makeText(this, "💾 Video saved to Gallery!", Toast.LENGTH_SHORT).show()

@@ -493,6 +493,9 @@ class StatusMakerActivity : ComponentActivity() {
         val bpmChip = dialogView.findViewById<TextView>(R.id.statusPreviewBpmChip)
         val descTv = dialogView.findViewById<TextView>(R.id.statusPreviewDesc)
         val closeBtn = dialogView.findViewById<View>(R.id.statusPreviewCloseBtn)
+        val soundBtn = dialogView.findViewById<View>(R.id.statusPreviewSoundBtn)
+        val soundIcon = dialogView.findViewById<TextView>(R.id.statusPreviewSoundIcon)
+        var isAudioMuted = false
         val ctaBtn = dialogView.findViewById<View>(R.id.statusPreviewCtaBtn)
         val ctaText = dialogView.findViewById<TextView>(R.id.statusPreviewCtaText)
         val testPhotoBtn = dialogView.findViewById<View>(R.id.statusPreviewTestPhotoBtn)
@@ -559,6 +562,10 @@ class StatusMakerActivity : ComponentActivity() {
                 }
             } catch (_: Exception) {}
 
+            if (isAudioMuted) {
+                try { previewMediaPlayer?.setVolume(0f, 0f) } catch (_: Exception) {}
+            }
+
             livePreviewView?.bindTemplate(tmpl, previewMediaPlayer)
             livePreviewView?.customStatusText = activeCustomText
             if (activePhotoPath != null) {
@@ -567,6 +574,16 @@ class StatusMakerActivity : ComponentActivity() {
         }
 
         bindTemplateState(initialTemplate)
+
+        soundBtn?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            isAudioMuted = !isAudioMuted
+            val vol = if (isAudioMuted) 0f else 1f
+            try {
+                previewMediaPlayer?.setVolume(vol, vol)
+            } catch (_: Exception) {}
+            soundIcon?.text = if (isAudioMuted) "🔇" else "🔊"
+        }
 
         // Custom Name / Lyrical Text Editor
         editTextBtn?.setOnClickListener {
