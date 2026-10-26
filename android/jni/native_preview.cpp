@@ -441,6 +441,7 @@ void preciseRenderWait(
         bool objectTransform = false;
         int transformViewportWidth = 0;
         int transformViewportHeight = 0;
+        std::vector<TransformKeyframe> transformKeyframes;
     };
 
     // CPU-side pixel buffer for text overlays (for export compositing)
@@ -511,7 +512,8 @@ void preciseRenderWait(
     }
 
     static bool hasExportVisualTransform(const TimelineClipExportSpec& spec) {
-        return std::fabs(spec.transformZoom - 1.0f) > 0.001f ||
+        return !spec.transformKeyframes.empty() ||
+            std::fabs(spec.transformZoom - 1.0f) > 0.001f ||
             std::fabs(spec.transformScaleX - 1.0f) > 0.001f ||
             std::fabs(spec.transformScaleY - 1.0f) > 0.001f ||
             std::fabs(spec.transformPanXPx) > 0.5f ||
@@ -736,6 +738,7 @@ void preciseRenderWait(
         spec.fadeInMs = std::max<int32_t>(0, props.fadeInMs);
         spec.fadeOutMs = std::max<int32_t>(0, props.fadeOutMs);
         spec.audioGainKeyframes = sanitizeAudioGainKeyframes(props.audioGainKeyframes, spec.durationMs);
+        spec.transformKeyframes = props.transformKeyframes;
 
         const auto& fx = clip->getEffects();
         spec.brightness     = fx.brightness;
@@ -766,7 +769,7 @@ void preciseRenderWait(
                 std::max<int64_t>(spec.trimInMs + 1, spec.sourceDurationMs));
         }
         if (hasExportVisualTransform(spec)) {
-            LOGI("[Export] clip=%d transform zoom=%.3f scale=%.3fx%.3f pan=%.1f,%.1f rot=%.1f mirror=%d viewport=%dx%d",
+            LOGI("[Export] clip=%d transform zoom=%.3f scale=%.3fx%.3f pan=%.1f,%.1f rot=%.1f mirror=%d viewport=%dx%d keyframes=%zu",
                  spec.clipId,
                  spec.transformZoom,
                  spec.transformScaleX,
@@ -776,7 +779,8 @@ void preciseRenderWait(
                  spec.transformRotationDeg,
                  spec.transformMirrorX,
                  spec.transformViewportWidth,
-                 spec.transformViewportHeight);
+                 spec.transformViewportHeight,
+                 spec.transformKeyframes.size());
         }
         cacheClipExportSource(spec.clipId, spec.path, spec.durationMs);
         return spec;
@@ -2181,6 +2185,92 @@ void preciseRenderWait(
         return state;
     }
 
+    struct ClipTransformRenderState {
+        float zoom = 1.0f;
+        float scaleX = 1.0f;
+        float scaleY = 1.0f;
+        float panXPx = 0.0f;
+        float panYPx = 0.0f;
+        float rotationDeg = 0.0f;
+        float opacity = 1.0f;
+        bool mirrorX = false;
+        bool objectTransform = false;
+        int viewportWidth = 0;
+        int viewportHeight = 0;
+    };
+
+    static ClipTransformRenderState resolveClipTransformState(
+        const TimelineClipExportSpec& spec,
+        int64_t timelineMs) {
+        ClipTransformRenderState state;
+        state.zoom = spec.transformZoom;
+        state.scaleX = spec.transformScaleX;
+        state.scaleY = spec.transformScaleY;
+        state.panXPx = spec.transformPanXPx;
+        state.panYPx = spec.transformPanYPx;
+        state.rotationDeg = spec.transformRotationDeg;
+        state.opacity = spec.opacity;
+        state.mirrorX = spec.transformMirrorX;
+        state.objectTransform = spec.objectTransform;
+        state.viewportWidth = spec.transformViewportWidth;
+        state.viewportHeight = spec.transformViewportHeight;
+
+        if (!spec.transformKeyframes.empty()) {
+            const int64_t clipDuration = std::max<int64_t>(1, spec.durationMs);
+            int64_t sampleTimeMs = timelineMs - spec.startTimeMs;
+
+            bool isTimelineTimed = false;
+            if (spec.transformKeyframes.front().timeMs >= spec.startTimeMs && spec.startTimeMs > 0) {
+                isTimelineTimed = true;
+            }
+            if (isTimelineTimed) {
+                sampleTimeMs = timelineMs;
+            } else {
+                sampleTimeMs = std::clamp<int64_t>(sampleTimeMs, 0, clipDuration);
+            }
+
+            VideoEngine::Advanced::AnimatableProperty posX;
+            VideoEngine::Advanced::AnimatableProperty posY;
+            VideoEngine::Advanced::AnimatableProperty scale;
+            VideoEngine::Advanced::AnimatableProperty rotation;
+            VideoEngine::Advanced::AnimatableProperty opacity;
+
+            posX.setDefaultValue(0.5f);
+            posY.setDefaultValue(0.5f);
+            scale.setDefaultValue(spec.transformZoom > 0.01f ? spec.transformZoom : 1.0f);
+            rotation.setDefaultValue(spec.transformRotationDeg);
+            opacity.setDefaultValue(spec.opacity);
+
+            for (const auto& kf : spec.transformKeyframes) {
+                const auto interpolation = VideoEngine::Advanced::InterpolationType::Bezier;
+                posX.addKeyframe({kf.timeMs, kf.posX, interpolation});
+                posY.addKeyframe({kf.timeMs, kf.posY, interpolation});
+                scale.addKeyframe({kf.timeMs, kf.scale, interpolation});
+                rotation.addKeyframe({kf.timeMs, kf.rotation, interpolation});
+                opacity.addKeyframe({kf.timeMs, kf.opacity, interpolation});
+            }
+
+            const float kfPosX = posX.getValueAt(sampleTimeMs);
+            const float kfPosY = posY.getValueAt(sampleTimeMs);
+            const float kfScale = scale.getValueAt(sampleTimeMs);
+            const float kfRot = rotation.getValueAt(sampleTimeMs);
+            const float kfOpacity = opacity.getValueAt(sampleTimeMs);
+
+            const float refW = static_cast<float>(std::max(1, spec.transformViewportWidth));
+            const float refH = static_cast<float>(std::max(1, spec.transformViewportHeight));
+            const float panFromKeyframeX = (kfPosX - 0.5f) * refW;
+            const float panFromKeyframeY = (kfPosY - 0.5f) * refH;
+
+            state.zoom = std::max(0.15f, kfScale * (spec.transformZoom > 0.01f ? spec.transformZoom : 1.0f));
+            state.panXPx = spec.transformPanXPx + panFromKeyframeX;
+            state.panYPx = spec.transformPanYPx + panFromKeyframeY;
+            state.rotationDeg = spec.transformRotationDeg + kfRot;
+            state.opacity = std::clamp(spec.opacity * kfOpacity, 0.0f, 1.0f);
+        }
+
+        return state;
+    }
+
     static void alphaBlendPixel(
         const uint8_t* src,
         float alpha,
@@ -2235,6 +2325,7 @@ void preciseRenderWait(
 
     static void compositeTransformedClipLayerOnRgba(
         const TimelineClipExportSpec& spec,
+        const ClipTransformRenderState& transformState,
         const std::vector<uint8_t>& src,
         int srcWidth,
         int srcHeight,
@@ -2260,27 +2351,27 @@ void preciseRenderWait(
             baseRenderedHeight = viewportWidth / std::max(sourceAspect, 0.0001f);
         }
 
-        const float minZoom = spec.objectTransform ? 0.15f : 0.35f;
-        const float zoom = std::max(minZoom, spec.transformZoom);
-        const float scaleX = std::max(0.15f, spec.transformScaleX);
-        const float scaleY = std::max(0.15f, spec.transformScaleY);
+        const float minZoom = transformState.objectTransform ? 0.15f : 0.35f;
+        const float zoom = std::max(minZoom, transformState.zoom);
+        const float scaleX = std::max(0.15f, transformState.scaleX);
+        const float scaleY = std::max(0.15f, transformState.scaleY);
         const float renderedWidth = std::max(1.0f, baseRenderedWidth * zoom * scaleX);
         const float renderedHeight = std::max(1.0f, baseRenderedHeight * zoom * scaleY);
 
-        const float panScaleX = viewportWidth / static_cast<float>(std::max(1, spec.transformViewportWidth));
-        const float panScaleY = viewportHeight / static_cast<float>(std::max(1, spec.transformViewportHeight));
-        float panX = spec.transformPanXPx * panScaleX;
-        float panY = spec.transformPanYPx * panScaleY;
-        const float maxPanX = spec.objectTransform
+        const float panScaleX = viewportWidth / static_cast<float>(std::max(1, transformState.viewportWidth));
+        const float panScaleY = viewportHeight / static_cast<float>(std::max(1, transformState.viewportHeight));
+        float panX = transformState.panXPx * panScaleX;
+        float panY = transformState.panYPx * panScaleY;
+        const float maxPanX = (transformState.objectTransform || !spec.transformKeyframes.empty())
             ? (renderedWidth * 0.5f) + (viewportWidth * 0.92f)
             : std::max((renderedWidth - viewportWidth) * 0.5f, 0.0f);
-        const float maxPanY = spec.objectTransform
+        const float maxPanY = (transformState.objectTransform || !spec.transformKeyframes.empty())
             ? (renderedHeight * 0.5f) + (viewportHeight * 0.92f)
             : std::max((renderedHeight - viewportHeight) * 0.5f, 0.0f);
         panX = std::clamp(panX, -maxPanX, maxPanX);
         panY = std::clamp(panY, -maxPanY, maxPanY);
 
-        const float angleRad = spec.transformRotationDeg * 0.01745329251994329577f;
+        const float angleRad = transformState.rotationDeg * 0.01745329251994329577f;
         const float cosA = std::cos(angleRad);
         const float sinA = std::sin(angleRad);
         const float centerX = viewportWidth * 0.5f;
@@ -2316,7 +2407,7 @@ void preciseRenderWait(
                 float localY = ((static_cast<float>(fy) + 0.5f) - centerY) - panY;
                 float sampleLocalX = (localX * cosA) + (localY * sinA);
                 const float sampleLocalY = (-localX * sinA) + (localY * cosA);
-                if (spec.transformMirrorX) {
+                if (transformState.mirrorX) {
                     sampleLocalX = -sampleLocalX;
                 }
                 const float sampleU = (sampleLocalX / renderedWidth) + 0.5f;
@@ -2330,7 +2421,7 @@ void preciseRenderWait(
                     continue;
                 }
                 uint8_t* out = dst.data() + ((fy * frameWidth + fx) * 4);
-                alphaBlendPixel(sampled, spec.opacity, out);
+                alphaBlendPixel(sampled, transformState.opacity, out);
             }
         }
     }
@@ -2527,16 +2618,19 @@ void preciseRenderWait(
             return false;
         }
 
+        const ClipTransformRenderState transformState = resolveClipTransformState(clipSpec, timelineMs);
+
         if (transformedLayer) {
             compositeTransformedClipLayerOnRgba(
                 clipSpec,
+                transformState,
                 state.processedLayerRgba,
                 state.processedWidth,
                 state.processedHeight,
                 outputWidth,
                 outputHeight,
                 canvas);
-        } else if (!hasCompositedVisualLayer && clipSpec.opacity >= 0.999f) {
+        } else if (!hasCompositedVisualLayer && transformState.opacity >= 0.999f) {
             if (clipSpec.chromaEnabled) {
                 const size_t pixelCount = static_cast<size_t>(outputWidth) * static_cast<size_t>(outputHeight);
                 for (size_t i = 0; i < pixelCount; ++i) {
@@ -2558,7 +2652,7 @@ void preciseRenderWait(
                 state.processedLayerRgba,
                 outputWidth,
                 outputHeight,
-                clipSpec.opacity,
+                transformState.opacity,
                 canvas);
         }
         hasCompositedVisualLayer = true;
