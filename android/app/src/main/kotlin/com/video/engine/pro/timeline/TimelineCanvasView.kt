@@ -47,6 +47,12 @@ class TimelineCanvasView @JvmOverloads constructor(
         fun onTransitionRequested(outgoingClipId: Int, incomingClipId: Int) {}
     }
     var listener: Listener? = null
+    var onCoverClicked: (() -> Unit)? = null
+    var customCoverBitmap: Bitmap? = null
+        set(value) {
+            field = value
+            invalidate()
+        }
 
     // ── State ─────────────────────────────────────────────────────────────────
     private var tracks: List<TrackState> = emptyList()
@@ -789,7 +795,7 @@ class TimelineCanvasView @JvmOverloads constructor(
         canvas.drawRoundRect(coverCardRect, dp(6).toFloat(), dp(6).toFloat(), coverBgPaint)
         canvas.drawRoundRect(coverCardRect, dp(6).toFloat(), dp(6).toFloat(), coverStrokePaint)
 
-        val firstThumb = clipThumbnails.values.firstOrNull()?.firstOrNull()
+        val firstThumb = customCoverBitmap ?: clipThumbnails.values.firstOrNull()?.firstOrNull()
         if (firstThumb != null && !firstThumb.isRecycled) {
             canvas.save()
             canvas.clipRect(coverCardRect)
@@ -1795,6 +1801,11 @@ class TimelineCanvasView @JvmOverloads constructor(
             gestureClipId?.let { commitGesture(it, event.x - touchDownX, event.y - touchDownY) }
         } else if (!gestureStarted) {
             // Touch released without dragging (Tap)
+            if (coverCardRect.contains(event.x, event.y)) {
+                onCoverClicked?.invoke()
+                cleanupGestureState()
+                return
+            }
             val clip = touchDownClip
             if (clip != null) {
                 // Tapped on a clip -> select it

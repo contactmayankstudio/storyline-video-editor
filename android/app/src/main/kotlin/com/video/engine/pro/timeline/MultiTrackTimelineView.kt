@@ -1,6 +1,7 @@
 package com.video.engine.pro.timeline
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -121,6 +122,12 @@ class MultiTrackTimelineView @JvmOverloads constructor(
         strokeWidth = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1.5f, context.resources.displayMetrics)
         style = Paint.Style.STROKE
     }
+    var onCoverClicked: (() -> Unit)? = null
+
+    fun setCoverBitmap(bitmap: Bitmap?) {
+        coverView.setCoverBitmap(bitmap)
+    }
+
     private var lastHapticSnapTimeMs: Long? = null
     private var listener: Listener? = null
     private var lastSubmittedTrackStates: List<TrackState> = emptyList()
@@ -175,11 +182,14 @@ class MultiTrackTimelineView @JvmOverloads constructor(
             rowContainer,
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
         )
+        coverView.setOnClickListener {
+            onCoverClicked?.invoke()
+        }
         addView(
             coverView,
-            LayoutParams(dp(70), dp(100)).apply {
+            LayoutParams(dp(54), dp(40)).apply {
                 gravity = Gravity.START or Gravity.TOP
-                topMargin = dp(RULER_HEIGHT_DP + 16)
+                topMargin = dp(RULER_HEIGHT_DP + 6)
             }
         )
         addView(

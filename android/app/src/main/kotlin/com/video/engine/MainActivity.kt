@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.app.NotificationManager
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Rect
@@ -174,6 +175,23 @@ class VideoEditorActivity : ComponentActivity() {
                     safeToast("Could not extract audio from selected video", Toast.LENGTH_SHORT)
                 }
             }
+        }
+    }
+
+    private val pickCoverPhotoLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri == null) return@registerForActivityResult
+        try {
+            contentResolver.openInputStream(uri)?.use { stream ->
+                val bmp = BitmapFactory.decodeStream(stream)
+                if (bmp != null) {
+                    applyCustomCoverBitmap(bmp)
+                    safeToast("🎉 Video cover photo updated!", Toast.LENGTH_SHORT)
+                }
+            }
+        } catch (_: Exception) {
+            safeToast("⚠️ Could not load selected image", Toast.LENGTH_SHORT)
         }
     }
 
@@ -2553,6 +2571,12 @@ class VideoEditorActivity : ComponentActivity() {
         canvasView?.onSplitAtPlayhead = { timeMs ->
             currentTimeMs = timeMs
             mainHandler.post { performSelectedClipSplitAction() }
+        }
+        canvasView?.onCoverClicked = {
+            openCoverFrameSelectorDialog()
+        }
+        multiTrackTimelineView?.onCoverClicked = {
+            openCoverFrameSelectorDialog()
         }
         canvasView?.onClipLongPress = null
         previewHudView?.visibility = View.GONE
@@ -18808,6 +18832,301 @@ class VideoEditorActivity : ComponentActivity() {
         updateClipToolbarHeader(if (showClipEdit) kind else ClipKind.NONE)
         syncPreviewCropModeUi()
         applySelectedClipPreviewTransform()
+    }
+
+    private var customCoverPhotoPath: String? = null
+    private var customCoverBitmap: Bitmap? = null
+
+    private fun extractVideoFrameAtMs(sourcePath: String, timeMs: Long): Bitmap? {
+        if (sourcePath.isBlank()) return null
+        val retriever = MediaMetadataRetriever()
+        return try {
+            if (sourcePath.startsWith("content://")) {
+                retriever.setDataSource(this, Uri.parse(sourcePath))
+            } else {
+                retriever.setDataSource(sourcePath)
+            }
+            retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?: retriever.getFrameAtTime(timeMs * 1000L)
+        } catch (_: Exception) {
+            null
+        } finally {
+            try { retriever.release() } catch (_: Throwable) {}
+        }
+    }
+
+    private fun applyCustomCoverBitmap(bitmap: Bitmap) {
+        customCoverBitmap = bitmap
+        activeCanvasTimelineView()?.customCoverBitmap = bitmap
+        timelineCanvasView()?.customCoverBitmap = bitmap
+        multiTrackTimelineView?.setCoverBitmap(bitmap)
+        try {
+            val file = File(cacheDir, "project_cover_frame.jpg")
+            java.io.FileOutputStream(file).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
+            }
+            customCoverPhotoPath = file.absolutePath
+        } catch (_: Throwable) {}
+    }
+
+    private fun openCoverFrameSelectorDialog() {
+        val dp = { v: Int -> (v * resources.displayMetrics.density).toInt() }
+        val dialogView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#14181F"))
+            setPadding(dp(20), dp(16), dp(20), dp(20))
+        }
+
+        // Header
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val title = TextView(this).apply {
+            text = "🖼️ Video Cover Frame"
+            textSize = 17f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
+        }
+        header.addView(title)
+        dialogView.addView(header)
+
+        // Subtitle
+        val sub = TextView(this).apply {
+            text = "Reels aur video status ke liye cover frame ya custom poster choose karein."
+            textSize = 12f
+            setTextColor(Color.parseColor("#8B949E"))
+            setPadding(0, dp(4), 0, dp(12))
+        }
+        dialogView.addView(sub)
+
+        // Cover Preview Box
+        val previewContainer = FrameLayout(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(10).toFloat()
+                setColor(Color.parseColor("#0D1117"))
+                setStroke(dp(2), Color.parseColor("#30363D"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(170),
+            ).apply {
+                bottomMargin = dp(12)
+            }
+        }
+
+        val coverImageView = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            )
+            val currentCover = customCoverBitmap
+                ?: activeCanvasTimelineView()?.customCoverBitmap
+            if (currentCover != null && !currentCover.isRecycled) {
+                setImageBitmap(currentCover)
+            } else {
+                setImageResource(R.drawable.ic_magic_wand)
+                setColorFilter(Color.parseColor("#58A6FF"))
+            }
+        }
+        previewContainer.addView(coverImageView)
+        dialogView.addView(previewContainer)
+
+        // Scrubber Label & Slider
+        val totalDurMs = maxOf(1000L, currentProjectDurationMs().coerceAtLeast(1000L))
+        var selectedMs = currentTimeMs.coerceIn(0L, totalDurMs)
+
+        val timeLabel = TextView(this).apply {
+            text = "⏱️ Frame: ${formatPreviewTrimTime(selectedMs)} / ${formatPreviewTrimTime(totalDurMs)}"
+            textSize = 12.5f
+            setTextColor(Color.parseColor("#58A6FF"))
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, 0, 0, dp(4))
+        }
+        dialogView.addView(timeLabel)
+
+        val seekBar = SeekBar(this).apply {
+            max = totalDurMs.toInt()
+            progress = selectedMs.toInt()
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                bottomMargin = dp(12)
+            }
+        }
+        dialogView.addView(seekBar)
+
+        var candidateBitmap: Bitmap? = customCoverBitmap
+
+        val primaryVideoClipId = nativeClipTrackType.filterValues { it == TrackType.VIDEO }.keys.firstOrNull()
+            ?: nativeClipSourcePath.keys.firstOrNull()
+        val primaryVideoPath = primaryVideoClipId?.let { nativeClipSourcePath[it] }.orEmpty()
+
+        fun updateCandidateFrame(timeMs: Long) {
+            if (primaryVideoPath.isNotBlank()) {
+                commandExecutor.execute {
+                    val frame = extractVideoFrameAtMs(primaryVideoPath, timeMs)
+                    if (frame != null) {
+                        candidateBitmap = frame
+                        mainHandler.post {
+                            coverImageView.setImageBitmap(frame)
+                        }
+                    }
+                }
+            }
+        }
+
+        if (candidateBitmap == null && primaryVideoPath.isNotBlank()) {
+            updateCandidateFrame(selectedMs)
+        }
+
+        seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    selectedMs = progress.toLong()
+                    timeLabel.text = "⏱️ Frame: ${formatPreviewTrimTime(selectedMs)} / ${formatPreviewTrimTime(totalDurMs)}"
+                    updateCandidateFrame(selectedMs)
+                }
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {}
+        })
+
+        // Buttons Row
+        val actionRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                bottomMargin = dp(14)
+            }
+        }
+
+        val btnPlayhead = TextView(this).apply {
+            text = "📍 At Playhead"
+            textSize = 12f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.parseColor("#E6EDF3"))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.parseColor("#21262D"))
+                setStroke(dp(1), Color.parseColor("#30363D"))
+            }
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = dp(6)
+            }
+            gravity = Gravity.CENTER
+            setOnClickListener {
+                selectedMs = currentTimeMs.coerceIn(0L, totalDurMs)
+                seekBar.progress = selectedMs.toInt()
+                timeLabel.text = "⏱️ Frame: ${formatPreviewTrimTime(selectedMs)} / ${formatPreviewTrimTime(totalDurMs)}"
+                updateCandidateFrame(selectedMs)
+            }
+        }
+        actionRow.addView(btnPlayhead)
+
+        var dialogRef: android.app.AlertDialog? = null
+
+        val btnGallery = TextView(this).apply {
+            text = "🖼️ Gallery"
+            textSize = 12f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.parseColor("#E6EDF3"))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.parseColor("#21262D"))
+                setStroke(dp(1), Color.parseColor("#30363D"))
+            }
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = dp(6)
+            }
+            gravity = Gravity.CENTER
+            setOnClickListener {
+                dialogRef?.dismiss()
+                pickCoverPhotoLauncher.launch("image/*")
+            }
+        }
+        actionRow.addView(btnGallery)
+
+        val btnPhotoEdit = TextView(this).apply {
+            text = "🎨 Photo Editor"
+            textSize = 12f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.parseColor("#E6EDF3"))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.parseColor("#21262D"))
+                setStroke(dp(1), Color.parseColor("#30363D"))
+            }
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            gravity = Gravity.CENTER
+            setOnClickListener {
+                dialogRef?.dismiss()
+                startActivity(Intent(this@VideoEditorActivity, com.video.engine.photo.PhotoEditorActivity::class.java))
+            }
+        }
+        actionRow.addView(btnPhotoEdit)
+        dialogView.addView(actionRow)
+
+        // Footer buttons
+        val footerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+
+        val cancelBtn = TextView(this).apply {
+            text = "Cancel"
+            textSize = 13f
+            setTextColor(Color.parseColor("#8B949E"))
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            setOnClickListener { dialogRef?.dismiss() }
+        }
+        footerRow.addView(cancelBtn)
+
+        val saveBtn = TextView(this).apply {
+            text = "✅ Set as Cover"
+            textSize = 13f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.BLACK)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.parseColor("#3FB950"))
+            }
+            setPadding(dp(18), dp(8), dp(18), dp(8))
+            setOnClickListener {
+                val finalBmp = candidateBitmap
+                    ?: activeCanvasTimelineView()?.customCoverBitmap
+                if (finalBmp != null && !finalBmp.isRecycled) {
+                    applyCustomCoverBitmap(finalBmp)
+                    safeToast("🎉 Video cover photo updated!", Toast.LENGTH_SHORT)
+                } else {
+                    safeToast("⚠️ No frame selected yet", Toast.LENGTH_SHORT)
+                }
+                dialogRef?.dismiss()
+            }
+        }
+        footerRow.addView(saveBtn)
+        dialogView.addView(footerRow)
+
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setView(dialogView)
+            .create()
+        dialogRef = dialog
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.show()
     }
 
 }
