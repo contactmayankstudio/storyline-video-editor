@@ -12,6 +12,7 @@ object LutPanel {
     fun show(activity: Activity, current: EffectParams, onChange: (EffectParams) -> Unit) {
         val initial = current
         var live = current
+        var activePresetParams: EffectParams? = null
 
         ModernSheet.showModal(
             context = activity,
@@ -33,11 +34,28 @@ object LutPanel {
                     ProFilterPresets.sections.firstOrNull { it.title == category }?.presets?.firstOrNull()
                 }
                 presetToApply?.let {
-                    live = it.params
+                    activePresetParams = it.params
+                    live = blendWithIntensity(it.params, live.filterIntensity)
                     onChange(live)
                 }
             }
 
+            section("Filter Intensity")
+            sliderWithBubble(
+                label = "Strength",
+                min = 0f,
+                max = 100f,
+                value = (live.filterIntensity * 100f).coerceIn(0f, 100f),
+                unit = "%",
+                format = { "%.0f".format(it) },
+            ) { v ->
+                val newIntensity = (v / 100f).coerceIn(0f, 1f)
+                val base = activePresetParams ?: live
+                live = blendWithIntensity(base, newIntensity)
+                onChange(live)
+            }
+
+            divider()
             section("Color Adjustments")
             sliderWithBubble(
                 label = "Brightness",
@@ -98,7 +116,8 @@ object LutPanel {
                 dismissOnSelect = false,
             ) { _, card ->
                 ProFilterPresets.findByName(card.id)?.let { preset ->
-                    live = preset.params
+                    activePresetParams = preset.params
+                    live = blendWithIntensity(preset.params, live.filterIntensity)
                     onChange(live)
                 }
             }
@@ -110,6 +129,7 @@ object LutPanel {
                         title = "Reset to Original",
                         isDestructive = false,
                         onClick = {
+                            activePresetParams = null
                             live = EffectParams()
                             onChange(live)
                         },
@@ -117,5 +137,15 @@ object LutPanel {
                 ),
             )
         }
+    }
+
+    private fun blendWithIntensity(base: EffectParams, intensity: Float): EffectParams {
+        val alpha = intensity.coerceIn(0f, 1f)
+        return EffectParams(
+            brightness = base.brightness * alpha,
+            contrast = 1.0f + (base.contrast - 1.0f) * alpha,
+            saturation = 1.0f + (base.saturation - 1.0f) * alpha,
+            filterIntensity = alpha
+        )
     }
 }

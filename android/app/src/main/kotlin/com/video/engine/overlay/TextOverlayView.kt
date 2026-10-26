@@ -12,15 +12,19 @@ import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
 import android.widget.FrameLayout
-import android.widget.ImageButton
 import android.widget.TextView
 import java.util.Locale
-import kotlin.math.atan2
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.hypot
 
 /**
  * Interactive UI element placed above the preview for editing text overlays.
- * Supports: drag (one finger), pinch scale, rotate (two fingers), delete button.
+ * Supports:
+ * - 4-corner controls (TL: Delete ✕, TR: Width/Stretch ↔, BL: Reset ↺, BR: Scale/Zoom & Rotate ⤢)
+ * - 1-finger drag & drop translation across the canvas
+ * - 1-finger corner handle scaling (bada) & widening (choda)
+ * - 2-finger pinch zoom and rotation
  */
 class TextOverlayView @JvmOverloads constructor(
     context: Context,
@@ -29,6 +33,14 @@ class TextOverlayView @JvmOverloads constructor(
 
     companion object {
         private const val TAG = "[TextOverlayView]"
+    }
+
+    private enum class TouchMode {
+        NONE,
+        BODY_DRAG,
+        STRETCH_WIDTH,
+        SCALE_ROTATE,
+        PINCH_MULTI
     }
 
     private val textView: TextView = TextView(context).apply {
@@ -42,13 +54,40 @@ class TextOverlayView @JvmOverloads constructor(
         alpha = 1f
     }
 
-    private val deleteButton: ImageButton = ImageButton(context).apply {
-        setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
-        setBackgroundColor(Color.TRANSPARENT)
-        val pad = 8
-        setPadding(pad, pad, pad, pad)
+    // Bounding selection box
+    private val selectionBorder = View(context).apply {
+        background = GradientDrawable().apply {
+            setColor(Color.TRANSPARENT)
+            setStroke(dp(1.5f), Color.parseColor("#388BFD"))
+            cornerRadius = dp(6f).toFloat()
+        }
         visibility = View.GONE
     }
+
+    // 4 Corner Control Handles
+    // Top-Left: Delete
+    private val tlDeleteButton = createHandleButton("✕", Color.parseColor("#D90429"), Color.WHITE).apply {
+        setOnClickListener { onDeleteRequested?.invoke() }
+    }
+
+    // Top-Right: Width / Stretch (Choda)
+    private val trStretchButton = createHandleButton("↔", Color.parseColor("#1B2838"), Color.parseColor("#388BFD"))
+
+    // Bottom-Left: Reset / Snap
+    private val blResetButton = createHandleButton("↺", Color.parseColor("#1B2838"), Color.parseColor("#388BFD")).apply {
+        setOnClickListener {
+            rotation = 0f
+            scaleX = 1f
+            scaleY = 1f
+            syncControlChromeScale()
+            notifyTransformChanged(immediate = true)
+            dispatchTransformCommitted()
+        }
+    }
+
+    // Bottom-Right: Scale / Zoom (Bada) & Rotate
+    private val brScaleRotateButton = createHandleButton("⤢", Color.parseColor("#388BFD"), Color.WHITE)
+
     private var lastStyleKey: String? = null
 
     /**
@@ -67,19 +106,28 @@ class TextOverlayView @JvmOverloads constructor(
      */
     var onSelected: (() -> Unit)? = null
 
-    private var lastX = 0f
-    private var lastY = 0f
+    // Touch tracking state
+    private var activeTouchMode = TouchMode.NONE
     private var lastRawX = 0f
     private var lastRawY = 0f
-    private var isDragging = false
+    private var startRawX = 0f
+    private var startRawY = 0f
+    private var startMaxWidth = 0
+    private var startScale = 1.0f
+    private var startRotation = 0f
+    private var startDist = 1.0f
+    private var startAngle = 0.0
+    private var centerScreenX = 0f
+    private var centerScreenY = 0f
     private var transformNotifyScheduled = false
+
     private var pinchStartScale = 1.0f
     private var pinchStartSpan = 1.0f
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
             pinchStartScale = scaleX
             pinchStartSpan = detector.currentSpan.coerceAtLeast(1f)
-            isDragging = false
+            activeTouchMode = TouchMode.PINCH_MULTI
             return true
         }
 
@@ -94,28 +142,48 @@ class TextOverlayView @JvmOverloads constructor(
         }
     })
 
-    // Rotation tracking
-    private var rotating = false
-    private var initialAngle = 0.0
+    // Multi-touch rotation tracking
+    private var initialMultiAngle = 0.0
 
     init {
         clipChildren = false
         clipToPadding = false
-        addView(textView, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER))
-        val btnSize = dp(34)
-        val lp = LayoutParams(btnSize, btnSize, Gravity.END or Gravity.TOP).apply {
-            topMargin = dp(24)
-            rightMargin = dp(4)
-        }
-        addView(deleteButton, lp)
 
-        // Visual bounding
-        setPadding(20, 20, 20, 20)
+        // Padding around view so corner buttons sit right on the bounding box edges
+        setPadding(dp(16), dp(16), dp(16), dp(16))
         setBackgroundResource(android.R.color.transparent)
 
-        deleteButton.setOnClickListener {
-            Log.d(TAG, "delete pressed")
-            onDeleteRequested?.invoke()
+        // 1. Selection Border
+        val borderLp = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT).apply {
+            setMargins(dp(8), dp(8), dp(8), dp(8))
+        }
+        addView(selectionBorder, borderLp)
+
+        // 2. Text Content View
+        addView(textView, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+
+        // 3. Four Corner Handles
+        val handleSize = dp(28)
+        addView(tlDeleteButton, LayoutParams(handleSize, handleSize, Gravity.START or Gravity.TOP))
+        addView(trStretchButton, LayoutParams(handleSize, handleSize, Gravity.END or Gravity.TOP))
+        addView(blResetButton, LayoutParams(handleSize, handleSize, Gravity.START or Gravity.BOTTOM))
+        addView(brScaleRotateButton, LayoutParams(handleSize, handleSize, Gravity.END or Gravity.BOTTOM))
+    }
+
+    private fun createHandleButton(symbol: String, bgColor: Int, borderColor: Int): TextView {
+        return TextView(context).apply {
+            text = symbol
+            textSize = 12f
+            setTypeface(Typeface.DEFAULT_BOLD)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(bgColor)
+                setStroke(dp(1.5f), borderColor)
+            }
+            visibility = View.GONE
+            elevation = dp(6f).toFloat()
         }
     }
 
@@ -266,19 +334,35 @@ class TextOverlayView @JvmOverloads constructor(
     }
 
     fun showControls(show: Boolean) {
-        deleteButton.visibility = if (show) View.VISIBLE else View.GONE
-        background = null
-        syncControlChromeScale()
+        val vis = if (show) View.VISIBLE else View.GONE
+        selectionBorder.visibility = vis
+        tlDeleteButton.visibility = vis
+        trStretchButton.visibility = vis
+        blResetButton.visibility = vis
+        brScaleRotateButton.visibility = vis
+
         if (show) {
-            deleteButton.bringToFront()
+            selectionBorder.bringToFront()
+            textView.bringToFront()
+            tlDeleteButton.bringToFront()
+            trStretchButton.bringToFront()
+            blResetButton.bringToFront()
+            brScaleRotateButton.bringToFront()
+            syncControlChromeScale()
         }
         alpha = 1.0f
     }
 
     fun syncControlChromeScale() {
-        val inverseScale = 1f / abs(scaleX).coerceIn(0.35f, 6f)
-        deleteButton.scaleX = inverseScale
-        deleteButton.scaleY = inverseScale
+        val inverseScale = 1f / abs(scaleX).coerceIn(0.25f, 8f)
+        tlDeleteButton.scaleX = inverseScale
+        tlDeleteButton.scaleY = inverseScale
+        trStretchButton.scaleX = inverseScale
+        trStretchButton.scaleY = inverseScale
+        blResetButton.scaleX = inverseScale
+        blResetButton.scaleY = inverseScale
+        brScaleRotateButton.scaleX = inverseScale
+        brScaleRotateButton.scaleY = inverseScale
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -286,56 +370,115 @@ class TextOverlayView @JvmOverloads constructor(
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                lastX = event.x
-                lastY = event.y
                 lastRawX = event.rawX
                 lastRawY = event.rawY
-                isDragging = true
+                startRawX = event.rawX
+                startRawY = event.rawY
+
                 bringToFront()
                 setLayerType(View.LAYER_TYPE_HARDWARE, null)
-                parent.requestDisallowInterceptTouchEvent(true)
+                parent?.requestDisallowInterceptTouchEvent(true)
                 showControls(true)
                 onSelected?.invoke()
+
+                // Check hit against the 4 corner handles
+                when {
+                    isNearHandle(tlDeleteButton, event.x, event.y) -> {
+                        activeTouchMode = TouchMode.NONE
+                        onDeleteRequested?.invoke()
+                        return true
+                    }
+                    isNearHandle(blResetButton, event.x, event.y) -> {
+                        activeTouchMode = TouchMode.NONE
+                        rotation = 0f
+                        scaleX = 1f
+                        scaleY = 1f
+                        syncControlChromeScale()
+                        notifyTransformChanged(immediate = true)
+                        dispatchTransformCommitted()
+                        return true
+                    }
+                    isNearHandle(trStretchButton, event.x, event.y) -> {
+                        activeTouchMode = TouchMode.STRETCH_WIDTH
+                        startMaxWidth = if (textView.maxWidth in 1..99999) textView.maxWidth else textView.width
+                    }
+                    isNearHandle(brScaleRotateButton, event.x, event.y) -> {
+                        activeTouchMode = TouchMode.SCALE_ROTATE
+                        computeCenterScreen()
+                        startDist = hypot((event.rawX - centerScreenX).toDouble(), (event.rawY - centerScreenY).toDouble()).toFloat().coerceAtLeast(10f)
+                        startScale = scaleX
+                        startAngle = atan2((event.rawY - centerScreenY).toDouble(), (event.rawX - centerScreenX).toDouble())
+                        startRotation = rotation
+                    }
+                    else -> {
+                        activeTouchMode = TouchMode.BODY_DRAG
+                    }
+                }
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 if (event.pointerCount >= 2) {
-                    isDragging = false
-                    rotating = true
-                    initialAngle = angle(event)
+                    activeTouchMode = TouchMode.PINCH_MULTI
+                    initialMultiAngle = angle(event)
                 }
             }
             MotionEvent.ACTION_POINTER_UP -> {
                 lastRawX = event.rawX
                 lastRawY = event.rawY
                 if (event.pointerCount <= 2) {
-                    rotating = false
-                    isDragging = true
+                    activeTouchMode = TouchMode.BODY_DRAG
                     notifyTransformChanged()
                 }
             }
             MotionEvent.ACTION_MOVE -> {
-                if (rotating && event.pointerCount >= 2) {
-                    val current = angle(event)
-                    val delta = Math.toDegrees(current - initialAngle).toFloat()
-                    rotation = rotation + delta
-                    initialAngle = current
-                    notifyTransformChanged()
-                } else if (isDragging && event.pointerCount == 1) {
-                    val dx = event.rawX - lastRawX
-                    val dy = event.rawY - lastRawY
-                    translationX += dx
-                    translationY += dy
-                    clampToParentBounds()
-                    lastX = event.x
-                    lastY = event.y
-                    lastRawX = event.rawX
-                    lastRawY = event.rawY
-                    notifyTransformChanged()
+                when (activeTouchMode) {
+                    TouchMode.PINCH_MULTI -> {
+                        if (event.pointerCount >= 2) {
+                            val currentAngle = angle(event)
+                            val delta = Math.toDegrees(currentAngle - initialMultiAngle).toFloat()
+                            rotation += delta
+                            initialMultiAngle = currentAngle
+                            notifyTransformChanged()
+                        }
+                    }
+                    TouchMode.BODY_DRAG -> {
+                        if (event.pointerCount == 1) {
+                            val dx = event.rawX - lastRawX
+                            val dy = event.rawY - lastRawY
+                            translationX += dx
+                            translationY += dy
+                            clampToParentBounds()
+                            lastRawX = event.rawX
+                            lastRawY = event.rawY
+                            notifyTransformChanged()
+                        }
+                    }
+                    TouchMode.SCALE_ROTATE -> {
+                        val currDist = hypot((event.rawX - centerScreenX).toDouble(), (event.rawY - centerScreenY).toDouble()).toFloat()
+                        val factor = (currDist / startDist).coerceIn(0.15f, 8.0f)
+                        val newScale = (startScale * factor).coerceIn(0.15f, 8.0f)
+                        scaleX = newScale
+                        scaleY = newScale
+
+                        val currAngle = atan2((event.rawY - centerScreenY).toDouble(), (event.rawX - centerScreenX).toDouble())
+                        val deltaDeg = Math.toDegrees(currAngle - startAngle).toFloat()
+                        rotation = startRotation + deltaDeg
+
+                        syncControlChromeScale()
+                        clampToParentBounds()
+                        notifyTransformChanged()
+                    }
+                    TouchMode.STRETCH_WIDTH -> {
+                        val dx = (event.rawX - startRawX) / abs(scaleX).coerceAtLeast(0.1f)
+                        val newW = (startMaxWidth + (dx * 2).toInt()).coerceIn(dp(60), dp(1200))
+                        textView.maxWidth = newW
+                        textView.requestLayout()
+                        notifyTransformChanged()
+                    }
+                    TouchMode.NONE -> Unit
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                isDragging = false
-                rotating = false
+                activeTouchMode = TouchMode.NONE
                 postDelayed({ setLayerType(View.LAYER_TYPE_NONE, null) }, 120L)
                 parent?.requestDisallowInterceptTouchEvent(false)
                 clampToParentBounds()
@@ -343,8 +486,23 @@ class TextOverlayView @JvmOverloads constructor(
                 dispatchTransformCommitted()
             }
         }
-
         return true
+    }
+
+    private fun isNearHandle(view: View, touchX: Float, touchY: Float): Boolean {
+        if (view.visibility != View.VISIBLE) return false
+        val slopPx = dp(36)
+        val handleCenterX = view.left + (view.width * 0.5f)
+        val handleCenterY = view.top + (view.height * 0.5f)
+        return hypot((touchX - handleCenterX).toDouble(), (touchY - handleCenterY).toDouble()) <= slopPx
+    }
+
+    private fun computeCenterScreen() {
+        val parentView = parent as? View ?: this
+        val loc = IntArray(2)
+        parentView.getLocationOnScreen(loc)
+        centerScreenX = loc[0] + x + (width * 0.5f)
+        centerScreenY = loc[1] + y + (height * 0.5f)
     }
 
     private fun angle(event: MotionEvent): Double {
@@ -364,8 +522,6 @@ class TextOverlayView @JvmOverloads constructor(
 
         val scaledWidth = (width * abs(scaleX)).coerceAtLeast(1f)
         val scaledHeight = (height * abs(scaleY)).coerceAtLeast(1f)
-        // When overlay is scaled larger than its parent, clamping causes violent
-        // snapping — skip bounds enforcement and let the user position freely.
         if (scaledWidth >= parentW || scaledHeight >= parentH) return
         val minCenterX = scaledWidth * 0.5f
         val minCenterY = scaledHeight * 0.5f
@@ -441,6 +597,10 @@ class TextOverlayView @JvmOverloads constructor(
     }
 
     private fun dp(value: Int): Int {
+        return (value * resources.displayMetrics.density).toInt()
+    }
+
+    private fun dp(value: Float): Int {
         return (value * resources.displayMetrics.density).toInt()
     }
 }

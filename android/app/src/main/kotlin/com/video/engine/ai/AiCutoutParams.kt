@@ -3,7 +3,7 @@ package com.video.engine.ai
 import android.graphics.Color
 
 /**
- * Parameters for CapCut-style AI Cutout, Glowing Neon Silhouette, and 3D Dynamic Backgrounds.
+ * Parameters for Storyline Pro AI Cutout, Glowing Neon Silhouette, and 3D Dynamic Backgrounds.
  */
 data class AiCutoutParams(
     var clipId: Int = -1,

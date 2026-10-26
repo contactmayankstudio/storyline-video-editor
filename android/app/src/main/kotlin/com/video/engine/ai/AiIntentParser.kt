@@ -130,14 +130,14 @@ object AiIntentParser {
         // 0-master. App Master & Conversational Studio Queries (Shayari, World Trends, Full App Master, Navigation)
         SmartConversationalEngine.processAppMaster(clean)?.let { return it }
 
-        // 0-template. Export as Reusable Template (.vne)
+        // 0-template. Export as Reusable Template (.storyline)
         if (matchesSaveAsTemplate(normalized)) {
             val title = resolveTemplateTitle(clean)
             return ParsedCommand(
                 rawText = rawText,
                 intent = VideoEditIntent.SaveAsTemplate(title = title),
                 confidence = 0.98f,
-                feedbackMessage = "🌟 Project ko Reusable Status/Reels Template (.vne) me export karke Community Templates me save kar diya hai!",
+                feedbackMessage = "🌟 Project ko Reusable Status/Reels Template (.storyline) me export karke Storyline Templates me save kar diya hai!",
             )
         }
 

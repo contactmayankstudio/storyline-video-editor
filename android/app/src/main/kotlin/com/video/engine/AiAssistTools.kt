@@ -62,6 +62,76 @@ object AiAssistTools {
         return normalizeCaptionCues(buildFallbackCaptionCues(mediaPath, durationMs), durationMs)
     }
 
+    /**
+     * Generates viral synchronized caption cues across languages (Hindi, English, Hinglish)
+     * tuned for Reels, Status, and TikTok pacing.
+     */
+    fun generateViralCaptionCues(
+        category: String,
+        durationMs: Long,
+        customScript: String = "",
+        fallbackMediaPath: String = ""
+    ): List<AiCaptionCue> {
+        val safeDurationMs = durationMs.coerceAtLeast(4000L)
+        if (customScript.isNotBlank()) {
+            return parseTxt(customScript, safeDurationMs)
+        }
+
+        val phraseList = when (category.uppercase()) {
+            "HINDI_ATTITUDE" -> listOf(
+                "हम वो हैं जो",
+                "वक्त आने पर",
+                "बाज़ी पलट देते हैं",
+                "तेवर वही है",
+                "बस अंदाज़ नया है",
+                "शेर का शिकार",
+                "कुत्ते नहीं करते",
+                "अपना टाइम खुद लाएंगे"
+            )
+            "MOTIVATION" -> listOf(
+                "SILENCE IS BETTER",
+                "THAN DRAMA",
+                "WORK IN SECRET",
+                "LET SUCCESS ROAR",
+                "KEEP GRINDING",
+                "NEVER GIVE UP",
+                "NO EXCUSES"
+            )
+            "LOVE" -> listOf(
+                "तू ही मेरी मंजिल",
+                "तू ही मेरा जहां",
+                "तेरी हंसी में बसा",
+                "मेरा हर अरमां",
+                "Forever & Always",
+                "You & Me Together"
+            )
+            "TRAVEL" -> listOf(
+                "LOST IN THE CLOUDS",
+                "CHASING HORIZONS",
+                "WANDERLUST SOUL",
+                "COLLECTING MEMORIES",
+                "NOT JUST THINGS",
+                "TAKE ME AWAY"
+            )
+            else -> listOf(
+                "STOP SCROLLING!",
+                "LISTEN TO THIS",
+                "THE BIG SECRET",
+                "NOBODY TELLS YOU",
+                "SAVE THIS REEL",
+                "SHARE WITH A FRIEND"
+            )
+        }
+
+        val stepMs = (safeDurationMs / phraseList.size).coerceAtLeast(1000L)
+        val cues = phraseList.mapIndexed { idx, phrase ->
+            val start = idx * stepMs
+            val end = if (idx == phraseList.lastIndex) safeDurationMs else (start + stepMs)
+            AiCaptionCue(start, end, phrase)
+        }
+        return normalizeCaptionCues(cues, safeDurationMs)
+    }
+
     fun inferAiMatte(mediaPath: String, sourceTimeMs: Long): AiMatteSuggestion? {
         val frame = extractBitmapFrame(mediaPath, sourceTimeMs) ?: return null
         val scaled = Bitmap.createScaledBitmap(frame, 180, 180, true)

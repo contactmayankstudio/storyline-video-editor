@@ -134,7 +134,7 @@ class ExportDialog(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        listOf("MP4 Video").forEachIndexed { index, formatName ->
+        listOf("MP4 Video", "GIF Animation").forEachIndexed { index, formatName ->
             val btn = choiceButton(formatName)
             btn.setOnClickListener {
                 selectedFormatIndex = index
@@ -296,7 +296,7 @@ class ExportDialog(
 
         // 10. SAVE AS REUSABLE REELS TEMPLATE BUTTON
         val saveTemplateButton = TextView(activity).apply {
-            text = "✨ Save as Status/Reels Template (.vne)"
+            text = "✨ Save as Storyline Template (.storyline)"
             textSize = 14f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor("#388BFD"))
@@ -370,11 +370,21 @@ class ExportDialog(
             val profileLabel = profiles[selectedProfileIndex].label
 
             // Update Summary Card
-            summaryTitle.text = "$profileLabel • $fps FPS • $qualityLabel"
-            val estimatedBytes = estimateOutputSize(durationMs, bitrateMbps)
-            val sizeStr = formatSize(estimatedBytes)
-            val wmText = if (watermarkUnlocked) "Watermark removed" else "Watermark included"
-            summaryMeta.text = "$width × $height  •  $sizeStr  •  $wmText"
+            val isGif = selectedFormatIndex == 1
+            if (isGif) {
+                exportButton.text = "Export GIF Animation"
+                summaryTitle.text = "GIF Animation • ${frameRates[selectedFpsIndex]} FPS • Loop"
+                val gifDuration = minOf(durationMs, 8000L)
+                val estimatedGifBytes = (gifDuration * 120_000L) / 1000L
+                summaryMeta.text = "${minOf(width, 480)} × ${minOf(height, 480)}  •  ${formatSize(estimatedGifBytes)}  •  Looping Sticker/Meme"
+            } else {
+                exportButton.text = "Export Video"
+                summaryTitle.text = "$profileLabel • $fps FPS • $qualityLabel"
+                val estimatedBytes = estimateOutputSize(durationMs, bitrateMbps)
+                val sizeStr = formatSize(estimatedBytes)
+                val wmText = if (watermarkUnlocked) "Watermark removed" else "Watermark included"
+                summaryMeta.text = "$width × $height  •  $sizeStr  •  $wmText"
+            }
 
             // Update Watermark Section
             if (watermarkUnlocked) {
@@ -402,28 +412,40 @@ class ExportDialog(
             val profileLabel = profiles[selectedProfileIndex].label
             val exportTitle = "Storyline"
 
-            if (activity is VideoEditorActivity) {
-                activity.performExport(
-                    width = width,
-                    height = height,
-                    fps = fps,
-                    bitrateMbps = bitrateMbps,
-                    exportTitle = exportTitle,
-                    requestedProfileLabel = profileLabel,
-                    includeWatermark = !watermarkUnlocked,
-                    videoCodec = "h264",
-                )
+            if (selectedFormatIndex == 1) { // GIF
+                if (activity is VideoEditorActivity) {
+                    activity.performGifExport(
+                        width = minOf(width, 480),
+                        targetFps = if (fps > 20) 15 else fps,
+                        maxDurationMs = minOf(durationMs, 8000L).coerceAtLeast(1000L),
+                    )
+                } else {
+                    com.video.engine.UiToast.makeText(activity, "GIF Export available in Video Editor", android.widget.Toast.LENGTH_SHORT).show()
+                }
             } else {
-                val movies = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
-                val appDir = File(movies, "Storyline").also { it.mkdirs() }
-                val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                val outFile = File(appDir, "Storyline_${profileLabel}_$ts.mp4")
-                previewView.startExport(
-                    outFile.absolutePath,
-                    width,
-                    height,
-                    fps,
-                )
+                if (activity is VideoEditorActivity) {
+                    activity.performExport(
+                        width = width,
+                        height = height,
+                        fps = fps,
+                        bitrateMbps = bitrateMbps,
+                        exportTitle = exportTitle,
+                        requestedProfileLabel = profileLabel,
+                        includeWatermark = !watermarkUnlocked,
+                        videoCodec = "h264",
+                    )
+                } else {
+                    val movies = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
+                    val appDir = File(movies, "Storyline").also { it.mkdirs() }
+                    val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                    val outFile = File(appDir, "Storyline_${profileLabel}_$ts.mp4")
+                    previewView.startExport(
+                        outFile.absolutePath,
+                        width,
+                        height,
+                        fps,
+                    )
+                }
             }
             dialog.dismiss()
         }

@@ -175,6 +175,139 @@ class ExportController(
         ).show()
     }
 
+    fun performGifExport(
+        width: Int = 480,
+        targetFps: Int = 12,
+        maxDurationMs: Long = 8000L,
+    ) {
+        if (!beginDirectExportSession()) return
+        val previewView = previewViewProvider()
+        if (previewView == null) {
+            finishDirectExportSession()
+            Toast.makeText(activity, "Preview view not available", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val previewDurationMs = previewView.getDuration()
+        val durationMs = maxOf(previewDurationMs, videoDurationMsProvider())
+        if (durationMs <= 0) {
+            finishDirectExportSession()
+            Toast.makeText(activity, "No clips loaded", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val outputDir = File(activity.getExternalFilesDir(null), "exports").also { it.mkdirs() }
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val tempMp4File = File(outputDir, "tmp_gif_${timestamp}.mp4")
+        val finalGifFile = File(outputDir, "Storyline_GIF_${timestamp}.gif")
+
+        val (rawW, rawH) = clampRequestedExportSize(width, (width * 9 / 16))
+        val exportW = (rawW / 2) * 2
+        val exportH = (rawH / 2) * 2
+        val exportFps = targetFps.coerceIn(8, 20)
+
+        showExportProgressDialog(previewView, minOf(durationMs, maxDurationMs), finalGifFile.absolutePath)
+        pushForegroundExportNotification("GIF Export", "Generating animated GIF...", progress = -1, indeterminate = true)
+
+        Thread {
+            try {
+                previewView.flushPendingClipPreviewTransformForExport()
+                OverlayStore.all().forEach { overlay ->
+                    previewView.updateTextOverlay(
+                        overlay.id,
+                        overlay.x,
+                        overlay.y,
+                        overlay.scale,
+                        overlay.rotation,
+                        overlay.color,
+                        overlay.fontSize,
+                        overlay.startTimeMs,
+                        overlay.endTimeMs,
+                    )
+                    previewView.updateTextOverlayOpacity(
+                        overlay.id,
+                        if (overlay.visible) overlay.opacity else 0f,
+                        0,
+                        0,
+                    )
+                    previewView.setTextZOrder(overlay.id, 400 + overlay.layerIndex)
+                    NativeBridge.setTextOverlayBitmap(previewView, overlay)
+                }
+
+                val success = previewView.exportToVideo(
+                    tempMp4File.absolutePath,
+                    exportW,
+                    exportH,
+                    exportFps,
+                    bitrateMbps = 2,
+                    videoCodec = "h264"
+                )
+
+                if (success && tempMp4File.exists()) {
+                    activity.runOnUiThread {
+                        renderExportProgressFrame(
+                            buildExportProgressFrame(
+                                progress = 60,
+                                elapsedSec = 1,
+                                videoDurationMs = durationMs,
+                                exportOutputPath = finalGifFile.absolutePath
+                            )
+                        )
+                    }
+
+                    val gifSuccess = com.video.engine.export.AnimatedGifEncoder.encodeVideoToGif(
+                        videoPath = tempMp4File.absolutePath,
+                        outputFile = finalGifFile,
+                        maxDurationMs = maxDurationMs,
+                        targetFps = exportFps,
+                        targetWidth = exportW,
+                        onProgress = { p ->
+                            val combined = 60 + (p * 40 / 100)
+                            activity.runOnUiThread {
+                                renderExportProgressFrame(
+                                    buildExportProgressFrame(
+                                        progress = combined,
+                                        elapsedSec = 2,
+                                        videoDurationMs = durationMs,
+                                        exportOutputPath = finalGifFile.absolutePath
+                                    )
+                                )
+                            }
+                        }
+                    )
+                    tempMp4File.delete()
+
+                    if (gifSuccess && finalGifFile.exists()) {
+                        val sizeMB = "%.1f".format(Locale.US, finalGifFile.length() / (1024f * 1024f))
+                        val published = publishExportToGallery(finalGifFile)
+                        activity.runOnUiThread {
+                            stopExportPolling()
+                            progressDialog?.dismiss()
+                            finishDirectExportSession()
+                            activity.stopService(Intent(activity, ExportService::class.java))
+                            showExportCompleteDialog(finalGifFile.absolutePath, sizeMB, published)
+                            onExportCompleted?.invoke(true, finalGifFile.absolutePath, null)
+                            onExportSuccess?.invoke()
+                        }
+                    } else {
+                        throw IllegalStateException("GIF encoding failed")
+                    }
+                } else {
+                    throw IllegalStateException("Preview render failed")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "GIF export exception", e)
+                activity.runOnUiThread {
+                    stopExportPolling()
+                    progressDialog?.dismiss()
+                    finishDirectExportSession()
+                    activity.stopService(Intent(activity, ExportService::class.java))
+                    showErrorDialog("GIF Export Failed", e.message ?: "Unknown error")
+                }
+            }
+        }.start()
+    }
+
     fun performExport(
         width: Int = 1280,
         height: Int = 720,
@@ -1037,13 +1170,22 @@ class ExportController(
 
     private fun publishScopedGalleryExport(sourceFile: File): PublishedExport? {
         val resolver = activity.contentResolver
+        val isGif = sourceFile.extension.equals("gif", ignoreCase = true)
+        val collection = if (isGif) {
+            MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        } else {
+            MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        }
+        val mimeType = if (isGif) "image/gif" else "video/mp4"
+        val folder = if (isGif) "Pictures/$GALLERY_FOLDER_NAME" else GALLERY_RELATIVE_PATH
+
         val uri = resolver.insert(
-            MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+            collection,
             ContentValues().apply {
-                put(MediaStore.Video.Media.DISPLAY_NAME, sourceFile.name)
-                put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
-                put(MediaStore.Video.Media.RELATIVE_PATH, GALLERY_RELATIVE_PATH)
-                put(MediaStore.Video.Media.IS_PENDING, 1)
+                put(MediaStore.MediaColumns.DISPLAY_NAME, sourceFile.name)
+                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, folder)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
             },
         ) ?: return null
 
@@ -1053,11 +1195,11 @@ class ExportController(
             } ?: throw IllegalStateException("Unable to open gallery output stream")
             resolver.update(
                 uri,
-                ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) },
+                ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
                 null,
                 null,
             )
-            PublishedExport(uri, "Gallery / Movies / $GALLERY_FOLDER_NAME")
+            PublishedExport(uri, if (isGif) "Gallery / Pictures / $GALLERY_FOLDER_NAME" else "Gallery / Movies / $GALLERY_FOLDER_NAME")
         } catch (error: Exception) {
             resolver.delete(uri, null, null)
             Log.e(TAG, "Failed to publish export to scoped gallery", error)
@@ -1066,21 +1208,27 @@ class ExportController(
     }
 
     private fun publishLegacyGalleryExport(sourceFile: File): PublishedExport? {
-        val moviesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
-        val exportDir = File(moviesDir, GALLERY_FOLDER_NAME).also { it.mkdirs() }
+        val isGif = sourceFile.extension.equals("gif", ignoreCase = true)
+        val targetParent = if (isGif) {
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+        } else {
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
+        }
+        val exportDir = File(targetParent, GALLERY_FOLDER_NAME).also { it.mkdirs() }
         val targetFile = uniqueGalleryFile(exportDir, sourceFile.name)
+        val mimeType = if (isGif) "image/gif" else "video/mp4"
         return try {
             sourceFile.inputStream().use { input ->
                 targetFile.outputStream().use { output -> input.copyTo(output) }
             }
-            MediaScannerConnection.scanFile(activity, arrayOf(targetFile.absolutePath), arrayOf("video/mp4"), null)
+            MediaScannerConnection.scanFile(activity, arrayOf(targetFile.absolutePath), arrayOf(mimeType), null)
             PublishedExport(
                 androidx.core.content.FileProvider.getUriForFile(
                     activity,
                     activity.packageName + ".fileprovider",
                     targetFile,
                 ),
-                "Gallery / Movies / $GALLERY_FOLDER_NAME",
+                if (isGif) "Gallery / Pictures / $GALLERY_FOLDER_NAME" else "Gallery / Movies / $GALLERY_FOLDER_NAME",
             )
         } catch (error: Exception) {
             Log.e(TAG, "Failed to publish export to legacy gallery", error)
@@ -1116,6 +1264,8 @@ class ExportController(
     }
 
     private fun showExportCompleteDialog(outputPath: String, sizeMB: String, publishedExport: PublishedExport?) {
+        val isGif = outputPath.endsWith(".gif", ignoreCase = true)
+        val mimeType = if (isGif) "image/gif" else "video/mp4"
         val playbackUri = publishedExport?.uri ?: runCatching {
             androidx.core.content.FileProvider.getUriForFile(
                 activity,
@@ -1125,22 +1275,22 @@ class ExportController(
         }.getOrNull()
         val dialog = BottomSheetDialog(activity)
         val root = buildDarkSheet()
-        root.addView(darkTitle("✓  Export Complete"))
+        root.addView(darkTitle(if (isGif) "✓  GIF Export Complete" else "✓  Export Complete"))
         root.addView(darkLabel("Size: ${sizeMB}MB").also { it.gravity = android.view.Gravity.CENTER; it.setPadding(0, 0, 0, dp(8)) })
         root.addView(darkLabel("Saved to: ${publishedExport?.savedLocationLabel ?: "App storage"}").also {
             it.gravity = android.view.Gravity.CENTER
             it.setPadding(0, 0, 0, dp(12))
         })
         val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
-        row.addView(actionBtn("▶ Play") {
+        row.addView(actionBtn(if (isGif) "🖼 View GIF" else "▶ Play") {
             try {
                 val uri = playbackUri ?: throw IllegalStateException("No playable export URI")
                 activity.startActivity(Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, "video/mp4")
+                    setDataAndType(uri, mimeType)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 })
             } catch (_: Exception) {
-                Toast.makeText(activity, "No player found", Toast.LENGTH_SHORT).show()
+                Toast.makeText(activity, "No viewer found", Toast.LENGTH_SHORT).show()
             }
             dialog.dismiss()
         }.also { it.layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).also { m -> m.setMargins(0, 0, dp(6), 0) } })
@@ -1150,7 +1300,7 @@ class ExportController(
                 activity.startActivity(
                     Intent.createChooser(
                         Intent(Intent.ACTION_SEND).apply {
-                            type = "video/mp4"
+                            type = mimeType
                             putExtra(Intent.EXTRA_STREAM, uri)
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         },
@@ -1170,7 +1320,7 @@ class ExportController(
             try {
                 val uri = playbackUri ?: return@actionBtn
                 val intent = Intent(Intent.ACTION_SEND).apply {
-                    type = "video/mp4"
+                    type = mimeType
                     putExtra(Intent.EXTRA_STREAM, uri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     setPackage("com.whatsapp")
@@ -1181,21 +1331,30 @@ class ExportController(
             }
             dialog.dismiss()
         }.also { it.layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).also { m -> m.setMargins(0, 0, dp(6), 0) } })
-        socialRow.addView(actionBtn("🟣 Instagram Reels") {
+        socialRow.addView(actionBtn(if (isGif) "🟣 Instagram" else "🟣 Instagram Reels") {
             try {
                 val uri = playbackUri ?: return@actionBtn
-                val intent = Intent("com.instagram.share.ADD_TO_REEL").apply {
-                    type = "video/mp4"
-                    putExtra("interactive_asset_uri", uri)
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    setPackage("com.instagram.android")
+                val intent = if (isGif) {
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = "image/gif"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        setPackage("com.instagram.android")
+                    }
+                } else {
+                    Intent("com.instagram.share.ADD_TO_REEL").apply {
+                        type = "video/mp4"
+                        putExtra("interactive_asset_uri", uri)
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        setPackage("com.instagram.android")
+                    }
                 }
                 if (activity.packageManager.resolveActivity(intent, 0) != null) {
                     activity.startActivity(intent)
                 } else {
                     val fallback = Intent(Intent.ACTION_SEND).apply {
-                        type = "video/mp4"
+                        type = mimeType
                         putExtra(Intent.EXTRA_STREAM, uri)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         setPackage("com.instagram.android")

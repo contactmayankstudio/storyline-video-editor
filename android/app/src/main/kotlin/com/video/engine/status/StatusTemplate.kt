@@ -1418,8 +1418,8 @@ object StatusTemplateRepository {
         if (category.contains("Bhakti", ignoreCase = true) || category.contains("Devotional", ignoreCase = true)) {
             return all.filter { it.id.contains("dev_") || it.title.contains("Ram", true) || it.title.contains("Krishna", true) || it.title.contains("Divine", true) || it.emoji in listOf("🪔", "🪶", "🚩") }
         }
-        if (category.contains("Storyline", ignoreCase = true) || category.contains("CapCut", ignoreCase = true)) {
-            return all.filter { it.title.contains("Storyline", ignoreCase = true) || it.id.startsWith("tpl_storyline_") || it.title.contains("CapCut", ignoreCase = true) || it.id.startsWith("tpl_capcut_") }
+        if (category.contains("Storyline", ignoreCase = true) || category.contains("Trending", ignoreCase = true)) {
+            return all.filter { it.title.contains("Storyline", ignoreCase = true) || it.id.startsWith("tpl_storyline_") }
         }
         return all.filter { it.category.equals(category, ignoreCase = true) }
     }

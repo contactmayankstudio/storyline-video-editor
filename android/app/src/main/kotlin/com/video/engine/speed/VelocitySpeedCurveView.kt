@@ -197,7 +197,7 @@ object VelocityPresets {
 }
 
 /**
- * Interactive touch graph for CapCut-style Velocity Speed Curves.
+ * Interactive touch graph for Storyline Pro Velocity Speed Curves.
  * Allows dragging 5 bezier control handles smoothly between 0.1x and 6.0x with glowing aesthetic.
  */
 class VelocitySpeedCurveView @JvmOverloads constructor(

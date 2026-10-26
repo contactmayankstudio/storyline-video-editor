@@ -11,7 +11,7 @@ import com.video.engine.overlay.TextOverlay
  * Status Maker Pro Engine.
  * Converts 1 photo (or current project clips) into a high-energy, rhythmic,
  * beat-synced status video with dynamic Ken Burns zooms, transitions,
- * lyrical text overlays, and trending background music (similar to Mast / Mivi / CapCut).
+ * lyrical text overlays, and trending background music (Storyline Pro Status Maker).
  */
 object AiStatusMakerProPipeline {
     private const val TAG = "StatusMakerPro"

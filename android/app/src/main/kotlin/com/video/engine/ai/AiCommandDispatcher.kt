@@ -295,7 +295,7 @@ interface AiCommandDispatcher {
     fun addShayariTextOverlay(shayari: String): Boolean = false
 
     /**
-     * Exports and saves the current project timeline as a reusable Status/Reels template (.vne).
+     * Exports and saves the current project timeline as a reusable Storyline template (.storyline).
      */
     fun saveAsTemplate(title: String = "Viral Reel Template", category: String = "Trending"): Boolean = false
 

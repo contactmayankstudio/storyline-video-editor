@@ -7399,7 +7399,7 @@ class VideoEditorActivity : ComponentActivity() {
         var selectedCategory = "Trending"
 
         ModernSheet.show(this, "✨ Save as Reusable Template") {
-            caption("Pack transitions, beat ramps, filters and lyrics into a reusable .vne template.")
+            caption("Pack transitions, beat ramps, filters and lyrics into a reusable .storyline template.")
             textInput("Template Name", "Viral Reel Template") { input ->
                 templateName = input.ifBlank { "Viral Reel Template" }
             }
@@ -7426,7 +7426,7 @@ class VideoEditorActivity : ComponentActivity() {
         val templatesDir = File(getExternalFilesDir(null), "templates").also { it.mkdirs() }
         val ts = System.currentTimeMillis()
         val safeTitle = name.replace(Regex("[^a-zA-Z0-9]"), "_")
-        val vneFile = File(templatesDir, "tpl_${safeTitle}_${ts}.vne")
+        val vneFile = File(templatesDir, "tpl_${safeTitle}_${ts}.storyline")
 
         return try {
             val success = pv.saveProject(vneFile.absolutePath, name)
@@ -10793,6 +10793,14 @@ class VideoEditorActivity : ComponentActivity() {
             includeWatermark,
             videoCodec,
         )
+    }
+
+    fun performGifExport(
+        width: Int = 480,
+        targetFps: Int = 12,
+        maxDurationMs: Long = 8000L,
+    ) {
+        exportController?.performGifExport(width, targetFps, maxDurationMs)
     }
 
     // ============ Project Save/Load UI Methods ============
@@ -18260,8 +18268,35 @@ class VideoEditorActivity : ComponentActivity() {
         var selectedStyle = "HORMOZI"
         var selectedFont = "anton"
         var selectedColor = 0xFFFFE500.toInt()
+        var selectedCategory = "REEL"
+        var customScript = ""
 
         ModernSheet.show(this, "✨ Viral Auto Captions") {
+            section("Topic & Vibe")
+            val categories = listOf("🔥 Viral Reel", "👑 Hindi Attitude", "⚡ Motivation", "✈️ Travel Vlog", "❤️ Love Vibes", "📝 Custom Script")
+            chips(
+                label = "Vibe",
+                options = categories,
+                selected = 0,
+            ) { _, cat ->
+                selectedCategory = when {
+                    cat.contains("Hindi") -> "HINDI_ATTITUDE"
+                    cat.contains("Motivation") -> "MOTIVATION"
+                    cat.contains("Travel") -> "TRAVEL"
+                    cat.contains("Love") -> "LOVE"
+                    cat.contains("Custom") -> "CUSTOM"
+                    else -> "REEL"
+                }
+            }
+
+            textInput(
+                label = "Custom Script",
+                hint = "Type or paste script / voiceover / lyrics...",
+            ) { txt ->
+                customScript = txt
+            }
+
+            divider()
             section("Viral Caption Style")
             val styleCards = listOf(
                 ModernSheet.VisualCard(id = "HORMOZI", label = "🔥 Hormozi", subtitle = "Bold Yellow Bounce", emoji = "🔥"),
@@ -18279,23 +18314,23 @@ class VideoEditorActivity : ComponentActivity() {
                 selectedStyle = card.id
                 when (card.id) {
                     "HORMOZI" -> {
-                        selectedFont = "anton"
+                        if (selectedFont !in setOf("kalam", "rozha")) selectedFont = "anton"
                         selectedColor = 0xFFFFE500.toInt()
                     }
                     "MRBEAST" -> {
-                        selectedFont = "bangers"
+                        if (selectedFont !in setOf("kalam", "rozha")) selectedFont = "bangers"
                         selectedColor = 0xFF00FF66.toInt()
                     }
                     "CYBERPUNK" -> {
-                        selectedFont = "poppins-bold"
+                        if (selectedFont !in setOf("kalam", "rozha")) selectedFont = "poppins-bold"
                         selectedColor = 0xFF00F2FE.toInt()
                     }
                     "CINEMA" -> {
-                        selectedFont = "poppins-bold"
+                        if (selectedFont !in setOf("kalam", "rozha")) selectedFont = "poppins-bold"
                         selectedColor = 0xFFFFF8E7.toInt()
                     }
                     "KARAOKE" -> {
-                        selectedFont = "poppins-bold"
+                        if (selectedFont !in setOf("kalam", "rozha")) selectedFont = "poppins-bold"
                         selectedColor = 0xFFFFD700.toInt()
                     }
                 }
@@ -18303,12 +18338,17 @@ class VideoEditorActivity : ComponentActivity() {
 
             divider()
             section("Font Style")
+            val fontLabels = listOf("Anton", "Bangers", "Poppins-Bold", "Kalam (हिंदी)", "Rozha (Royal)")
             chips(
                 label = "Font",
-                options = listOf("Anton", "Bangers", "Poppins-Bold"),
+                options = fontLabels,
                 selected = 0,
             ) { _, font ->
-                selectedFont = font.lowercase()
+                selectedFont = when {
+                    font.contains("Kalam") -> "kalam"
+                    font.contains("Rozha") -> "rozha"
+                    else -> font.lowercase()
+                }
             }
 
             divider()
@@ -18349,6 +18389,8 @@ class VideoEditorActivity : ComponentActivity() {
                                 styleKey = selectedStyle,
                                 customFont = selectedFont,
                                 customColor = selectedColor,
+                                category = selectedCategory,
+                                customScript = customScript,
                             )
                         },
                     ),
@@ -18402,6 +18444,8 @@ class VideoEditorActivity : ComponentActivity() {
         styleKey: String = "HORMOZI",
         customFont: String? = null,
         customColor: Int? = null,
+        category: String = "REEL",
+        customScript: String = "",
     ) {
         val normalizedStyle = when (styleKey.trim().uppercase()) {
             "MRBEAST", "BEAST" -> "MRBEAST"
@@ -18414,10 +18458,17 @@ class VideoEditorActivity : ComponentActivity() {
         safeToast("✨ Transcribing and generating $normalizedStyle captions...", Toast.LENGTH_SHORT)
 
         commandExecutor.execute {
-            val cues = AiAssistTools.loadCaptionCues(sourcePath, clipDurationMs).take(36)
-            val effectiveFont = customFont ?: when (normalizedStyle) {
-                "MRBEAST" -> "bangers"
-                "HORMOZI" -> "anton"
+            val cues = if (customScript.isNotBlank() || category.isNotBlank()) {
+                AiAssistTools.generateViralCaptionCues(category, clipDurationMs, customScript, sourcePath).take(36)
+            } else {
+                AiAssistTools.loadCaptionCues(sourcePath, clipDurationMs).take(36)
+            }
+            val effectiveFont = when {
+                customFont?.contains("kalam", ignoreCase = true) == true -> "kalam"
+                customFont?.contains("rozha", ignoreCase = true) == true -> "rozha"
+                customFont != null -> customFont.lowercase()
+                normalizedStyle == "MRBEAST" -> "bangers"
+                normalizedStyle == "HORMOZI" -> "anton"
                 else -> "poppins-bold"
             }
             val effectiveHighlight = customColor ?: when (normalizedStyle) {
@@ -18440,7 +18491,7 @@ class VideoEditorActivity : ComponentActivity() {
                 if (text.isBlank()) return@mapIndexedNotNull null
 
                 val isHormoziOrBeast = normalizedStyle in setOf("HORMOZI", "MRBEAST")
-                if (isHormoziOrBeast) {
+                if (isHormoziOrBeast && effectiveFont !in setOf("kalam", "rozha")) {
                     text = text.uppercase()
                     val emoji = when {
                         text.contains("MONEY") || text.contains("PAISE") || text.contains("DOLLAR") -> " 💰"
@@ -18518,7 +18569,7 @@ class VideoEditorActivity : ComponentActivity() {
                     },
                     fontName = effectiveFont,
                     bold = true,
-                    allCaps = normalizedStyle != "CINEMA",
+                    allCaps = normalizedStyle != "CINEMA" && effectiveFont !in setOf("kalam", "rozha"),
                     captionStyle = normalizedStyle,
                     highlightColor = effectiveHighlight,
                     glowColor = effectiveGlow,

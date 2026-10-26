@@ -250,7 +250,7 @@ class StatusMakerActivity : ComponentActivity() {
         templatesRecycler.layoutManager = androidx.recyclerview.widget.GridLayoutManager(this, 2)
 
         findViewById<TextView>(R.id.statusViewModeToggleBtn)?.let { toggleBtn ->
-            toggleBtn.text = if (isGridMode) "🎬 Reels Feed" else "📱 Mast 2-Grid"
+            toggleBtn.text = if (isGridMode) "🎬 Reels Feed" else "📱 Grid View"
             toggleBtn.setTextColor(if (isGridMode) Color.parseColor("#00F2FE") else Color.parseColor("#FFE500"))
             toggleBtn.setOnClickListener {
                 it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
@@ -260,7 +260,7 @@ class StatusMakerActivity : ComponentActivity() {
                 } else {
                     androidx.recyclerview.widget.LinearLayoutManager(this)
                 }
-                toggleBtn.text = if (isGridMode) "🎬 Reels Feed" else "📱 Mast 2-Grid"
+                toggleBtn.text = if (isGridMode) "🎬 Reels Feed" else "📱 Grid View"
                 toggleBtn.setTextColor(if (isGridMode) Color.parseColor("#00F2FE") else Color.parseColor("#FFE500"))
                 updateTemplatesList()
             }
