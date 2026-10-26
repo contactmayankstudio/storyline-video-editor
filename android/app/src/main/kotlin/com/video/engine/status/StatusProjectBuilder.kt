@@ -101,11 +101,14 @@ object StatusProjectBuilder {
                 var currentTimelineTimeMs = 0L
                 val isSinglePhoto = normalizedPhotoPaths.size == 1
 
+                val motionStyle = template.getMotionStyle()
+                val (baseContrast, baseSaturation, baseBrightness) = getColorGradingForStyle(motionStyle)
+
                 template.slots.forEachIndexed { index, slot ->
                     val photoPath = normalizedPhotoPaths[index % normalizedPhotoPaths.size]
-                    val motion = getMotionParams(index, isSinglePhoto)
-                    val contrast = if (isSinglePhoto && index % 2 == 1) 1.12 else 1.06
-                    val saturation = if (isSinglePhoto && index % 2 == 1) 1.18 else 1.10
+                    val motion = getMotionParamsForStyle(index, isSinglePhoto, motionStyle)
+                    val contrast = if (isSinglePhoto && index % 2 == 1) baseContrast * 1.05 else baseContrast
+                    val saturation = if (isSinglePhoto && index % 2 == 1) baseSaturation * 1.06 else baseSaturation
 
                     val clipJson = JSONObject().apply {
                         put("id", index + 1)
@@ -122,9 +125,12 @@ object StatusProjectBuilder {
                         put("enabled", true)
                         put("playbackSpeed", 1.0)
                         put("effects", JSONObject().apply {
-                            put("brightness", 0.0)
+                            put("brightness", baseBrightness)
                             put("contrast", contrast)
                             put("saturation", saturation)
+                            if (template.lutFilter.isNotBlank()) {
+                                put("lutFilter", template.lutFilter)
+                            }
                             put("enabled", true)
                         })
 
@@ -229,19 +235,36 @@ object StatusProjectBuilder {
                 }
                 put("textOverlays", textArray)
 
-                // Transitions between consecutive clips
+                // Dynamic transitions tailored to template style
                 val transitionsArray = JSONArray()
+                val (transDurationMs, leadInMs) = when (motionStyle) {
+                    TemplateMotionStyle.PHONK_ATTITUDE, TemplateMotionStyle.FLASH_BEAT_CUTS -> Pair(200L, 100L)
+                    TemplateMotionStyle.THREE_D_ZOOM, TemplateMotionStyle.VELOCITY_RAMP, TemplateMotionStyle.NEON_CYBERPUNK -> Pair(300L, 150L)
+                    TemplateMotionStyle.ROMANTIC_LOVE, TemplateMotionStyle.SPIRITUAL_AURA, TemplateMotionStyle.EMOTIONAL_PULLBACK -> Pair(750L, 350L)
+                    TemplateMotionStyle.CELEBRATION_POP, TemplateMotionStyle.RETRO_VINTAGE -> Pair(450L, 200L)
+                }
+
                 var transStartTimeMs = 0L
                 for (i in 0 until template.slots.size - 1) {
                     val slot = template.slots[i]
                     transStartTimeMs += slot.durationMs
+                    val transType = when (motionStyle) {
+                        TemplateMotionStyle.PHONK_ATTITUDE -> if (i % 2 == 0) "glitch" else "flash"
+                        TemplateMotionStyle.THREE_D_ZOOM -> if (i % 2 == 0) "zoom_in" else "flash"
+                        TemplateMotionStyle.VELOCITY_RAMP -> if (i % 2 == 0) "whip_right" else "slide"
+                        TemplateMotionStyle.ROMANTIC_LOVE -> "crossfade"
+                        TemplateMotionStyle.SPIRITUAL_AURA -> "crossfade"
+                        TemplateMotionStyle.NEON_CYBERPUNK -> "glitch"
+                        TemplateMotionStyle.FLASH_BEAT_CUTS -> "flash"
+                        else -> slot.transitionOut
+                    }
                     val transJson = JSONObject().apply {
                         put("id", i + 1)
-                        put("type", slot.transitionOut)
+                        put("type", transType)
                         put("fromClipId", i + 1)
                         put("toClipId", i + 2)
-                        put("startTimeMs", transStartTimeMs - 300L)
-                        put("durationMs", 500L)
+                        put("startTimeMs", transStartTimeMs - leadInMs)
+                        put("durationMs", transDurationMs)
                     }
                     transitionsArray.put(transJson)
                 }
@@ -269,7 +292,26 @@ object StatusProjectBuilder {
         val endRot: Double
     )
 
-    private fun getMotionParams(index: Int, isSinglePhoto: Boolean): MotionParams {
+    private fun getColorGradingForStyle(style: TemplateMotionStyle): Triple<Double, Double, Double> {
+        return when (style) {
+            TemplateMotionStyle.THREE_D_ZOOM -> Triple(1.18, 1.25, 0.02)
+            TemplateMotionStyle.VELOCITY_RAMP -> Triple(1.15, 1.20, 0.0)
+            TemplateMotionStyle.PHONK_ATTITUDE -> Triple(1.30, 1.12, -0.02)
+            TemplateMotionStyle.ROMANTIC_LOVE -> Triple(1.05, 1.22, 0.04)
+            TemplateMotionStyle.CELEBRATION_POP -> Triple(1.12, 1.32, 0.06)
+            TemplateMotionStyle.EMOTIONAL_PULLBACK -> Triple(1.20, 0.70, -0.04)
+            TemplateMotionStyle.SPIRITUAL_AURA -> Triple(1.10, 1.26, 0.08)
+            TemplateMotionStyle.NEON_CYBERPUNK -> Triple(1.35, 1.45, 0.0)
+            TemplateMotionStyle.FLASH_BEAT_CUTS -> Triple(1.22, 1.20, 0.03)
+            TemplateMotionStyle.RETRO_VINTAGE -> Triple(1.14, 0.85, -0.02)
+        }
+    }
+
+    private fun getMotionParamsForStyle(
+        index: Int,
+        isSinglePhoto: Boolean,
+        style: TemplateMotionStyle
+    ): MotionParams {
         if (!isSinglePhoto) {
             return when (index % 3) {
                 0 -> MotionParams(1.00, 1.14, 0.50, 0.50, 0.50, 0.48, 0.0, 0.0)
@@ -277,13 +319,77 @@ object StatusProjectBuilder {
                 else -> MotionParams(1.08, 1.18, 0.48, 0.52, 0.50, 0.50, 0.0, 0.0)
             }
         }
-        // Dynamic, high-energy cinematic camera choreographies for 1-photo status
-        return when (index % 5) {
-            0 -> MotionParams(1.00, 1.20, 0.50, 0.50, 0.50, 0.47, 0.0, 0.0)      // Cinematic Zoom-In
-            1 -> MotionParams(1.24, 1.05, 0.50, 0.50, 0.47, 0.52, -1.5, 1.0)   // Beat Drop Zoom-Out + Dutch tilt
-            2 -> MotionParams(1.16, 1.16, 0.43, 0.57, 0.50, 0.50, 0.0, 0.0)    // Cinematic Pan Left-to-Right
-            3 -> MotionParams(1.08, 1.26, 0.50, 0.50, 0.52, 0.46, 1.0, -1.0)   // Punch Zoom-In with Beat Bounce
-            else -> MotionParams(1.15, 1.15, 0.57, 0.43, 0.49, 0.51, 0.0, 0.0) // Pan Right-to-Left Drift
+
+        return when (style) {
+            TemplateMotionStyle.THREE_D_ZOOM -> when (index % 4) {
+                0 -> MotionParams(1.00, 1.50, 0.50, 0.50, 0.50, 0.47, 0.0, 2.5)
+                1 -> MotionParams(1.55, 1.06, 0.50, 0.50, 0.47, 0.52, 2.5, -3.0)
+                2 -> MotionParams(1.08, 1.52, 0.46, 0.54, 0.50, 0.48, -3.0, 3.0)
+                else -> MotionParams(1.50, 1.12, 0.54, 0.48, 0.46, 0.52, 3.0, -1.5)
+            }
+
+            TemplateMotionStyle.VELOCITY_RAMP -> when (index % 4) {
+                0 -> MotionParams(1.05, 1.38, 0.50, 0.65, 0.50, 0.48, 0.0, 0.0) // Acceleration curve
+                1 -> MotionParams(1.35, 1.05, 0.35, 0.50, 0.48, 0.52, 0.0, 0.0) // Whip entry
+                2 -> MotionParams(1.00, 1.42, 0.50, 0.50, 0.52, 0.46, 1.0, -1.0)
+                else -> MotionParams(1.38, 1.08, 0.65, 0.50, 0.48, 0.50, 0.0, 0.0)
+            }
+
+            TemplateMotionStyle.PHONK_ATTITUDE -> when (index % 4) {
+                0 -> MotionParams(1.12, 1.36, 0.50, 0.50, 0.52, 0.47, -5.0, 3.5)  // Dutch angle slam
+                1 -> MotionParams(1.40, 1.06, 0.47, 0.53, 0.47, 0.53, 3.5, -4.0)  // Strobe glitch bounce
+                2 -> MotionParams(1.06, 1.45, 0.53, 0.47, 0.53, 0.46, -4.0, 4.5)  // Heavy bass slam
+                else -> MotionParams(1.18, 1.55, 0.50, 0.50, 0.50, 0.48, 0.0, 0.0) // Sigma face lock punch
+            }
+
+            TemplateMotionStyle.ROMANTIC_LOVE -> when (index % 4) {
+                0 -> MotionParams(1.00, 1.10, 0.50, 0.50, 0.50, 0.47, 0.0, 0.0)   // Dreamy slow Ken Burns
+                1 -> MotionParams(1.08, 1.15, 0.48, 0.52, 0.48, 0.52, 0.5, -0.5)  // Warm right drift
+                2 -> MotionParams(1.12, 1.05, 0.50, 0.50, 0.52, 0.48, 0.0, 0.0)   // Heartbeat pulse
+                else -> MotionParams(1.04, 1.14, 0.52, 0.48, 0.48, 0.50, -0.5, 0.5)// Golden sunset float
+            }
+
+            TemplateMotionStyle.CELEBRATION_POP -> when (index % 4) {
+                0 -> MotionParams(0.94, 1.24, 0.50, 0.50, 0.52, 0.47, -2.0, 2.0)  // Pop in bounce
+                1 -> MotionParams(1.26, 1.04, 0.50, 0.50, 0.47, 0.52, 2.0, -2.0)  // Celebratory bounce
+                2 -> MotionParams(1.08, 1.25, 0.46, 0.54, 0.50, 0.48, -1.0, 1.5)  // Pop slide
+                else -> MotionParams(1.05, 1.32, 0.54, 0.50, 0.50, 0.46, 1.0, -1.0)
+            }
+
+            TemplateMotionStyle.EMOTIONAL_PULLBACK -> when (index % 4) {
+                0 -> MotionParams(1.30, 1.02, 0.50, 0.50, 0.46, 0.51, 0.0, 0.0)   // Slow melancholic pull-back
+                1 -> MotionParams(1.08, 1.16, 0.52, 0.47, 0.49, 0.51, 0.0, 0.0)   // Lonely drift
+                2 -> MotionParams(1.24, 1.02, 0.50, 0.50, 0.48, 0.52, 0.0, 0.0)   // Tears pull-back
+                else -> MotionParams(1.05, 1.14, 0.48, 0.52, 0.51, 0.48, 0.0, 0.0)
+            }
+
+            TemplateMotionStyle.SPIRITUAL_AURA -> when (index % 4) {
+                0 -> MotionParams(1.02, 1.14, 0.50, 0.50, 0.56, 0.42, 0.0, 0.0)   // Sacred upward tilt
+                1 -> MotionParams(1.12, 1.24, 0.50, 0.50, 0.46, 0.50, 0.0, 0.0)   // Golden aura float
+                2 -> MotionParams(1.18, 1.08, 0.50, 0.50, 0.43, 0.53, 0.0, 0.0)   // Divine sunrise reveal
+                else -> MotionParams(1.06, 1.22, 0.50, 0.50, 0.50, 0.46, 0.0, 0.0) // Trance pulse
+            }
+
+            TemplateMotionStyle.NEON_CYBERPUNK -> when (index % 4) {
+                0 -> MotionParams(1.10, 1.48, 0.48, 0.52, 0.50, 0.48, 0.0, 2.0)
+                1 -> MotionParams(1.42, 1.08, 0.53, 0.47, 0.48, 0.52, 2.0, -2.5)
+                2 -> MotionParams(1.05, 1.45, 0.50, 0.50, 0.52, 0.46, -2.5, 2.0)
+                else -> MotionParams(1.35, 1.10, 0.48, 0.52, 0.48, 0.50, 1.5, -1.0)
+            }
+
+            TemplateMotionStyle.FLASH_BEAT_CUTS -> when (index % 4) {
+                0 -> MotionParams(1.00, 1.36, 0.50, 0.50, 0.50, 0.47, 0.0, 0.0)
+                1 -> MotionParams(1.36, 1.04, 0.50, 0.50, 0.47, 0.52, 0.0, 0.0)
+                2 -> MotionParams(1.08, 1.40, 0.50, 0.50, 0.52, 0.46, 1.0, -1.0)
+                else -> MotionParams(1.30, 1.05, 0.50, 0.50, 0.48, 0.50, -1.0, 1.0)
+            }
+
+            TemplateMotionStyle.RETRO_VINTAGE -> when (index % 4) {
+                0 -> MotionParams(1.03, 1.12, 0.50, 0.50, 0.50, 0.48, -0.6, 0.6)
+                1 -> MotionParams(1.10, 1.18, 0.48, 0.52, 0.48, 0.52, 0.6, -0.6)
+                2 -> MotionParams(1.16, 1.08, 0.52, 0.48, 0.52, 0.48, -0.4, 0.4)
+                else -> MotionParams(1.05, 1.15, 0.50, 0.50, 0.48, 0.50, 0.4, -0.4)
+            }
         }
     }
 

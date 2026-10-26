@@ -26,6 +26,7 @@ import android.view.WindowManager
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -1067,6 +1068,7 @@ class StatusMakerActivity : ComponentActivity() {
     override fun onDestroy() {
         activePreviewDialog?.dismiss()
         stopPreviewAudio()
+        StatusSampleModelCache.clear()
         super.onDestroy()
     }
 
@@ -1088,6 +1090,7 @@ class StatusMakerActivity : ComponentActivity() {
         }
 
         class MastGridViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+            val photo: ImageView? = view.findViewById(R.id.mastCardPhoto)
             val cardBg: View = view.findViewById(R.id.mastCardBg)
             val emoji: TextView = view.findViewById(R.id.mastCardEmoji)
             val lyricText: TextView = view.findViewById(R.id.mastCardLyricText)
@@ -1099,6 +1102,7 @@ class StatusMakerActivity : ComponentActivity() {
         }
 
         class ReelsFeedViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+            val photo: ImageView? = view.findViewById(R.id.reelsCardPhoto)
             val cardBg: View = view.findViewById(R.id.reelsCardBg)
             val centerEmoji: TextView = view.findViewById(R.id.reelsCardCenterEmoji)
             val lyricText: TextView = view.findViewById(R.id.reelsCardLyricText)
@@ -1139,12 +1143,27 @@ class StatusMakerActivity : ComponentActivity() {
                 holder.photoPill.text = "📸 ${item.requiredPhotoCount} Photo${if (item.requiredPhotoCount > 1) "s" else ""}"
                 holder.usageBadge.text = item.getViralUsageCount()
 
+                // Load human model portrait preview (female, male, couple, celebration)
+                val modelBmp = StatusSampleModelCache.getSampleBitmapForTemplate(
+                    holder.itemView.context,
+                    item,
+                    targetWidth = (180 * density).toInt(),
+                    targetHeight = (270 * density).toInt()
+                )
+                if (modelBmp != null) {
+                    holder.photo?.setImageBitmap(modelBmp)
+                    holder.photo?.let { it.visibility = View.VISIBLE }
+                }
+
                 try {
                     val startC = Color.parseColor(item.gradientStartHex)
                     val endC = Color.parseColor(item.gradientEndHex)
+                    // Semi-transparent gradient tint overlay so human model photo is clearly visible
+                    val alphaStart = Color.argb(85, Color.red(startC), Color.green(startC), Color.blue(startC))
+                    val alphaEnd = Color.argb(165, Color.red(endC), Color.green(endC), Color.blue(endC))
                     val bg = GradientDrawable(
                         GradientDrawable.Orientation.TL_BR,
-                        intArrayOf(startC, endC)
+                        intArrayOf(alphaStart, alphaEnd)
                     ).apply { cornerRadius = 16f * density }
                     holder.cardBg.background = bg
 
@@ -1186,13 +1205,28 @@ class StatusMakerActivity : ComponentActivity() {
                     ?: item.audioAssetPath.substringAfterLast("/").substringBeforeLast(".").replace("_", " ")
                 holder.soundTitle.text = soundName
 
+                // Load high-resolution human model portrait preview
+                val modelBmp = StatusSampleModelCache.getSampleBitmapForTemplate(
+                    holder.itemView.context,
+                    item,
+                    targetWidth = (360 * density).toInt(),
+                    targetHeight = (440 * density).toInt()
+                )
+                if (modelBmp != null) {
+                    holder.photo?.setImageBitmap(modelBmp)
+                    holder.photo?.let { it.visibility = View.VISIBLE }
+                }
+
                 try {
                     val startC = Color.parseColor(item.gradientStartHex)
                     val endC = Color.parseColor(item.gradientEndHex)
+                    // Dynamic color wash over model portrait
+                    val alphaStart = Color.argb(75, Color.red(startC), Color.green(startC), Color.blue(startC))
+                    val alphaEnd = Color.argb(150, Color.red(endC), Color.green(endC), Color.blue(endC))
                     val bg = GradientDrawable(
-                        GradientDrawable.Orientation.TL_BR,
-                        intArrayOf(startC, endC)
-                    ).apply { cornerRadius = 16f * density }
+                        GradientDrawable.Orientation.TOP_BOTTOM,
+                        intArrayOf(alphaStart, alphaEnd)
+                    )
                     holder.cardBg.background = bg
 
                     val btnBg = GradientDrawable(

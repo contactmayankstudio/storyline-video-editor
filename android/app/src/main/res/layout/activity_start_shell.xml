@@ -31,7 +31,7 @@
             android:paddingStart="18dp"
             android:paddingTop="20dp"
             android:paddingEnd="18dp"
-            android:paddingBottom="20dp">
+            android:paddingBottom="24dp">
 
             <!-- HEADER -->
             <LinearLayout
@@ -41,44 +41,75 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <FrameLayout
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:background="@drawable/logo_app_background"
-                    android:padding="8dp">
-
-                    <ImageView
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:contentDescription="@string/app_name"
-                        android:src="@drawable/ic_storyline_logo" />
-                </FrameLayout>
+                <ImageView
+                    android:id="@+id/startLogo"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:contentDescription="@string/app_name"
+                    android:src="@drawable/ic_app_logo_s" />
 
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp"
+                    android:layout_marginStart="14dp"
                     android:layout_weight="1"
                     android:orientation="vertical">
 
-                    <TextView
-                        android:id="@+id/startTitle"
+                    <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="@string/start_title"
-                        android:textColor="#FFFFFF"
-                        android:textSize="20sp"
-                        android:textStyle="bold" />
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/startTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="sans-serif-black"
+                            android:letterSpacing="0.01"
+                            android:text="@string/start_title"
+                            android:textColor="#FFFFFF"
+                            android:textSize="22sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:background="@drawable/home_pro_chip_bg"
+                            android:paddingStart="7dp"
+                            android:paddingTop="2dp"
+                            android:paddingEnd="7dp"
+                            android:paddingBottom="2dp"
+                            android:text="PRO"
+                            android:textColor="#FFFFFF"
+                            android:textSize="10sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
 
                     <TextView
                         android:id="@+id/startSubtitle"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
+                        android:fontFamily="sans-serif-medium"
                         android:text="@string/start_subtitle"
-                        android:textColor="#8A99AD"
-                        android:textSize="12sp" />
+                        android:textColor="#94A3B8"
+                        android:textSize="12.5sp" />
                 </LinearLayout>
+
+                <!-- Header Settings Icon -->
+                <ImageView
+                    android:id="@+id/startHeaderSettingsButton"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:background="@drawable/home_icon_button_bg"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:padding="9dp"
+                    android:contentDescription="@string/nav_settings"
+                    android:src="@drawable/ic_settings"
+                    app:tint="#CBD5E1" />
             </LinearLayout>
 
             <!-- MAIN CREATE AREA -->
@@ -87,262 +118,253 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="22dp"
-                android:letterSpacing="0.04"
+                android:letterSpacing="0.06"
                 android:text="@string/start_create_label"
-                android:textColor="#8A99AD"
+                android:textAllCaps="true"
+                android:textColor="#64748B"
                 android:textSize="11.5sp"
                 android:textStyle="bold" />
 
-            <!-- Primary Card: New Video Project -->
+            <!-- Primary Flagship Card: New Video Project -->
             <LinearLayout
                 android:id="@+id/startNewProjectButton"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="10dp"
                 android:background="@drawable/home_primary_card_bg"
                 android:clickable="true"
                 android:focusable="true"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:paddingStart="16dp"
-                android:paddingTop="14dp"
+                android:paddingTop="18dp"
                 android:paddingEnd="16dp"
-                android:paddingBottom="14dp">
+                android:paddingBottom="18dp">
 
                 <FrameLayout
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:background="@drawable/launch_primary_icon_chip"
-                    android:padding="10dp">
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="@drawable/home_primary_plus_bg">
 
                     <ImageView
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
+                        android:layout_width="26dp"
+                        android:layout_height="26dp"
+                        android:layout_gravity="center"
                         android:contentDescription="@string/start_primary_action"
-                        android:src="@drawable/ic_video_clip"
-                        app:tint="#388BFD" />
+                        android:src="@drawable/ic_add_story"
+                        app:tint="#FFFFFF" />
                 </FrameLayout>
 
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="14dp"
+                    android:layout_marginEnd="10dp"
                     android:layout_weight="1"
                     android:orientation="vertical">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:fontFamily="sans-serif-black"
                         android:text="@string/start_primary_action"
                         android:textColor="#FFFFFF"
-                        android:textSize="16sp"
+                        android:textSize="17.5sp"
                         android:textStyle="bold" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
+                        android:layout_marginTop="3dp"
+                        android:fontFamily="sans-serif-medium"
                         android:text="@string/start_primary_caption"
-                        android:textColor="#8A99AD"
+                        android:textColor="#93C5FD"
                         android:textSize="12sp" />
                 </LinearLayout>
 
-                <ImageView
-                    android:layout_width="18dp"
-                    android:layout_height="18dp"
-                    android:contentDescription="@null"
-                    android:src="@drawable/ic_add_story"
-                    app:tint="#388BFD" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/home_icon_button_bg"
+                    android:paddingStart="10dp"
+                    android:paddingTop="6dp"
+                    android:paddingEnd="10dp"
+                    android:paddingBottom="6dp"
+                    android:text="+ Create"
+                    android:textColor="#FFFFFF"
+                    android:textSize="11.5sp"
+                    android:textStyle="bold" />
             </LinearLayout>
 
-            <!-- Status & Reels Maker Card (Mast Style) -->
+            <!-- Quick Studio Suite: 3 Modern Action Cards Row -->
             <LinearLayout
-                android:id="@+id/startStatusMakerButton"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:background="@drawable/home_secondary_card_bg"
-                android:clickable="true"
-                android:focusable="true"
-                android:gravity="center_vertical"
+                android:layout_marginTop="12dp"
                 android:orientation="horizontal"
-                android:paddingStart="16dp"
-                android:paddingTop="14dp"
-                android:paddingEnd="16dp"
-                android:paddingBottom="14dp">
+                android:weightSum="3">
 
-                <FrameLayout
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:background="@drawable/launch_status_icon_chip"
-                    android:padding="10dp">
-
-                    <ImageView
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:contentDescription="@string/start_status_maker_action"
-                        android:src="@drawable/ic_status_maker"
-                        app:tint="#D946EF" />
-                </FrameLayout>
-
+                <!-- 1: Status & Reels Maker Card -->
                 <LinearLayout
+                    android:id="@+id/startStatusMakerButton"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="14dp"
+                    android:layout_marginEnd="5dp"
                     android:layout_weight="1"
-                    android:orientation="vertical">
+                    android:background="@drawable/home_quick_card_bg"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingStart="8dp"
+                    android:paddingTop="14dp"
+                    android:paddingEnd="8dp"
+                    android:paddingBottom="14dp">
+
+                    <FrameLayout
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="@drawable/launch_status_icon_chip"
+                        android:padding="9dp">
+
+                        <ImageView
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@string/start_status_maker_action"
+                            android:src="@drawable/ic_status_maker"
+                            app:tint="#E879F9" />
+                    </FrameLayout>
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:ellipsize="end"
+                        android:maxLines="1"
                         android:text="@string/start_status_maker_action"
                         android:textColor="#FFFFFF"
-                        android:textSize="15.5sp"
+                        android:textSize="13sp"
                         android:textStyle="bold" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:text="@string/start_status_maker_caption"
+                        android:layout_marginTop="3dp"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="Reels 🔥"
                         android:textColor="#C084FC"
-                        android:textSize="12sp" />
+                        android:textSize="10.5sp"
+                        android:textStyle="bold" />
                 </LinearLayout>
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/launch_count_chip_background"
-                    android:paddingStart="8dp"
-                    android:paddingTop="3dp"
-                    android:paddingEnd="8dp"
-                    android:paddingBottom="3dp"
-                    android:text="HOT 🔥"
-                    android:textColor="#D946EF"
-                    android:textSize="10.5sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-
-            <!-- Fun Camera Card (Snapchat Style) -->
-            <LinearLayout
-                android:id="@+id/startFunCameraButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:background="@drawable/home_secondary_card_bg"
-                android:clickable="true"
-                android:focusable="true"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingStart="16dp"
-                android:paddingTop="14dp"
-                android:paddingEnd="16dp"
-                android:paddingBottom="14dp">
-
-                <FrameLayout
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:background="@drawable/launch_camera_icon_chip"
-                    android:padding="10dp">
-
-                    <ImageView
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:contentDescription="@string/start_fun_camera_action"
-                        android:src="@drawable/ic_fun_camera"
-                        app:tint="#F59E0B" />
-                </FrameLayout>
-
+                <!-- 2: Fun Camera Card (Snapchat Style) -->
                 <LinearLayout
+                    android:id="@+id/startFunCameraButton"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="14dp"
+                    android:layout_marginStart="2dp"
+                    android:layout_marginEnd="2dp"
                     android:layout_weight="1"
-                    android:orientation="vertical">
+                    android:background="@drawable/home_quick_card_bg"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingStart="8dp"
+                    android:paddingTop="14dp"
+                    android:paddingEnd="8dp"
+                    android:paddingBottom="14dp">
+
+                    <FrameLayout
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="@drawable/launch_camera_icon_chip"
+                        android:padding="9dp">
+
+                        <ImageView
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@string/start_fun_camera_action"
+                            android:src="@drawable/ic_fun_camera"
+                            app:tint="#FBBF24" />
+                    </FrameLayout>
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:ellipsize="end"
+                        android:maxLines="1"
                         android:text="@string/start_fun_camera_action"
                         android:textColor="#FFFFFF"
-                        android:textSize="15.5sp"
+                        android:textSize="13sp"
                         android:textStyle="bold" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:text="@string/start_fun_camera_caption"
-                        android:textColor="#FBBF24"
-                        android:textSize="12sp" />
+                        android:layout_marginTop="3dp"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="Lenses ✨"
+                        android:textColor="#FDE047"
+                        android:textSize="10.5sp"
+                        android:textStyle="bold" />
                 </LinearLayout>
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/launch_count_chip_background"
-                    android:paddingStart="8dp"
-                    android:paddingTop="3dp"
-                    android:paddingEnd="8dp"
-                    android:paddingBottom="3dp"
-                    android:text="LENSES ✨"
-                    android:textColor="#F59E0B"
-                    android:textSize="10.5sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-
-            <!-- Tertiary Card: Photo Edit -->
-            <LinearLayout
-                android:id="@+id/startPhotoEditorButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:background="@drawable/home_secondary_card_bg"
-                android:clickable="true"
-                android:focusable="true"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingStart="16dp"
-                android:paddingTop="14dp"
-                android:paddingEnd="16dp"
-                android:paddingBottom="14dp">
-
-                <FrameLayout
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:background="@drawable/launch_secondary_icon_chip"
-                    android:padding="10dp">
-
-                    <ImageView
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:contentDescription="@string/start_photo_editor_action"
-                        android:src="@drawable/ic_graphics"
-                        app:tint="#8A99AD" />
-                </FrameLayout>
-
+                <!-- 3: Photo Studio Card -->
                 <LinearLayout
+                    android:id="@+id/startPhotoEditorButton"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="14dp"
+                    android:layout_marginStart="5dp"
                     android:layout_weight="1"
-                    android:orientation="vertical">
+                    android:background="@drawable/home_quick_card_bg"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingStart="8dp"
+                    android:paddingTop="14dp"
+                    android:paddingEnd="8dp"
+                    android:paddingBottom="14dp">
+
+                    <FrameLayout
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="@drawable/launch_photo_icon_chip"
+                        android:padding="9dp">
+
+                        <ImageView
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@string/start_photo_editor_action"
+                            android:src="@drawable/ic_graphics"
+                            app:tint="#22D3EE" />
+                    </FrameLayout>
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:ellipsize="end"
+                        android:maxLines="1"
                         android:text="@string/start_photo_editor_action"
                         android:textColor="#FFFFFF"
-                        android:textSize="15.5sp"
+                        android:textSize="13sp"
                         android:textStyle="bold" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:text="@string/start_photo_editor_caption"
-                        android:textColor="#8A99AD"
-                        android:textSize="12sp" />
+                        android:layout_marginTop="3dp"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="Filters 🎨"
+                        android:textColor="#67E8F9"
+                        android:textSize="10.5sp"
+                        android:textStyle="bold" />
                 </LinearLayout>
             </LinearLayout>
 
@@ -350,7 +372,7 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="22dp"
+                android:layout_marginTop="26dp"
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
@@ -359,9 +381,10 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:letterSpacing="0.04"
+                    android:letterSpacing="0.06"
                     android:text="@string/recent_projects_label"
-                    android:textColor="#8A99AD"
+                    android:textAllCaps="true"
+                    android:textColor="#64748B"
                     android:textSize="12sp"
                     android:textStyle="bold" />
 
@@ -389,25 +412,25 @@
                 android:gravity="center"
                 android:orientation="vertical"
                 android:paddingStart="24dp"
-                android:paddingTop="28dp"
+                android:paddingTop="32dp"
                 android:paddingEnd="24dp"
-                android:paddingBottom="28dp">
+                android:paddingBottom="32dp">
 
                 <ImageView
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
+                    android:layout_width="42dp"
+                    android:layout_height="42dp"
                     android:contentDescription="@null"
                     android:src="@drawable/ic_projects_grid"
-                    app:tint="#3A4452" />
+                    app:tint="#475569" />
 
                 <TextView
                     android:id="@+id/startRecentProjectsEmptyTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
+                    android:layout_marginTop="14dp"
                     android:text="@string/recent_projects_empty"
-                    android:textColor="#FFFFFF"
-                    android:textSize="14sp"
+                    android:textColor="#F1F5F9"
+                    android:textSize="15sp"
                     android:textStyle="bold" />
 
                 <TextView
@@ -416,7 +439,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:text="@string/recent_projects_empty_desc"
-                    android:textColor="#8A99AD"
+                    android:textColor="#94A3B8"
                     android:textSize="12sp" />
             </LinearLayout>
 
@@ -431,7 +454,7 @@
                 android:overScrollMode="never"
                 android:visibility="gone" />
 
-            <!-- Hidden compatibility buttons -->
+            <!-- Hidden compatibility views -->
             <View
                 android:id="@+id/startOpenProjectButton"
                 android:layout_width="0dp"
@@ -464,14 +487,9 @@
         android:id="@+id/homeBottomNav"
         android:layout_width="match_parent"
         android:layout_height="58dp"
-        android:background="#0D1015"
+        android:background="#0D1117"
         android:gravity="center_vertical"
         android:orientation="horizontal">
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="#1B222C" />
 
         <LinearLayout
             android:id="@+id/navCreate"

@@ -306,69 +306,31 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
 
     private fun ensureSampleSlides() {
         if (sampleSlides.isNotEmpty() && sampleSlides.all { !it.isRecycled }) return
-        sampleSlides.forEach {
-            try { if (!it.isRecycled) it.recycle() } catch (_: Exception) {}
-        }
         sampleSlides.clear()
         prepareSampleSlides()
     }
 
     private fun prepareSampleSlides() {
-        // Generate 4 high-fashion aesthetic portrait cards with gradients & silhouettes
+        // Load high-fashion portrait human models (female, male, couple, festive)
+        val tm = template
+        val preferredAsset = tm?.let { StatusSampleModelCache.getModelAssetForTemplate(it) }
+            ?: StatusSampleModelCache.MODEL_FEMALE_STYLISH
+
+        val modelPaths = mutableListOf(preferredAsset)
+        for (path in StatusSampleModelCache.ALL_MODEL_ASSET_PATHS) {
+            if (!modelPaths.contains(path)) {
+                modelPaths.add(path)
+            }
+        }
+
         val w = 540
         val h = 960
 
-        val themes = listOf(
-            Pair("#1A0B2E", "#8A2387"), // Violet Sunset
-            Pair("#0F2027", "#2C5364"), // Deep Cyan Oceanic
-            Pair("#200122", "#6f0000"), // Crimson Noir
-            Pair("#141E30", "#243B55")  // Midnight Royal
-        )
-
-        for (theme in themes) {
-            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            val c = Canvas(bmp)
-
-            // Background Gradient
-            val bgGradient = LinearGradient(
-                0f, 0f, w.toFloat(), h.toFloat(),
-                Color.parseColor(theme.first),
-                Color.parseColor(theme.second),
-                Shader.TileMode.CLAMP
-            )
-            val p = Paint().apply { shader = bgGradient }
-            c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), p)
-
-            // Stylized Model Silhouette
-            val sPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.argb(160, 255, 255, 255)
+        for (path in modelPaths.take(4)) {
+            val bmp = StatusSampleModelCache.getModelBitmap(context, path, w, h)
+            if (bmp != null && !bmp.isRecycled) {
+                sampleSlides.add(bmp)
             }
-
-            // Head & Shoulders Silhouette
-            val headRadius = w * 0.16f
-            val headCenterY = h * 0.40f
-            c.drawCircle(w * 0.5f, headCenterY, headRadius, sPaint)
-
-            val bodyPath = Path()
-            bodyPath.moveTo(w * 0.22f, h.toFloat())
-            bodyPath.quadTo(w * 0.28f, headCenterY + headRadius * 1.3f, w * 0.40f, headCenterY + headRadius * 1.3f)
-            bodyPath.lineTo(w * 0.60f, headCenterY + headRadius * 1.3f)
-            bodyPath.quadTo(w * 0.72f, headCenterY + headRadius * 1.3f, w * 0.78f, h.toFloat())
-            bodyPath.close()
-            c.drawPath(bodyPath, sPaint)
-
-            // Aesthetic Ambient Glow disc
-            val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                shader = RadialGradient(
-                    w * 0.5f, headCenterY, w * 0.45f,
-                    intArrayOf(Color.argb(100, 255, 220, 180), Color.argb(0, 255, 220, 180)),
-                    floatArrayOf(0f, 1f),
-                    Shader.TileMode.CLAMP
-                )
-            }
-            c.drawCircle(w * 0.5f, headCenterY, w * 0.45f, glowPaint)
-
-            sampleSlides.add(bmp)
         }
     }
 
@@ -417,36 +379,143 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         val beatPhase = ((elapsedMs % beatIntervalMs).toFloat() / beatIntervalMs.toFloat()).coerceIn(0f, 1f)
         val beatPulse = (1.0f - beatPhase).coerceIn(0f, 1f)
 
+        // Template motion style choreography
+        val motionStyle = tm.getMotionStyle()
+
         // Slot transition
         val currentSlot = tm.slots.getOrNull(currentSlideIndex % tm.slots.size.coerceAtLeast(1))
         val transitionType = currentSlot?.transitionOut ?: "crossfade"
 
-        // Beat shake translation
+        // Beat shake translation, Dutch tilt roll, and Ken Burns camera choreography tailored per Motion Style
         var shakeX = 0f
         var shakeY = 0f
-        if (beatPhase < 0.20f && transitionType in listOf("beat_drop_zoom", "flash_cut", "rgb_glitch_split", "flash", "glitch")) {
-            shakeX = (Math.sin(elapsedMs / 20.0).toFloat() * 12f * beatPulse)
-            shakeY = (Math.cos(elapsedMs / 20.0).toFloat() * 8f * beatPulse)
-        }
-
-        // 1-Photo Choreographed Ken Burns Camera Movements per slide
+        var rollDeg = 0f
         var panOffsetX = 0f
         var panOffsetY = 0f
-        val zoom = when (currentSlideIndex % 4) {
-            0 -> 1.0f + (slideProgress * 0.18f) + (beatPulse * 0.04f) // Smooth Zoom In
-            1 -> {
-                panOffsetY = (slideProgress * 15f)
-                1.22f - (slideProgress * 0.16f) + (beatPulse * 0.05f) // Zoom Out with drop
+        var zoom = 1.0f
+
+        when (motionStyle) {
+            TemplateMotionStyle.THREE_D_ZOOM -> {
+                // Punch zoom with dynamic 3D camera roll sway
+                zoom = when (currentSlideIndex % 4) {
+                    0 -> 1.00f + (slideProgress * 0.45f) + (beatPulse * 0.08f)
+                    1 -> 1.48f - (slideProgress * 0.38f) + (beatPulse * 0.07f)
+                    2 -> 1.08f + (slideProgress * 0.42f) + (beatPulse * 0.09f)
+                    else -> 1.45f - (slideProgress * 0.32f) + (beatPulse * 0.08f)
+                }
+                rollDeg = when (currentSlideIndex % 4) {
+                    0 -> slideProgress * 3.0f
+                    1 -> 3.0f - (slideProgress * 5.5f)
+                    2 -> -2.5f + (slideProgress * 5.0f)
+                    else -> 2.5f - (slideProgress * 4.0f)
+                }
+                if (beatPhase < 0.20f) {
+                    shakeX = (Math.sin(elapsedMs / 18.0).toFloat() * 10f * beatPulse)
+                    shakeY = (Math.cos(elapsedMs / 18.0).toFloat() * 8f * beatPulse)
+                }
             }
-            2 -> {
-                panOffsetX = (-0.05f + slideProgress * 0.10f) * w // Pan Left to Right
-                1.14f + (beatPulse * 0.03f)
+            TemplateMotionStyle.VELOCITY_RAMP -> {
+                // Non-linear acceleration velocity curve into whip transition
+                val rampProgress = Math.pow(slideProgress.toDouble(), 2.4).toFloat()
+                zoom = when (currentSlideIndex % 2) {
+                    0 -> 1.04f + (rampProgress * 0.38f) + (beatPulse * 0.06f)
+                    else -> 1.38f - (rampProgress * 0.32f) + (beatPulse * 0.06f)
+                }
+                panOffsetX = when (currentSlideIndex % 2) {
+                    0 -> rampProgress * (w * 0.08f)
+                    else -> (1f - rampProgress) * -(w * 0.08f)
+                }
+                if (beatPhase < 0.15f) {
+                    shakeX = (Math.sin(elapsedMs / 14.0).toFloat() * 8f * beatPulse)
+                }
             }
-            else -> 1.08f + (slideProgress * 0.16f) + (beatPulse * 0.06f) // Beat Punch Zoom
+            TemplateMotionStyle.PHONK_ATTITUDE -> {
+                // Aggressive Dutch angle roll & heavy bass slam
+                zoom = when (currentSlideIndex % 4) {
+                    0 -> 1.12f + (slideProgress * 0.24f) + (beatPulse * 0.12f)
+                    1 -> 1.38f - (slideProgress * 0.28f) + (beatPulse * 0.14f)
+                    2 -> 1.06f + (slideProgress * 0.36f) + (beatPulse * 0.12f)
+                    else -> 1.20f + (slideProgress * 0.30f) + (beatPulse * 0.15f)
+                }
+                rollDeg = when (currentSlideIndex % 4) {
+                    0 -> -4.5f + (slideProgress * 8.0f)
+                    1 -> 3.5f - (slideProgress * 7.5f)
+                    2 -> -4.0f + (slideProgress * 8.5f)
+                    else -> (Math.sin(elapsedMs / 100.0).toFloat() * 2.5f)
+                }
+                if (beatPhase < 0.30f) {
+                    shakeX = (Math.sin(elapsedMs / 15.0).toFloat() * 16f * beatPulse)
+                    shakeY = (Math.cos(elapsedMs / 15.0).toFloat() * 12f * beatPulse)
+                }
+            }
+            TemplateMotionStyle.ROMANTIC_LOVE -> {
+                // Dreamy slow Ken Burns floating, zero harsh shake
+                zoom = when (currentSlideIndex % 4) {
+                    0 -> 1.02f + (slideProgress * 0.08f) + (beatPulse * 0.02f)
+                    1 -> 1.08f + (slideProgress * 0.06f)
+                    2 -> 1.12f - (slideProgress * 0.07f)
+                    else -> 1.05f + (slideProgress * 0.09f)
+                }
+                panOffsetX = (Math.sin(slideProgress * Math.PI).toFloat() * 16f) * (if (currentSlideIndex % 2 == 0) 1f else -1f)
+                panOffsetY = (Math.cos(slideProgress * Math.PI).toFloat() * 10f)
+                rollDeg = (Math.sin(slideProgress * Math.PI).toFloat() * 0.8f) * (if (currentSlideIndex % 2 == 0) 1f else -1f)
+            }
+            TemplateMotionStyle.CELEBRATION_POP -> {
+                // Upbeat celebratory bounce with pop zoom
+                val bouncePhase = Math.sin(slideProgress * Math.PI).toFloat()
+                zoom = 1.00f + (bouncePhase * 0.22f) + (beatPulse * 0.07f)
+                shakeY = -Math.abs(Math.sin(beatPhase * Math.PI).toFloat()) * 12f * beatPulse
+                rollDeg = when (currentSlideIndex % 2) {
+                    0 -> -2.0f + (slideProgress * 4.0f)
+                    else -> 2.0f - (slideProgress * 4.0f)
+                }
+            }
+            TemplateMotionStyle.EMOTIONAL_PULLBACK -> {
+                // Melancholic slow pull-back zoom with subtle drift
+                zoom = when (currentSlideIndex % 2) {
+                    0 -> 1.28f - (slideProgress * 0.24f)
+                    else -> 1.06f + (slideProgress * 0.10f)
+                }
+                panOffsetY = (slideProgress * 12f)
+            }
+            TemplateMotionStyle.SPIRITUAL_AURA -> {
+                // Sacred upward floating pan towards divine light
+                panOffsetY = (1.0f - slideProgress) * 40f
+                zoom = 1.04f + (slideProgress * 0.12f) + (beatPulse * 0.03f)
+            }
+            TemplateMotionStyle.NEON_CYBERPUNK -> {
+                zoom = 1.10f + (slideProgress * 0.32f) + (beatPulse * 0.10f)
+                rollDeg = when (currentSlideIndex % 3) {
+                    0 -> slideProgress * 2.5f
+                    1 -> -2.5f + (slideProgress * 4.5f)
+                    else -> 1.5f - (slideProgress * 3.0f)
+                }
+                if (beatPhase < 0.25f) {
+                    shakeX = (Math.sin(elapsedMs / 12.0).toFloat() * 14f * beatPulse)
+                    shakeY = (Math.cos(elapsedMs / 12.0).toFloat() * 10f * beatPulse)
+                }
+            }
+            TemplateMotionStyle.FLASH_BEAT_CUTS -> {
+                // Fast beat cuts with rhythmic punch zooms
+                zoom = 1.06f + (slideProgress * 0.16f) + (beatPulse * 0.14f)
+                if (beatPhase < 0.20f) {
+                    shakeX = (Math.sin(elapsedMs / 16.0).toFloat() * 12f * beatPulse)
+                }
+            }
+            TemplateMotionStyle.RETRO_VINTAGE -> {
+                // Nostalgic warm 8mm handheld wobble
+                zoom = 1.06f + (slideProgress * 0.08f)
+                shakeX = (Math.sin(elapsedMs / 55.0).toFloat() * 4f)
+                shakeY = (Math.cos(elapsedMs / 45.0).toFloat() * 4f)
+                rollDeg = (Math.sin(elapsedMs / 120.0).toFloat() * 0.7f)
+            }
         }
 
         canvas.save()
         canvas.translate(shakeX + panOffsetX, shakeY + panOffsetY)
+        if (Math.abs(rollDeg) > 0.01f) {
+            canvas.rotate(rollDeg, w / 2f, h / 2f)
+        }
 
         val photoRatio = currentBmp.width.toFloat() / currentBmp.height.toFloat()
         val isNonPortrait = customPhotoBitmap != null && Math.abs(photoRatio - 9f / 16f) > 0.04f
@@ -503,20 +572,24 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
             bgPaint.alpha = 255
         }
 
-        // 3. RGB Glitch Chromatic Aberration on Beat Drops
-        if ((transitionType == "rgb_glitch_split" || transitionType == "glitch") && beatPhase < 0.25f) {
-            glitchPaint.color = Color.argb((beatPulse * 70).toInt(), 0, 255, 255)
+        // 3. RGB Glitch Chromatic Aberration on Beat Drops (enhanced for PHONK & NEON)
+        val isGlitchStyle = motionStyle == TemplateMotionStyle.PHONK_ATTITUDE ||
+                            motionStyle == TemplateMotionStyle.NEON_CYBERPUNK ||
+                            transitionType in listOf("rgb_glitch_split", "glitch")
+        if (isGlitchStyle && beatPhase < 0.25f) {
+            glitchPaint.color = Color.argb((beatPulse * 75).toInt(), 0, 255, 255)
             canvas.drawRect(0f, 0f, w, h, glitchPaint)
         }
 
-        // 4. White Flash Cut at slide start
-        if (slideProgress < 0.12f) {
-            val flashAlpha = ((1f - slideProgress / 0.12f) * 160).toInt().coerceIn(0, 160)
+        // 4. White Flash Cut at slide start (enhanced for FLASH_BEAT_CUTS & PHONK)
+        val flashThreshold = if (motionStyle == TemplateMotionStyle.FLASH_BEAT_CUTS) 0.16f else 0.12f
+        if (slideProgress < flashThreshold) {
+            val flashAlpha = ((1f - slideProgress / flashThreshold) * 175).toInt().coerceIn(0, 175)
             flashPaint.color = Color.argb(flashAlpha, 255, 255, 255)
             canvas.drawRect(0f, 0f, w, h, flashPaint)
         }
 
-        // 5. Template Gradient Color Wash
+        // 5. Template Gradient Color Wash & Atmospheric Tone
         val safeH = h.coerceAtLeast(10f)
         val endColorInt = parseColorSafe(tm.gradientEndHex, Color.MAGENTA)
         val washGradient = LinearGradient(
@@ -531,6 +604,31 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         )
         washPaint.shader = washGradient
         canvas.drawRect(0f, 0f, w, h, washPaint)
+
+        // Motion style atmospheric mood tint
+        when (motionStyle) {
+            TemplateMotionStyle.EMOTIONAL_PULLBACK -> {
+                // Moody dark blue-slate vignette
+                flashPaint.color = Color.argb(45, 20, 25, 45)
+                canvas.drawRect(0f, 0f, w, h, flashPaint)
+            }
+            TemplateMotionStyle.PHONK_ATTITUDE -> {
+                // High contrast dark edge tint
+                flashPaint.color = Color.argb(35, 10, 0, 20)
+                canvas.drawRect(0f, 0f, w, h, flashPaint)
+            }
+            TemplateMotionStyle.RETRO_VINTAGE -> {
+                // Warm amber sepia tone
+                flashPaint.color = Color.argb(40, 180, 130, 60)
+                canvas.drawRect(0f, 0f, w, h, flashPaint)
+            }
+            TemplateMotionStyle.SPIRITUAL_AURA -> {
+                // Warm golden devotional glow
+                flashPaint.color = Color.argb(30, 255, 180, 50)
+                canvas.drawRect(0f, 0f, w, h, flashPaint)
+            }
+            else -> {}
+        }
 
         canvas.restore()
 

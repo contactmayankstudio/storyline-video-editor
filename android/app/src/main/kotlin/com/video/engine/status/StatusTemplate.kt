@@ -44,6 +44,69 @@ fun StatusTemplate.getViralUsageCount(): String {
     }
 }
 
+enum class TemplateMotionStyle {
+    THREE_D_ZOOM,
+    VELOCITY_RAMP,
+    PHONK_ATTITUDE,
+    ROMANTIC_LOVE,
+    CELEBRATION_POP,
+    EMOTIONAL_PULLBACK,
+    SPIRITUAL_AURA,
+    NEON_CYBERPUNK,
+    FLASH_BEAT_CUTS,
+    RETRO_VINTAGE
+}
+
+fun StatusTemplate.getMotionStyle(): TemplateMotionStyle {
+    val lowerId = id.lowercase(java.util.Locale.US)
+    val lowerCat = category.lowercase(java.util.Locale.US)
+    val lowerTitle = title.lowercase(java.util.Locale.US)
+
+    return when {
+        lowerId.contains("3d_zoom") || lowerTitle.contains("3d zoom") || lowerTitle.contains("depth") ->
+            TemplateMotionStyle.THREE_D_ZOOM
+
+        lowerId.contains("velocity") || lowerTitle.contains("velocity") || lowerTitle.contains("speed") ->
+            TemplateMotionStyle.VELOCITY_RAMP
+
+        lowerId.contains("phonk") || lowerId.contains("sigma") || lowerTitle.contains("phonk") || lowerTitle.contains("sigma") || lowerTitle.contains("gangster") || (lowerCat.contains("attitude") && bpm >= 130) ->
+            TemplateMotionStyle.PHONK_ATTITUDE
+
+        lowerCat.contains("love") || lowerCat.contains("couple") || lowerTitle.contains("love") || lowerTitle.contains("romantic") || lowerTitle.contains("heart") ->
+            TemplateMotionStyle.ROMANTIC_LOVE
+
+        lowerCat.contains("celebration") || lowerCat.contains("birthday") || lowerTitle.contains("birthday") || lowerTitle.contains("party") ->
+            TemplateMotionStyle.CELEBRATION_POP
+
+        lowerCat.contains("emotional") || lowerTitle.contains("broken") || lowerTitle.contains("sad") || lowerTitle.contains("poetry") || lowerTitle.contains("alone") || lowerTitle.contains("tears") ->
+            TemplateMotionStyle.EMOTIONAL_PULLBACK
+
+        lowerCat.contains("spiritual") || lowerCat.contains("bhakti") || lowerTitle.contains("mahadev") || lowerTitle.contains("krishna") || lowerTitle.contains("divine") || lowerTitle.contains("shiva") || lowerTitle.contains("ram") ->
+            TemplateMotionStyle.SPIRITUAL_AURA
+
+        lowerId.contains("cyberpunk") || lowerTitle.contains("cyberpunk") || lowerTitle.contains("neon") ->
+            TemplateMotionStyle.NEON_CYBERPUNK
+
+        lowerId.contains("flash") || lowerTitle.contains("flash") || (lowerCat.contains("trending") && bpm >= 135) ->
+            TemplateMotionStyle.FLASH_BEAT_CUTS
+
+        lowerId.contains("retro") || lowerId.contains("vhs") || lowerTitle.contains("retro") || lowerTitle.contains("vintage") || lowerTitle.contains("nostalgia") ->
+            TemplateMotionStyle.RETRO_VINTAGE
+
+        lowerCat.contains("attitude") || lowerCat.contains("swag") ->
+            TemplateMotionStyle.PHONK_ATTITUDE
+
+        else -> {
+            when (Math.abs(id.hashCode()) % 4) {
+                0 -> TemplateMotionStyle.THREE_D_ZOOM
+                1 -> TemplateMotionStyle.VELOCITY_RAMP
+                2 -> TemplateMotionStyle.FLASH_BEAT_CUTS
+                else -> TemplateMotionStyle.PHONK_ATTITUDE
+            }
+        }
+    }
+}
+
 object StatusTemplateRepository {
     val allTemplates: List<StatusTemplate> = listOf(
         StatusTemplate(

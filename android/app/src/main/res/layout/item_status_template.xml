@@ -105,18 +105,27 @@
         android:focusable="true"
         android:foreground="?android:attr/selectableItemBackground">
 
+        <!-- Banner Model Portrait Photo -->
+        <ImageView
+            android:id="@+id/templateBannerPhoto"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:contentDescription="@null" />
+
         <!-- Banner Gradient Background -->
         <View
             android:id="@+id/templateBannerBg"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:alpha="0.32"
             android:background="@drawable/status_preview_cta_gradient_bg" />
 
         <!-- Ambient overlay dim -->
         <View
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="#44000000" />
+            android:background="#55000000" />
 
         <!-- Top Badges inside Banner -->
         <LinearLayout

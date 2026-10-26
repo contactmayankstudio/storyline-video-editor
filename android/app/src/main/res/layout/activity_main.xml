@@ -1247,11 +1247,11 @@
 
         <ImageView
             android:id="@+id/startLogo"
-            android:layout_width="64dp"
-            android:layout_height="64dp"
-            android:layout_marginTop="30dp"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:layout_marginTop="32dp"
             android:contentDescription="@string/app_name"
-            android:src="@drawable/ic_storyline_logo"
+            android:src="@drawable/ic_app_logo_s"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent" />

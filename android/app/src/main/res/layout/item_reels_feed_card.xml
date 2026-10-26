@@ -11,14 +11,23 @@
     android:clipToOutline="true"
     android:elevation="6dp">
 
-    <!-- 9:16 Dynamic Gradient Background View -->
+    <!-- 1. 9:16 Model Human Portrait Photo View -->
+    <ImageView
+        android:id="@+id/reelsCardPhoto"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:contentDescription="@null" />
+
+    <!-- 2. Dynamic Gradient Tint Overlay -->
     <View
         android:id="@+id/reelsCardBg"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:alpha="0.32"
         android:background="@drawable/status_preview_cta_gradient_bg" />
 
-    <!-- Ambient Dark Gradient Scrim (top & bottom readable overlays) -->
+    <!-- 3. Ambient Dark Gradient Scrim (top & bottom readable overlays) -->
     <View
         android:layout_width="match_parent"
         android:layout_height="match_parent"

@@ -75,6 +75,12 @@ class LaunchActivity : ComponentActivity() {
         findViewById<View>(R.id.startPhotoEditorButton).setOnClickListener {
             openPhotoEditor(resume = false)
         }
+        findViewById<View?>(R.id.startHeaderSettingsButton)?.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
+        emptyProjectsContainer?.setOnClickListener {
+            openEditor(EditorLaunchIntents.START_ACTION_NEW)
+        }
 
         // Bottom Navigation
         findViewById<View>(R.id.navCreate).setOnClickListener {
