@@ -2245,6 +2245,25 @@ class TimelineCanvasView @JvmOverloads constructor(
                     targets += c.startTimeMs
                     targets += c.startTimeMs + c.durationMs
                 }
+                // Magnetic snap to audio beats
+                if (c.trackType == TrackType.AUDIO && c.durationMs > 0) {
+                    val peaks = clipWaveforms[c.id]
+                    if (peaks != null && peaks.isNotEmpty()) {
+                        val peakCount = peaks.size
+                        val minPeakDist = (peakCount.toLong() * 450L / c.durationMs.coerceAtLeast(1L)).toInt().coerceIn(6, 40)
+                        var lastBeatIdx = -minPeakDist
+                        for (i in 0 until peakCount) {
+                            val peak = peaks[i]
+                            val isBeat = (peak >= 0.65f && (i - lastBeatIdx) >= minPeakDist) ||
+                                         ((i - lastBeatIdx) >= minPeakDist * 2 && peak >= 0.40f)
+                            if (isBeat) {
+                                lastBeatIdx = i
+                                val beatMs = c.startTimeMs + (i.toLong() * c.durationMs / peakCount.toLong())
+                                targets.add(beatMs)
+                            }
+                        }
+                    }
+                }
             }
         }
         return targets

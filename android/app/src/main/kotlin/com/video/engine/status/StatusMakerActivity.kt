@@ -1031,7 +1031,117 @@ class StatusMakerActivity : ComponentActivity() {
         colorScrollView.addView(colorContainer)
         container.addView(colorScrollView)
 
-        // 6. Hide default template overlays toggle chip
+        // 6. Typography Font Style
+        val fontLabel = TextView(ctx).apply {
+            text = "✍️ Typography Font Style:"
+            setTextColor(Color.parseColor("#E6EDF3"))
+            textSize = 11.5f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, (10 * density).toInt(), 0, (6 * density).toInt())
+        }
+        container.addView(fontLabel)
+
+        val fontScrollView = HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false }
+        val fontContainer = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        var selectedFontName: String? = activeCustomTexts.fontName
+
+        val fontSpecs = listOf(
+            Pair("✍️ Kalam (हिंदी)", "kalam"),
+            Pair("👑 Rozha (Royal)", "rozha"),
+            Pair("⚡ Poppins (Bold)", "poppins-bold"),
+            Pair("💥 Bangers", "bangers"),
+            Pair("🎬 Anton", "anton"),
+            Pair("🖊️ Marker", "marker")
+        )
+
+        fontSpecs.forEach { (fTitle, fKey) ->
+            val isCurrent = selectedFontName == fKey || (selectedFontName == null && fKey == "kalam")
+            val fontChip = TextView(ctx).apply {
+                text = fTitle
+                textSize = 11f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(if (isCurrent) Color.parseColor("#388BFD") else Color.WHITE)
+                setPadding((10 * density).toInt(), (6 * density).toInt(), (10 * density).toInt(), (6 * density).toInt())
+                val params = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = (6 * density).toInt() }
+                layoutParams = params
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#1C2128"))
+                    cornerRadius = 12 * density
+                    setStroke((1.5f * density).toInt(), if (isCurrent) Color.parseColor("#388BFD") else Color.parseColor("#33FFFFFF"))
+                }
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    selectedFontName = fKey
+                    Toast.makeText(ctx, "Font: $fTitle", Toast.LENGTH_SHORT).show()
+                }
+            }
+            fontContainer.addView(fontChip)
+        }
+        fontScrollView.addView(fontContainer)
+        container.addView(fontScrollView)
+
+        // 7. Atmospheric Particle Overlay
+        val particleLabel = TextView(ctx).apply {
+            text = "✨ Magical Particle Overlay:"
+            setTextColor(Color.parseColor("#E6EDF3"))
+            textSize = 11.5f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, (10 * density).toInt(), 0, (6 * density).toInt())
+        }
+        container.addView(particleLabel)
+
+        val particleScrollView = HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false }
+        val particleContainer = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        var selectedParticleTheme: String? = activeCustomTexts.particleTheme
+
+        val particleSpecs = listOf(
+            Pair("✨ Auto Theme", null),
+            Pair("🌧️ Rain Drops", "RAIN"),
+            Pair("❄️ Snow Flakes", "SNOW"),
+            Pair("💖 Neon Hearts", "LOVE"),
+            Pair("🔥 Fire Embers", "EMBERS"),
+            Pair("📼 90s Vintage", "VINTAGE"),
+            Pair("🎉 Birthday Confetti", "BIRTHDAY"),
+            Pair("🙏 Divine Aura", "BHAKTI")
+        )
+
+        particleSpecs.forEach { (pTitle, pCode) ->
+            val isCurrent = selectedParticleTheme == pCode
+            val particleChip = TextView(ctx).apply {
+                text = pTitle
+                textSize = 11f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(if (isCurrent) Color.parseColor("#00F2FE") else Color.WHITE)
+                setPadding((10 * density).toInt(), (6 * density).toInt(), (10 * density).toInt(), (6 * density).toInt())
+                val params = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = (6 * density).toInt() }
+                layoutParams = params
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#1C2128"))
+                    cornerRadius = 12 * density
+                    setStroke((1.5f * density).toInt(), if (isCurrent) Color.parseColor("#00F2FE") else Color.parseColor("#33FFFFFF"))
+                }
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    selectedParticleTheme = pCode
+                    Toast.makeText(ctx, "Effect: $pTitle", Toast.LENGTH_SHORT).show()
+                }
+            }
+            particleContainer.addView(particleChip)
+        }
+        particleScrollView.addView(particleContainer)
+        container.addView(particleScrollView)
+
+        // 8. Hide default template overlays toggle chip
         var hideDefaultsState = activeCustomTexts.hideDefaultOverlays
         val hideDefaultsChip = TextView(ctx).apply {
             text = if (hideDefaultsState) "✅ Hide Default Template Texts (Custom Only)" else "⬜ Hide Default Template Texts"
@@ -1065,7 +1175,9 @@ class StatusMakerActivity : ComponentActivity() {
                     taglineText = if (newTagline.isNotBlank()) newTagline else null,
                     hideDefaultOverlays = hideDefaultsState,
                     textColorHex = selectedTextColorHex,
-                    glowColorHex = selectedGlowColorHex
+                    glowColorHex = selectedGlowColorHex,
+                    fontName = selectedFontName,
+                    particleTheme = selectedParticleTheme
                 )
 
                 activeCustomText = activeCustomTexts.quoteText ?: activeCustomTexts.userName ?: activeCustomTexts.titleText
@@ -1181,6 +1293,8 @@ class StatusMakerActivity : ComponentActivity() {
             putExtra(StatusQuickExportActivity.EXTRA_HIDE_DEFAULT_OVERLAYS, texts.hideDefaultOverlays)
             putExtra(StatusQuickExportActivity.EXTRA_CUSTOM_TEXT_COLOR, texts.textColorHex)
             putExtra(StatusQuickExportActivity.EXTRA_CUSTOM_GLOW_COLOR, texts.glowColorHex)
+            putExtra(StatusQuickExportActivity.EXTRA_CUSTOM_FONT_NAME, texts.fontName)
+            putExtra(StatusQuickExportActivity.EXTRA_CUSTOM_PARTICLE_THEME, texts.particleTheme)
         }
         startActivity(quickExportIntent)
     }

@@ -210,6 +210,7 @@ object StatusProjectBuilder {
                             put("scale", textOverlay.scale.toDouble())
                             put("rotation", 0.0)
                             put("color", customTexts?.textColorHex ?: textOverlay.colorHex)
+                            customTexts?.fontName?.let { put("fontName", it) }
                             put("opacity", 1.0)
                             put("fadeInMs", 300)
                             put("fadeOutMs", 300)
@@ -232,6 +233,7 @@ object StatusProjectBuilder {
                         put("scale", 1.35 * textScale)
                         put("rotation", 0.0)
                         put("color", customTexts.textColorHex ?: "0xFFFFD700")
+                        customTexts.fontName?.let { put("fontName", it) }
                         put("opacity", 1.0)
                         put("fadeInMs", 300)
                         put("fadeOutMs", 300)
@@ -254,6 +256,7 @@ object StatusProjectBuilder {
                         put("scale", 1.30 * textScale)
                         put("rotation", 0.0)
                         put("color", customTexts?.textColorHex ?: "0xFFFFD700")
+                        put("fontName", customTexts?.fontName ?: "kalam")
                         put("opacity", 1.0)
                         put("fadeInMs", 300)
                         put("fadeOutMs", 300)
@@ -275,6 +278,7 @@ object StatusProjectBuilder {
                         put("scale", 1.05 * textScale)
                         put("rotation", 0.0)
                         put("color", "0xFF00F2FE")
+                        customTexts?.fontName?.let { put("fontName", it) }
                         put("opacity", 1.0)
                         put("fadeInMs", 300)
                         put("fadeOutMs", 300)

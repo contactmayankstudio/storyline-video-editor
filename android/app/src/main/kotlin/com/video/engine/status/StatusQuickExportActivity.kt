@@ -63,6 +63,8 @@ class StatusQuickExportActivity : ComponentActivity() {
         const val EXTRA_HIDE_DEFAULT_OVERLAYS = "extra_status_hide_default_overlays"
         const val EXTRA_CUSTOM_TEXT_COLOR = "extra_status_custom_text_color"
         const val EXTRA_CUSTOM_GLOW_COLOR = "extra_status_custom_glow_color"
+        const val EXTRA_CUSTOM_FONT_NAME = "extra_status_custom_font_name"
+        const val EXTRA_CUSTOM_PARTICLE_THEME = "extra_status_custom_particle_theme"
     }
 
     private var projectPath: String? = null
@@ -74,7 +76,10 @@ class StatusQuickExportActivity : ComponentActivity() {
     private var photoPaths: ArrayList<String> = arrayListOf()
     private var customText: String? = null
     private var activeCustomTexts = StatusCustomTexts()
-    private var is1080pSelected: Boolean = false
+    private var selectedQualityProfile: Int = 1 // 0 = 720p, 1 = 1080p, 2 = 4K
+    private var is1080pSelected: Boolean
+        get() = selectedQualityProfile == 1
+        set(value) { selectedQualityProfile = if (value) 1 else 0 }
 
     private var currentTemplate: StatusTemplate? = null
     private var currentAudioPath: String? = null
@@ -152,7 +157,9 @@ class StatusQuickExportActivity : ComponentActivity() {
             taglineText = intent.getStringExtra(EXTRA_CUSTOM_TAGLINE),
             hideDefaultOverlays = intent.getBooleanExtra(EXTRA_HIDE_DEFAULT_OVERLAYS, false),
             textColorHex = intent.getStringExtra(EXTRA_CUSTOM_TEXT_COLOR),
-            glowColorHex = intent.getStringExtra(EXTRA_CUSTOM_GLOW_COLOR)
+            glowColorHex = intent.getStringExtra(EXTRA_CUSTOM_GLOW_COLOR),
+            fontName = intent.getStringExtra(EXTRA_CUSTOM_FONT_NAME),
+            particleTheme = intent.getStringExtra(EXTRA_CUSTOM_PARTICLE_THEME)
         )
 
         val passedAudioPath = intent.getStringExtra(EXTRA_CUSTOM_AUDIO_PATH)
@@ -240,58 +247,60 @@ class StatusQuickExportActivity : ComponentActivity() {
         setupPreviewView()
         setupMusicCard()
 
-        // Setup Export Quality Selector Chips (1080p Full HD vs 720p Fast)
+        // Setup Export Quality Selector Chips (1080p Full HD vs 720p Fast vs 4K Pro)
         val quality1080pBtn = findViewById<FrameLayout>(R.id.quickExportQuality1080pBtn)
         val quality1080pText = findViewById<TextView>(R.id.quickExportQuality1080pText)
         val quality720pBtn = findViewById<FrameLayout>(R.id.quickExportQuality720pBtn)
         val quality720pText = findViewById<TextView>(R.id.quickExportQuality720pText)
+        val quality4kBtn = findViewById<FrameLayout>(R.id.quickExportQuality4kBtn)
+        val quality4kText = findViewById<TextView>(R.id.quickExportQuality4kText)
 
         fun updateQualityUi() {
             val density = resources.displayMetrics.density
-            if (is1080pSelected) {
-                quality1080pBtn?.background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#1F385C"))
-                    cornerRadius = 16 * density
-                    setStroke((1.5f * density).toInt(), Color.parseColor("#388BFD"))
-                }
-                quality1080pText?.setTextColor(Color.parseColor("#58A6FF"))
 
-                quality720pBtn?.background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#161B22"))
-                    cornerRadius = 16 * density
-                    setStroke((1 * density).toInt(), Color.parseColor("#33FFFFFF"))
+            fun applyChipStyle(btn: FrameLayout?, txt: TextView?, selected: Boolean, activeColor: String) {
+                if (selected) {
+                    btn?.background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#1F385C"))
+                        cornerRadius = 16 * density
+                        setStroke((1.5f * density).toInt(), Color.parseColor(activeColor))
+                    }
+                    txt?.setTextColor(Color.parseColor(activeColor))
+                } else {
+                    btn?.background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#161B22"))
+                        cornerRadius = 16 * density
+                        setStroke((1 * density).toInt(), Color.parseColor("#33FFFFFF"))
+                    }
+                    txt?.setTextColor(Color.parseColor("#8A99AD"))
                 }
-                quality720pText?.setTextColor(Color.parseColor("#8A99AD"))
-            } else {
-                quality720pBtn?.background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#1F385C"))
-                    cornerRadius = 16 * density
-                    setStroke((1.5f * density).toInt(), Color.parseColor("#388BFD"))
-                }
-                quality720pText?.setTextColor(Color.parseColor("#58A6FF"))
-
-                quality1080pBtn?.background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#161B22"))
-                    cornerRadius = 16 * density
-                    setStroke((1 * density).toInt(), Color.parseColor("#33FFFFFF"))
-                }
-                quality1080pText?.setTextColor(Color.parseColor("#8A99AD"))
             }
+
+            applyChipStyle(quality1080pBtn, quality1080pText, selectedQualityProfile == 1, "#388BFD")
+            applyChipStyle(quality720pBtn, quality720pText, selectedQualityProfile == 0, "#00E5FF")
+            applyChipStyle(quality4kBtn, quality4kText, selectedQualityProfile == 2, "#FFD700")
         }
         updateQualityUi()
 
         quality1080pBtn?.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-            is1080pSelected = true
+            selectedQualityProfile = 1
             updateQualityUi()
             Toast.makeText(this, "💎 1080p Full HD Export Selected", Toast.LENGTH_SHORT).show()
         }
 
         quality720pBtn?.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-            is1080pSelected = false
+            selectedQualityProfile = 0
             updateQualityUi()
             Toast.makeText(this, "⚡ 720p Fast Export Selected", Toast.LENGTH_SHORT).show()
+        }
+
+        quality4kBtn?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            selectedQualityProfile = 2
+            updateQualityUi()
+            Toast.makeText(this, "👑 4K Ultra HD Export Selected", Toast.LENGTH_SHORT).show()
         }
 
         // 1-Click Export click
@@ -584,7 +593,11 @@ class StatusQuickExportActivity : ComponentActivity() {
 
         exportProgressOverlay.visibility = View.VISIBLE
         exportProgressBar.progress = 0
-        val qualityLabel = if (is1080pSelected) "1080p Full HD" else "720p Fast"
+        val qualityLabel = when (selectedQualityProfile) {
+            2 -> "4K Ultra HD"
+            1 -> "1080p Full HD"
+            else -> "720p Fast"
+        }
         exportPercentText.text = "Exporting Status Video ($qualityLabel)... 0%"
         livePreviewView?.visibility = View.GONE
 
@@ -616,9 +629,21 @@ class StatusQuickExportActivity : ComponentActivity() {
         val exportDir = File(cacheDir, "status_exports").also { it.mkdirs() }
         val exportFile = File(exportDir, "Status_${safeTitle}_${timeStamp}.mp4")
 
-        val expWidth = if (is1080pSelected) 1080 else 720
-        val expHeight = if (is1080pSelected) 1920 else 1280
-        val expBitrate = if (is1080pSelected) 8 else 4
+        val expWidth = when (selectedQualityProfile) {
+            2 -> 2160
+            1 -> 1080
+            else -> 720
+        }
+        val expHeight = when (selectedQualityProfile) {
+            2 -> 3840
+            1 -> 1920
+            else -> 1280
+        }
+        val expBitrate = when (selectedQualityProfile) {
+            2 -> 18
+            1 -> 8
+            else -> 4
+        }
 
         Thread {
             try {

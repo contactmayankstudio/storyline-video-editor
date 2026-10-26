@@ -88,6 +88,7 @@ class TextEditorPanel(
         addFontControls(tabTextFont)
         addStyleControls(tabTextFont)
         addPresetStyles(tabTextFont)
+        addCaptionStyleControls(tabTextFont)
         tabContainers.add(tabTextFont)
         mainContainer.addView(tabTextFont)
 
@@ -388,9 +389,13 @@ class TextEditorPanel(
     private fun addFontControls(container: LinearLayout) {
         container.addView(label("Typography Font"))
         val specs = listOf(
+            FontSpec("Kalam (हिंदी)", "kalam"),
+            FontSpec("Rozha (Royal)", "rozha"),
+            FontSpec("Poppins", "poppins-bold"),
             FontSpec("Bangers", "bangers"),
             FontSpec("Anton", "anton"),
-            FontSpec("Poppins", "poppins-bold"),
+            FontSpec("Marker", "marker"),
+            FontSpec("Montserrat", "montserrat"),
             FontSpec("Sans", "sans-serif"),
             FontSpec("Serif", "serif"),
             FontSpec("Mono", "monospace"),
@@ -494,6 +499,64 @@ class TextEditorPanel(
             }
             row.addView(btn)
         }
+        scroller.addView(row)
+        container.addView(scroller)
+    }
+
+    private fun addCaptionStyleControls(container: LinearLayout) {
+        container.addView(label("AI Animated Caption Style (Karaoke / Reels)"))
+        val captionStyles = listOf(
+            "None" to null,
+            "⚡ Hormozi Pop" to "HORMOZI",
+            "🔥 MrBeast Pop" to "MRBEAST",
+            "🎵 Karaoke Beat" to "KARAOKE",
+            "🤖 Cyberpunk" to "CYBERPUNK",
+            "🎬 Cinema Glow" to "CINEMA",
+        )
+        val scroller = HorizontalScrollView(activity).apply {
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
+        val buttons = mutableListOf<TextView>()
+
+        fun refreshCaptionButtons() {
+            val current = targetOverlay.captionStyle
+            for (button in buttons) {
+                val active = button.tag == current
+                button.setTextColor(if (active) Color.BLACK else Color.WHITE)
+                button.background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = px(8).toFloat()
+                    setColor(if (active) Color.parseColor("#388BFD") else chipIdle)
+                    setStroke(px(1), if (active) Color.parseColor("#388BFD") else Color.parseColor("#222A36"))
+                }
+            }
+        }
+
+        captionStyles.forEach { (title, styleCode) ->
+            val btn = TextView(activity).apply {
+                text = title
+                textSize = 12f
+                setTypeface(null, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setPadding(px(14), px(6), px(14), px(6))
+                tag = styleCode
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    px(36),
+                ).also { it.setMargins(0, 0, px(6), 0) }
+                setOnClickListener {
+                    targetOverlay.captionStyle = styleCode
+                    targetOverlay.interpolateWordCuesIfNeeded()
+                    refreshCaptionButtons()
+                    applyPreviewChanges(refreshTimelineLabel = false)
+                }
+            }
+            buttons.add(btn)
+            row.addView(btn)
+        }
+        refreshCaptionButtons()
         scroller.addView(row)
         container.addView(scroller)
     }

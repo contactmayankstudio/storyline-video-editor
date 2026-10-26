@@ -310,9 +310,9 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
     private val sampleSlides = mutableListOf<Bitmap>()
     private var customPhotoBitmap: Bitmap? = null
 
-    // Magical Particle Overlays (Love Hearts, Phonk Sparks, Birthday Glitter, Devotional Petals)
+    // Magical Particle Overlays (Love Hearts, Phonk Sparks, Birthday Glitter, Devotional Petals, Rain, Snow, Vintage, Embers)
     private enum class ParticleTheme {
-        LOVE, ATTITUDE_PHONK, BIRTHDAY_SPARKLE, SPIRITUAL_DEVOTIONAL
+        LOVE, ATTITUDE_PHONK, BIRTHDAY_SPARKLE, SPIRITUAL_DEVOTIONAL, RAIN, SNOW, VINTAGE_FILM, GOLDEN_EMBERS
     }
 
     private class StatusParticle {
@@ -376,6 +376,42 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
                     size = 20f + rng.nextFloat() * 18f
                     symbol = if (rng.nextFloat() < 0.6f) "🌸" else if (rng.nextFloat() < 0.85f) "🪔" else "✨"
                     color = Color.parseColor("#FF9933")
+                }
+                ParticleTheme.RAIN -> {
+                    x = rng.nextFloat() * w
+                    y = if (randomStart) rng.nextFloat() * h else -40f
+                    vx = -1.2f + rng.nextFloat() * 0.4f
+                    vy = 14f + rng.nextFloat() * 10f
+                    size = 15f + rng.nextFloat() * 8f
+                    symbol = "💧"
+                    color = Color.parseColor("#80D8FF")
+                }
+                ParticleTheme.SNOW -> {
+                    x = rng.nextFloat() * w
+                    y = if (randomStart) rng.nextFloat() * h else -25f
+                    vx = -0.5f + rng.nextFloat() * 1.0f
+                    vy = 1.5f + rng.nextFloat() * 2.2f
+                    size = 16f + rng.nextFloat() * 12f
+                    symbol = if (rng.nextBoolean()) "❄️" else "⚪"
+                    color = Color.WHITE
+                }
+                ParticleTheme.VINTAGE_FILM -> {
+                    x = rng.nextFloat() * w
+                    y = rng.nextFloat() * h
+                    vx = -0.3f + rng.nextFloat() * 0.6f
+                    vy = -0.3f + rng.nextFloat() * 0.6f
+                    size = 12f + rng.nextFloat() * 10f
+                    symbol = if (rng.nextFloat() < 0.4f) "🎞️" else "•"
+                    color = Color.parseColor("#E0D6C3")
+                }
+                ParticleTheme.GOLDEN_EMBERS -> {
+                    x = rng.nextFloat() * w
+                    y = if (randomStart) rng.nextFloat() * h else h + 20f
+                    vx = -0.9f + rng.nextFloat() * 1.8f
+                    vy = -(2.5f + rng.nextFloat() * 3.5f)
+                    size = 16f + rng.nextFloat() * 14f
+                    symbol = if (rng.nextBoolean()) "🔥" else "✨"
+                    color = Color.parseColor("#FFD700")
                 }
             }
         }
@@ -1588,10 +1624,16 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
                 parseColorSafe(tm.gradientStartHex, Color.CYAN)
             }
 
+            val chosenTypeface = if (!customTexts.fontName.isNullOrBlank()) {
+                com.video.engine.TextBitmapHelper.resolveTypeface(customTexts.fontName, bold = true, italic = false, context = context)
+            } else {
+                Typeface.DEFAULT_BOLD
+            }
+
             textPaint.apply {
                 color = textColor
                 textSize = textSizeSp + bounce
-                typeface = Typeface.DEFAULT_BOLD
+                typeface = chosenTypeface
                 textAlign = Paint.Align.CENTER
                 setShadowLayer(14f, 0f, 0f, glowColor)
             }
@@ -1643,10 +1685,17 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
                 Color.parseColor("#FFD700")
             }
 
+            val customTf = if (!customTexts.fontName.isNullOrBlank()) {
+                com.video.engine.TextBitmapHelper.resolveTypeface(customTexts.fontName, bold = true, italic = false, context = context)
+            } else {
+                // Default to Kalam for quotes/shayari if available, else bold
+                com.video.engine.TextBitmapHelper.resolveTypeface("kalam", bold = true, italic = false, context = context)
+            }
+
             customTextPaint.apply {
                 color = textColor
                 textSize = customTextSize
-                typeface = Typeface.DEFAULT_BOLD
+                typeface = customTf
                 textAlign = Paint.Align.CENTER
                 setShadowLayer(16f + (beatPulse * 6f), 0f, 0f, glowColor)
             }
@@ -1921,9 +1970,26 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
     }
 
     private fun resolveParticleTheme(tm: StatusTemplate): ParticleTheme {
+        val override = customTexts.particleTheme?.uppercase()
+        if (override != null) {
+            when (override) {
+                "RAIN" -> return ParticleTheme.RAIN
+                "SNOW" -> return ParticleTheme.SNOW
+                "VINTAGE", "FILM" -> return ParticleTheme.VINTAGE_FILM
+                "EMBERS", "FIRE" -> return ParticleTheme.GOLDEN_EMBERS
+                "LOVE", "HEART" -> return ParticleTheme.LOVE
+                "ATTITUDE", "PHONK" -> return ParticleTheme.ATTITUDE_PHONK
+                "BIRTHDAY" -> return ParticleTheme.BIRTHDAY_SPARKLE
+                "BHAKTI", "DEVOTIONAL" -> return ParticleTheme.SPIRITUAL_DEVOTIONAL
+            }
+        }
         val cat = tm.category.lowercase()
         val title = tm.title.lowercase()
         return when {
+            cat.contains("rain") || title.contains("rain") || title.contains("monsoon") || tm.emoji in listOf("🌧️", "⛈️", "☔") ->
+                ParticleTheme.RAIN
+            cat.contains("snow") || title.contains("snow") || title.contains("winter") || tm.emoji in listOf("❄️", "☃️") ->
+                ParticleTheme.SNOW
             cat.contains("love") || title.contains("love") || title.contains("romantic") || tm.emoji in listOf("💖", "❤️", "💕") ->
                 ParticleTheme.LOVE
             cat.contains("attitude") || title.contains("phonk") || title.contains("bass") || title.contains("swag") || tm.emoji in listOf("🔥", "⚡", "💥", "😎") ->

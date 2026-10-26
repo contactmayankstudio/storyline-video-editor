@@ -44,7 +44,7 @@ import java.util.Locale
 import kotlin.math.max
 
 class PhotoEditorActivity : ComponentActivity() {
-    private enum class PhotoStudioTab { CANVAS, PRESETS, EDIT, MAGIC, TEXT, ELEMENTS, LAYERS }
+    private enum class PhotoStudioTab { CANVAS, PRESETS, EDIT, MAGIC, TEXT, ELEMENTS, LAYERS, COLLAGE }
 
     companion object {
         const val EXTRA_RESUME_PHOTO = "com.video.engine.photo.RESUME_PHOTO"
@@ -128,6 +128,20 @@ class PhotoEditorActivity : ComponentActivity() {
             return@registerForActivityResult
         }
         setImportedBackgroundImage(uri.toString(), bitmap)
+    }
+
+    private var collageCornerRadiusPx = 24f
+    private var collageSpacingPx = 16f
+    private var collageBgColor = Color.parseColor("#0F141C")
+    private var collageUris: List<Uri> = emptyList()
+
+    private val pickMultipleCollageImagesLauncher = registerForActivityResult(
+        ActivityResultContracts.GetMultipleContents()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            collageUris = uris.take(9)
+            buildAndApplyCollage(collageUris)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -647,9 +661,130 @@ class PhotoEditorActivity : ComponentActivity() {
                 addStudioTool("Copy", "COPY") { canvasView.duplicateSelectedLayer(); refreshStatus() }
                 addStudioTool("Export", "OUT") { showExportPanel() }
             }
+            PhotoStudioTab.COLLAGE -> {
+                addStudioTool("Pick Photos", "GRID+") { pickCollagePhotos() }
+                addStudioTool("2 Grid", "2x1") { applyCollageLayout(2) }
+                addStudioTool("3 Grid", "3x1") { applyCollageLayout(3) }
+                addStudioTool("4 Grid", "2x2") { applyCollageLayout(4) }
+                addStudioTool("6 Grid", "2x3") { applyCollageLayout(6) }
+                addStudioTool("9 Grid", "3x3") { applyCollageLayout(9) }
+                addStudioTool("Spacing", "PAD") { showCollageSpacingPanel() }
+                addStudioTool("Round", "RND") { showCollageRadiusPanel() }
+            }
         }
         refreshStudioTabs()
         syncMagicWipeLineVisibility()
+    }
+
+    private fun pickCollagePhotos() {
+        try {
+            pickMultipleCollageImagesLauncher.launch("image/*")
+        } catch (_: Exception) {
+            Toast.makeText(this, "Could not open gallery", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun applyCollageLayout(targetCount: Int) {
+        if (collageUris.isEmpty()) {
+            Toast.makeText(this, "Please pick photos first with 'Pick Photos' 📸", Toast.LENGTH_SHORT).show()
+            pickCollagePhotos()
+            return
+        }
+        val adjustedUris = if (collageUris.size >= targetCount) {
+            collageUris.take(targetCount)
+        } else {
+            val list = collageUris.toMutableList()
+            while (list.size < targetCount) {
+                list.add(collageUris[list.size % collageUris.size])
+            }
+            list
+        }
+        buildAndApplyCollage(adjustedUris)
+    }
+
+    private fun buildAndApplyCollage(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        val count = uris.size
+        val canvasW = 1080
+        val canvasH = if (count == 2) 1080 else if (count == 6) 1350 else 1080
+        val composite = Bitmap.createBitmap(canvasW, canvasH, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(composite)
+        canvas.drawColor(collageBgColor)
+
+        val pad = collageSpacingPx
+        val radius = collageCornerRadiusPx
+
+        // Determine grid rows & cols
+        val (cols, rows) = when {
+            count == 2 -> Pair(2, 1)
+            count == 3 -> Pair(3, 1)
+            count == 4 -> Pair(2, 2)
+            count in 5..6 -> Pair(3, 2)
+            else -> Pair(3, 3)
+        }
+
+        val cellW = (canvasW - pad * (cols + 1)) / cols
+        val cellH = (canvasH - pad * (rows + 1)) / rows
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            isFilterBitmap = true
+        }
+
+        uris.forEachIndexed { i, uri ->
+            if (i >= cols * rows) return@forEachIndexed
+            val col = i % cols
+            val row = i / cols
+            val left = pad + col * (cellW + pad)
+            val top = pad + row * (cellH + pad)
+            val rect = RectF(left, top, left + cellW, top + cellH)
+
+            val srcBmp = decodeBitmap(uri) ?: return@forEachIndexed
+            // Center crop srcBmp to cellW x cellH
+            val scale = max(cellW / srcBmp.width.toFloat(), cellH / srcBmp.height.toFloat())
+            val scaledW = srcBmp.width * scale
+            val scaledH = srcBmp.height * scale
+            val dx = rect.left + (cellW - scaledW) / 2f
+            val dy = rect.top + (cellH - scaledH) / 2f
+
+            canvas.save()
+            val clipPath = android.graphics.Path().apply {
+                addRoundRect(rect, radius, radius, android.graphics.Path.Direction.CW)
+            }
+            canvas.clipPath(clipPath)
+            val matrix = android.graphics.Matrix().apply {
+                postScale(scale, scale)
+                postTranslate(dx, dy)
+            }
+            canvas.drawBitmap(srcBmp, matrix, paint)
+            canvas.restore()
+        }
+
+        canvasView.setBaseImage(composite)
+        sourceImageUri = null
+        dirtySinceOpen = true
+        Toast.makeText(this, "Collage created with $count photos! ✨", Toast.LENGTH_SHORT).show()
+        savePhotoProjectIfDirty()
+    }
+
+    private fun showCollageSpacingPanel() {
+        showPanel("Collage Spacing & Padding", emptyList())
+        activeToolPanel.addView(
+            sliderRow("Spacing", 48, collageSpacingPx.toInt().coerceIn(0, 48)) { value ->
+                collageSpacingPx = value.toFloat()
+                if (collageUris.isNotEmpty()) buildAndApplyCollage(collageUris)
+            }
+        )
+        expandToolPanel(TOOL_PANEL_COMPACT_HEIGHT_DP)
+    }
+
+    private fun showCollageRadiusPanel() {
+        showPanel("Collage Corner Rounding", emptyList())
+        activeToolPanel.addView(
+            sliderRow("Corner", 64, collageCornerRadiusPx.toInt().coerceIn(0, 64)) { value ->
+                collageCornerRadiusPx = value.toFloat()
+                if (collageUris.isNotEmpty()) buildAndApplyCollage(collageUris)
+            }
+        )
+        expandToolPanel(TOOL_PANEL_COMPACT_HEIGHT_DP)
     }
 
     private fun syncMagicWipeLineVisibility() {
@@ -757,6 +892,7 @@ class PhotoEditorActivity : ComponentActivity() {
             PhotoStudioTab.TEXT -> "Text"
             PhotoStudioTab.ELEMENTS -> "Sticker"
             PhotoStudioTab.LAYERS -> "Layers"
+            PhotoStudioTab.COLLAGE -> "Collage"
         }
         return TextView(this).apply {
             text = label

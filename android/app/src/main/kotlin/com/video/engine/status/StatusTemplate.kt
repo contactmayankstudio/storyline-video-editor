@@ -26,7 +26,9 @@ data class StatusCustomTexts(
     var taglineText: String? = null,
     var hideDefaultOverlays: Boolean = false,
     var textColorHex: String? = null,
-    var glowColorHex: String? = null
+    var glowColorHex: String? = null,
+    var fontName: String? = null,
+    var particleTheme: String? = null
 ) : java.io.Serializable
 
 enum class StatusDesignTheme {

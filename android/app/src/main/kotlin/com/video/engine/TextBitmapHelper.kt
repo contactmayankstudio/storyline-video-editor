@@ -374,6 +374,8 @@ object TextBitmapHelper {
         if (cached != null) return cached
 
         val assetPath = when {
+            cleanName.contains("kalam") -> "fonts/Kalam-Bold.ttf"
+            cleanName.contains("rozha") -> "fonts/RozhaOne-Regular.ttf"
             cleanName.contains("banger") -> "fonts/Bangers-Regular.ttf"
             cleanName.contains("anton") -> "fonts/Anton-Regular.ttf"
             cleanName.contains("poppins") && cleanName.contains("semi") -> "fonts/Poppins-SemiBold.ttf"
