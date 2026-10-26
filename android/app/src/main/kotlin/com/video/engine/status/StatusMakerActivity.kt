@@ -57,6 +57,7 @@ class StatusMakerActivity : ComponentActivity() {
     private var lastCustomPhotoPath: String? = null
     private var lastPhotoPaths: List<String> = emptyList()
     private var activeCustomText: String? = null
+    private var activeCustomTexts = StatusCustomTexts()
     private var activeCustomAudioPath: String? = null
     private var activeCustomAudioTitle: String? = null
     private var onAudioSelectedCallback: ((String, String) -> Unit)? = null
@@ -516,10 +517,11 @@ class StatusMakerActivity : ComponentActivity() {
             descTv?.text = if (activePhotoPath != null) "⚡ Live animated preview of your photo with ${tmpl.title}! Tap Export to save." else tmpl.description
             ctaText?.text = if (activePhotoPath != null) "⚡ 1-CLICK EXPORT TO GALLERY" else "⚡ CREATE 1-PHOTO / REELS STATUS"
             testPhotoText?.text = if (activePhotoPath != null) "Swap Photo 📸" else "Pick Photo 📸"
-            if (!activeCustomText.isNullOrBlank()) {
-                editTextTitle?.text = "✏️ ${activeCustomText!!.take(12)}"
+            val display = activeCustomTexts.userName ?: activeCustomTexts.quoteText ?: activeCustomText
+            if (!display.isNullOrBlank()) {
+                editTextTitle?.text = "✏️ ${display.take(12)}"
             } else {
-                editTextTitle?.text = "Put My Name ✏️"
+                editTextTitle?.text = "Edit Texts & Name ✏️"
             }
             if (!activeCustomAudioTitle.isNullOrBlank()) {
                 changeMusicText?.text = "🎵 ${activeCustomAudioTitle!!.take(12)}"
@@ -567,8 +569,16 @@ class StatusMakerActivity : ComponentActivity() {
             }
 
             livePreviewView?.bindTemplate(tmpl, previewMediaPlayer)
+            livePreviewView?.customTexts = activeCustomTexts
             livePreviewView?.customStatusText = activeCustomText
             livePreviewView?.setCustomPhoto(activePhotoPath)
+            livePreviewView?.onTextClickListener = {
+                showProTextAndNameEditorDialog(currentActiveTemplate) {
+                    livePreviewView?.customTexts = activeCustomTexts
+                    val d = activeCustomTexts.userName ?: activeCustomTexts.quoteText ?: activeCustomText
+                    editTextTitle?.text = if (!d.isNullOrBlank()) "✏️ ${d.take(12)}" else "Edit Texts & Name ✏️"
+                }
+            }
         }
 
         bindTemplateState(initialTemplate)
@@ -586,23 +596,10 @@ class StatusMakerActivity : ComponentActivity() {
         // Custom Name / Lyrical Text Editor
         editTextBtn?.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-            showEditTextDialog(activeCustomText) { newText ->
-                activeCustomText = newText
-                livePreviewView?.customStatusText = newText
-                editTextTitle?.text = if (newText.isNotBlank()) "✏️ ${newText.take(12)}" else "Edit Text / Name"
-                Toast.makeText(this@StatusMakerActivity, "✨ Custom text applied: $newText", Toast.LENGTH_SHORT).show()
-
-                if (activePhotoPaths.isNotEmpty()) {
-                    Thread {
-                        currentProjectFile = StatusProjectBuilder.buildProjectFile(
-                            this@StatusMakerActivity,
-                            currentActiveTemplate,
-                            activePhotoPaths,
-                            activeCustomAudioPath,
-                            activeCustomText
-                        )
-                    }.start()
-                }
+            showProTextAndNameEditorDialog(currentActiveTemplate) {
+                livePreviewView?.customTexts = activeCustomTexts
+                val d = activeCustomTexts.userName ?: activeCustomTexts.quoteText ?: activeCustomText
+                editTextTitle?.text = if (!d.isNullOrBlank()) "✏️ ${d.take(12)}" else "Edit Texts & Name ✏️"
             }
         }
 
@@ -716,7 +713,8 @@ class StatusMakerActivity : ComponentActivity() {
                         activeCustomText,
                         textNormX = textX,
                         textNormY = textY,
-                        textScale = textScale
+                        textScale = textScale,
+                        customTexts = activeCustomTexts
                     )
                     runOnUiThread {
                         if (proj != null && proj.exists()) {
@@ -725,7 +723,8 @@ class StatusMakerActivity : ComponentActivity() {
                                 currentActiveTemplate,
                                 photosToUse,
                                 activeCustomText,
-                                activeCustomAudioPath
+                                activeCustomAudioPath,
+                                activeCustomTexts
                             )
                         } else {
                             Toast.makeText(this@StatusMakerActivity, "Failed to build status project", Toast.LENGTH_SHORT).show()
@@ -757,65 +756,126 @@ class StatusMakerActivity : ComponentActivity() {
         }
     }
 
-    private fun showEditTextDialog(
-        initialText: String?,
-        onTextApplied: (String) -> Unit
+    private fun showProTextAndNameEditorDialog(
+        template: StatusTemplate,
+        onApplied: (() -> Unit)? = null
     ) {
         val ctx = this
         val density = resources.displayMetrics.density
 
+        val scrollView = androidx.core.widget.NestedScrollView(ctx).apply {
+            isFillViewport = true
+        }
+
         val container = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding((20 * density).toInt(), (16 * density).toInt(), (20 * density).toInt(), (12 * density).toInt())
+            setPadding((18 * density).toInt(), (16 * density).toInt(), (18 * density).toInt(), (14 * density).toInt())
         }
+        scrollView.addView(container)
 
-        val hintText = TextView(ctx).apply {
-            text = "Enter your name or pick a trending Shayari / Quote to bounce with glowing kinetic neon text:"
+        val subHeader = TextView(ctx).apply {
+            text = "✏️ Change any text, name, title, or quote. Everything is 100% customizable!"
             setTextColor(Color.parseColor("#9AA4B2"))
-            textSize = 12.5f
-            setPadding(0, 0, 0, (10 * density).toInt())
+            textSize = 12f
+            setPadding(0, 0, 0, (12 * density).toInt())
         }
-        container.addView(hintText)
+        container.addView(subHeader)
 
-        val editText = EditText(ctx).apply {
-            hint = "e.g. Rohan 🔥 / Happy Birthday 🎂 / Love You ❤️"
+        // 1. Title / Headline
+        val titleLabel = TextView(ctx).apply {
+            text = "🏷️ Main Title / Headline:"
+            setTextColor(Color.parseColor("#00F2FE"))
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, 0, 0, (4 * density).toInt())
+        }
+        container.addView(titleLabel)
+
+        val titleEditText = EditText(ctx).apply {
+            hint = "e.g. ${template.title}"
             setHintTextColor(Color.parseColor("#556070"))
             setTextColor(Color.WHITE)
-            textSize = 14.5f
-            setText(initialText ?: "")
+            textSize = 14f
+            setText(activeCustomTexts.titleText ?: template.title)
             setSelection(text.length)
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#1C2128"))
                 cornerRadius = 10 * density
                 setStroke((1 * density).toInt(), Color.parseColor("#388BFD"))
             }
-            setPadding((14 * density).toInt(), (10 * density).toInt(), (14 * density).toInt(), (10 * density).toInt())
+            setPadding((12 * density).toInt(), (8 * density).toInt(), (12 * density).toInt(), (8 * density).toInt())
         }
-        container.addView(editText)
+        container.addView(titleEditText)
 
-        // Ready-made Lyrical Shayari & Quotes Library
-        val shayariHeader = TextView(ctx).apply {
-            text = "📚 Ready-Made Lyrical Shayari & Quotes:"
+        // 2. Name / Couple Name
+        val nameLabel = TextView(ctx).apply {
+            text = "👑 My Name / Couple Name / Handle:"
             setTextColor(Color.parseColor("#FFD700"))
             textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, (12 * density).toInt(), 0, (6 * density).toInt())
+            setPadding(0, (10 * density).toInt(), 0, (4 * density).toInt())
+        }
+        container.addView(nameLabel)
+
+        val nameEditText = EditText(ctx).apply {
+            hint = "e.g. Rahul Sharma / Rahul ❤️ Priya / @rohan_reels"
+            setHintTextColor(Color.parseColor("#556070"))
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            setText(activeCustomTexts.userName ?: "")
+            setSelection(text.length)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1C2128"))
+                cornerRadius = 10 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#FFD700"))
+            }
+            setPadding((12 * density).toInt(), (8 * density).toInt(), (12 * density).toInt(), (8 * density).toInt())
+        }
+        container.addView(nameEditText)
+
+        // 3. Shayari / Lyrical Quote
+        val quoteLabel = TextView(ctx).apply {
+            text = "💬 Shayari / Lyrical Quote:"
+            setTextColor(Color.parseColor("#FF758C"))
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, (10 * density).toInt(), 0, (4 * density).toInt())
+        }
+        container.addView(quoteLabel)
+
+        val quoteEditText = EditText(ctx).apply {
+            hint = "Type your own quote, lyrics, or pick from below..."
+            setHintTextColor(Color.parseColor("#556070"))
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            setText(activeCustomTexts.quoteText ?: activeCustomText ?: "")
+            setSelection(text.length)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1C2128"))
+                cornerRadius = 10 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#FF4081"))
+            }
+            setPadding((12 * density).toInt(), (8 * density).toInt(), (12 * density).toInt(), (8 * density).toInt())
+        }
+        container.addView(quoteEditText)
+
+        // Ready-made Lyrical Shayari Categories & Chips
+        val shayariHeader = TextView(ctx).apply {
+            text = "📚 1-Tap Shayari & Quote Library:"
+            setTextColor(Color.parseColor("#E6EDF3"))
+            textSize = 11.5f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, (8 * density).toInt(), 0, (4 * density).toInt())
         }
         container.addView(shayariHeader)
 
-        val categoryScrollView = HorizontalScrollView(ctx).apply {
-            isHorizontalScrollBarEnabled = false
-        }
-        val categoryContainer = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
+        val categoryScrollView = HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false }
+        val categoryContainer = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
 
-        val quotesScrollView = HorizontalScrollView(ctx).apply {
-            isHorizontalScrollBarEnabled = false
-        }
+        val quotesScrollView = HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false }
         val quotesContainer = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, (6 * density).toInt(), 0, (8 * density).toInt())
+            setPadding(0, (4 * density).toInt(), 0, (8 * density).toInt())
         }
 
         var activeCategoryIdx = 0
@@ -825,27 +885,25 @@ class StatusMakerActivity : ComponentActivity() {
             category.quotes.forEach { quote ->
                 val quoteChip = TextView(ctx).apply {
                     text = quote
-                    textSize = 11.5f
+                    textSize = 11f
                     setTextColor(Color.parseColor("#E6EDF3"))
-                    setPadding((10 * density).toInt(), (6 * density).toInt(), (10 * density).toInt(), (6 * density).toInt())
+                    setPadding((10 * density).toInt(), (5 * density).toInt(), (10 * density).toInt(), (5 * density).toInt())
                     val params = LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.WRAP_CONTENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply {
-                        marginEnd = (8 * density).toInt()
-                    }
+                    ).apply { marginEnd = (6 * density).toInt() }
                     layoutParams = params
                     background = GradientDrawable().apply {
                         setColor(Color.parseColor("#1F242C"))
-                        cornerRadius = 14 * density
+                        cornerRadius = 12 * density
                         setStroke((1 * density).toInt(), Color.parseColor("#388BFD"))
                     }
                     isClickable = true
                     isFocusable = true
                     setOnClickListener {
                         it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                        editText.setText(quote)
-                        editText.setSelection(quote.length)
+                        quoteEditText.setText(quote)
+                        quoteEditText.setSelection(quote.length)
                     }
                 }
                 quotesContainer.addView(quoteChip)
@@ -858,20 +916,18 @@ class StatusMakerActivity : ComponentActivity() {
                 val isSelected = idx == activeCategoryIdx
                 val tabChip = TextView(ctx).apply {
                     text = "${cat.emoji} ${cat.title}"
-                    textSize = 11.5f
+                    textSize = 11f
                     typeface = Typeface.DEFAULT_BOLD
                     setTextColor(if (isSelected) Color.WHITE else Color.parseColor("#8B949E"))
-                    setPadding((12 * density).toInt(), (5 * density).toInt(), (12 * density).toInt(), (5 * density).toInt())
+                    setPadding((10 * density).toInt(), (5 * density).toInt(), (10 * density).toInt(), (5 * density).toInt())
                     val params = LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.WRAP_CONTENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply {
-                        marginEnd = (6 * density).toInt()
-                    }
+                    ).apply { marginEnd = (6 * density).toInt() }
                     layoutParams = params
                     background = GradientDrawable().apply {
                         setColor(if (isSelected) Color.parseColor("#388BFD") else Color.parseColor("#21262D"))
-                        cornerRadius = 14 * density
+                        cornerRadius = 12 * density
                     }
                     isClickable = true
                     isFocusable = true
@@ -888,81 +944,171 @@ class StatusMakerActivity : ComponentActivity() {
 
         updateCategoryTabs()
         populateQuotes(0)
-
         categoryScrollView.addView(categoryContainer)
         quotesScrollView.addView(quotesContainer)
         container.addView(categoryScrollView)
         container.addView(quotesScrollView)
 
-        // Viral Name Presets
-        val presetsLabel = TextView(ctx).apply {
-            text = "⚡ Quick Names & Tags:"
+        // 4. Tagline / Date
+        val taglineLabel = TextView(ctx).apply {
+            text = "📅 Tagline / Date / Subtitle:"
             setTextColor(Color.parseColor("#7EE787"))
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, (6 * density).toInt(), 0, (4 * density).toInt())
+        }
+        container.addView(taglineLabel)
+
+        val taglineEditText = EditText(ctx).apply {
+            hint = "e.g. 26 Oct 2026 / Forever & Always / Unstoppable"
+            setHintTextColor(Color.parseColor("#556070"))
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            setText(activeCustomTexts.taglineText ?: "")
+            setSelection(text.length)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1C2128"))
+                cornerRadius = 10 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#2EA043"))
+            }
+            setPadding((12 * density).toInt(), (8 * density).toInt(), (12 * density).toInt(), (8 * density).toInt())
+        }
+        container.addView(taglineEditText)
+
+        // 5. Neon Color & Glow Presets
+        val colorLabel = TextView(ctx).apply {
+            text = "🎨 Text Color & Glow Style:"
+            setTextColor(Color.parseColor("#E6EDF3"))
             textSize = 11.5f
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, (6 * density).toInt(), 0, (6 * density).toInt())
+            setPadding(0, (10 * density).toInt(), 0, (6 * density).toInt())
         }
-        container.addView(presetsLabel)
+        container.addView(colorLabel)
 
-        val presetsScrollView = HorizontalScrollView(ctx).apply {
-            isHorizontalScrollBarEnabled = false
-        }
-        val presetsContainer = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-        val presets = listOf(
-            "Rohan 🔥",
-            "Happy Birthday 🎂",
-            "Love You ❤️",
-            "Attitude King 👑",
-            "Priya & Rahul 💖",
-            "Dream Chaser 🚀",
-            "Sigma Boy 💥",
-            "Mahakal Bhakt 🔱",
-            "Reels Queen ✨",
-            "Always Winning 🏆"
+        val colorScrollView = HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false }
+        val colorContainer = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+
+        val colorPresets = listOf(
+            Triple("🟡 Gold Neon", "#FFE500", "#FFD700"),
+            Triple("🔵 Electric Cyan", "#00F2FE", "#388BFD"),
+            Triple("💖 Romantic Pink", "#FF4081", "#FF80AB"),
+            Triple("🔴 Fiery Red", "#FF1744", "#FF5252"),
+            Triple("🟢 Cyber Lime", "#00E676", "#76FF03"),
+            Triple("⚪ Diamond White", "#FFFFFF", "#E0E0E0")
         )
 
-        presets.forEach { preset ->
-            val chip = TextView(ctx).apply {
-                text = preset
-                textSize = 11.5f
-                setTextColor(Color.WHITE)
-                setPadding((10 * density).toInt(), (5 * density).toInt(), (10 * density).toInt(), (5 * density).toInt())
+        var selectedTextColorHex: String? = activeCustomTexts.textColorHex
+        var selectedGlowColorHex: String? = activeCustomTexts.glowColorHex
+
+        colorPresets.forEach { (cTitle, cTextHex, cGlowHex) ->
+            val colorChip = TextView(ctx).apply {
+                text = cTitle
+                textSize = 11f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.parseColor(cTextHex))
+                setPadding((10 * density).toInt(), (6 * density).toInt(), (10 * density).toInt(), (6 * density).toInt())
                 val params = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    marginEnd = (6 * density).toInt()
-                }
+                ).apply { marginEnd = (6 * density).toInt() }
                 layoutParams = params
                 background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#262C36"))
-                    cornerRadius = 14 * density
-                    setStroke((1 * density).toInt(), Color.parseColor("#44FFFFFF"))
+                    setColor(Color.parseColor("#1C2128"))
+                    cornerRadius = 12 * density
+                    setStroke((1.5f * density).toInt(), Color.parseColor(cGlowHex))
                 }
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
                     it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                    editText.setText(preset)
-                    editText.setSelection(preset.length)
+                    selectedTextColorHex = cTextHex
+                    selectedGlowColorHex = cGlowHex
+                    Toast.makeText(ctx, "Color: $cTitle", Toast.LENGTH_SHORT).show()
                 }
             }
-            presetsContainer.addView(chip)
+            colorContainer.addView(colorChip)
         }
-        presetsScrollView.addView(presetsContainer)
-        container.addView(presetsScrollView)
+        colorScrollView.addView(colorContainer)
+        container.addView(colorScrollView)
 
-        AlertDialog.Builder(ctx)
-            .setTitle("✏️ Lyrical Quotes & Custom Name")
-            .setView(container)
+        // 6. Hide default template overlays toggle chip
+        var hideDefaultsState = activeCustomTexts.hideDefaultOverlays
+        val hideDefaultsChip = TextView(ctx).apply {
+            text = if (hideDefaultsState) "✅ Hide Default Template Texts (Custom Only)" else "⬜ Hide Default Template Texts"
+            textSize = 11.5f
+            setTextColor(if (hideDefaultsState) Color.parseColor("#388BFD") else Color.parseColor("#9AA4B2"))
+            setPadding(0, (10 * density).toInt(), 0, (6 * density).toInt())
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                hideDefaultsState = !hideDefaultsState
+                text = if (hideDefaultsState) "✅ Hide Default Template Texts (Custom Only)" else "⬜ Hide Default Template Texts"
+                setTextColor(if (hideDefaultsState) Color.parseColor("#388BFD") else Color.parseColor("#9AA4B2"))
+            }
+        }
+        container.addView(hideDefaultsChip)
+
+        val dialog = AlertDialog.Builder(ctx)
+            .setTitle("✨ Edit All Texts & Names")
+            .setView(scrollView)
             .setPositiveButton("Apply to Status ✨") { _, _ ->
-                val entered = editText.text.toString().trim()
-                onTextApplied(entered)
+                val newTitle = titleEditText.text.toString().trim()
+                val newName = nameEditText.text.toString().trim()
+                val newQuote = quoteEditText.text.toString().trim()
+                val newTagline = taglineEditText.text.toString().trim()
+
+                activeCustomTexts = StatusCustomTexts(
+                    titleText = if (newTitle.isNotBlank()) newTitle else null,
+                    userName = if (newName.isNotBlank()) newName else null,
+                    quoteText = if (newQuote.isNotBlank()) newQuote else null,
+                    taglineText = if (newTagline.isNotBlank()) newTagline else null,
+                    hideDefaultOverlays = hideDefaultsState,
+                    textColorHex = selectedTextColorHex,
+                    glowColorHex = selectedGlowColorHex
+                )
+
+                activeCustomText = activeCustomTexts.quoteText ?: activeCustomTexts.userName ?: activeCustomTexts.titleText
+                activePreviewDialog?.findViewById<StatusTemplateLivePreviewView>(R.id.statusLivePreviewView)?.let { lpv ->
+                    lpv.customTexts = activeCustomTexts
+                    lpv.customStatusText = activeCustomText
+                }
+
+                val display = activeCustomTexts.userName ?: activeCustomTexts.quoteText ?: activeCustomText
+                activePreviewDialog?.findViewById<TextView>(R.id.statusPreviewEditText)?.text =
+                    if (!display.isNullOrBlank()) "✏️ ${display.take(12)}" else "Edit Texts & Name ✏️"
+
+                Toast.makeText(ctx, "✨ Custom texts & names applied!", Toast.LENGTH_SHORT).show()
+                onApplied?.invoke()
+
+                if (lastPhotoPaths.isNotEmpty()) {
+                    Thread {
+                        StatusProjectBuilder.buildProjectFile(
+                            this@StatusMakerActivity,
+                            template,
+                            lastPhotoPaths,
+                            activeCustomAudioPath,
+                            activeCustomText,
+                            customTexts = activeCustomTexts
+                        )
+                    }.start()
+                }
+            }
+            .setNeutralButton("Reset") { _, _ ->
+                activeCustomTexts = StatusCustomTexts()
+                activeCustomText = null
+                activePreviewDialog?.findViewById<StatusTemplateLivePreviewView>(R.id.statusLivePreviewView)?.let { lpv ->
+                    lpv.customTexts = activeCustomTexts
+                    lpv.customStatusText = null
+                }
+                activePreviewDialog?.findViewById<TextView>(R.id.statusPreviewEditText)?.text = "Edit Texts & Name ✏️"
+                Toast.makeText(ctx, "Defaults restored", Toast.LENGTH_SHORT).show()
+                onApplied?.invoke()
             }
             .setNegativeButton("Cancel", null)
-            .show()
+            .create()
+
+        dialog.show()
     }
 
     private fun showChangeMusicDialog(
@@ -1013,7 +1159,8 @@ class StatusMakerActivity : ComponentActivity() {
         template: StatusTemplate,
         photoPaths: List<String>,
         customText: String? = null,
-        customAudioPath: String? = null
+        customAudioPath: String? = null,
+        customTexts: StatusCustomTexts? = null
     ) {
         val quickExportIntent = Intent(this, StatusQuickExportActivity::class.java).apply {
             putExtra(StatusQuickExportActivity.EXTRA_PROJECT_PATH, projectFile.absolutePath)
@@ -1025,6 +1172,15 @@ class StatusMakerActivity : ComponentActivity() {
             putStringArrayListExtra(StatusQuickExportActivity.EXTRA_PHOTO_PATHS, ArrayList(photoPaths))
             putExtra(StatusQuickExportActivity.EXTRA_CUSTOM_TEXT, customText)
             putExtra(StatusQuickExportActivity.EXTRA_CUSTOM_AUDIO_PATH, customAudioPath)
+
+            val texts = customTexts ?: activeCustomTexts
+            putExtra(StatusQuickExportActivity.EXTRA_CUSTOM_TITLE, texts.titleText)
+            putExtra(StatusQuickExportActivity.EXTRA_CUSTOM_USER_NAME, texts.userName)
+            putExtra(StatusQuickExportActivity.EXTRA_CUSTOM_QUOTE, texts.quoteText)
+            putExtra(StatusQuickExportActivity.EXTRA_CUSTOM_TAGLINE, texts.taglineText)
+            putExtra(StatusQuickExportActivity.EXTRA_HIDE_DEFAULT_OVERLAYS, texts.hideDefaultOverlays)
+            putExtra(StatusQuickExportActivity.EXTRA_CUSTOM_TEXT_COLOR, texts.textColorHex)
+            putExtra(StatusQuickExportActivity.EXTRA_CUSTOM_GLOW_COLOR, texts.glowColorHex)
         }
         startActivity(quickExportIntent)
     }

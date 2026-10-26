@@ -31,11 +31,11 @@ object TimelineThumbnailCache {
         appContext = context.applicationContext
         cache.resize(maxCacheBytes())
     }
-    private const val TARGET_TILE_WIDTH_PX = 120
+    private const val TARGET_TILE_WIDTH_PX = 180
 
     private fun maxCacheBytes() = DeviceDetector.getRecommendedThumbnailCacheBytes()
 
-    private fun maxFrames() = 12
+    private fun maxFrames() = 16
 
     private fun maxTargetHeightPx() = MAX_TARGET_HEIGHT_PX
 
@@ -44,9 +44,9 @@ object TimelineThumbnailCache {
         setOf("jpg", "jpeg", "jpe", "jfif", "png", "webp", "bmp", "gif", "tif", "tiff", "heic", "heif", "avif")
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val executor = Executors.newFixedThreadPool(1) { runnable ->
+    private val executor = Executors.newFixedThreadPool(2) { runnable ->
         Thread(runnable, "TimelineThumbnailCache").apply {
-            priority = Thread.MIN_PRIORITY
+            priority = Thread.NORM_PRIORITY - 1
         }
     }
     private val lock = Any()
@@ -101,6 +101,7 @@ object TimelineThumbnailCache {
         clip: ClipSegment,
         viewportWidthPx: Int,
         targetHeightPx: Int,
+        priority: Boolean = false,
         callback: (String, List<Bitmap>) -> Unit,
     ) {
         val requestKey = buildRequestKey(clip, viewportWidthPx, targetHeightPx)
@@ -117,7 +118,7 @@ object TimelineThumbnailCache {
             inFlight[requestKey] = mutableListOf(callback)
         }
 
-        if (SystemClock.elapsedRealtime() < suspendedUntilElapsedMs) {
+        if (!priority && SystemClock.elapsedRealtime() < suspendedUntilElapsedMs) {
             synchronized(lock) {
                 inFlight.remove(requestKey)
             }
@@ -126,8 +127,8 @@ object TimelineThumbnailCache {
 
         executor.execute {
             val sourcePath = clip.sourcePath.takeIf { it.isNotBlank() }
-            if (SystemClock.elapsedRealtime() < suspendedUntilElapsedMs ||
-                (!sourcePath.isNullOrBlank() && !isStillImagePath(sourcePath) && shouldThrottleVideoStripBuild(sourcePath))
+            if (!priority && (SystemClock.elapsedRealtime() < suspendedUntilElapsedMs ||
+                (!sourcePath.isNullOrBlank() && !isStillImagePath(sourcePath) && shouldThrottleVideoStripBuild(requestKey)))
             ) {
                 synchronized(lock) {
                     inFlight.remove(requestKey)
@@ -136,7 +137,9 @@ object TimelineThumbnailCache {
             }
             val strip = buildStripBitmaps(clip, viewportWidthPx, targetHeightPx)
             val callbacks = synchronized(lock) {
-                cache.put(requestKey, strip)
+                if (strip.isNotEmpty()) {
+                    cache.put(requestKey, strip)
+                }
                 inFlight.remove(requestKey).orEmpty()
             }
             if (callbacks.isEmpty()) {
@@ -148,19 +151,19 @@ object TimelineThumbnailCache {
         }
     }
 
-    private fun shouldThrottleVideoStripBuild(sourcePath: String): Boolean {
+    private fun shouldThrottleVideoStripBuild(requestKey: String): Boolean {
         val now = SystemClock.elapsedRealtime()
         val minIntervalMs = when (DeviceDetector.getDeviceTier()) {
-            DeviceDetector.DeviceTier.LOW -> 2_400L
-            DeviceDetector.DeviceTier.MID -> 1_500L
-            DeviceDetector.DeviceTier.HIGH -> 700L
+            DeviceDetector.DeviceTier.LOW -> 800L
+            DeviceDetector.DeviceTier.MID -> 400L
+            DeviceDetector.DeviceTier.HIGH -> 150L
         }
         return synchronized(lock) {
-            val previous = lastVideoStripBuildElapsedMsBySource[sourcePath] ?: 0L
+            val previous = lastVideoStripBuildElapsedMsBySource[requestKey] ?: 0L
             if (previous > 0L && now - previous < minIntervalMs) {
                 true
             } else {
-                lastVideoStripBuildElapsedMsBySource[sourcePath] = now
+                lastVideoStripBuildElapsedMsBySource[requestKey] = now
                 false
             }
         }
@@ -223,12 +226,18 @@ object TimelineThumbnailCache {
                 val rawBitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                     retriever.getScaledFrameAtTime(
                         timeMs * 1000L,
+                        MediaMetadataRetriever.OPTION_CLOSEST,
+                        tileWidthPx,
+                        tileHeightPx,
+                    ) ?: retriever.getScaledFrameAtTime(
+                        timeMs * 1000L,
                         MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
                         tileWidthPx,
                         tileHeightPx,
                     )
                 } else {
-                    retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                        ?: retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 }
                     ?: return@mapNotNull null
                 val sized = if (rawBitmap.width == tileWidthPx && rawBitmap.height == tileHeightPx) {

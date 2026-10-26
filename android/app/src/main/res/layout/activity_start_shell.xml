@@ -98,18 +98,7 @@
                         android:textSize="12.5sp" />
                 </LinearLayout>
 
-                <!-- Header Settings Icon -->
-                <ImageView
-                    android:id="@+id/startHeaderSettingsButton"
-                    android:layout_width="38dp"
-                    android:layout_height="38dp"
-                    android:background="@drawable/home_icon_button_bg"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:padding="9dp"
-                    android:contentDescription="@string/nav_settings"
-                    android:src="@drawable/ic_settings"
-                    app:tint="#CBD5E1" />
+
             </LinearLayout>
 
             <!-- MAIN CREATE AREA -->
@@ -482,102 +471,6 @@
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 
-    <!-- BOTTOM NAVIGATION (Create | Projects | Settings) -->
-    <LinearLayout
-        android:id="@+id/homeBottomNav"
-        android:layout_width="match_parent"
-        android:layout_height="58dp"
-        android:background="#0D1117"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
 
-        <LinearLayout
-            android:id="@+id/navCreate"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="@drawable/home_nav_item_bg"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center"
-            android:orientation="vertical">
-
-            <ImageView
-                android:id="@+id/navCreateIcon"
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:contentDescription="@string/nav_create"
-                android:src="@drawable/ic_add_story"
-                app:tint="#388BFD" />
-
-            <TextView
-                android:id="@+id/navCreateLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="@string/nav_create"
-                android:textColor="#388BFD"
-                android:textSize="11sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:id="@+id/navProjects"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="@drawable/home_nav_item_bg"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center"
-            android:orientation="vertical">
-
-            <ImageView
-                android:id="@+id/navProjectsIcon"
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:contentDescription="@string/nav_projects"
-                android:src="@drawable/ic_projects_grid"
-                app:tint="#8A99AD" />
-
-            <TextView
-                android:id="@+id/navProjectsLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="@string/nav_projects"
-                android:textColor="#8A99AD"
-                android:textSize="11sp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:id="@+id/navSettings"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="@drawable/home_nav_item_bg"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center"
-            android:orientation="vertical">
-
-            <ImageView
-                android:id="@+id/navSettingsIcon"
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:contentDescription="@string/nav_settings"
-                android:src="@drawable/ic_settings"
-                app:tint="#8A99AD" />
-
-            <TextView
-                android:id="@+id/navSettingsLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="@string/nav_settings"
-                android:textColor="#8A99AD"
-                android:textSize="11sp" />
-        </LinearLayout>
-    </LinearLayout>
 
 </LinearLayout>

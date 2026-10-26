@@ -846,6 +846,8 @@ class MultiTrackTimelineView @JvmOverloads constructor(
             recyclerView.setItemViewCacheSize(8)
             recyclerView.onFlingListener = object : RecyclerView.OnFlingListener() {
                 override fun onFling(velocityX: Int, velocityY: Int): Boolean {
+                    val boost = (velocityX * 1.4f).toInt().coerceIn(-18000, 18000)
+                    recyclerView.fling(boost, 0)
                     return true
                 }
             }
@@ -1475,8 +1477,8 @@ class MultiTrackTimelineView @JvmOverloads constructor(
             var edgeAutoScrollRunning = false
             val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
             val longPressTimeoutMs = 400L
-            // Keep trim hit-zone narrow so casual timeline scroll does not become trim.
-            val handleZonePx = minOf(dpPx(20).toFloat(), width * 0.28f)
+            // Generous trim touch zone for human fingers when clip is selected
+            val handleZonePx = if (width < dpPx(44)) (width * 0.45f).coerceAtLeast(dpPx(14).toFloat()) else dpPx(24).toFloat()
             val previewWidthMinPx = dpPx(MIN_CLIP_WIDTH_DP)
             var activeGestureKind: ClipGestureKind? = null
             var pendingTrimKind: ClipGestureKind? = null

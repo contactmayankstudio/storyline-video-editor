@@ -56,6 +56,13 @@ class StatusQuickExportActivity : ComponentActivity() {
         const val EXTRA_PHOTO_PATHS = "extra_status_photo_paths"
         const val EXTRA_CUSTOM_TEXT = "extra_status_custom_text"
         const val EXTRA_CUSTOM_AUDIO_PATH = "extra_status_custom_audio_path"
+        const val EXTRA_CUSTOM_TITLE = "extra_status_custom_title"
+        const val EXTRA_CUSTOM_USER_NAME = "extra_status_custom_user_name"
+        const val EXTRA_CUSTOM_QUOTE = "extra_status_custom_quote"
+        const val EXTRA_CUSTOM_TAGLINE = "extra_status_custom_tagline"
+        const val EXTRA_HIDE_DEFAULT_OVERLAYS = "extra_status_hide_default_overlays"
+        const val EXTRA_CUSTOM_TEXT_COLOR = "extra_status_custom_text_color"
+        const val EXTRA_CUSTOM_GLOW_COLOR = "extra_status_custom_glow_color"
     }
 
     private var projectPath: String? = null
@@ -66,6 +73,7 @@ class StatusQuickExportActivity : ComponentActivity() {
     private var gradientEnd: String = "#8A2387"
     private var photoPaths: ArrayList<String> = arrayListOf()
     private var customText: String? = null
+    private var activeCustomTexts = StatusCustomTexts()
     private var is1080pSelected: Boolean = false
 
     private var currentTemplate: StatusTemplate? = null
@@ -137,6 +145,16 @@ class StatusQuickExportActivity : ComponentActivity() {
         photoPaths = intent.getStringArrayListExtra(EXTRA_PHOTO_PATHS) ?: arrayListOf()
         customText = intent.getStringExtra(EXTRA_CUSTOM_TEXT)
 
+        activeCustomTexts = StatusCustomTexts(
+            titleText = intent.getStringExtra(EXTRA_CUSTOM_TITLE),
+            userName = intent.getStringExtra(EXTRA_CUSTOM_USER_NAME),
+            quoteText = intent.getStringExtra(EXTRA_CUSTOM_QUOTE) ?: customText,
+            taglineText = intent.getStringExtra(EXTRA_CUSTOM_TAGLINE),
+            hideDefaultOverlays = intent.getBooleanExtra(EXTRA_HIDE_DEFAULT_OVERLAYS, false),
+            textColorHex = intent.getStringExtra(EXTRA_CUSTOM_TEXT_COLOR),
+            glowColorHex = intent.getStringExtra(EXTRA_CUSTOM_GLOW_COLOR)
+        )
+
         val passedAudioPath = intent.getStringExtra(EXTRA_CUSTOM_AUDIO_PATH)
         if (!passedAudioPath.isNullOrBlank() && File(passedAudioPath).exists()) {
             currentAudioPath = passedAudioPath
@@ -153,9 +171,13 @@ class StatusQuickExportActivity : ComponentActivity() {
         val template = currentTemplate
         if (template != null) {
             val soundtrack = StatusSoundtrackRepository.getByAssetPath(template.audioAssetPath)
-            currentAudioTitle = soundtrack?.title ?: "Original Soundtrack"
-            val localAudio = StatusMediaHelper.extractAudioAssetToLocal(this, template.audioAssetPath)
-            currentAudioPath = localAudio?.absolutePath
+            if (currentAudioTitle == "Energetic Reels Trap Beat" && soundtrack != null) {
+                currentAudioTitle = soundtrack.title
+            }
+            if (currentAudioPath == null) {
+                val localAudio = StatusMediaHelper.extractAudioAssetToLocal(this, template.audioAssetPath)
+                currentAudioPath = localAudio?.absolutePath
+            }
         }
 
         if (projectPath == null || !File(projectPath!!).exists()) {
@@ -322,6 +344,7 @@ class StatusQuickExportActivity : ComponentActivity() {
             )
         }
         livePreviewView = lpv
+        lpv.customTexts = activeCustomTexts
         if (!customText.isNullOrBlank()) {
             lpv.customStatusText = customText
         }
@@ -599,24 +622,38 @@ class StatusQuickExportActivity : ComponentActivity() {
 
         Thread {
             try {
-                // Ensure project is loaded into native engine
-                val pv = previewView
-                if (!isProjectLoaded && projectPath != null && pv != null) {
-                    pv.loadProject(projectPath!!)
-                    Thread.sleep(150)
+                // Export with full fidelity: Ken Burns, visualizer bars, vinyl disc, particles, lyrics & music!
+                val lpv = livePreviewView
+                val success = if (lpv != null) {
+                    lpv.exportToVideo(
+                        outputPath = exportFile.absolutePath,
+                        width = expWidth,
+                        height = expHeight,
+                        fps = 30,
+                        bitrateMbps = expBitrate,
+                        customAudioPath = currentAudioPath,
+                        onProgress = { p ->
+                            runOnUiThread {
+                                exportProgressBar.progress = p
+                                exportPercentText.text = "Exporting Status Video ($qualityLabel)... $p%"
+                            }
+                        }
+                    )
+                } else {
+                    val pv = previewView
+                    if (!isProjectLoaded && projectPath != null && pv != null) {
+                        pv.loadProject(projectPath!!)
+                        Thread.sleep(150)
+                    }
+                    pv?.exportToVideo(
+                        outputPath = exportFile.absolutePath,
+                        width = expWidth,
+                        height = expHeight,
+                        fps = 30,
+                        bitrateMbps = expBitrate,
+                        videoCodec = "h264"
+                    ) ?: false
                 }
-
-                // Brief pause so any playback rendering thread completely releases EGL surface
-                Thread.sleep(150)
-
-                val success = pv?.exportToVideo(
-                    outputPath = exportFile.absolutePath,
-                    width = expWidth,
-                    height = expHeight,
-                    fps = 30,
-                    bitrateMbps = expBitrate,
-                    videoCodec = "h264"
-                ) ?: false
 
                 try { stopService(Intent(this@StatusQuickExportActivity, ExportService::class.java)) } catch (_: Exception) {}
 
@@ -650,19 +687,21 @@ class StatusQuickExportActivity : ComponentActivity() {
             }
         }.start()
 
-        // Poll progress
+        // Poll progress if using fallback previewView
         var currentProgress = 0
         progressCheckRunnable = object : Runnable {
             override fun run() {
                 if (!isExporting) return
-                val p = previewView?.getExportProgress() ?: 0
-                if (p in 0..100) {
-                    currentProgress = p
-                } else {
-                    if (currentProgress < 90) currentProgress += 5
+                if (livePreviewView == null) {
+                    val p = previewView?.getExportProgress() ?: 0
+                    if (p in 0..100) {
+                        currentProgress = p
+                    } else {
+                        if (currentProgress < 90) currentProgress += 5
+                    }
+                    exportProgressBar.progress = currentProgress
+                    exportPercentText.text = "Exporting Status Video ($qualityLabel)... $currentProgress%"
                 }
-                exportProgressBar.progress = currentProgress
-                exportPercentText.text = "Exporting Status Video ($qualityLabel)... $currentProgress%"
 
                 // Update notification progress
                 try {
@@ -670,8 +709,8 @@ class StatusQuickExportActivity : ComponentActivity() {
                         ExportService.buildIntent(
                             context = this@StatusQuickExportActivity,
                             title = "Exporting Status Video",
-                            text = "Exporting Status Video ($qualityLabel)... $currentProgress%",
-                            progress = currentProgress
+                            text = "Exporting Status Video ($qualityLabel)... ${exportProgressBar.progress}%",
+                            progress = exportProgressBar.progress
                         )
                     )
                 } catch (_: Exception) {}

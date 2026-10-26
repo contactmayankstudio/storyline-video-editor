@@ -61,6 +61,7 @@ import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.video.engine.R
+import com.video.engine.export.CanvasVideoEncoder
 import com.video.engine.photo.PhotoEditorActivity
 import com.video.engine.status.StatusMakerActivity
 import com.video.engine.status.StatusMediaHelper
@@ -195,6 +196,13 @@ class FunCameraActivity : ComponentActivity() {
     private var isVideoMode = false
     private var isRecordingVideo = false
     private var mediaRecorder: MediaRecorder? = null
+    private var arVideoEncoder: CanvasVideoEncoder? = null
+    private var audioRecorder: MediaRecorder? = null
+    private var tempAudioFile: File? = null
+    private var arRecordThread: HandlerThread? = null
+    private var arRecordHandler: Handler? = null
+    private var compositeBitmap: Bitmap? = null
+    private var compositeCanvas: Canvas? = null
     private var recordingStartTime = 0L
     private var currentVideoFile: File? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -460,169 +468,102 @@ class FunCameraActivity : ComponentActivity() {
             Toast.makeText(this, "Microphone permission not granted, recording video without audio", Toast.LENGTH_SHORT).show()
         }
 
-        if (!prepareMediaRecorder()) {
-            Toast.makeText(this, "Failed to initialize video recorder", Toast.LENGTH_SHORT).show()
-            if (shutterButton.isRecording) {
-                shutterButton.stopRecording()
-            }
-            return
-        }
-
-        val camera = cameraDevice ?: return
-        val texture = textureView.surfaceTexture ?: return
-        texture.setDefaultBufferSize(optimalPreviewSize.width, optimalPreviewSize.height)
-        val previewSurface = Surface(texture)
-        val recorderSurface = mediaRecorder?.surface ?: return
-
-        try {
-            // Gracefully stop repeating on current session before starting recording session
-            try {
-                captureSession?.stopRepeating()
-                captureSession?.close()
-                captureSession = null
-            } catch (e: Exception) {
-                Log.w(TAG, "Error closing previous preview session", e)
-            }
-
-            val surfaces = listOf(previewSurface, recorderSurface)
-            val recordBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
-                addTarget(previewSurface)
-                addTarget(recorderSurface)
-                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
-                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-            }
-            previewRequestBuilder = recordBuilder
-            applyCurrentZoomToBuilder(recordBuilder)
-
-            camera.createCaptureSession(surfaces, object : CameraCaptureSession.StateCallback() {
-                override fun onConfigured(session: CameraCaptureSession) {
-                    if (cameraDevice == null) return
-                    captureSession = session
-                    try {
-                        session.setRepeatingRequest(recordBuilder.build(), null, backgroundHandler)
-                        try {
-                            mediaRecorder?.start()
-                        } catch (e: Exception) {
-                            Log.e(TAG, "mediaRecorder.start failed", e)
-                            runOnUiThread {
-                                Toast.makeText(this@FunCameraActivity, "Record start failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                                stopVideoRecording()
-                            }
-                            return
-                        }
-                        isRecordingVideo = true
-                        startBgmPlayback()
-                        recordingStartTime = SystemClock.uptimeMillis()
-                        runOnUiThread {
-                            setRecordingUiState(true)
-                            if (!shutterButton.isRecording) {
-                                shutterButton.startRecording()
-                            }
-                            startRecordingTimer()
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to start repeating recording request", e)
-                        runOnUiThread {
-                            stopVideoRecording()
-                        }
-                    }
-                }
-                override fun onConfigureFailed(session: CameraCaptureSession) {
-                    Log.e(TAG, "Configure recording session failed")
-                    runOnUiThread {
-                        if (shutterButton.isRecording) {
-                            shutterButton.stopRecording()
-                        }
-                        createCameraPreview()
-                    }
-                }
-            }, backgroundHandler)
-        } catch (e: Exception) {
-            Log.e(TAG, "startVideoRecording error", e)
-            createCameraPreview()
-        }
-    }
-
-    private fun prepareMediaRecorder(): Boolean {
-        val mr = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            MediaRecorder(this)
-        } else {
-            @Suppress("DEPRECATION") MediaRecorder()
-        }
-        mediaRecorder = mr
-
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val cameraDir = File(getExternalFilesDir(null), "fun_videos").also { it.mkdirs() }
         currentVideoFile = File(cameraDir, "Storyline_Video_${timeStamp}.mp4")
+        tempAudioFile = File(cacheDir, "temp_mic_audio_${timeStamp}.m4a")
 
-        return try {
-            val hasAudioPermission = ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
+        val videoW = 720
+        val videoH = 1280
 
-            var audioConfigured = false
-            if (hasAudioPermission) {
-                try {
-                    mr.setAudioSource(MediaRecorder.AudioSource.MIC)
-                    audioConfigured = true
-                } catch (e: Exception) {
-                    Log.w(TAG, "setAudioSource failed, continuing without audio", e)
-                }
-            }
-
-            mr.setVideoSource(MediaRecorder.VideoSource.SURFACE)
-            mr.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            mr.setOutputFile(currentVideoFile!!.absolutePath)
-            mr.setVideoEncodingBitRate(8_000_000)
-            mr.setVideoFrameRate(30)
-            mr.setVideoSize(optimalVideoSize.width, optimalVideoSize.height)
-            mr.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-
-            if (audioConfigured) {
-                try {
-                    mr.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                    mr.setAudioEncodingBitRate(128_000)
-                    mr.setAudioSamplingRate(44100)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Audio encoder setup failed", e)
-                }
-            }
-
-            // Calculate precise orientation hint matching sensor and display rotation
-            val deviceRotation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                display?.rotation ?: Surface.ROTATION_0
-            } else {
-                @Suppress("DEPRECATION")
-                windowManager.defaultDisplay.rotation
-            }
-            val deviceDegrees = when (deviceRotation) {
-                Surface.ROTATION_90 -> 90
-                Surface.ROTATION_180 -> 180
-                Surface.ROTATION_270 -> 270
-                else -> 0
-            }
-            val orientationHint = if (isFrontFacing) {
-                (sensorOrientation + deviceDegrees) % 360
-            } else {
-                (sensorOrientation - deviceDegrees + 360) % 360
-            }
-            mr.setOrientationHint(orientationHint)
-            mr.prepare()
-            true
+        try {
+            arVideoEncoder = CanvasVideoEncoder(
+                width = videoW,
+                height = videoH,
+                fps = 30,
+                bitrate = 6_000_000,
+                outputFile = currentVideoFile!!
+            )
         } catch (e: Exception) {
-            Log.e(TAG, "prepareMediaRecorder failed", e)
-            try {
-                mr.reset()
-                mr.release()
-            } catch (_: Exception) {}
-            mediaRecorder = null
-            false
+            Log.e(TAG, "Failed to initialize AR video encoder", e)
+            Toast.makeText(this, "Failed to start video recorder: ${e.message}", Toast.LENGTH_SHORT).show()
+            if (shutterButton.isRecording) shutterButton.stopRecording()
+            return
         }
+
+        // Setup microphone audio recording in background
+        if (hasAudio) {
+            try {
+                audioRecorder = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    MediaRecorder(this)
+                } else {
+                    @Suppress("DEPRECATION") MediaRecorder()
+                }).apply {
+                    setAudioSource(MediaRecorder.AudioSource.MIC)
+                    setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                    setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                    setAudioEncodingBitRate(128_000)
+                    setAudioSamplingRate(44100)
+                    setOutputFile(tempAudioFile!!.absolutePath)
+                    prepare()
+                    start()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "AudioRecorder start failed, recording without audio", e)
+                try { audioRecorder?.release() } catch (_: Exception) {}
+                audioRecorder = null
+            }
+        }
+
+        compositeBitmap = Bitmap.createBitmap(videoW, videoH, Bitmap.Config.ARGB_8888)
+        compositeCanvas = Canvas(compositeBitmap!!)
+
+        arRecordThread = HandlerThread("ArRecordThread").also { it.start() }
+        arRecordHandler = Handler(arRecordThread!!.looper)
+
+        isRecordingVideo = true
+        startBgmPlayback()
+        recordingStartTime = SystemClock.uptimeMillis()
+
+        runOnUiThread {
+            setRecordingUiState(true)
+            if (!shutterButton.isRecording) {
+                shutterButton.startRecording()
+            }
+            startRecordingTimer()
+        }
+
+        // 30 FPS Frame pump capturing raw camera + AR filters/dog face/props in real time!
+        val framePumpRunnable = object : Runnable {
+            override fun run() {
+                if (!isRecordingVideo) return
+                val now = SystemClock.uptimeMillis()
+                try {
+                    val raw = textureView.getBitmap(videoW, videoH)
+                    val cBmp = compositeBitmap
+                    val cCv = compositeCanvas
+                    val enc = arVideoEncoder
+                    if (raw != null && cBmp != null && cCv != null && enc != null) {
+                        cCv.drawBitmap(raw, 0f, 0f, null)
+                        overlayView.drawCaptureLayers(cCv, videoW.toFloat(), videoH.toFloat(), raw)
+                        val ptsNano = (now - recordingStartTime) * 1_000_000L
+                        enc.encodeFrame(cBmp, ptsNano)
+                        raw.recycle()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Frame pump error", e)
+                }
+
+                val elapsed = SystemClock.uptimeMillis() - now
+                val nextDelay = (33L - elapsed).coerceAtLeast(4L)
+                arRecordHandler?.postDelayed(this, nextDelay)
+            }
+        }
+        arRecordHandler?.post(framePumpRunnable)
     }
 
     private fun stopVideoRecording() {
-        if (!isRecordingVideo && mediaRecorder == null) return
+        if (!isRecordingVideo && arVideoEncoder == null) return
         val wasRecording = isRecordingVideo
         isRecordingVideo = false
         stopBgmPlayback()
@@ -631,7 +572,7 @@ class FunCameraActivity : ComponentActivity() {
             shutterButton.stopRecording()
         }
 
-        // Wait slightly if recording just started (< 800ms) to ensure at least 1 keyframe was captured
+        // Wait slightly if recording just started (< 800ms) to ensure at least a few frames are captured
         val elapsed = SystemClock.uptimeMillis() - recordingStartTime
         if (wasRecording && elapsed < 800L) {
             try {
@@ -639,38 +580,61 @@ class FunCameraActivity : ComponentActivity() {
             } catch (_: Exception) {}
         }
 
-        // Stop MediaRecorder safely FIRST before tearing down camera repeating request
+        // Stop audio recorder safely
         try {
-            mediaRecorder?.stop()
+            audioRecorder?.stop()
         } catch (e: Exception) {
-            Log.w(TAG, "mediaRecorder.stop() failed", e)
+            Log.w(TAG, "audioRecorder.stop() failed", e)
         }
-
         try {
-            mediaRecorder?.reset()
-            mediaRecorder?.release()
+            audioRecorder?.reset()
+            audioRecorder?.release()
         } catch (_: Exception) {}
-        mediaRecorder = null
+        audioRecorder = null
 
+        // Stop AR record thread
         try {
-            captureSession?.stopRepeating()
-            captureSession?.abortCaptures()
+            arRecordHandler?.removeCallbacksAndMessages(null)
+            arRecordThread?.quitSafely()
+            arRecordThread?.join(500)
         } catch (_: Exception) {}
+        arRecordThread = null
+        arRecordHandler = null
 
         setRecordingUiState(false)
-        createCameraPreview()
 
         val recorded = currentVideoFile
-        if (wasRecording && recorded != null && recorded.exists() && recorded.length() > 20_000) {
-            Thread {
-                val saved = saveVideoToGallery(recorded)
-                runOnUiThread {
-                    enterPostCaptureMode(saved ?: recorded, isVideo = true, baseBitmap = null)
+        val audioFileToMux = if (tempAudioFile?.exists() == true && tempAudioFile!!.length() > 0) tempAudioFile else null
+
+        Thread {
+            try {
+                val success = arVideoEncoder?.finish(
+                    audioFile = audioFileToMux,
+                    maxDurationUs = (SystemClock.uptimeMillis() - recordingStartTime) * 1000L
+                ) ?: false
+                arVideoEncoder = null
+                compositeBitmap?.recycle()
+                compositeBitmap = null
+                compositeCanvas = null
+                try { tempAudioFile?.delete() } catch (_: Exception) {}
+
+                if (success && recorded != null && recorded.exists() && recorded.length() > 20_000) {
+                    val saved = saveVideoToGallery(recorded)
+                    runOnUiThread {
+                        enterPostCaptureMode(saved ?: recorded, isVideo = true, baseBitmap = null)
+                    }
+                } else if (wasRecording) {
+                    runOnUiThread {
+                        Toast.makeText(this@FunCameraActivity, "Recording was too short or failed", Toast.LENGTH_SHORT).show()
+                    }
                 }
-            }.start()
-        } else if (wasRecording) {
-            Toast.makeText(this, "Recording was too short", Toast.LENGTH_SHORT).show()
-        }
+            } catch (e: Exception) {
+                Log.e(TAG, "Video finish error", e)
+                runOnUiThread {
+                    Toast.makeText(this@FunCameraActivity, "Error saving video: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }.start()
     }
 
     private fun setRecordingUiState(recording: Boolean) {

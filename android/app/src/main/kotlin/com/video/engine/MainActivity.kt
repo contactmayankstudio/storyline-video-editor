@@ -16,6 +16,7 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -27,6 +28,7 @@ import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewConfiguration
 import android.widget.EditText
@@ -252,14 +254,28 @@ class VideoEditorActivity : ComponentActivity() {
     private fun ensureImportProgressPanel(): LinearLayout? {
         importProgressPanel?.let { return it }
         val host = previewContainerView ?: return null
+        val iconTitleRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        val icon = TextView(this).apply {
+            text = "⚡"
+            textSize = 15f
+            setTextColor(Color.parseColor("#00E5FF"))
+            setPadding(0, 0, uiDp(6), 0)
+        }
         val title = TextView(this).apply {
             setTextColor(Color.WHITE)
             textSize = 14f
+            setTypeface(typeface, Typeface.BOLD)
             gravity = Gravity.CENTER
             includeFontPadding = false
         }
+        iconTitleRow.addView(icon)
+        iconTitleRow.addView(title)
+
         val detail = TextView(this).apply {
-            setTextColor(Color.argb(220, 255, 255, 255))
+            setTextColor(Color.parseColor("#94A3B8"))
             textSize = 12f
             gravity = Gravity.CENTER
             includeFontPadding = false
@@ -272,16 +288,17 @@ class VideoEditorActivity : ComponentActivity() {
         }
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(uiDp(16), uiDp(16), uiDp(16), uiDp(16))
+            setPadding(uiDp(18), uiDp(14), uiDp(18), uiDp(14))
             visibility = View.GONE
-            alpha = 0.98f
+            alpha = 0f
+            elevation = uiDp(16).toFloat()
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                setColor(Color.argb(232, 18, 23, 32))
-                setStroke(uiDp(1), Color.argb(90, 255, 255, 255))
-                cornerRadius = uiDp(12).toFloat()
+                setColor(Color.parseColor("#F20B101C"))
+                setStroke(uiDp(2).coerceAtLeast(1), Color.parseColor("#6600E5FF"))
+                cornerRadius = uiDp(14).toFloat()
             }
-            addView(title, LinearLayout.LayoutParams(
+            addView(iconTitleRow, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             ))
@@ -299,13 +316,10 @@ class VideoEditorActivity : ComponentActivity() {
             })
         }
         val params = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
+            uiDp(340).coerceAtMost(resources.displayMetrics.widthPixels - uiDp(48)),
             FrameLayout.LayoutParams.WRAP_CONTENT,
             Gravity.CENTER,
-        ).apply {
-            leftMargin = uiDp(40)
-            rightMargin = uiDp(40)
-        }
+        )
         host.addView(panel, params)
         importProgressPanel = panel
         importProgressTitleText = title
@@ -321,10 +335,20 @@ class VideoEditorActivity : ComponentActivity() {
             val panel = ensureImportProgressPanel() ?: return@post
             importProgressTitleText?.text =
                 when (update.phase) {
-                    ImportProgressPhase.READY -> "Import ready"
-                    ImportProgressPhase.FAILED -> "Import failed"
-                    else -> "Importing ${trackDisplayName(update.trackType).lowercase(Locale.US)}"
+                    ImportProgressPhase.READY -> "✨ Ready for Playback! 🎬"
+                    ImportProgressPhase.FAILED -> "⚠️ Import Failed"
+                    ImportProgressPhase.OPENING -> "📁 Opening Media File..."
+                    ImportProgressPhase.COPYING -> "📥 Loading Media (${update.percent ?: 0}%)"
+                    ImportProgressPhase.PREPARING -> "⚡ Decoding Stream & Frames..."
+                    ImportProgressPhase.TIMELINE -> "🎵 Syncing Audio & Waveforms..."
                 }
+            if (update.phase == ImportProgressPhase.READY) {
+                importProgressTitleText?.setTextColor(Color.parseColor("#10B981"))
+            } else if (update.phase == ImportProgressPhase.FAILED) {
+                importProgressTitleText?.setTextColor(Color.parseColor("#EF4444"))
+            } else {
+                importProgressTitleText?.setTextColor(Color.WHITE)
+            }
             importProgressDetailText?.text = importProgressDetail(update)
             importProgressBar?.apply {
                 val percent = update.percent
@@ -336,17 +360,29 @@ class VideoEditorActivity : ComponentActivity() {
                     else -> 0
                 }
             }
-            panel.visibility = View.VISIBLE
+            if (panel.visibility != View.VISIBLE) {
+                panel.visibility = View.VISIBLE
+                panel.alpha = 0f
+                panel.animate().alpha(1f).setDuration(180).start()
+            }
             panel.bringToFront()
-            if (update.phase == ImportProgressPhase.READY || update.phase == ImportProgressPhase.FAILED) {
-                scheduleHideImportProgress(if (update.phase == ImportProgressPhase.READY) 1_600L else 3_400L)
+            if (update.phase == ImportProgressPhase.READY) {
+                previewView?.let { pv ->
+                    NativeBridge.seekToTime(pv, currentTimeMs.coerceAtLeast(0L))
+                    pv.syncNativeSurfaceSizeToView()
+                }
+                scheduleHideImportProgress(1_400L)
+            } else if (update.phase == ImportProgressPhase.FAILED) {
+                scheduleHideImportProgress(3_200L)
             }
         }
     }
 
     private fun scheduleHideImportProgress(delayMs: Long) {
         val runnable = Runnable {
-            importProgressPanel?.visibility = View.GONE
+            importProgressPanel?.animate()?.alpha(0f)?.setDuration(260)?.withEndAction {
+                importProgressPanel?.visibility = View.GONE
+            }?.start()
         }
         hideImportProgressRunnable = runnable
         mainHandler.postDelayed(runnable, delayMs)
@@ -371,9 +407,9 @@ class VideoEditorActivity : ComponentActivity() {
                         ?: if (update.elapsedMs > 1_500L && update.totalBytes > 0L) " - estimating" else ""
                 "$percent - $copied$total$eta"
             }
-            ImportProgressPhase.PREPARING -> update.message ?: "Preparing media"
-            ImportProgressPhase.TIMELINE -> update.message ?: "Adding clip to timeline"
-            ImportProgressPhase.READY -> update.message ?: "Ready in editor"
+            ImportProgressPhase.PREPARING -> update.message ?: "Decoding stream & warming up audio engine for smooth playback..."
+            ImportProgressPhase.TIMELINE -> update.message ?: "Aligning timeline tracks, keyframes & waveforms..."
+            ImportProgressPhase.READY -> "Synchronized with audio. Ready for instant smooth playback!"
             ImportProgressPhase.FAILED -> update.message ?: "Unable to import media"
         }
     }
@@ -702,7 +738,7 @@ class VideoEditorActivity : ComponentActivity() {
         private const val PREVIEW_RESIZE_EDGE_TOUCH_SLOP_DP = 36f
         private const val PREVIEW_OBJECT_MIN_ZOOM = 0.15f
         private const val PREVIEW_OBJECT_MAX_ZOOM = 8.00f
-        private const val DEFAULT_ASPECT_RATIO_INDEX = 3 // 9:16 (Shorts/Reels)
+        private const val DEFAULT_ASPECT_RATIO_INDEX = 0 // 16:9 (YouTube / TV / Landscape default)
         private const val EDITOR_INTERACTION_BUSY_WINDOW_MS = 1_400L
         private const val TIMELINE_IDLE_AUTOSAVE_DELAY_MS = 3_500L
         private const val TIMELINE_BUSY_AUTOSAVE_DELAY_MS = 9_000L
@@ -746,6 +782,10 @@ class VideoEditorActivity : ComponentActivity() {
     private var importProgressDetailText: TextView? = null
     private var importProgressBar: ProgressBar? = null
     private var hideImportProgressRunnable: Runnable? = null
+    private var previewRootContainer: FrameLayout? = null
+    private var bottomContainerView: View? = null
+    private var isLandscapeFloatingMode: Boolean = false
+    private var pipScaleGestureDetector: ScaleGestureDetector? = null
     private var timelineRecyclerView: RecyclerView? = null
     private var timelineCurrentTimeText: TextView? = null
     private var previewAspectRatioText: TextView? = null
@@ -2328,6 +2368,7 @@ class VideoEditorActivity : ComponentActivity() {
 
         // Get UI references
         val previewContainer = findViewById<FrameLayout>(R.id.previewContainer)
+        previewRootContainer = previewContainer
         val previewStageHost = findViewById<FrameLayout>(R.id.previewStageHost)
         previewContainerView = previewStageHost
         previewViewportFrame =
@@ -2364,6 +2405,7 @@ class VideoEditorActivity : ComponentActivity() {
         previewFitFillToggleButton = findViewById(R.id.topPreviewFitFillToggle)
         previewQualityToggleButton = findViewById(R.id.topPreviewQualityToggle)
         val bottomContainer = findViewById<View>(R.id.bottomContainer)
+        bottomContainerView = bottomContainer
         val topBarView = findViewById<View>(R.id.topBar)
         val startScreenView = findViewById<View>(R.id.startScreenOverlay)
         val rootContentView = findViewById<View>(android.R.id.content) ?: window.decorView
@@ -3596,16 +3638,16 @@ class VideoEditorActivity : ComponentActivity() {
         val initialIndex = selectedAspectRatioIndex
         val initialManual = aspectRatioManuallySelected
         val socialAspects = listOf(
-            Triple("TikTok", "9:16", 9f / 16f),
             Triple("YouTube", "16:9", 16f / 9f),
-            Triple("IG Post", "1:1", 1f),
+            Triple("Cinema", "21:9", 21f / 9f),
+            Triple("TikTok", "9:16", 9f / 16f),
             Triple("IG Reels", "9:16", 9f / 16f),
             Triple("Shorts", "9:16", 9f / 16f),
+            Triple("IG Post", "1:1", 1f),
             Triple("IG Port.", "4:5", 4f / 5f),
-            Triple("Reels / Story", "9:16", 9f / 16f),
-            Triple("FB Story", "9:16", 9f / 16f),
-            Triple("Cinema", "21:9", 21f / 9f),
             Triple("Classic", "4:3", 4f / 3f),
+            Triple("Banner", "2:1", 2f),
+            Triple("Reels / Story", "9:16", 9f / 16f),
         )
         ModernSheet.showModal(
             context = this,
@@ -3622,8 +3664,29 @@ class VideoEditorActivity : ComponentActivity() {
                 syncPreviewProOverlayUi()
             },
         ) {
+            actionTile(
+                title = "⚡ Auto Detect from Video",
+                subtitle = "Match canvas to imported video native resolution",
+            ) {
+                val firstVisualClipId = nativeClipTrackType.entries.firstOrNull { isVisualTimelineTrack(it.value) }?.key
+                val path = firstVisualClipId?.let { nativeClipSourcePath[it] }
+                val detectedAspect = path?.let { previewSourceAspectCache[it] ?: decodeVideoSourceAspect(it) ?: decodeImageSourceAspect(it) }
+                if (detectedAspect != null) {
+                    val targetIndex = closestAspectRatioIndexForSource(detectedAspect)
+                    selectedAspectRatioIndex = targetIndex
+                    aspectRatioManuallySelected = false
+                    applyPreviewAspectRatio()
+                    syncPreviewProOverlayUi()
+                    safeToast("⚡ Canvas auto-detected: ${aspectRatioOptions[targetIndex].label} (${aspectRatioOptions[targetIndex].example})", Toast.LENGTH_SHORT)
+                } else {
+                    safeToast("Import a video clip first to auto-detect ratio", Toast.LENGTH_SHORT)
+                }
+            }
+            divider()
             section("Social & Platform Presets")
-            aspectCards(socialAspects, selectedIndex = 0) { idx ->
+            val currentRatio = aspectRatioOptions[selectedAspectRatioIndex].width.toFloat() / aspectRatioOptions[selectedAspectRatioIndex].height.toFloat().coerceAtLeast(1f)
+            val matchedSocialIndex = socialAspects.indexOfFirst { kotlin.math.abs(it.third - currentRatio) < 0.05f }.takeIf { it >= 0 } ?: 0
+            aspectCards(socialAspects, selectedIndex = matchedSocialIndex) { idx ->
                 val chosenAspect = socialAspects[idx].third
                 val matchedIndex = aspectRatioOptions.indices.minByOrNull { i ->
                     kotlin.math.abs((aspectRatioOptions[i].width.toFloat() / aspectRatioOptions[i].height.toFloat()) - chosenAspect)
@@ -4444,12 +4507,14 @@ class VideoEditorActivity : ComponentActivity() {
     private fun maybeAutoAdaptCanvasForImportedClip(sourceAspect: Float): Boolean {
         if (aspectRatioManuallySelected) return false
         if (importedNativeVisualClipCount() > 1) return false
-        if (allTextOverlays().isNotEmpty() || StickerClipStore.all().isNotEmpty()) return false
         val targetIndex = closestAspectRatioIndexForSource(sourceAspect).coerceIn(0, aspectRatioOptions.lastIndex)
         val changed = targetIndex != selectedAspectRatioIndex
         selectedAspectRatioIndex = targetIndex
         applyPreviewAspectRatio()
         syncPreviewProOverlayUi()
+        if (changed) {
+            safeToast("🎬 Canvas auto-detected: ${aspectRatioOptions[targetIndex].label} (${aspectRatioOptions[targetIndex].example})", Toast.LENGTH_SHORT)
+        }
         Log.d(
             TAG,
             "Auto canvas ratio ${aspectRatioOptions[targetIndex].label} changed=$changed sourceAspect=${"%.3f".format(Locale.US, sourceAspect)}",
@@ -5216,6 +5281,155 @@ class VideoEditorActivity : ComponentActivity() {
         AudioWaveformCache.suspendRequests(10_000L)
         System.gc()
         Log.w("[PERF]", "onLowMemory: evicted all thumbnail and waveform caches")
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val isLandscape = newConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        handleOrientationLayoutChange(isLandscape)
+    }
+
+    private fun handleOrientationLayoutChange(isLandscape: Boolean) {
+        val preview = previewRootContainer ?: findViewById<FrameLayout>(R.id.previewContainer) ?: return
+        val bottom = bottomContainerView ?: findViewById<View>(R.id.bottomContainer) ?: return
+        val dm = resources.displayMetrics
+        val screenW = dm.widthPixels
+        val screenH = dm.heightPixels
+
+        if (isLandscape) {
+            isLandscapeFloatingMode = true
+            // 1. Expand bottomContainer to fill screen height so multi-track timeline is wide and visible
+            val bParams = bottom.layoutParams as? androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+            if (bParams != null) {
+                bParams.height = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.MATCH_PARENT
+                bParams.width = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.MATCH_PARENT
+                bParams.topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                bParams.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                bParams.startToStart = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                bParams.endToEnd = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                bottom.layoutParams = bParams
+            }
+
+            // 2. Turn previewContainer into floating movable & resizable PiP box
+            val aspect = selectedCanvasAspect().coerceIn(0.3f, 4.0f)
+            val pipW = (screenW * 0.36f).roundToInt().coerceIn(uiDp(200), uiDp(380))
+            val pipH = (pipW / aspect).roundToInt().coerceIn(uiDp(130), uiDp(260))
+
+            val pParams = preview.layoutParams as? androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+            if (pParams != null) {
+                pParams.width = pipW
+                pParams.height = pipH
+                pParams.topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                pParams.bottomToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
+                pParams.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
+                pParams.startToStart = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                pParams.endToEnd = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
+                preview.layoutParams = pParams
+            }
+
+            // Position at top-right
+            preview.x = (screenW - pipW - uiDp(16)).toFloat().coerceAtLeast(0f)
+            preview.y = uiDp(16).toFloat()
+            preview.elevation = uiDp(14).toFloat()
+            preview.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = uiDp(14).toFloat()
+                setColor(Color.parseColor("#E60B101C"))
+                setStroke(uiDp(2).coerceAtLeast(1), Color.parseColor("#9900E5FF"))
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                preview.clipToOutline = true
+            }
+
+            setupFloatingPreviewGestures(preview)
+            safeToast("📱 Floating Preview Box: Drag with finger or pinch to resize", Toast.LENGTH_SHORT)
+        } else {
+            isLandscapeFloatingMode = false
+            // Restore docked top preview split in portrait
+            val pParams = preview.layoutParams as? androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+            if (pParams != null) {
+                pParams.width = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.MATCH_PARENT
+                pParams.height = 0
+                pParams.topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
+                pParams.topToBottom = R.id.editorTopBannerContainer
+                pParams.bottomToTop = R.id.bottomContainer
+                pParams.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
+                pParams.startToStart = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                pParams.endToEnd = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                preview.layoutParams = pParams
+            }
+            preview.translationX = 0f
+            preview.translationY = 0f
+            preview.scaleX = 1f
+            preview.scaleY = 1f
+            preview.elevation = 0f
+            preview.background = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.preview_surface_background)
+
+            // Restore bottomContainer to standard portrait bottom layout
+            val bParams = bottom.layoutParams as? androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+            if (bParams != null) {
+                bParams.width = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.MATCH_PARENT
+                bParams.height = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.WRAP_CONTENT
+                bParams.topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
+                bParams.topToBottom = R.id.previewContainer
+                bParams.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                bottom.layoutParams = bParams
+            }
+        }
+        applyPreviewAspectRatio()
+        syncPreviewProOverlayUi()
+    }
+
+    private fun setupFloatingPreviewGestures(preview: View) {
+        val scaleDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                if (!isLandscapeFloatingMode) return false
+                val newScale = (preview.scaleX * detector.scaleFactor).coerceIn(0.6f, 2.2f)
+                preview.scaleX = newScale
+                preview.scaleY = newScale
+                return true
+            }
+        })
+        pipScaleGestureDetector = scaleDetector
+
+        var startRawX = 0f
+        var startRawY = 0f
+        var initialX = 0f
+        var initialY = 0f
+
+        preview.setOnTouchListener { v, event ->
+            if (!isLandscapeFloatingMode) return@setOnTouchListener false
+            scaleDetector.onTouchEvent(event)
+            if (event.pointerCount > 1 || scaleDetector.isInProgress) {
+                return@setOnTouchListener true
+            }
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    startRawX = event.rawX
+                    startRawY = event.rawY
+                    initialX = v.x
+                    initialY = v.y
+                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - startRawX
+                    val dy = event.rawY - startRawY
+                    val screenW = resources.displayMetrics.widthPixels
+                    val screenH = resources.displayMetrics.heightPixels
+                    val maxW = screenW - v.width
+                    val maxH = screenH - v.height
+                    v.x = (initialX + dx).coerceIn(0f, maxW.toFloat().coerceAtLeast(0f))
+                    v.y = (initialY + dy).coerceIn(0f, maxH.toFloat().coerceAtLeast(0f))
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    v.parent?.requestDisallowInterceptTouchEvent(false)
+                    true
+                }
+                else -> false
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -8382,10 +8596,12 @@ class VideoEditorActivity : ComponentActivity() {
         var customBold = true
         var customColor = 0xFFFFFFFF.toInt()
         var selectedPresetLabel = "Caption"
+        var typedContent = ""
 
         val colors = listOf(
             0xFFFFFFFF.toInt(), // White
             0xFFFFEB3B.toInt(), // Yellow
+            0xFFFFD700.toInt(), // Gold
             0xFF00E5FF.toInt(), // Cyan
             0xFF76FF03.toInt(), // Green
             0xFFFF5252.toInt(), // Red
@@ -8396,14 +8612,15 @@ class VideoEditorActivity : ComponentActivity() {
 
         ModernSheet.showModal(
             context = this,
-            title = "Add Text Overlay",
+            title = "✨ Add Text & Title",
             showClose = true,
             showApply = true,
             onApply = {
                 val preset = textOverlayPresetByLabel(selectedPresetLabel) ?: textOverlayPresets.first()
+                val textToUse = typedContent.ifBlank { preset.hint.ifBlank { "My Title" } }
                 val overlay = buildTextOverlayFromPreset(
                     preset = preset,
-                    rawText = "",
+                    rawText = textToUse,
                     durationOverrideMs = customDurationMs,
                 ).apply {
                     bold = customBold
@@ -8412,18 +8629,49 @@ class VideoEditorActivity : ComponentActivity() {
                 addTextOverlay(overlay, message = "${preset.label} added")
             },
         ) {
-            textInput("Content", "Write a title, caption, or label") { }
-
-            fun styledOverlay(label: String): TextOverlay? {
-                val preset = textOverlayPresetByLabel(label) ?: return null
-                return buildTextOverlayFromPreset(
-                    preset = preset,
-                    rawText = getTextInput(),
-                    durationOverrideMs = customDurationMs,
-                ).apply {
-                    bold = customBold
-                    color = customColor
+            val previewCard = FrameLayout(this@VideoEditorActivity).apply {
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = uiDp(12).toFloat()
+                    setColor(Color.parseColor("#0A0E14"))
+                    setStroke(uiDp(1), Color.parseColor("#1E2733"))
                 }
+                setPadding(uiDp(16), uiDp(12), uiDp(16), uiDp(12))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    uiDp(84),
+                ).also { it.bottomMargin = uiDp(8) }
+            }
+            val previewText = TextView(this@VideoEditorActivity).apply {
+                text = "My Title"
+                textSize = 18f
+                setTextColor(customColor)
+                setTypeface(null, if (customBold) Typeface.BOLD else Typeface.NORMAL)
+                gravity = Gravity.CENTER
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.CENTER,
+                )
+            }
+            previewCard.addView(previewText)
+            customView(previewCard)
+
+            fun updateLiveCard() {
+                val display = typedContent.ifBlank { selectedPresetLabel }
+                previewText.text = display
+                previewText.setTextColor(customColor)
+                previewText.setTypeface(null, if (customBold) Typeface.BOLD else Typeface.NORMAL)
+                if (selectedPresetLabel == "Hook") {
+                    previewText.setShadowLayer(16f, 0f, 0f, 0xFF00E5FF.toInt())
+                } else {
+                    previewText.setShadowLayer(8f, 0f, 2f, 0x88000000.toInt())
+                }
+            }
+
+            textInput("Content", "Write a title, caption, hook or quote") {
+                typedContent = it
+                updateLiveCard()
             }
 
             section("Text Style Presets")
@@ -8435,18 +8683,21 @@ class VideoEditorActivity : ComponentActivity() {
                 dismissOnSelect = false,
             ) { _, option ->
                 selectedPresetLabel = option
+                updateLiveCard()
             }
 
             divider()
             section("Text Color")
             colorPalette(colors, customColor) { chosenColor ->
                 customColor = chosenColor
+                updateLiveCard()
             }
 
             divider()
             section("Formatting")
             toggle("Bold Font", customBold) { enabled ->
                 customBold = enabled
+                updateLiveCard()
             }
 
             sliderWithBubble(
@@ -12489,7 +12740,11 @@ class VideoEditorActivity : ComponentActivity() {
         runOnUiThread {
             refreshMainTimelineTracks()
             stabilizeAfterSplit(stabilizedPreviewTimeMs, selectionKeyForNativeClipId(rightClipId ?: clipId))
-            notePreviewInteractionBusy(2400L)
+            if (rightClipId != null) {
+                timelineCanvasView()?.notifyClipSplit(clipId.toString(), rightClipId.toString())
+            }
+            com.video.engine.pro.timeline.TimelineThumbnailCache.resumeRequests()
+            timelineCanvasView()?.resumeAssetRequests()
             playbackController?.refreshPausedPreviewAt(stabilizedPreviewTimeMs)
             mainHandler.postDelayed({
                 if (!isPlaying && !isPreviewInteractionBusy()) {

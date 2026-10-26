@@ -26,7 +26,17 @@ object LutPanel {
             },
         ) {
             val sectionTitles = listOf("All") + ProFilterPresets.sections.map { it.title }
-            categories(sectionTitles, selected = 0) { _, _ -> }
+            categories(sectionTitles, selected = 0) { _, category ->
+                val presetToApply = if (category == "All") {
+                    ProFilterPresets.sections.firstOrNull()?.presets?.firstOrNull()
+                } else {
+                    ProFilterPresets.sections.firstOrNull { it.title == category }?.presets?.firstOrNull()
+                }
+                presetToApply?.let {
+                    live = it.params
+                    onChange(live)
+                }
+            }
 
             section("Color Adjustments")
             sliderWithBubble(

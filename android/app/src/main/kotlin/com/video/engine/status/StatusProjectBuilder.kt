@@ -21,7 +21,8 @@ object StatusProjectBuilder {
         customText: String? = null,
         textNormX: Float = 0.5f,
         textNormY: Float = 0.74f,
-        textScale: Float = 1.0f
+        textScale: Float = 1.0f,
+        customTexts: StatusCustomTexts? = null
     ): File? {
         if (photoPaths.isEmpty()) return null
 
@@ -189,40 +190,70 @@ object StatusProjectBuilder {
 
                 put("clips", clipsArray)
 
-                // Text Overlays
+                // Text Overlays with custom text overrides
                 val textArray = JSONArray()
-                template.textOverlays.forEachIndexed { index, textOverlay ->
-                    val textJson = JSONObject().apply {
-                        put("id", index + 1)
-                        put("text", textOverlay.text)
-                        put("x", 0.5)
-                        // If user has custom text at bottom, position template lyrics higher (0.22)
-                        val adjustedY = if (!customText.isNullOrBlank()) 0.22 else textOverlay.posYPercent.toDouble()
-                        put("y", adjustedY)
-                        put("scale", textOverlay.scale.toDouble())
+                val hideDefaults = customTexts?.hideDefaultOverlays == true
+
+                if (!hideDefaults) {
+                    template.textOverlays.forEachIndexed { index, textOverlay ->
+                        val overlayText = if (index == 0 && !customTexts?.titleText.isNullOrBlank()) {
+                            customTexts!!.titleText!!
+                        } else {
+                            textOverlay.text
+                        }
+                        val textJson = JSONObject().apply {
+                            put("id", index + 1)
+                            put("text", overlayText)
+                            put("x", 0.5)
+                            val adjustedY = if (!customText.isNullOrBlank() || !customTexts?.quoteText.isNullOrBlank() || !customTexts?.userName.isNullOrBlank()) 0.20 else textOverlay.posYPercent.toDouble()
+                            put("y", adjustedY)
+                            put("scale", textOverlay.scale.toDouble())
+                            put("rotation", 0.0)
+                            put("color", customTexts?.textColorHex ?: textOverlay.colorHex)
+                            put("opacity", 1.0)
+                            put("fadeInMs", 300)
+                            put("fadeOutMs", 300)
+                            put("zOrder", 10 + index)
+                            put("startTime", textOverlay.startTimeMs)
+                            put("endTime", textOverlay.endTimeMs)
+                            put("enabled", true)
+                        }
+                        textArray.put(textJson)
+                    }
+                }
+
+                // Add prominent custom name overlay
+                if (!customTexts?.userName.isNullOrBlank()) {
+                    val nameJson = JSONObject().apply {
+                        put("id", 98)
+                        put("text", "👑 ${customTexts!!.userName} 👑")
+                        put("x", textNormX)
+                        put("y", (textNormY - 0.08).coerceIn(0.1, 0.9))
+                        put("scale", 1.35 * textScale)
                         put("rotation", 0.0)
-                        put("color", textOverlay.colorHex)
+                        put("color", customTexts.textColorHex ?: "0xFFFFD700")
                         put("opacity", 1.0)
                         put("fadeInMs", 300)
                         put("fadeOutMs", 300)
-                        put("zOrder", 10 + index)
-                        put("startTime", textOverlay.startTimeMs)
-                        put("endTime", textOverlay.endTimeMs)
+                        put("zOrder", 98)
+                        put("startTime", 0L)
+                        put("endTime", template.durationMs)
                         put("enabled", true)
                     }
-                    textArray.put(textJson)
+                    textArray.put(nameJson)
                 }
 
-                // Add prominent custom name / lyrical text overlay
-                if (!customText.isNullOrBlank()) {
+                // Add prominent lyrical quote / Shayari text overlay
+                val effectiveQuote = customTexts?.quoteText ?: customText
+                if (!effectiveQuote.isNullOrBlank()) {
                     val customJson = JSONObject().apply {
                         put("id", 100)
-                        put("text", customText)
+                        put("text", effectiveQuote)
                         put("x", textNormX)
                         put("y", textNormY)
                         put("scale", 1.30 * textScale)
                         put("rotation", 0.0)
-                        put("color", "0xFFFFD700")
+                        put("color", customTexts?.textColorHex ?: "0xFFFFD700")
                         put("opacity", 1.0)
                         put("fadeInMs", 300)
                         put("fadeOutMs", 300)
@@ -232,6 +263,27 @@ object StatusProjectBuilder {
                         put("enabled", true)
                     }
                     textArray.put(customJson)
+                }
+
+                // Add custom tagline / date overlay
+                if (!customTexts?.taglineText.isNullOrBlank()) {
+                    val tagJson = JSONObject().apply {
+                        put("id", 101)
+                        put("text", "✨ ${customTexts!!.taglineText}")
+                        put("x", textNormX)
+                        put("y", (textNormY + 0.07).coerceIn(0.1, 0.95))
+                        put("scale", 1.05 * textScale)
+                        put("rotation", 0.0)
+                        put("color", "0xFF00F2FE")
+                        put("opacity", 1.0)
+                        put("fadeInMs", 300)
+                        put("fadeOutMs", 300)
+                        put("zOrder", 100)
+                        put("startTime", 0L)
+                        put("endTime", template.durationMs)
+                        put("enabled", true)
+                    }
+                    textArray.put(tagJson)
                 }
                 put("textOverlays", textArray)
 

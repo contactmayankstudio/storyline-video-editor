@@ -81,7 +81,9 @@ class PhotoEditorActivity : ComponentActivity() {
     private var sourceImageUri: String? = null
     private var dirtySinceOpen = false
     private var activeStudioTab: PhotoStudioTab = PhotoStudioTab.EDIT
-    private var magicWipeDragOffsetX = 0f
+    private var magicWipeStartRawX = 0f
+    private var magicWipeStartHandleX = 0f
+    private var magicThumbBadgeView: TextView? = null
 
     private val colorOptions = listOf(
         "White" to Color.WHITE,
@@ -255,6 +257,9 @@ class PhotoEditorActivity : ComponentActivity() {
                     }
                 canvasView.addOnLayoutChangeListener(syncMagicLineAfterLayout)
                 addOnLayoutChangeListener(syncMagicLineAfterLayout)
+                canvasView.onMagicSweepFractionChanged = { frac ->
+                    updateMagicWipeLinePosition(frac)
+                }
                 post { updateMagicWipeLinePosition(1f) }
                 post { syncMagicWipeLineVisibility() }
                 floatingQuickBar = LinearLayout(this@PhotoEditorActivity).apply {
@@ -310,7 +315,7 @@ class PhotoEditorActivity : ComponentActivity() {
     private fun buildMagicWipeLineHandle(): FrameLayout =
         FrameLayout(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
-            alpha = 0.78f
+            alpha = 0.85f
             isClickable = true
             isFocusable = false
             addView(
@@ -325,43 +330,54 @@ class PhotoEditorActivity : ComponentActivity() {
             )
             // Grip badge for intuitive Before/After dragging
             val thumbBadge = TextView(this@PhotoEditorActivity).apply {
-                text = "◀  ▶"
+                text = "◀ SPLIT ▶"
                 textSize = 9.5f
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(Color.WHITE)
                 gravity = Gravity.CENTER
+                setPadding(dp(8), 0, dp(8), 0)
                 background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#E6121822"))
-                    setStroke(dp(1).coerceAtLeast(1), Color.parseColor("#00E5FF"))
-                    shape = GradientDrawable.OVAL
+                    setColor(Color.parseColor("#E60A0F1D"))
+                    setStroke(dp(2).coerceAtLeast(1), Color.parseColor("#00E5FF"))
+                    cornerRadius = dp(14).toFloat()
                 }
-                elevation = dp(4).toFloat()
+                elevation = dp(6).toFloat()
             }
+            magicThumbBadgeView = thumbBadge
             addView(
                 thumbBadge,
                 FrameLayout.LayoutParams(
-                    dp(32),
-                    dp(32),
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    dp(28),
                     Gravity.CENTER,
                 ),
             )
             setOnTouchListener { view, event ->
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
-                        magicWipeDragOffsetX = event.x
+                        magicWipeStartRawX = event.rawX
+                        magicWipeStartHandleX = view.x
                         view.parent?.requestDisallowInterceptTouchEvent(true)
                         view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                         view.alpha = 1f
                         canvasView.beginMagicSweep()
-                        handleMagicWipeLineDrag(view, event.x)
                         true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        handleMagicWipeLineDrag(view, event.x)
+                        val deltaX = event.rawX - magicWipeStartRawX
+                        val bounds = canvasView.magicSweepViewportBounds()
+                        val lineInset = dp(4).toFloat()
+                        val minX = bounds.left + lineInset - view.width / 2f
+                        val maxX = bounds.right - lineInset - view.width / 2f
+                        if (maxX > minX) {
+                            val nextX = (magicWipeStartHandleX + deltaX).coerceIn(minX, maxX)
+                            view.x = nextX
+                            val revealFraction = canvasView.magicSweepFractionForViewX(nextX + view.width / 2f)
+                            canvasView.previewMagicSweep(revealFraction)
+                        }
                         true
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        handleMagicWipeLineDrag(view, event.x)
                         val fraction = canvasView.magicSweepRevealFraction()
                         if (fraction >= 0.94f) {
                             canvasView.commitMagicSweep(forceClose = true)
@@ -379,44 +395,47 @@ class PhotoEditorActivity : ComponentActivity() {
             }
         }
 
-    private fun handleMagicWipeLineDrag(handle: View, localX: Float) {
-        val bounds = canvasView.magicSweepViewportBounds()
-        if (!updateMagicWipeLineBounds(bounds)) return
-        val lineInset = dp(6).toFloat()
-        val minX = bounds.left + lineInset - handle.width / 2f
-        val maxX = bounds.right - lineInset - handle.width / 2f
-        if (maxX < minX) return
-        val nextX = (handle.x + localX - magicWipeDragOffsetX).coerceIn(minX, maxX)
-        handle.x = nextX
-        val revealFraction = canvasView.magicSweepFractionForViewX(nextX + handle.width / 2f)
-        canvasView.previewMagicSweep(revealFraction)
-    }
-
     private fun updateMagicWipeLinePosition(fraction: Float) {
         if (!::magicWipeLineHandle.isInitialized) return
         val bounds = canvasView.magicSweepViewportBounds()
-        if (!updateMagicWipeLineBounds(bounds) || magicWipeLineHandle.width <= 0) {
+        if (bounds.width() <= 1f || bounds.height() <= 1f || magicWipeLineHandle.width <= 0) {
             magicWipeLineHandle.post { updateMagicWipeLinePosition(fraction) }
             return
         }
-        val lineInset = dp(6).toFloat()
+        val lineInset = dp(4).toFloat()
         val minX = bounds.left + lineInset - magicWipeLineHandle.width / 2f
         val maxX = bounds.right - lineInset - magicWipeLineHandle.width / 2f
-        if (maxX < minX) return
-        magicWipeLineHandle.x =
-            (canvasView.magicSweepViewXForFraction(fraction) - magicWipeLineHandle.width / 2f).coerceIn(minX, maxX)
+        if (maxX > minX) {
+            val targetX = (canvasView.magicSweepViewXForFraction(fraction) - magicWipeLineHandle.width / 2f).coerceIn(minX, maxX)
+            magicWipeLineHandle.x = targetX
+        }
+        magicWipeLineHandle.y = bounds.top
+        magicThumbBadgeView?.translationY = (bounds.height() / 2f) - (magicWipeLineHandle.height / 2f)
     }
 
-    private fun updateMagicWipeLineBounds(bounds: RectF): Boolean {
-        if (bounds.width() <= 1f || bounds.height() <= 1f) return false
-        magicWipeLineHandle.y = bounds.top
-        val nextHeight = bounds.height().toInt().coerceAtLeast(dp(1))
-        val params = magicWipeLineHandle.layoutParams as? FrameLayout.LayoutParams ?: return true
-        if (params.height != nextHeight) {
-            params.height = nextHeight
-            magicWipeLineHandle.layoutParams = params
+    private fun animateMagicSplitToggle() {
+        val currentFraction = canvasView.magicSweepRevealFraction()
+        val targetFraction = if (currentFraction < 0.94f) 1.0f else 0.5f
+        if (targetFraction == 0.5f) {
+            canvasView.beginMagicSweep()
         }
-        return true
+        val anim = android.animation.ValueAnimator.ofFloat(currentFraction, targetFraction).apply {
+            duration = 260L
+            interpolator = android.view.animation.AccelerateDecelerateInterpolator()
+            addUpdateListener { va ->
+                val f = va.animatedValue as Float
+                canvasView.previewMagicSweep(f)
+                updateMagicWipeLinePosition(f)
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (targetFraction == 1.0f) {
+                        canvasView.commitMagicSweep(forceClose = true)
+                    }
+                }
+            })
+        }
+        anim.start()
     }
 
     private fun buildPhotoTopBannerSlot(): View {
@@ -482,6 +501,7 @@ class PhotoEditorActivity : ComponentActivity() {
                 )
                 addView(topCircleButton("Undo") { handleUndo() })
                 addView(topCircleButton("Redo") { handleRedo() })
+                addView(topCircleButton("Split") { animateMagicSplitToggle() })
                 addView(topCircleButton("Draft") { forceSavePhotoProject() })
                 addView(topSaveButton("Save") { showExportPanel() })
             }
@@ -590,8 +610,7 @@ class PhotoEditorActivity : ComponentActivity() {
             }
             PhotoStudioTab.MAGIC -> {
                 addStudioTool("Compare", "SPLIT", isMagic = true) {
-                    val active = canvasView.toggleMagicSplitCompare()
-                    updateMagicWipeLinePosition(if (active) 0.5f else 1f)
+                    animateMagicSplitToggle()
                     magicWipeLineHandle.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
                 }
                 addStudioTool("BG Remove", "CUT", isMagic = true) { applyAiBackgroundRemove() }
@@ -1767,24 +1786,24 @@ class PhotoEditorActivity : ComponentActivity() {
             "Canvas Size - ${canvasView.canvasSizeSummary()}",
             listOf(
                 listOf(
-                    PhotoToolAction("Square") { applyCanvasSizePresetFromPanel("Square", 1080, 1080) },
-                    PhotoToolAction("YT Thumb") { applyCanvasSizePresetFromPanel("YouTube Thumbnail 16:9", 1280, 720) },
-                    PhotoToolAction("YT Short") { applyCanvasSizePresetFromPanel("YouTube Shorts 9:16", 1080, 1920) },
+                    PhotoToolAction("16:9 Landscape") { applyCanvasSizePresetFromPanel("Landscape 16:9", 1920, 1080) },
+                    PhotoToolAction("YT Thumb 16:9") { applyCanvasSizePresetFromPanel("YouTube Thumbnail 16:9", 1280, 720) },
+                    PhotoToolAction("Square 1:1") { applyCanvasSizePresetFromPanel("Square", 1080, 1080) },
                 ),
                 listOf(
-                    PhotoToolAction("Insta 1:1") { applyCanvasSizePresetFromPanel("Instagram Post 1:1", 1080, 1080) },
-                    PhotoToolAction("Insta 4:5") { applyCanvasSizePresetFromPanel("Instagram Portrait 4:5", 1080, 1350) },
+                    PhotoToolAction("YT Short 9:16") { applyCanvasSizePresetFromPanel("YouTube Shorts 9:16", 1080, 1920) },
+                    PhotoToolAction("Insta Post 1:1") { applyCanvasSizePresetFromPanel("Instagram Post 1:1", 1080, 1080) },
+                    PhotoToolAction("Insta Port 4:5") { applyCanvasSizePresetFromPanel("Instagram Portrait 4:5", 1080, 1350) },
+                ),
+                listOf(
                     PhotoToolAction("Story 9:16") { applyCanvasSizePresetFromPanel("Story/Reel 9:16", 1080, 1920) },
-                ),
-                listOf(
-                    PhotoToolAction("Facebook") { applyCanvasSizePresetFromPanel("Facebook Feed", 1200, 630) },
+                    PhotoToolAction("Facebook Feed") { applyCanvasSizePresetFromPanel("Facebook Feed", 1200, 630) },
                     PhotoToolAction("FB Cover") { applyCanvasSizePresetFromPanel("Facebook Cover", 1640, 924) },
-                    PhotoToolAction("Landscape") { applyCanvasSizePresetFromPanel("Landscape 16:9", 1920, 1080) },
                 ),
                 listOf(
-                    PhotoToolAction("Profile") { applyCanvasSizePresetFromPanel("Profile Crop", 1080, 1080) },
-                    PhotoToolAction("Banner") { applyCanvasSizePresetFromPanel("Wide Banner", 1500, 500) },
-                    PhotoToolAction("Custom") { showCustomSizeDialog() },
+                    PhotoToolAction("Profile Crop") { applyCanvasSizePresetFromPanel("Profile Crop", 1080, 1080) },
+                    PhotoToolAction("Wide Banner") { applyCanvasSizePresetFromPanel("Wide Banner", 1500, 500) },
+                    PhotoToolAction("Custom Size") { showCustomSizeDialog() },
                 ),
             ),
             toolbarActions = listOf(

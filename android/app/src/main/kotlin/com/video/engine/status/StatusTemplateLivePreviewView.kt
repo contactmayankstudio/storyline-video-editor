@@ -21,6 +21,9 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import android.util.Log
+import com.video.engine.export.CanvasVideoEncoder
+import java.io.File
 
 class StatusTemplateLivePreviewView @JvmOverloads constructor(
     context: Context,
@@ -37,11 +40,25 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
             postInvalidateOnAnimation()
         }
 
+    var customTexts: StatusCustomTexts = StatusCustomTexts()
+        set(value) {
+            field = value
+            if (value.quoteText != null) {
+                customStatusText = value.quoteText
+            }
+            postInvalidateOnAnimation()
+        }
+
     var customStatusText: String? = null
         set(value) {
             field = value
+            if (value != null && customTexts.quoteText == null) {
+                customTexts.quoteText = value
+            }
             postInvalidateOnAnimation()
         }
+
+    var onTextClickListener: (() -> Unit)? = null
 
     // Touch gesture adjustment for text: Position (Norm X/Y) & Scale
     var customTextNormX: Float = 0.5f
@@ -118,6 +135,18 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         typeface = Typeface.DEFAULT_BOLD
         textAlign = Paint.Align.CENTER
     }
+    private val transMatrix = Matrix()
+    private val transNextMatrix = Matrix()
+    private val transPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val transNextPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val transFlarePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val transHeartPath = Path()
+    private val transShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val transSpeedStreakPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(120, 255, 255, 255)
+        strokeWidth = 3f
+    }
+    private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val pillBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(160, 0, 0, 0)
     }
@@ -170,6 +199,112 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
 
     // Scrubber dot paint
     private val scrubberDotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    // --- Distinct Unique Theme Graphic Paints ---
+    // Polaroid & 35mm Vintage Film
+    private val polaroidFramePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#FBFBFC") }
+    private val polaroidShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(130, 0, 0, 0) }
+    private val tapePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(195, 235, 230, 210) }
+    private val recTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        typeface = Typeface.MONOSPACE
+        textSize = 24f
+    }
+    private val recDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#FF1744") }
+    private val polaroidSignaturePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#22242A")
+        typeface = Typeface.DEFAULT_BOLD
+        textAlign = Paint.Align.CENTER
+    }
+
+    // Spotify Music Player Glassmorphic Card
+    private val spotifyCardBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(215, 18, 20, 28) }
+    private val spotifyCardStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2.5f
+        color = Color.argb(90, 255, 255, 255)
+    }
+    private val spotifyTitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        typeface = Typeface.DEFAULT_BOLD
+    }
+    private val spotifyArtistPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#00F2FE")
+        typeface = Typeface.DEFAULT_BOLD
+    }
+    private val spotifyProgressBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(80, 255, 255, 255)
+        strokeWidth = 4f
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val spotifyProgressFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#1DB954")
+        strokeWidth = 4f
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val spotifyControlsPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 34f
+        textAlign = Paint.Align.CENTER
+    }
+
+    // Royal Attitude & Sigma King
+    private val crownPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#FFD700")
+        textSize = 52f
+        textAlign = Paint.Align.CENTER
+    }
+    private val attitudeGoldBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        color = Color.parseColor("#FFD700")
+    }
+    private val attitudeBadgeFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(200, 15, 15, 20)
+    }
+    private val fireSparkPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    // Cyberpunk Neon HUD
+    private val hudBracketPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3.5f
+        color = Color.parseColor("#00F2FE")
+    }
+    private val hudTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#00F2FE")
+        typeface = Typeface.MONOSPACE
+        textSize = 20f
+    }
+    private val scanlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(22, 0, 0, 0)
+        strokeWidth = 1.5f
+    }
+
+    // Birthday & Celebration
+    private val confettiColors = intArrayOf(
+        Color.parseColor("#FF1744"),
+        Color.parseColor("#FFD700"),
+        Color.parseColor("#00F2FE"),
+        Color.parseColor("#E040FB"),
+        Color.parseColor("#76FF03"),
+        Color.parseColor("#FF9100")
+    )
+    private val confettiPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val birthdayBannerBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(220, 255, 215, 0)
+    }
+    private val birthdayBannerTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#221200")
+        typeface = Typeface.DEFAULT_BOLD
+        textAlign = Paint.Align.CENTER
+    }
+
+    // Divine Bhakti Sunburst Halo
+    private val divineSymbolPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#FF9933")
+        textSize = 54f
+        textAlign = Paint.Align.CENTER
+    }
 
     // 4 Procedurally rendered aesthetic portrait model slides
     private val sampleSlides = mutableListOf<Bitmap>()
@@ -398,6 +533,17 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
             (pausedTime - startTime) % totalDurationMs
         }
 
+        renderFrameAt(canvas, w, h, elapsedMs, isExport = false)
+
+        // Continue 60fps loop
+        if (isPlaying) {
+            postInvalidateOnAnimation()
+        }
+    }
+
+    fun renderFrameAt(canvas: Canvas, w: Float, h: Float, elapsedMs: Long, isExport: Boolean = false) {
+        val tm = template ?: return
+        val totalDurationMs = tm.durationMs.coerceAtLeast(6000L)
         val numSlides = if (customPhotoBitmap != null) 4 else sampleSlides.size.coerceAtLeast(1)
         val slideDurationMs = totalDurationMs / numSlides
         val currentSlideIndex = ((elapsedMs / slideDurationMs) % numSlides).toInt()
@@ -598,19 +744,50 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
             canvas.drawBitmap(currentBmp, matrix, bgPaint)
         }
 
-        // 2. Crossfade transition on last 25% of slide duration
-        if (slideProgress > 0.75f && customPhotoBitmap == null) {
-            val fadeProgress = (slideProgress - 0.75f) / 0.25f
-            bgPaint.alpha = (fadeProgress * 255).toInt().coerceIn(0, 255)
+        // 2. High-Energy Cinematic Transitions (3D Cube Flip, Film Strip Roll, Glitch Slice, Zoom Burst, Spotify Slide, Heart Iris, Whip Pan, Punch Zoom, Flash Cut, Push Slide, Crossfade)
+        if (slideProgress > 0.70f) {
+            val rawProgress = (slideProgress - 0.70f) / 0.30f
+            val t = (rawProgress * rawProgress * (3f - 2f * rawProgress)).coerceIn(0f, 1f)
+            val designTheme = tm.getDesignTheme()
 
-            val nextScale = Math.max(w / nextBmp.width.toFloat(), h / nextBmp.height.toFloat()) * (1.0f + fadeProgress * 0.08f)
-            val nScaledW = nextBmp.width.toFloat() * nextScale
-            val nScaledH = nextBmp.height.toFloat() * nextScale
-            matrix.reset()
-            matrix.postScale(nextScale, nextScale)
-            matrix.postTranslate((w - nScaledW) / 2f, (h - nScaledH) / 2f)
-            canvas.drawBitmap(nextBmp, matrix, bgPaint)
-            bgPaint.alpha = 255
+            val effectiveTransition = when {
+                transitionType in listOf("cube_3d_flip", "3d_flip", "cube") -> "cube_3d_flip"
+                transitionType in listOf("film_strip_roll", "film_roll") -> "film_strip_roll"
+                transitionType in listOf("neon_glitch_slice") -> "neon_glitch_slice"
+                transitionType in listOf("zoom_burst_spin") -> "zoom_burst_spin"
+                transitionType in listOf("spotify_card_slide") -> "spotify_card_slide"
+                transitionType in listOf("whip_right", "whip_left", "whip", "whip_pan") -> transitionType
+                transitionType in listOf("zoom_in", "zoom", "punch_zoom") -> "zoom_in"
+                transitionType in listOf("glitch", "rgb_glitch_split") -> "glitch"
+                transitionType in listOf("flash", "light_leak") -> "flash"
+                transitionType in listOf("slide", "slide_up", "push_up") -> "slide"
+                transitionType in listOf("heart_iris", "heart_burst_wipe", "circle_wipe", "iris") -> "heart_burst_wipe"
+                // Design theme signature transitions
+                designTheme == StatusDesignTheme.VINTAGE_POLAROID_FILM -> if (currentSlideIndex % 2 == 0) "film_strip_roll" else "flash"
+                designTheme == StatusDesignTheme.ROMANTIC_LOVE_LOCKET -> if (currentSlideIndex % 2 == 0) "heart_burst_wipe" else "zoom_in"
+                designTheme == StatusDesignTheme.ROYAL_ATTITUDE_KING -> if (currentSlideIndex % 2 == 0) "cube_3d_flip" else "glitch"
+                designTheme == StatusDesignTheme.SPOTIFY_MUSIC_PLAYER -> if (currentSlideIndex % 2 == 0) "spotify_card_slide" else "whip_right"
+                designTheme == StatusDesignTheme.CYBERPUNK_GLITCH_HUD -> if (currentSlideIndex % 2 == 0) "neon_glitch_slice" else "glitch"
+                designTheme == StatusDesignTheme.BIRTHDAY_CONFETTI -> if (currentSlideIndex % 2 == 0) "zoom_burst_spin" else "heart_burst_wipe"
+                designTheme == StatusDesignTheme.DIVINE_BHAKTI_AURA -> "crossfade"
+                motionStyle == TemplateMotionStyle.VELOCITY_RAMP -> if (currentSlideIndex % 2 == 0) "whip_right" else "whip_left"
+                motionStyle == TemplateMotionStyle.THREE_D_ZOOM -> "zoom_in"
+                motionStyle == TemplateMotionStyle.PHONK_ATTITUDE || motionStyle == TemplateMotionStyle.NEON_CYBERPUNK -> "glitch"
+                motionStyle == TemplateMotionStyle.FLASH_BEAT_CUTS -> "flash"
+                motionStyle == TemplateMotionStyle.ROMANTIC_LOVE -> "heart_burst_wipe"
+                else -> "crossfade"
+            }
+
+            renderCinematicTransition(
+                canvas = canvas,
+                w = w,
+                h = h,
+                transition = effectiveTransition,
+                t = t,
+                currentBmp = currentBmp,
+                nextBmp = nextBmp,
+                elapsedMs = elapsedMs
+            )
         }
 
         // 3. RGB Glitch Chromatic Aberration on Beat Drops (enhanced for PHONK & NEON)
@@ -676,29 +853,86 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         // 5.5. Mast-Style Magical Animated Canvas Particle Overlays
         drawMagicalParticles(canvas, w, h, tm, elapsedMs, beatPulse)
 
-        // 6. Kinetic Glowing Lyrical Typography
+        // 6. Distinct Handcrafted Unique Theme Visual Layout
+        drawUniqueThemeLayout(canvas, w, h, tm, elapsedMs, safeBpm, beatPulse, totalDurationMs)
+
+        // 7. Kinetic Glowing Lyrical Typography & Customizable Texts
         drawKineticLyrics(canvas, w, h, tm, elapsedMs, totalDurationMs, beatPulse)
 
-        // 7. Live Neon Audio Visualizer Waveform Equalizer
-        drawAudioVisualizer(canvas, w, h, tm, elapsedMs, beatPulse)
+        if (!isExport) {
+            // 8. Progress Time Scrubber Pill at Top
+            drawProgressBadge(canvas, w, elapsedMs, totalDurationMs, tm)
 
-        // 7.5. Rotating Vinyl Soundtrack Disc & Floating Musical Notes
-        drawVinylDiscAndNotes(canvas, w, h, tm, elapsedMs, safeBpm, beatPulse)
+            // 8.5. Interactive Tap-to-Play/Pause Feedback
+            drawTapFeedbackBadge(canvas, w, h)
 
-        // 8. Progress Time Scrubber Pill at Top
-        drawProgressBadge(canvas, w, elapsedMs, totalDurationMs, tm)
-
-        // 8.5. Interactive Tap-to-Play/Pause Feedback
-        drawTapFeedbackBadge(canvas, w, h)
-
-        // 9. Pause Overlay if paused
-        if (!isPlaying && tapFeedbackAlpha <= 0f) {
-            drawPauseOverlay(canvas, w, h)
+            // 9. Pause Overlay if paused
+            if (!isPlaying && tapFeedbackAlpha <= 0f) {
+                drawPauseOverlay(canvas, w, h)
+            }
         }
+    }
 
-        // Continue 60fps loop
-        if (isPlaying) {
-            postInvalidateOnAnimation()
+    /**
+     * Export the active status template with Ken Burns photo animation,
+     * visualizer bars, spinning vinyl disc, floating notes, magical particles,
+     * glowing lyrics typography, and synchronized music directly into MP4.
+     */
+    fun exportToVideo(
+        outputPath: String,
+        width: Int = 720,
+        height: Int = 1280,
+        fps: Int = 30,
+        bitrateMbps: Int = 6,
+        customAudioPath: String? = null,
+        onProgress: (Int) -> Unit = {}
+    ): Boolean {
+        val tm = template ?: return false
+        val totalDurationMs = tm.durationMs.coerceAtLeast(6000L)
+        val totalFrames = ((totalDurationMs / 1000f) * fps).toInt().coerceAtLeast(30)
+        val outputFile = File(outputPath).also { it.parentFile?.mkdirs() }
+
+        ensureSampleSlides()
+
+        val encoder = CanvasVideoEncoder(
+            width = width,
+            height = height,
+            fps = fps,
+            bitrate = bitrateMbps * 1_000_000,
+            outputFile = outputFile
+        )
+
+        val frameBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val frameCanvas = Canvas(frameBitmap)
+
+        return try {
+            for (frame in 0 until totalFrames) {
+                val timeMs = (frame * 1000L) / fps
+                val ptsNano = (frame * 1_000_000_000L) / fps
+
+                renderFrameAt(frameCanvas, width.toFloat(), height.toFloat(), timeMs, isExport = true)
+                encoder.encodeFrame(frameBitmap, ptsNano)
+
+                val progress = (frame * 85 / totalFrames)
+                onProgress(progress)
+            }
+
+            onProgress(88)
+
+            val audioFile = if (!customAudioPath.isNullOrBlank() && File(customAudioPath).exists()) {
+                File(customAudioPath)
+            } else {
+                StatusMediaHelper.extractAudioAssetToLocal(context, tm.audioAssetPath)
+            }
+
+            val success = encoder.finish(audioFile, maxDurationUs = totalDurationMs * 1000L)
+            onProgress(100)
+            success
+        } catch (e: Exception) {
+            Log.e("StatusLivePreview", "exportToVideo error", e)
+            false
+        } finally {
+            frameBitmap.recycle()
         }
     }
 
@@ -717,6 +951,607 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         }
     }
 
+    private fun renderCinematicTransition(
+        canvas: Canvas,
+        w: Float,
+        h: Float,
+        transition: String,
+        t: Float,
+        currentBmp: Bitmap,
+        nextBmp: Bitmap,
+        elapsedMs: Long
+    ) {
+        val nextScale = Math.max(w / nextBmp.width.toFloat(), h / nextBmp.height.toFloat())
+        val nScaledW = nextBmp.width.toFloat() * nextScale
+        val nScaledH = nextBmp.height.toFloat() * nextScale
+
+        when (transition) {
+            "cube_3d_flip", "3d_flip", "cube" -> {
+                // Outgoing perspective cube fold
+                canvas.save()
+                val scaleOut = 1.0f - (t * 0.22f)
+                canvas.scale(scaleOut, scaleOut, w / 2f, h / 2f)
+                canvas.translate(-t * w * 0.45f, 0f)
+                transPaint.alpha = ((1f - t) * 255).toInt().coerceIn(0, 255)
+                canvas.drawBitmap(currentBmp, matrix, transPaint)
+                canvas.restore()
+
+                // Incoming slide and un-fold
+                canvas.save()
+                val enterX = (1f - t) * (w * 0.55f)
+                val scaleIn = 0.85f + (t * 0.15f)
+                canvas.scale(scaleIn, scaleIn, w / 2f, h / 2f)
+                transNextMatrix.reset()
+                transNextMatrix.postScale(nextScale, nextScale)
+                transNextMatrix.postTranslate((w - nScaledW) / 2f + enterX, (h - nScaledH) / 2f)
+                transNextPaint.alpha = (t * 255).toInt().coerceIn(0, 255)
+                canvas.drawBitmap(nextBmp, transNextMatrix, transNextPaint)
+                canvas.restore()
+
+                if (t in 0.15f..0.85f) {
+                    val edgeA = ((1f - Math.abs(t - 0.5f) * 2f) * 120).toInt().coerceIn(0, 120)
+                    flashPaint.color = Color.argb(edgeA, 0, 0, 0)
+                    canvas.drawRect(0f, 0f, w, h, flashPaint)
+                }
+            }
+            "film_strip_roll", "film_roll" -> {
+                // Vertical 35mm film strip slide with sprocket holes
+                val rollY = -(1f - t) * h
+                transNextMatrix.reset()
+                transNextMatrix.postScale(nextScale, nextScale)
+                transNextMatrix.postTranslate((w - nScaledW) / 2f, (h - nScaledH) / 2f - rollY)
+                transNextPaint.alpha = 255
+                canvas.drawBitmap(nextBmp, transNextMatrix, transNextPaint)
+
+                // Black film separator bar
+                val barY = (h - rollY).coerceIn(0f, h)
+                flashPaint.color = Color.BLACK
+                canvas.drawRect(0f, barY - 18f, w, barY + 18f, flashPaint)
+
+                val numHoles = 10
+                val holeH = h / numHoles
+                flashPaint.color = Color.WHITE
+                for (i in 0 until numHoles) {
+                    val hy = (i * holeH + (t * holeH)) % h
+                    canvas.drawRoundRect(RectF(8f, hy, 24f, hy + 20f), 4f, 4f, flashPaint)
+                    canvas.drawRoundRect(RectF(w - 24f, hy, w - 8f, hy + 20f), 4f, 4f, flashPaint)
+                }
+            }
+            "neon_glitch_slice" -> {
+                transNextMatrix.reset()
+                transNextMatrix.postScale(nextScale, nextScale)
+                transNextMatrix.postTranslate((w - nScaledW) / 2f, (h - nScaledH) / 2f)
+                transNextPaint.alpha = (t * 255).toInt().coerceIn(0, 255)
+                canvas.drawBitmap(nextBmp, transNextMatrix, transNextPaint)
+
+                val slices = 7
+                val sliceH = h / slices
+                for (s in 0 until slices) {
+                    val shift = (Math.sin((elapsedMs + s * 90) / 15.0).toFloat() * 32f * (1f - Math.abs(t - 0.5f) * 2f))
+                    val top = s * sliceH
+                    if (Math.abs(shift) > 3f) {
+                        canvas.save()
+                        canvas.clipRect(0f, top, w, top + sliceH)
+                        glitchPaint.color = if (s % 2 == 0) Color.argb(80, 0, 242, 254) else Color.argb(80, 255, 0, 127)
+                        canvas.drawRect(0f, top, w, top + sliceH, glitchPaint)
+                        canvas.restore()
+                    }
+                }
+            }
+            "zoom_burst_spin" -> {
+                val rot = (1f - t) * 18f
+                val zScale = nextScale * (1.45f - (t * 0.45f))
+                canvas.save()
+                canvas.rotate(rot, w / 2f, h / 2f)
+                transNextMatrix.reset()
+                transNextMatrix.postScale(zScale, zScale)
+                transNextMatrix.postTranslate((w - (nextBmp.width * zScale)) / 2f, (h - (nextBmp.height * zScale)) / 2f)
+                transNextPaint.alpha = (t * 255).toInt().coerceIn(0, 255)
+                canvas.drawBitmap(nextBmp, transNextMatrix, transNextPaint)
+                canvas.restore()
+
+                if (t in 0.35f..0.75f) {
+                    val fl = ((1f - Math.abs(t - 0.55f) / 0.2f) * 160).toInt().coerceIn(0, 160)
+                    flashPaint.color = Color.argb(fl, 255, 255, 255)
+                    canvas.drawRect(0f, 0f, w, h, flashPaint)
+                }
+            }
+            "spotify_card_slide" -> {
+                val enterX = (1f - t) * w
+                transNextMatrix.reset()
+                transNextMatrix.postScale(nextScale, nextScale)
+                transNextMatrix.postTranslate((w - nScaledW) / 2f + enterX, (h - nScaledH) / 2f)
+                transNextPaint.alpha = 255
+                canvas.drawBitmap(nextBmp, transNextMatrix, transNextPaint)
+
+                val shadowW = 32f
+                val shadowGrad = LinearGradient(
+                    enterX - shadowW, 0f, enterX, 0f,
+                    Color.TRANSPARENT, Color.argb(160, 0, 0, 0),
+                    Shader.TileMode.CLAMP
+                )
+                transShadowPaint.shader = shadowGrad
+                canvas.drawRect(enterX - shadowW, 0f, enterX, h, transShadowPaint)
+            }
+            "whip_right", "whip_pan", "whip" -> {
+                val enterX = (1f - t) * w
+                transNextMatrix.reset()
+                transNextMatrix.postScale(nextScale, nextScale)
+                transNextMatrix.postTranslate((w - nScaledW) / 2f + enterX, (h - nScaledH) / 2f)
+                transNextPaint.alpha = 255
+                canvas.drawBitmap(nextBmp, transNextMatrix, transNextPaint)
+
+                if (t in 0.15f..0.85f) {
+                    val streakY1 = h * 0.28f + ((elapsedMs % 200) / 200f) * h * 0.4f
+                    val streakY2 = h * 0.72f - ((elapsedMs % 150) / 150f) * h * 0.3f
+                    canvas.drawLine(enterX - 60f, streakY1, enterX + 120f, streakY1, transSpeedStreakPaint)
+                    canvas.drawLine(enterX - 100f, streakY2, enterX + 80f, streakY2, transSpeedStreakPaint)
+                }
+            }
+            "whip_left" -> {
+                val enterX = -(1f - t) * w
+                transNextMatrix.reset()
+                transNextMatrix.postScale(nextScale, nextScale)
+                transNextMatrix.postTranslate((w - nScaledW) / 2f + enterX, (h - nScaledH) / 2f)
+                transNextPaint.alpha = 255
+                canvas.drawBitmap(nextBmp, transNextMatrix, transNextPaint)
+            }
+            "zoom_in", "punch_zoom" -> {
+                val zoomFactor = 1.35f - (t * 0.35f)
+                val curNextScale = nextScale * zoomFactor
+                val curScaledW = nextBmp.width.toFloat() * curNextScale
+                val curScaledH = nextBmp.height.toFloat() * curNextScale
+
+                transNextMatrix.reset()
+                transNextMatrix.postScale(curNextScale, curNextScale)
+                transNextMatrix.postTranslate((w - curScaledW) / 2f, (h - curScaledH) / 2f)
+                transNextPaint.alpha = (t * 255).toInt().coerceIn(0, 255)
+                canvas.drawBitmap(nextBmp, transNextMatrix, transNextPaint)
+
+                if (t in 0.4f..0.8f) {
+                    val flashA = ((1f - Math.abs(t - 0.6f) / 0.2f) * 110).toInt().coerceIn(0, 110)
+                    flashPaint.color = Color.argb(flashA, 255, 255, 255)
+                    canvas.drawRect(0f, 0f, w, h, flashPaint)
+                }
+            }
+            "glitch", "rgb_glitch_split" -> {
+                transNextMatrix.reset()
+                transNextMatrix.postScale(nextScale, nextScale)
+                transNextMatrix.postTranslate((w - nScaledW) / 2f, (h - nScaledH) / 2f)
+                transNextPaint.alpha = (t * 255).toInt().coerceIn(0, 255)
+                canvas.drawBitmap(nextBmp, transNextMatrix, transNextPaint)
+
+                val bandCount = 5
+                val bandH = h / bandCount
+                for (b in 0 until bandCount) {
+                    val shift = (Math.sin((elapsedMs + b * 60) / 20.0).toFloat() * 24f * (1f - Math.abs(t - 0.5f) * 2f))
+                    if (Math.abs(shift) > 4f) {
+                        val bandTop = b * bandH
+                        canvas.save()
+                        canvas.clipRect(0f, bandTop, w, bandTop + bandH)
+                        glitchPaint.color = if (b % 2 == 0) Color.argb(60, 0, 255, 255) else Color.argb(60, 255, 0, 80)
+                        canvas.drawRect(0f, bandTop, w, bandTop + bandH, glitchPaint)
+                        canvas.restore()
+                    }
+                }
+            }
+            "flash", "light_leak" -> {
+                transNextMatrix.reset()
+                transNextMatrix.postScale(nextScale * (1f + (1f - t) * 0.06f), nextScale * (1f + (1f - t) * 0.06f))
+                transNextMatrix.postTranslate((w - nScaledW) / 2f, (h - nScaledH) / 2f)
+                transNextPaint.alpha = (t * 255).toInt().coerceIn(0, 255)
+                canvas.drawBitmap(nextBmp, transNextMatrix, transNextPaint)
+
+                val flareIntensity = (1f - Math.abs(t - 0.5f) * 2f).coerceIn(0f, 1f)
+                if (flareIntensity > 0.05f) {
+                    val flareRadius = Math.max(w, h) * (0.4f + flareIntensity * 0.6f)
+                    val flareGradient = RadialGradient(
+                        w * 0.5f, h * 0.4f,
+                        flareRadius.coerceAtLeast(10f),
+                        intArrayOf(
+                            Color.argb((flareIntensity * 220).toInt(), 255, 255, 255),
+                            Color.argb((flareIntensity * 160).toInt(), 255, 215, 0),
+                            Color.argb((flareIntensity * 80).toInt(), 255, 65, 108),
+                            Color.TRANSPARENT
+                        ),
+                        floatArrayOf(0f, 0.25f, 0.6f, 1f),
+                        Shader.TileMode.CLAMP
+                    )
+                    transFlarePaint.shader = flareGradient
+                    canvas.drawRect(0f, 0f, w, h, transFlarePaint)
+                }
+            }
+            "heart_burst_wipe", "heart_iris" -> {
+                val heartSize = Math.max(w, h) * t * 1.5f
+                val cx = w / 2f
+                val cy = h / 2f
+
+                transHeartPath.reset()
+                val s = heartSize / 100f
+                transHeartPath.moveTo(cx, cy + 30f * s)
+                transHeartPath.cubicTo(cx - 50f * s, cy - 20f * s, cx - 50f * s, cy - 60f * s, cx, cy - 35f * s)
+                transHeartPath.cubicTo(cx + 50f * s, cy - 60f * s, cx + 50f * s, cy - 20f * s, cx, cy + 30f * s)
+                transHeartPath.close()
+
+                canvas.save()
+                canvas.clipPath(transHeartPath)
+
+                transNextMatrix.reset()
+                transNextMatrix.postScale(nextScale, nextScale)
+                transNextMatrix.postTranslate((w - nScaledW) / 2f, (h - nScaledH) / 2f)
+                transNextPaint.alpha = 255
+                canvas.drawBitmap(nextBmp, transNextMatrix, transNextPaint)
+                canvas.restore()
+
+                strokePaint.reset()
+                strokePaint.isAntiAlias = true
+                strokePaint.style = Paint.Style.STROKE
+                strokePaint.strokeWidth = 5f
+                strokePaint.color = Color.argb((220 * (1f - t)).toInt().coerceIn(0, 220), 255, 65, 108)
+                canvas.drawPath(transHeartPath, strokePaint)
+            }
+            "slide", "slide_up", "push_up" -> {
+                val enterY = (1f - t) * h
+                transNextMatrix.reset()
+                transNextMatrix.postScale(nextScale, nextScale)
+                transNextMatrix.postTranslate((w - nScaledW) / 2f, (h - nScaledH) / 2f + enterY)
+                transNextPaint.alpha = 255
+                canvas.drawBitmap(nextBmp, transNextMatrix, transNextPaint)
+
+                val shadowH = 24f
+                val shadowGrad = LinearGradient(
+                    0f, enterY - shadowH, 0f, enterY,
+                    Color.TRANSPARENT, Color.argb(140, 0, 0, 0),
+                    Shader.TileMode.CLAMP
+                )
+                transShadowPaint.shader = shadowGrad
+                canvas.drawRect(0f, enterY - shadowH, w, enterY, transShadowPaint)
+            }
+            else -> {
+                val curNextScale = nextScale * (1.0f + (1f - t) * 0.08f)
+                val curScaledW = nextBmp.width.toFloat() * curNextScale
+                val curScaledH = nextBmp.height.toFloat() * curNextScale
+
+                transNextMatrix.reset()
+                transNextMatrix.postScale(curNextScale, curNextScale)
+                transNextMatrix.postTranslate((w - curScaledW) / 2f, (h - curScaledH) / 2f)
+                transNextPaint.alpha = (t * 255).toInt().coerceIn(0, 255)
+                canvas.drawBitmap(nextBmp, transNextMatrix, transNextPaint)
+            }
+        }
+    }
+
+    private fun drawUniqueThemeLayout(
+        canvas: Canvas,
+        w: Float,
+        h: Float,
+        tm: StatusTemplate,
+        elapsedMs: Long,
+        bpm: Int,
+        beatPulse: Float,
+        totalDurationMs: Long
+    ) {
+        val theme = tm.getDesignTheme()
+        val density = resources.displayMetrics.density
+
+        when (theme) {
+            StatusDesignTheme.VINTAGE_POLAROID_FILM -> {
+                drawPolaroidFilmTheme(canvas, w, h, tm, elapsedMs, beatPulse, density)
+            }
+            StatusDesignTheme.SPOTIFY_MUSIC_PLAYER -> {
+                drawSpotifyPlayerTheme(canvas, w, h, tm, elapsedMs, totalDurationMs, beatPulse, density)
+            }
+            StatusDesignTheme.ROMANTIC_LOVE_LOCKET -> {
+                drawRomanticLoveTheme(canvas, w, h, tm, elapsedMs, beatPulse, density)
+            }
+            StatusDesignTheme.ROYAL_ATTITUDE_KING -> {
+                drawRoyalAttitudeTheme(canvas, w, h, tm, elapsedMs, beatPulse, density)
+            }
+            StatusDesignTheme.CYBERPUNK_GLITCH_HUD -> {
+                drawCyberpunkHudTheme(canvas, w, h, tm, elapsedMs, beatPulse, density)
+            }
+            StatusDesignTheme.BIRTHDAY_CONFETTI -> {
+                drawBirthdayConfettiTheme(canvas, w, h, tm, elapsedMs, beatPulse, density)
+            }
+            StatusDesignTheme.DIVINE_BHAKTI_AURA -> {
+                drawDivineBhaktiTheme(canvas, w, h, tm, elapsedMs, beatPulse, density)
+            }
+            StatusDesignTheme.NEON_BEAT_BASS -> {
+                drawNeonBeatBassTheme(canvas, w, h, tm, elapsedMs, bpm, beatPulse, density)
+            }
+        }
+    }
+
+    private fun drawPolaroidFilmTheme(
+        canvas: Canvas,
+        w: Float,
+        h: Float,
+        tm: StatusTemplate,
+        elapsedMs: Long,
+        beatPulse: Float,
+        density: Float
+    ) {
+        // 1. Top Camcorder HUD with blinking recording dot
+        val isRecBlinking = (elapsedMs % 1000) < 650
+        if (isRecBlinking) {
+            recDotPaint.color = Color.parseColor("#FF1744")
+            canvas.drawCircle(26f * density, 34f * density, 5.5f * density, recDotPaint)
+        }
+        val curSec = (elapsedMs / 1000) % 60
+        val curMin = (elapsedMs / 60000) % 60
+        recTextPaint.textSize = 12f * density
+        canvas.drawText("REC ● ${String.format(java.util.Locale.US, "%02d:%02d", curMin, curSec)}", 38f * density, 38f * density, recTextPaint)
+        canvas.drawText("OCT 26, 2026", w - (115f * density), 38f * density, recTextPaint)
+
+        // 2. Bottom Polaroid Tape banner with signature and date
+        val bannerY = h * 0.81f
+        val bannerH = 46f * density
+        val bannerRect = RectF(w * 0.07f, bannerY, w * 0.93f, bannerY + bannerH)
+        canvas.drawRoundRect(bannerRect, 10f * density, 10f * density, tapePaint)
+
+        val signature = customTexts.userName ?: customTexts.titleText ?: "✨ Vintage Memories ✨"
+        polaroidSignaturePaint.textSize = 13.5f * density
+        canvas.drawText(signature, w / 2f, bannerY + (bannerH * 0.62f), polaroidSignaturePaint)
+
+        // 3. Subtle floating film dust specks
+        for (i in 0 until 6) {
+            val sx = (w * 0.1f) + ((i * 123 + elapsedMs / 8) % (w * 0.8f).toInt())
+            val sy = (h * 0.15f) + ((i * 197 + elapsedMs / 6) % (h * 0.65f).toInt())
+            polaroidShadowPaint.alpha = 45
+            canvas.drawCircle(sx, sy, (1.5f + (i % 2)) * density, polaroidShadowPaint)
+        }
+    }
+
+    private fun drawSpotifyPlayerTheme(
+        canvas: Canvas,
+        w: Float,
+        h: Float,
+        tm: StatusTemplate,
+        elapsedMs: Long,
+        totalDurationMs: Long,
+        beatPulse: Float,
+        density: Float
+    ) {
+        val cardX = w * 0.05f
+        val cardY = h * 0.70f
+        val cardW = w * 0.90f
+        val cardH = 96f * density
+        val cardRect = RectF(cardX, cardY, cardX + cardW, cardY + cardH)
+        canvas.drawRoundRect(cardRect, 18f * density, 18f * density, spotifyCardBgPaint)
+        canvas.drawRoundRect(cardRect, 18f * density, 18f * density, spotifyCardStrokePaint)
+
+        // Mini album thumbnail on left
+        val thumbSize = 58f * density
+        val thumbX = cardX + 12f * density
+        val thumbY = cardY + 12f * density
+        val thumbRect = RectF(thumbX, thumbY, thumbX + thumbSize, thumbY + thumbSize)
+        val curBmp = customPhotoBitmap ?: sampleSlides.firstOrNull()
+        if (curBmp != null && !curBmp.isRecycled) {
+            canvas.save()
+            val thumbPath = Path().apply { addRoundRect(thumbRect, 10f * density, 10f * density, Path.Direction.CW) }
+            canvas.clipPath(thumbPath)
+            val sc = Math.max(thumbSize / curBmp.width.toFloat(), thumbSize / curBmp.height.toFloat())
+            matrix.reset()
+            matrix.postScale(sc, sc)
+            matrix.postTranslate(thumbX, thumbY)
+            canvas.drawBitmap(curBmp, matrix, bgPaint)
+            canvas.restore()
+        }
+
+        // Track Title & Artist
+        val textLeft = thumbX + thumbSize + 12f * density
+        val title = (customTexts.titleText ?: tm.title).take(22)
+        val artist = (customTexts.userName ?: "Storyline Beats 🎵").take(26)
+        spotifyTitlePaint.textSize = 13.5f * density
+        canvas.drawText(title, textLeft, thumbY + 18f * density, spotifyTitlePaint)
+        spotifyArtistPaint.textSize = 11.5f * density
+        canvas.drawText(artist, textLeft, thumbY + 36f * density, spotifyArtistPaint)
+
+        // Scrubber bar inside card
+        val barY = cardY + cardH - 18f * density
+        val barLeft = textLeft
+        val barRight = cardX + cardW - 14f * density
+        val prog = (elapsedMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
+        canvas.drawLine(barLeft, barY, barRight, barY, spotifyProgressBgPaint)
+        val curHeadX = barLeft + (barRight - barLeft) * prog
+        canvas.drawLine(barLeft, barY, curHeadX, barY, spotifyProgressFillPaint)
+        scrubberDotPaint.color = Color.WHITE
+        canvas.drawCircle(curHeadX, barY, 4f * density, scrubberDotPaint)
+
+        // Player icon controls
+        spotifyControlsPaint.textSize = 16f * density
+        val iconY = thumbY + 38f * density
+        val heartX = cardX + cardW - 24f * density
+        canvas.drawText("❤️", heartX, iconY, spotifyControlsPaint)
+    }
+
+    private fun drawRomanticLoveTheme(
+        canvas: Canvas,
+        w: Float,
+        h: Float,
+        tm: StatusTemplate,
+        elapsedMs: Long,
+        beatPulse: Float,
+        density: Float
+    ) {
+        // Soft romantic glow banner with couple name
+        val bannerY = h * 0.77f
+        val bannerH = 44f * density
+        val bannerW = w * 0.86f
+        val bRect = RectF(w / 2f - bannerW / 2f, bannerY, w / 2f + bannerW / 2f, bannerY + bannerH)
+        spotifyCardBgPaint.color = Color.argb(195, 35, 12, 24)
+        spotifyCardStrokePaint.color = Color.parseColor("#88FF4081")
+        canvas.drawRoundRect(bRect, 14f * density, 14f * density, spotifyCardBgPaint)
+        canvas.drawRoundRect(bRect, 14f * density, 14f * density, spotifyCardStrokePaint)
+
+        val coupleName = customTexts.userName ?: "Rahul ❤️ Priya"
+        customTextPaint.apply {
+            color = Color.parseColor("#FFF0F5")
+            textSize = 14.5f * density
+            typeface = Typeface.DEFAULT_BOLD
+            textAlign = Paint.Align.CENTER
+            setShadowLayer(14f * density, 0f, 0f, Color.parseColor("#FF4081"))
+        }
+        canvas.drawText("💍 $coupleName 💖", w / 2f, bannerY + 28f * density, customTextPaint)
+        customTextPaint.setShadowLayer(0f, 0f, 0f, 0)
+    }
+
+    private fun drawRoyalAttitudeTheme(
+        canvas: Canvas,
+        w: Float,
+        h: Float,
+        tm: StatusTemplate,
+        elapsedMs: Long,
+        beatPulse: Float,
+        density: Float
+    ) {
+        // 1. Floating 3D golden crown icon perched over center photo
+        val crownY = (h * 0.19f) - (beatPulse * 8f * density)
+        crownPaint.textSize = 42f * density
+        crownPaint.setShadowLayer(16f * density, 0f, 0f, Color.parseColor("#FFD700"))
+        canvas.drawText("👑", w / 2f, crownY, crownPaint)
+        crownPaint.setShadowLayer(0f, 0f, 0f, 0)
+
+        // 2. Rising fiery sparks from bottom
+        for (i in 0 until 8) {
+            val cycle = 2200L
+            val el = (elapsedMs + i * 260L) % cycle
+            val p = el.toFloat() / cycle.toFloat()
+            val ex = (w * 0.15f) + ((i * 83) % (w * 0.70f).toInt()) + (Math.sin((p * 6.28) + i).toFloat() * 12f * density)
+            val ey = h - (p * h * 0.50f)
+            val alpha = ((1f - p) * 220).toInt().coerceIn(0, 255)
+            fireSparkPaint.color = if (i % 2 == 0) Color.argb(alpha, 255, 165, 0) else Color.argb(alpha, 255, 69, 0)
+            canvas.drawCircle(ex, ey, (2.5f + (i % 3) * 2f) * density, fireSparkPaint)
+        }
+
+        // 3. Gold attitude luxury badge
+        val badgeY = h * 0.78f
+        val badgeH = 46f * density
+        val badgeW = w * 0.84f
+        val bRect = RectF(w / 2f - badgeW / 2f, badgeY, w / 2f + badgeW / 2f, badgeY + badgeH)
+        canvas.drawRoundRect(bRect, 12f * density, 12f * density, attitudeBadgeFillPaint)
+        canvas.drawRoundRect(bRect, 12f * density, 12f * density, attitudeGoldBadgePaint)
+
+        val royalName = (customTexts.userName ?: "ROYAL ATTITUDE 👑").uppercase()
+        crownPaint.textSize = 14f * density
+        crownPaint.color = Color.parseColor("#FFD700")
+        canvas.drawText(royalName, w / 2f, badgeY + 28f * density, crownPaint)
+    }
+
+    private fun drawCyberpunkHudTheme(
+        canvas: Canvas,
+        w: Float,
+        h: Float,
+        tm: StatusTemplate,
+        elapsedMs: Long,
+        beatPulse: Float,
+        density: Float
+    ) {
+        val bSize = 22f * density
+        val pad = 14f * density
+        // Top-left bracket
+        canvas.drawLine(pad, pad, pad + bSize, pad, hudBracketPaint)
+        canvas.drawLine(pad, pad, pad, pad + bSize, hudBracketPaint)
+        // Top-right bracket
+        canvas.drawLine(w - pad - bSize, pad, w - pad, pad, hudBracketPaint)
+        canvas.drawLine(w - pad, pad, w - pad, pad + bSize, hudBracketPaint)
+        // Bottom-left bracket
+        canvas.drawLine(pad, h - pad, pad + bSize, h - pad, hudBracketPaint)
+        canvas.drawLine(pad, h - pad - bSize, pad, h - pad, hudBracketPaint)
+        // Bottom-right bracket
+        canvas.drawLine(w - pad - bSize, h - pad, w - pad, h - pad, hudBracketPaint)
+        canvas.drawLine(w - pad, h - pad - bSize, w - pad, h - pad, hudBracketPaint)
+
+        // Status readout
+        hudTextPaint.textSize = 10f * density
+        canvas.drawText("[SYS_ONLINE // ${tm.bpm} BPM // 4K 60FPS]", pad + 8f * density, pad + 24f * density, hudTextPaint)
+    }
+
+    private fun drawBirthdayConfettiTheme(
+        canvas: Canvas,
+        w: Float,
+        h: Float,
+        tm: StatusTemplate,
+        elapsedMs: Long,
+        beatPulse: Float,
+        density: Float
+    ) {
+        // Raining confetti flakes
+        val numConfetti = 20
+        for (i in 0 until numConfetti) {
+            val cycle = 2600L
+            val el = (elapsedMs + i * 130L) % cycle
+            val prog = el.toFloat() / cycle.toFloat()
+            val cx = ((i * 49) % w.toInt()).toFloat() + (Math.sin((prog * 6.28) + i).toFloat() * 16f * density)
+            val cy = (prog * (h + 60f * density)) - 30f * density
+            val rot = (el * 0.22f * (if (i % 2 == 0) 1f else -1f))
+
+            canvas.save()
+            canvas.translate(cx, cy)
+            canvas.rotate(rot)
+            confettiPaint.color = confettiColors[i % confettiColors.size]
+            val fW = (6f + (i % 3) * 2.5f) * density
+            val fH = (4f + (i % 2) * 2f) * density
+            canvas.drawRoundRect(RectF(-fW / 2f, -fH / 2f, fW / 2f, fH / 2f), 2f, 2f, confettiPaint)
+            canvas.restore()
+        }
+
+        // Festive banner
+        val bannerY = h * 0.77f
+        val bH = 46f * density
+        val bW = w * 0.88f
+        val bRect = RectF(w / 2f - bW / 2f, bannerY, w / 2f + bW / 2f, bannerY + bH)
+        canvas.drawRoundRect(bRect, 14f * density, 14f * density, birthdayBannerBgPaint)
+        val bdayName = customTexts.userName ?: "SPECIAL ONE"
+        birthdayBannerTextPaint.textSize = 13.5f * density
+        canvas.drawText("🎉 HAPPY BIRTHDAY $bdayName 🎂", w / 2f, bannerY + 28f * density, birthdayBannerTextPaint)
+    }
+
+    private fun drawDivineBhaktiTheme(
+        canvas: Canvas,
+        w: Float,
+        h: Float,
+        tm: StatusTemplate,
+        elapsedMs: Long,
+        beatPulse: Float,
+        density: Float
+    ) {
+        val symbol = if (tm.title.lowercase().contains("krishna")) "🪶" else if (tm.title.lowercase().contains("ram")) "🚩" else "🔱"
+        val symY = h * 0.18f
+        divineSymbolPaint.textSize = 42f * density
+        divineSymbolPaint.setShadowLayer(14f * density, 0f, 0f, Color.parseColor("#FF9933"))
+        canvas.drawText(symbol, w / 2f, symY, divineSymbolPaint)
+        divineSymbolPaint.setShadowLayer(0f, 0f, 0f, 0)
+    }
+
+    private fun drawNeonBeatBassTheme(
+        canvas: Canvas,
+        w: Float,
+        h: Float,
+        tm: StatusTemplate,
+        elapsedMs: Long,
+        bpm: Int,
+        beatPulse: Float,
+        density: Float
+    ) {
+        // Flashing neon frame
+        val frameStroke = (2f + beatPulse * 3f) * density
+        visualizerPaint.apply {
+            style = Paint.Style.STROKE
+            strokeWidth = frameStroke
+            color = parseColorSafe(tm.gradientStartHex, Color.CYAN)
+            setShadowLayer(10f * density, 0f, 0f, color)
+        }
+        val fPad = 8f * density
+        canvas.drawRoundRect(RectF(fPad, fPad, w - fPad, h - fPad), 16f * density, 16f * density, visualizerPaint)
+        visualizerPaint.style = Paint.Style.FILL
+        visualizerPaint.setShadowLayer(0f, 0f, 0f, 0)
+
+        // Equalizer & Vinyl disc
+        drawAudioVisualizer(canvas, w, h, tm, elapsedMs, beatPulse)
+        drawVinylDiscAndNotes(canvas, w, h, tm, elapsedMs, bpm, beatPulse)
+    }
+
     private fun drawKineticLyrics(
         canvas: Canvas,
         w: Float,
@@ -726,13 +1561,15 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         totalDurationMs: Long,
         beatPulse: Float
     ) {
+        val hideDefaults = customTexts.hideDefaultOverlays
         val overlays = tm.textOverlays
-        if (overlays.isNotEmpty()) {
-            // Pick lyrics based on timeline
+
+        if (!hideDefaults && overlays.isNotEmpty()) {
             val overlayIdx = ((elapsedMs * overlays.size) / totalDurationMs).toInt().coerceIn(0, overlays.size - 1)
             val currentOverlay = overlays[overlayIdx]
 
-            val text = currentOverlay.text
+            // If user provided custom title, use it! Otherwise use template overlay text
+            val text = customTexts.titleText ?: currentOverlay.text
             val textSizeSp = TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_SP,
                 currentOverlay.scale * 20f,
@@ -740,16 +1577,27 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
             )
             val bounce = beatPulse * 4f
 
+            val textColor = if (customTexts.textColorHex != null) {
+                parseColorSafe(customTexts.textColorHex!!, Color.WHITE)
+            } else {
+                parseColorSafe(currentOverlay.colorHex, Color.WHITE)
+            }
+            val glowColor = if (customTexts.glowColorHex != null) {
+                parseColorSafe(customTexts.glowColorHex!!, Color.CYAN)
+            } else {
+                parseColorSafe(tm.gradientStartHex, Color.CYAN)
+            }
+
             textPaint.apply {
-                color = parseColorSafe(currentOverlay.colorHex, Color.WHITE)
+                color = textColor
                 textSize = textSizeSp + bounce
                 typeface = Typeface.DEFAULT_BOLD
                 textAlign = Paint.Align.CENTER
-                setShadowLayer(14f, 0f, 0f, parseColorSafe(tm.gradientStartHex, Color.CYAN))
+                setShadowLayer(14f, 0f, 0f, glowColor)
             }
 
-            // If user has custom text at bottom, position template lyrics higher (0.22) so they don't collide
-            val basePosYPercent = if (!customStatusText.isNullOrBlank()) 0.22f else currentOverlay.posYPercent
+            val hasCustomSub = !customTexts.quoteText.isNullOrBlank() || !customTexts.userName.isNullOrBlank() || !customStatusText.isNullOrBlank()
+            val basePosYPercent = if (hasCustomSub) 0.20f else currentOverlay.posYPercent
             val yPos = (h * basePosYPercent) - bounce
             val maxTextWidth = w * 0.90f
             if (textPaint.measureText(text) > maxTextWidth) {
@@ -770,42 +1618,68 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         }
 
         // Draw custom user name / lyrical text bouncing to the beat with glowing kinetic typography
-        val customText = customStatusText
-        if (!customText.isNullOrBlank()) {
+        val customQuote = customTexts.quoteText ?: customStatusText
+        val customName = customTexts.userName
+        val customTagline = customTexts.taglineText
+        val hasCustomContent = !customQuote.isNullOrBlank() || !customName.isNullOrBlank() || !customTagline.isNullOrBlank()
+
+        if (hasCustomContent) {
             val customBounce = beatPulse * 4f
             val baseSize = TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_SP,
-                19f,
+                18.5f,
                 resources.displayMetrics
             ) * customTextScaleFactor
             val customTextSize = baseSize + customBounce
+
+            val textColor = if (customTexts.textColorHex != null) {
+                parseColorSafe(customTexts.textColorHex!!, Color.parseColor("#FFFDF0"))
+            } else {
+                Color.parseColor("#FFFDF0")
+            }
+            val glowColor = if (customTexts.glowColorHex != null) {
+                parseColorSafe(customTexts.glowColorHex!!, Color.parseColor("#FFD700"))
+            } else {
+                Color.parseColor("#FFD700")
+            }
+
             customTextPaint.apply {
-                color = Color.parseColor("#FFFDF0")
+                color = textColor
                 textSize = customTextSize
                 typeface = Typeface.DEFAULT_BOLD
                 textAlign = Paint.Align.CENTER
-                setShadowLayer(16f + (beatPulse * 6f), 0f, 0f, Color.parseColor("#FFD700"))
+                setShadowLayer(16f + (beatPulse * 6f), 0f, 0f, glowColor)
             }
 
-            // Word wrap lines dynamically so Shayari text NEVER cuts off horizontally
+            // Word wrap lines dynamically so text NEVER cuts off horizontally
             val maxLineWidth = (w * 0.82f)
-            val words = customText.split(" ")
             val lines = mutableListOf<String>()
-            var currentLine = StringBuilder()
 
-            for (word in words) {
-                val candidate = if (currentLine.isEmpty()) word else "$currentLine $word"
-                if (customTextPaint.measureText(candidate) <= maxLineWidth) {
-                    currentLine = StringBuilder(candidate)
-                } else {
-                    if (currentLine.isNotEmpty()) {
-                        lines.add(currentLine.toString())
+            if (!customName.isNullOrBlank() && tm.getDesignTheme() == StatusDesignTheme.NEON_BEAT_BASS) {
+                lines.add("👑 $customName 👑")
+            }
+
+            if (!customQuote.isNullOrBlank()) {
+                val words = customQuote.split(" ")
+                var currentLine = StringBuilder()
+                for (word in words) {
+                    val candidate = if (currentLine.isEmpty()) word else "$currentLine $word"
+                    if (customTextPaint.measureText(candidate) <= maxLineWidth) {
+                        currentLine = StringBuilder(candidate)
+                    } else {
+                        if (currentLine.isNotEmpty()) {
+                            lines.add(currentLine.toString())
+                        }
+                        currentLine = StringBuilder(word)
                     }
-                    currentLine = StringBuilder(word)
+                }
+                if (currentLine.isNotEmpty()) {
+                    lines.add(currentLine.toString())
                 }
             }
-            if (currentLine.isNotEmpty()) {
-                lines.add(currentLine.toString())
+
+            if (!customTagline.isNullOrBlank()) {
+                lines.add("✨ $customTagline")
             }
 
             val lineHeight = customTextSize * 1.32f
@@ -847,7 +1721,7 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
                 canvas.drawCircle(pillRect.left, pillRect.bottom, dotR, textHandleFillPaint)
                 canvas.drawCircle(pillRect.right, pillRect.bottom, dotR, textHandleFillPaint)
 
-                val hintText = "✏️ Drag to Move • Pinch to Scale"
+                val hintText = "✏️ Drag to Move • Pinch to Scale • Tap to Edit"
                 val hintW = textTouchHintPaint.measureText(hintText) + 24f
                 val hintH = 34f
                 val hintRect = RectF(centerX - hintW / 2f, pillRect.top - hintH - 12f, centerX + hintW / 2f, pillRect.top - 12f)
@@ -1237,6 +2111,11 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
                     val dy = Math.abs(event.y - touchDownY)
                     val dur = SystemClock.uptimeMillis() - touchDownTime
                     if (dx < 25f && dy < 25f && dur < 350L) {
+                        if (hitRect.contains(event.x, event.y) && onTextClickListener != null) {
+                            performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                            onTextClickListener?.invoke()
+                            return true
+                        }
                         togglePlayPause()
                         return true
                     }

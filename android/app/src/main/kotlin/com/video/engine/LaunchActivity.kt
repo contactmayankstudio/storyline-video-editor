@@ -27,15 +27,14 @@ class LaunchActivity : ComponentActivity() {
     private var homeScrollView: NestedScrollView? = null
     private var recentProjectsList: RecyclerView? = null
     private var emptyProjectsContainer: View? = null
-    private var navCreateIcon: ImageView? = null
-    private var navCreateLabel: TextView? = null
-    private var navProjectsIcon: ImageView? = null
-    private var navProjectsLabel: TextView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_start_shell)
+
+        homeScrollView = findViewById(R.id.homeScrollView)
+        homeScrollView?.clipToPadding = false
 
         findViewById<View>(R.id.startScreenOverlay)?.let { root ->
             ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
@@ -43,24 +42,18 @@ class LaunchActivity : ComponentActivity() {
                 findViewById<View>(R.id.startHeaderRow)?.let { header ->
                     header.setPadding(header.paddingLeft, systemBars.top, header.paddingRight, header.paddingBottom)
                 }
-                findViewById<View>(R.id.homeBottomNav)?.let { nav ->
-                    nav.setPadding(nav.paddingLeft, nav.paddingTop, nav.paddingRight, systemBars.bottom)
+                homeScrollView?.let { scroll ->
+                    scroll.setPadding(scroll.paddingLeft, scroll.paddingTop, scroll.paddingRight, systemBars.bottom)
                 }
                 insets
             }
         }
 
-        homeScrollView = findViewById(R.id.homeScrollView)
         emptyProjectsContainer = findViewById(R.id.startRecentProjectsEmptyContainer)
         recentProjectsList = findViewById<RecyclerView?>(R.id.startRecentProjectsList)?.apply {
             layoutManager = LinearLayoutManager(this@LaunchActivity)
             adapter = ProjectListAdapter(emptyList(), onProjectClick = { })
         }
-
-        navCreateIcon = findViewById(R.id.navCreateIcon)
-        navCreateLabel = findViewById(R.id.navCreateLabel)
-        navProjectsIcon = findViewById(R.id.navProjectsIcon)
-        navProjectsLabel = findViewById(R.id.navProjectsLabel)
 
         // Main Create Actions
         findViewById<View>(R.id.startNewProjectButton).setOnClickListener {
@@ -75,27 +68,8 @@ class LaunchActivity : ComponentActivity() {
         findViewById<View>(R.id.startPhotoEditorButton).setOnClickListener {
             openPhotoEditor(resume = false)
         }
-        findViewById<View?>(R.id.startHeaderSettingsButton)?.setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java))
-        }
         emptyProjectsContainer?.setOnClickListener {
             openEditor(EditorLaunchIntents.START_ACTION_NEW)
-        }
-
-        // Bottom Navigation
-        findViewById<View>(R.id.navCreate).setOnClickListener {
-            updateNavSelection(isCreate = true)
-            homeScrollView?.smoothScrollTo(0, 0)
-        }
-        findViewById<View>(R.id.navProjects).setOnClickListener {
-            updateNavSelection(isCreate = false)
-            val recentLabel = findViewById<View>(R.id.startRecentWorkLabel)
-            if (recentLabel != null) {
-                homeScrollView?.smoothScrollTo(0, recentLabel.top)
-            }
-        }
-        findViewById<View>(R.id.navSettings).setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java))
         }
 
         refreshRecentProjects()
@@ -105,18 +79,7 @@ class LaunchActivity : ComponentActivity() {
         super.onResume()
         findViewById<TextView?>(R.id.startSubtitle)?.text = getString(R.string.start_subtitle)
         setStartActionsEnabled(true)
-        updateNavSelection(isCreate = true)
         refreshRecentProjects()
-    }
-
-    private fun updateNavSelection(isCreate: Boolean) {
-        val accentBlue = Color.parseColor("#388BFD")
-        val mutedGray = Color.parseColor("#8A99AD")
-
-        navCreateIcon?.setColorFilter(if (isCreate) accentBlue else mutedGray)
-        navCreateLabel?.setTextColor(if (isCreate) accentBlue else mutedGray)
-        navProjectsIcon?.setColorFilter(if (!isCreate) accentBlue else mutedGray)
-        navProjectsLabel?.setTextColor(if (!isCreate) accentBlue else mutedGray)
     }
 
     private fun openEditor(action: String, projectPath: String? = null) {

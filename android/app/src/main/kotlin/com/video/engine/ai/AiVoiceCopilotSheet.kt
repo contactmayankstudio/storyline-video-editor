@@ -61,7 +61,7 @@ class AiVoiceCopilotSheet(
     private var dialog: android.app.Dialog? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var isMinimized: Boolean = false
-    private var floatingCardView: LinearLayout? = null
+    private var floatingCardView: View? = null
     private var chipsScrollView: HorizontalScrollView? = null
 
     private lateinit var chatContainer: LinearLayout
@@ -154,11 +154,16 @@ class AiVoiceCopilotSheet(
         }
 
         val card = createViewHierarchy(floatDialog, cardWidth, cardHeight)
-        floatingCardView = card as LinearLayout
+        floatingCardView = card
         val cardParams = FrameLayout.LayoutParams(cardWidth, cardHeight).apply {
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            bottomMargin = dp(16)
+            gravity = Gravity.TOP or Gravity.START
+            leftMargin = 0
+            topMargin = 0
         }
+        val initialX = ((screenWidth - cardWidth) / 2f).coerceAtLeast(0f)
+        val initialY = (screenHeight - cardHeight - dp(24)).toFloat().coerceAtLeast(0f)
+        card.x = initialX
+        card.y = initialY
         overlayRoot.addView(card, cardParams)
 
         floatDialog.setContentView(overlayRoot)
@@ -257,6 +262,10 @@ class AiVoiceCopilotSheet(
     }
 
     private fun createViewHierarchy(dialog: android.app.Dialog, defaultWidth: Int, defaultHeight: Int): View {
+        val cardContainer = FrameLayout(activity).apply {
+            layoutParams = ViewGroup.LayoutParams(defaultWidth, defaultHeight)
+        }
+
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
@@ -266,11 +275,12 @@ class AiVoiceCopilotSheet(
                 setColor(Color.parseColor("#F0121722"))
                 setStroke(dp(2).coerceAtLeast(1), Color.parseColor("#3300E5FF"))
             }
-            layoutParams = ViewGroup.LayoutParams(
+            layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,
             )
         }
+        cardContainer.addView(root)
 
         // 1. Drag Handle
         val dragHandle = View(activity).apply {
@@ -298,19 +308,19 @@ class AiVoiceCopilotSheet(
                 android.view.MotionEvent.ACTION_DOWN -> {
                     startRawX = event.rawX
                     startRawY = event.rawY
-                    initialX = root.x
-                    initialY = root.y
+                    initialX = cardContainer.x
+                    initialY = cardContainer.y
                     v.parent?.requestDisallowInterceptTouchEvent(true)
                     true
                 }
                 android.view.MotionEvent.ACTION_MOVE -> {
                     val dX = event.rawX - startRawX
                     val dY = event.rawY - startRawY
-                    val parentView = root.parent as? View
-                    val maxW = (parentView?.width ?: activity.resources.displayMetrics.widthPixels) - root.width
-                    val maxH = (parentView?.height ?: activity.resources.displayMetrics.heightPixels) - root.height
-                    root.x = (initialX + dX).coerceIn(0f, maxW.toFloat().coerceAtLeast(0f))
-                    root.y = (initialY + dY).coerceIn(0f, maxH.toFloat().coerceAtLeast(0f))
+                    val parentView = cardContainer.parent as? View
+                    val maxW = (parentView?.width ?: activity.resources.displayMetrics.widthPixels) - cardContainer.width
+                    val maxH = (parentView?.height ?: activity.resources.displayMetrics.heightPixels) - cardContainer.height
+                    cardContainer.x = (initialX + dX).coerceIn(0f, maxW.toFloat().coerceAtLeast(0f))
+                    cardContainer.y = (initialY + dY).coerceIn(0f, maxH.toFloat().coerceAtLeast(0f))
                     true
                 }
                 android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
@@ -403,6 +413,8 @@ class AiVoiceCopilotSheet(
         header.addView(localeControl)
         localeControlRef = localeControl
 
+        val cornerHandles = mutableListOf<View>()
+
         // Minimize / Maximize Button (Chota / Bada karne ke liye)
         val minimizeBtn = TextView(activity).apply {
             text = "🗕"
@@ -421,19 +433,21 @@ class AiVoiceCopilotSheet(
                 if (isMinimized) {
                     text = "🗖"
                     chatModeContainer?.visibility = View.GONE
-                    chipsScrollView?.visibility = View.GONE
-                    root.layoutParams = (root.layoutParams as? FrameLayout.LayoutParams ?: FrameLayout.LayoutParams(dp(170), ViewGroup.LayoutParams.WRAP_CONTENT)).apply {
+                    cornerHandles.forEach { it.visibility = View.GONE }
+                    cardContainer.layoutParams = (cardContainer.layoutParams as? FrameLayout.LayoutParams ?: FrameLayout.LayoutParams(dp(170), ViewGroup.LayoutParams.WRAP_CONTENT)).apply {
                         width = dp(170)
                         height = ViewGroup.LayoutParams.WRAP_CONTENT
                     }
+                    cardContainer.requestLayout()
                 } else {
                     text = "🗕"
                     chatModeContainer?.visibility = View.VISIBLE
-                    chipsScrollView?.visibility = View.VISIBLE
-                    root.layoutParams = (root.layoutParams as? FrameLayout.LayoutParams ?: FrameLayout.LayoutParams(defaultWidth, defaultHeight)).apply {
+                    cornerHandles.forEach { it.visibility = View.VISIBLE }
+                    cardContainer.layoutParams = (cardContainer.layoutParams as? FrameLayout.LayoutParams ?: FrameLayout.LayoutParams(defaultWidth, defaultHeight)).apply {
                         width = defaultWidth
                         height = defaultHeight
                     }
+                    cardContainer.requestLayout()
                 }
             }
         }
@@ -469,7 +483,7 @@ class AiVoiceCopilotSheet(
         header.addView(closeButton)
         root.addView(header)
 
-        // Chat Mode Container (Holds chat history, chips, waveform, and voice/text input bar)
+        // Chat Mode Container (Holds chat history, waveform, and voice/text input bar)
         val chatBox = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -508,30 +522,8 @@ class AiVoiceCopilotSheet(
         // Load Saved Chat History or Initial Welcome Bubble
         loadPersistedChatHistory()
 
-        // 5. Quick Suggestion Chips Strip
-        val chipsScroll = HorizontalScrollView(activity).apply {
-            visibility = View.VISIBLE
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                topMargin = dp(4)
-                bottomMargin = dp(4)
-            }
-            isHorizontalScrollBarEnabled = false
-            overScrollMode = View.OVER_SCROLL_NEVER
-        }
-        chipsScrollView = chipsScroll
-        val chipsContainer = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(12), dp(2), dp(12), dp(2))
-        }
-        for (chip in suggestionChips) {
-            val chipView = createSuggestionChip(chip.first, chip.second)
-            chipsContainer.addView(chipView)
-        }
-        chipsScroll.addView(chipsContainer)
-        chatBox.addView(chipsScroll)
+        // 5. Quick Suggestion Chips Strip removed for clean minimalist distraction-free UI
+        // (Chat input is positioned cleanly right below messages)
 
         // 6. Voice & Text Input Bar
         val inputBar = createInputBar()
@@ -557,7 +549,121 @@ class AiVoiceCopilotSheet(
         root.addView(cli)
         cliPanel = cli
 
-        return root
+        // 8. Interactive 4-Corner Resize Handles (◤, ◥, ◣, ◢)
+        val handleTouchSize = dp(38)
+        val minWidth = dp(240)
+        val minHeight = dp(180)
+
+        fun createCornerHandle(
+            gravity: Int,
+            symbol: String,
+            isLeft: Boolean,
+            isTop: Boolean,
+        ): TextView {
+            var cornerStartX = 0f
+            var cornerStartY = 0f
+            var startW = 0
+            var startH = 0
+            var startPosX = 0f
+            var startPosY = 0f
+
+            return TextView(activity).apply {
+                text = symbol
+                textSize = 13f
+                setTextColor(Color.parseColor("#B300E5FF"))
+                setTypeface(typeface, Typeface.BOLD)
+                this.gravity = gravity
+                when {
+                    isLeft && isTop -> setPadding(dp(7), dp(6), 0, 0)
+                    !isLeft && isTop -> setPadding(0, dp(6), dp(7), 0)
+                    isLeft && !isTop -> setPadding(dp(7), 0, 0, dp(6))
+                    else -> setPadding(0, 0, dp(7), dp(6))
+                }
+                layoutParams = FrameLayout.LayoutParams(handleTouchSize, handleTouchSize).apply {
+                    this.gravity = gravity
+                }
+                setOnTouchListener { v, event ->
+                    when (event.actionMasked) {
+                        android.view.MotionEvent.ACTION_DOWN -> {
+                            cornerStartX = event.rawX
+                            cornerStartY = event.rawY
+                            startW = cardContainer.width
+                            startH = cardContainer.height
+                            startPosX = cardContainer.x
+                            startPosY = cardContainer.y
+                            v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                            v.parent?.requestDisallowInterceptTouchEvent(true)
+                            true
+                        }
+                        android.view.MotionEvent.ACTION_MOVE -> {
+                            val dx = event.rawX - cornerStartX
+                            val dy = event.rawY - cornerStartY
+                            val parentView = cardContainer.parent as? View
+                            val screenW = parentView?.width ?: activity.resources.displayMetrics.widthPixels
+                            val screenH = parentView?.height ?: activity.resources.displayMetrics.heightPixels
+
+                            var newW = startW
+                            var newH = startH
+                            var newX = startPosX
+                            var newY = startPosY
+
+                            if (isLeft) {
+                                val maxAllowedW = (startPosX + startW).toInt()
+                                val targetW = (startW - dx).roundToInt().coerceIn(minWidth, maxAllowedW.coerceAtLeast(minWidth))
+                                newX = startPosX + (startW - targetW)
+                                newW = targetW
+                            } else {
+                                val maxAllowedW = (screenW - startPosX).toInt()
+                                val targetW = (startW + dx).roundToInt().coerceIn(minWidth, maxAllowedW.coerceAtLeast(minWidth))
+                                newW = targetW
+                            }
+
+                            if (isTop) {
+                                val maxAllowedH = (startPosY + startH).toInt()
+                                val targetH = (startH - dy).roundToInt().coerceIn(minHeight, maxAllowedH.coerceAtLeast(minHeight))
+                                newY = startPosY + (startH - targetH)
+                                newH = targetH
+                            } else {
+                                val maxAllowedH = (screenH - startPosY).toInt()
+                                val targetH = (startH + dy).roundToInt().coerceIn(minHeight, maxAllowedH.coerceAtLeast(minHeight))
+                                newH = targetH
+                            }
+
+                            cardContainer.x = newX.coerceIn(0f, (screenW - newW).toFloat().coerceAtLeast(0f))
+                            cardContainer.y = newY.coerceIn(0f, (screenH - newH).toFloat().coerceAtLeast(0f))
+                            cardContainer.layoutParams = (cardContainer.layoutParams as? FrameLayout.LayoutParams ?: FrameLayout.LayoutParams(newW, newH)).apply {
+                                width = newW
+                                height = newH
+                            }
+                            cardContainer.requestLayout()
+                            true
+                        }
+                        android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                            v.parent?.requestDisallowInterceptTouchEvent(false)
+                            true
+                        }
+                        else -> false
+                    }
+                }
+            }
+        }
+
+        val cornerNW = createCornerHandle(Gravity.TOP or Gravity.START, "◤", isLeft = true, isTop = true)
+        val cornerNE = createCornerHandle(Gravity.TOP or Gravity.END, "◥", isLeft = false, isTop = true)
+        val cornerSW = createCornerHandle(Gravity.BOTTOM or Gravity.START, "◣", isLeft = true, isTop = false)
+        val cornerSE = createCornerHandle(Gravity.BOTTOM or Gravity.END, "◢", isLeft = false, isTop = false)
+
+        cornerHandles.add(cornerNW)
+        cornerHandles.add(cornerNE)
+        cornerHandles.add(cornerSW)
+        cornerHandles.add(cornerSE)
+
+        cardContainer.addView(cornerNW)
+        cardContainer.addView(cornerNE)
+        cardContainer.addView(cornerSW)
+        cardContainer.addView(cornerSE)
+
+        return cardContainer
     }
 
     private fun createLocaleSegmentedControl(): LinearLayout {
@@ -1300,8 +1406,7 @@ class AiVoiceCopilotSheet(
                 Pair("🌟 Status Maker") { dispatcher.openStatusMaker() },
                 Pair("🖼️ Photo Editor") { dispatcher.openPhotoEditor() },
                 Pair("🎵 Auto Beat Cut") { dispatcher.autoBeatCut() },
-                Pair("📜 Shayari") { handleUserCommand("mujhe shayari likh ke do") },
-                Pair("🌍 World Trends") { handleUserCommand("duniya me kya chal raha") },
+                Pair("🚀 Full AI Edit") { handleUserCommand("full ai edit") },
             )
             addAssistantBubble(reply, isSuccess = true, actionPills = pills)
             AiTtsVoiceoverManager.speak(activity, reply)
@@ -1343,7 +1448,6 @@ class AiVoiceCopilotSheet(
                     } else if (lower.contains("trend") || lower.contains("duniya me")) {
                         renderActionPillsUnderBubble(thinkingBubble, listOf(
                             Pair("🎵 Auto Beat Cut") { dispatcher.autoBeatCut() },
-                            Pair("📜 Shayari Likh Do") { handleUserCommand("mujhe shayari likh ke do") },
                             Pair("🚀 Full AI Edit") { handleUserCommand("full ai edit") },
                             Pair("🌟 Status Maker") { dispatcher.openStatusMaker() },
                         ))
@@ -1391,7 +1495,6 @@ class AiVoiceCopilotSheet(
             }
             val pills = listOf<Pair<String, () -> Unit>>(
                 Pair("🎵 Auto Beat Cut") { dispatcher.autoBeatCut() },
-                Pair("📜 Shayari Likh Do") { handleUserCommand("mujhe shayari likh ke do") },
                 Pair("🚀 Full AI Edit") { handleUserCommand("full ai edit") },
                 Pair("🌟 Status Maker") { dispatcher.openStatusMaker() },
             )
@@ -1413,8 +1516,8 @@ class AiVoiceCopilotSheet(
         }
 
         val pills = listOf<Pair<String, () -> Unit>>(
-            Pair("🌍 Trending Formats") { handleUserCommand("duniya me kya chal raha") },
-            Pair("📜 Shayari Likh Do") { handleUserCommand("mujhe shayari likh ke do") },
+            Pair("✂️ Remove Silence") { handleUserCommand("remove silence") },
+            Pair("🎵 Auto Beat Cut") { dispatcher.autoBeatCut() },
             Pair("🚀 Full AI Edit") { handleUserCommand("full ai edit") },
         )
         addAssistantBubble(fallbackReply, isSuccess = true, actionPills = pills)

@@ -78,8 +78,14 @@ class CameraFilterOverlayView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
+    var lensTransitionStartTime: Long = 0L
+    var previousLens: LensItem? = null
     var currentLens: LensItem = LensItem("none", "Clean Camera", "साफ", "ALL", "NONE", "")
         set(value) {
+            if (field.id != value.id) {
+                previousLens = field
+                lensTransitionStartTime = SystemClock.uptimeMillis()
+            }
             field = value
             preloadLensAsset(value)
             invalidate()
@@ -146,6 +152,11 @@ class CameraFilterOverlayView @JvmOverloads constructor(
     private val cyberTextPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val nightFlashPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val lensSwitchIrisPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val lensSwitchGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 6f
+    }
 
     // Beauty Radiance Shaders & Paints
     private val beautyAmbientShader = RadialGradient(0f, 0f, 100f, intArrayOf(Color.argb(48, 255, 238, 224), Color.argb(32, 255, 212, 192), Color.argb(68, 32, 16, 36)), floatArrayOf(0.0f, 0.55f, 1.0f), Shader.TileMode.CLAMP)
@@ -289,6 +300,9 @@ class CameraFilterOverlayView @JvmOverloads constructor(
         if (isNightFlashEnabled) {
             drawNightFlashBorder(canvas, w, h)
         }
+
+        // 9. Smooth Lens Switch Transition
+        drawLensSwitchTransition(canvas, w, h)
 
         // 60 FPS animation loop when needed
         val hasActiveParticles = particlePool.any { it.active }
@@ -1571,6 +1585,36 @@ class CameraFilterOverlayView @JvmOverloads constructor(
         if (isGridEnabled) {
             drawRuleOfThirdsGrid(canvas, w, h)
         }
+
+        // 6. Smooth Lens Switch Transition
+        drawLensSwitchTransition(canvas, w, h)
+    }
+
+    fun drawLensSwitchTransition(canvas: Canvas, w: Float, h: Float) {
+        val elapsed = SystemClock.uptimeMillis() - lensTransitionStartTime
+        if (elapsed >= 320L) return
+
+        val t = (elapsed / 320f).coerceIn(0f, 1f)
+        val maxR = Math.hypot(w.toDouble(), h.toDouble()).toFloat() * 0.65f
+        val currentR = t * maxR
+        val cx = w / 2f
+        val cy = h / 2f
+
+        // Expanding aperture glow ring
+        val ringAlpha = ((1f - t) * 180).toInt().coerceIn(0, 180)
+        lensSwitchGlowPaint.color = Color.argb(ringAlpha, 0, 229, 255)
+        lensSwitchGlowPaint.strokeWidth = (1f - t) * 12f + 2f
+        canvas.drawCircle(cx, cy, currentR, lensSwitchGlowPaint)
+
+        // Subtle micro-flash cut at instant of switch (first 80ms)
+        if (elapsed < 80L) {
+            val flashAlpha = ((1f - elapsed / 80f) * 90).toInt()
+            lensSwitchIrisPaint.color = Color.argb(flashAlpha, 255, 255, 255)
+            lensSwitchIrisPaint.style = Paint.Style.FILL
+            canvas.drawRect(0f, 0f, w, h, lensSwitchIrisPaint)
+        }
+
+        postInvalidateOnAnimation()
     }
 
     override fun onDetachedFromWindow() {

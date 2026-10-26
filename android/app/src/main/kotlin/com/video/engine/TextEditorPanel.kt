@@ -9,6 +9,8 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
@@ -16,17 +18,23 @@ import android.widget.TextView
 import androidx.core.graphics.ColorUtils
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.video.engine.overlay.TextOverlay
+import com.video.engine.overlay.WordCue
 import kotlin.math.roundToInt
 
+/**
+ * Advanced Pro Text Studio Panel with 4 category tabs, real-time interactive live preview,
+ * rich typography, gradient, glow, 3D depth, and viral caption styles.
+ */
 class TextEditorPanel(
     private val activity: Activity,
     private val previewView: VideoPreviewView,
-    private val overlay: TextOverlay,
+    overlay: TextOverlay,
     private val onLiveUpdate: (TextOverlay, Boolean) -> Unit = { _, _ -> },
     private val onDone: (TextOverlay) -> Unit = {},
     private val onDuplicate: (TextOverlay) -> Unit = {},
     private val onDelete: (TextOverlay) -> Unit = {},
 ) {
+    private val targetOverlay: TextOverlay = overlay
     private data class ChipSpec(val label: String, val color: Int)
     private data class FontSpec(val label: String, val fontName: String)
 
@@ -34,87 +42,327 @@ class TextEditorPanel(
     private var isApplyingPreview = false
     private val darkPanel = Color.parseColor("#11151B")
     private val chipIdle = Color.parseColor("#171C23")
+    private val accentBlue = Color.parseColor("#388BFD")
+
+    private lateinit var livePreviewText: TextView
+    private lateinit var livePreviewCard: FrameLayout
+    private val tabContainers = mutableListOf<LinearLayout>()
+    private val tabButtons = mutableListOf<TextView>()
+    private var activeTabIndex = 0
 
     fun show() {
         dialog = BottomSheetDialog(activity)
         dialog.setCanceledOnTouchOutside(false)
 
-        val root = LinearLayout(activity)
-        root.orientation = LinearLayout.VERTICAL
-        root.background = android.graphics.drawable.GradientDrawable().apply {
-            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-            cornerRadii = floatArrayOf(px(24).toFloat(), px(24).toFloat(), px(24).toFloat(), px(24).toFloat(), 0f, 0f, 0f, 0f)
-            setColor(darkPanel)
-            setStroke(px(1), Color.parseColor("#1B222C"))
+        val root = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadii = floatArrayOf(px(24).toFloat(), px(24).toFloat(), px(24).toFloat(), px(24).toFloat(), 0f, 0f, 0f, 0f)
+                setColor(darkPanel)
+                setStroke(px(1), Color.parseColor("#1B222C"))
+            }
+            setPadding(px(18), px(12), px(18), px(24))
         }
-        root.setPadding(px(20), px(16), px(20), px(32))
+
         root.addView(createHandle())
-        root.addView(createTitle())
+        root.addView(createHeader())
+        root.addView(createLivePreviewCard())
+        root.addView(createTabBar())
 
-        val scroll = ScrollView(activity)
-        val container = LinearLayout(activity)
-        container.orientation = LinearLayout.VERTICAL
+        val scroll = ScrollView(activity).apply {
+            isFillViewport = true
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        val mainContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+        }
 
-        val textEdit = addTextInput(container)
-        addFontSizeControl(container)
-        addOpacityControl(container)
-        addFontControls(container)
-        addTextColorControls(container)
-        addGradientControls(container)
-        addBackgroundControls(container)
-        addStrokeAndDepthControls(container)
-        addShadowControls(container)
-        addStyleControls(container)
-        addActions(container, textEdit)
+        // Tab 0: Text & Font
+        val tabTextFont = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        val textEdit = addTextInput(tabTextFont)
+        addQuickEmojis(tabTextFont, textEdit)
+        addFontSizeControl(tabTextFont)
+        addOpacityControl(tabTextFont)
+        addFontControls(tabTextFont)
+        addStyleControls(tabTextFont)
+        addPresetStyles(tabTextFont)
+        tabContainers.add(tabTextFont)
+        mainContainer.addView(tabTextFont)
 
-        scroll.addView(container)
-        root.addView(scroll)
+        // Tab 1: Colors & Glow
+        val tabColorsGlow = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
+        addTextColorControls(tabColorsGlow)
+        addGradientControls(tabColorsGlow)
+        addShadowControls(tabColorsGlow)
+        tabContainers.add(tabColorsGlow)
+        mainContainer.addView(tabColorsGlow)
+
+        // Tab 2: Background & 3D
+        val tabBg3d = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
+        addBackgroundControls(tabBg3d)
+        addStrokeAndDepthControls(tabBg3d)
+        tabContainers.add(tabBg3d)
+        mainContainer.addView(tabBg3d)
+
+        // Tab 3: Animations & Viral Styles
+        val tabAnimation = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
+        addViralCaptionControls(tabAnimation)
+        tabContainers.add(tabAnimation)
+        mainContainer.addView(tabAnimation)
+
+        scroll.addView(mainContainer)
+        root.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+
+        addActions(root, textEdit)
+
         dialog.setContentView(root)
-        ModernSheet.applyEditorBehavior(dialog, activity, peekRatio = 0.44f, maxRatio = 0.62f)
+        ModernSheet.applyEditorBehavior(dialog, activity, peekRatio = 0.52f, maxRatio = 0.78f)
+        updateLivePreviewBox()
         dialog.show()
     }
 
+    private fun createHeader(): LinearLayout {
+        val row = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, px(8))
+        }
+        val titleView = TextView(activity).apply {
+            text = "✨ Text Studio Pro"
+            textSize = 16f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val liveBadge = TextView(activity).apply {
+            text = "● LIVE SYNC"
+            textSize = 10f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#00E676"))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = px(8).toFloat()
+                setColor(Color.parseColor("#11241A"))
+                setStroke(px(1), Color.parseColor("#00E676"))
+            }
+            setPadding(px(8), px(3), px(8), px(3))
+        }
+        row.addView(titleView)
+        row.addView(liveBadge)
+        return row
+    }
+
+    private fun createLivePreviewCard(): FrameLayout {
+        livePreviewCard = FrameLayout(activity).apply {
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = px(12).toFloat()
+                setColor(Color.parseColor("#080B0F"))
+                setStroke(px(1), Color.parseColor("#1E2632"))
+            }
+            setPadding(px(16), px(14), px(16), px(14))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                px(86),
+            ).also { it.bottomMargin = px(10) }
+        }
+
+        livePreviewText = TextView(activity).apply {
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER,
+            )
+        }
+        livePreviewCard.addView(livePreviewText)
+        return livePreviewCard
+    }
+
+    private fun updateLivePreviewBox() {
+        if (!::livePreviewText.isInitialized) return
+        val rawText = targetOverlay.text.ifBlank { "Text Preview" }
+        livePreviewText.text = if (targetOverlay.allCaps) rawText.uppercase() else rawText
+        livePreviewText.setTextColor(targetOverlay.color)
+        val tf = TextBitmapHelper.resolveTypeface(targetOverlay.fontName, targetOverlay.bold, targetOverlay.italic, activity)
+        livePreviewText.typeface = tf
+        livePreviewText.paint.isUnderlineText = targetOverlay.underline
+
+        // Background styling
+        val bgAlpha = Color.alpha(targetOverlay.backgroundColor)
+        if (bgAlpha > 0) {
+            livePreviewText.background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = px(targetOverlay.backgroundCornerRadius.toInt().coerceAtLeast(4)).toFloat()
+                setColor(targetOverlay.backgroundColor)
+                if (targetOverlay.strokeWidth > 0f) {
+                    setStroke(px(targetOverlay.strokeWidth.toInt().coerceIn(1, 4)), targetOverlay.strokeColor)
+                }
+            }
+            val pad = px(targetOverlay.backgroundPadding.toInt().coerceIn(4, 16))
+            livePreviewText.setPadding(pad, pad / 2, pad, pad / 2)
+        } else {
+            livePreviewText.background = null
+            livePreviewText.setPadding(px(6), px(2), px(6), px(2))
+        }
+
+        // Shadow / Glow
+        if (targetOverlay.shadowEnabled && targetOverlay.shadowBlur > 0f) {
+            livePreviewText.setShadowLayer(
+                targetOverlay.shadowBlur.coerceIn(1f, 25f),
+                targetOverlay.shadowOffsetX,
+                targetOverlay.shadowOffsetY,
+                targetOverlay.shadowColor,
+            )
+        } else {
+            livePreviewText.setShadowLayer(0f, 0f, 0f, 0)
+        }
+        livePreviewText.alpha = targetOverlay.opacity.coerceIn(0.15f, 1.0f)
+    }
+
+    private fun createTabBar(): View {
+        val scroller = HorizontalScrollView(activity).apply {
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).also { it.bottomMargin = px(10) }
+        }
+        val row = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
+        val tabLabels = listOf("✏️ Text & Font", "🎨 Color & Glow", "🔲 Background & 3D", "✨ Animations")
+        tabButtons.clear()
+        tabLabels.forEachIndexed { index, label ->
+            val tabBtn = TextView(activity).apply {
+                text = label
+                textSize = 12f
+                setTypeface(null, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setPadding(px(14), px(8), px(14), px(8))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    px(36),
+                ).also { it.setMargins(0, 0, px(6), 0) }
+                setOnClickListener { selectTab(index) }
+            }
+            tabButtons.add(tabBtn)
+            row.addView(tabBtn)
+        }
+        scroller.addView(row)
+        refreshTabButtons()
+        return scroller
+    }
+
+    private fun selectTab(index: Int) {
+        activeTabIndex = index
+        tabContainers.forEachIndexed { idx, container ->
+            container.visibility = if (idx == index) View.VISIBLE else View.GONE
+        }
+        refreshTabButtons()
+    }
+
+    private fun refreshTabButtons() {
+        tabButtons.forEachIndexed { idx, btn ->
+            val isActive = idx == activeTabIndex
+            btn.setTextColor(if (isActive) Color.WHITE else Color.parseColor("#8E9AA8"))
+            btn.background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = px(18).toFloat()
+                if (isActive) {
+                    setColor(Color.parseColor("#1F6FEB"))
+                    setStroke(px(1), Color.parseColor("#58A6FF"))
+                } else {
+                    setColor(chipIdle)
+                    setStroke(px(1), Color.parseColor("#222A36"))
+                }
+            }
+        }
+    }
+
+    // ── Tab 0: Text & Font ──────────────────────────────────────────────────
     private fun addTextInput(container: LinearLayout): EditText {
         container.addView(label("Text Content"))
-        val editText = EditText(activity)
-        editText.setText(overlay.text)
-        editText.setTextColor(Color.WHITE)
-        editText.setHintTextColor(Color.parseColor("#666666"))
-        editText.hint = "Enter text"
-        editText.background = android.graphics.drawable.GradientDrawable().apply {
-            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-            cornerRadius = px(12).toFloat()
-            setColor(Color.parseColor("#141920"))
-            setStroke(px(1), Color.parseColor("#1E2632"))
-        }
-        editText.setPadding(px(12), px(10), px(12), px(10))
-        val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(80))
-        params.bottomMargin = px(12)
-        editText.layoutParams = params
-        editText.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-            override fun afterTextChanged(s: Editable?) {
-                if (isApplyingPreview) return
-                overlay.text = s?.toString().orEmpty().ifEmpty { "Text" }
-                applyPreviewChanges(refreshTimelineLabel = false)
+        val editText = EditText(activity).apply {
+            setText(targetOverlay.text)
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.parseColor("#666666"))
+            hint = "Enter text or title"
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = px(12).toFloat()
+                setColor(Color.parseColor("#141920"))
+                setStroke(px(1), Color.parseColor("#1E2632"))
             }
-        })
+            setPadding(px(14), px(10), px(14), px(10))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(72)).also {
+                it.bottomMargin = px(8)
+            }
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(s: Editable?) {
+                    if (isApplyingPreview) return
+                    targetOverlay.text = s?.toString().orEmpty().ifEmpty { "Text" }
+                    applyPreviewChanges(refreshTimelineLabel = false)
+                }
+            })
+        }
         container.addView(editText)
         return editText
     }
 
+    private fun addQuickEmojis(container: LinearLayout, editText: EditText) {
+        val emojis = listOf("🔥", "✨", "⚡", "🚀", "🎬", "💬", "❤️", "💯", "🎯", "🏷️")
+        val scroller = HorizontalScrollView(activity).apply {
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).also { it.bottomMargin = px(10) }
+        }
+        val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
+        emojis.forEach { emoji ->
+            val chip = TextView(activity).apply {
+                text = emoji
+                textSize = 14f
+                gravity = Gravity.CENTER
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = px(8).toFloat()
+                    setColor(chipIdle)
+                    setStroke(px(1), Color.parseColor("#222A36"))
+                }
+                layoutParams = LinearLayout.LayoutParams(px(36), px(34)).also {
+                    it.setMargins(0, 0, px(6), 0)
+                }
+                setOnClickListener {
+                    editText.append(" $emoji")
+                }
+            }
+            row.addView(chip)
+        }
+        scroller.addView(row)
+        container.addView(scroller)
+    }
+
     private fun addFontSizeControl(container: LinearLayout) {
-        container.addView(label("Font Size"))
         container.addView(
             sliderRow(
-                title = "Size",
+                title = "Font Size",
                 min = 12,
-                max = 72,
-                initial = overlay.fontSize.roundToInt().coerceIn(12, 72),
-                formatter = { value: Int -> "${value}pt" },
-                onChange = { value: Int ->
-                    overlay.fontSize = value.toFloat()
+                max = 96,
+                initial = targetOverlay.fontSize.roundToInt().coerceIn(12, 96),
+                formatter = { "${it}pt" },
+                onChange = { value ->
+                    targetOverlay.fontSize = value.toFloat()
                     applyPreviewChanges(refreshTimelineLabel = false)
                 },
             ),
@@ -122,16 +370,15 @@ class TextEditorPanel(
     }
 
     private fun addOpacityControl(container: LinearLayout) {
-        container.addView(label("Opacity"))
         container.addView(
             sliderRow(
                 title = "Opacity",
-                min = 0,
+                min = 10,
                 max = 100,
-                initial = (overlay.opacity * 100f).roundToInt().coerceIn(0, 100),
-                formatter = { value: Int -> "$value%" },
-                onChange = { value: Int ->
-                    overlay.opacity = value / 100f
+                initial = (targetOverlay.opacity * 100f).roundToInt().coerceIn(10, 100),
+                formatter = { "$it%" },
+                onChange = { value ->
+                    targetOverlay.opacity = value / 100f
                     applyPreviewChanges(refreshTimelineLabel = false)
                 },
             ),
@@ -139,8 +386,7 @@ class TextEditorPanel(
     }
 
     private fun addFontControls(container: LinearLayout) {
-        container.addView(label("Font"))
-        val row = toolRow()
+        container.addView(label("Typography Font"))
         val specs = listOf(
             FontSpec("Bangers", "bangers"),
             FontSpec("Anton", "anton"),
@@ -149,179 +395,306 @@ class TextEditorPanel(
             FontSpec("Serif", "serif"),
             FontSpec("Mono", "monospace"),
             FontSpec("Condensed", "sans-serif-condensed"),
+            FontSpec("Cursive", "pacifico"),
         )
+        val scroller = HorizontalScrollView(activity).apply {
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
         val buttons = mutableListOf<TextView>()
+
         fun refreshButtons() {
-            val current = overlay.fontName ?: "sans-serif"
+            val current = targetOverlay.fontName ?: "sans-serif"
             for (button in buttons) {
                 val active = button.tag == current
                 button.setTextColor(if (active) Color.BLACK else Color.WHITE)
-                button.setBackgroundColor(if (active) Color.WHITE else chipIdle)
+                button.background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = px(8).toFloat()
+                    setColor(if (active) Color.WHITE else chipIdle)
+                    setStroke(px(1), if (active) Color.WHITE else Color.parseColor("#222A36"))
+                }
             }
         }
+
         for (spec in specs) {
-            val button = createChip(spec.label, chipIdle)
-            button.tag = spec.fontName
-            button.setOnClickListener {
-                overlay.fontName = spec.fontName
-                refreshButtons()
-                applyPreviewChanges(refreshTimelineLabel = false)
+            val button = TextView(activity).apply {
+                text = spec.label
+                textSize = 12f
+                setTypeface(null, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setPadding(px(14), px(6), px(14), px(6))
+                tag = spec.fontName
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    px(36),
+                ).also { it.setMargins(0, 0, px(6), 0) }
+                setOnClickListener {
+                    targetOverlay.fontName = spec.fontName
+                    refreshButtons()
+                    applyPreviewChanges(refreshTimelineLabel = false)
+                }
             }
             buttons.add(button)
             row.addView(button)
         }
         refreshButtons()
+        scroller.addView(row)
+        container.addView(scroller)
+    }
+
+    private fun addStyleControls(container: LinearLayout) {
+        container.addView(label("Text Formatting"))
+        val row = toolRow()
+        row.addView(toggleButton("Bold", targetOverlay.bold, Typeface.BOLD) { active -> targetOverlay.bold = active })
+        row.addView(toggleButton("Italic", targetOverlay.italic, Typeface.ITALIC) { active -> targetOverlay.italic = active })
+        row.addView(toggleButton("Underline", targetOverlay.underline, Typeface.NORMAL) { active -> targetOverlay.underline = active })
+        row.addView(toggleButton("ALL CAPS", targetOverlay.allCaps, Typeface.BOLD) { active -> targetOverlay.allCaps = active })
         container.addView(row)
     }
 
-    private fun addTextColorControls(container: LinearLayout) {
-        container.addView(label("Color"))
-        addColorChipRow(
-            container = container,
-            chips = listOf(
-                ChipSpec("White", Color.WHITE),
-                ChipSpec("Black", Color.BLACK),
-                ChipSpec("Red", Color.RED),
-                ChipSpec("Yellow", Color.YELLOW),
-                ChipSpec("Cyan", Color.CYAN),
-                ChipSpec("Green", 0xFF00CC44.toInt()),
-                ChipSpec("Pink", 0xFFFF6EC7.toInt()),
-                ChipSpec("Amber", 0xFFFFB74D.toInt()),
-            ),
-            onPick = { color: Int ->
-                overlay.color = color
-                applyPreviewChanges(refreshTimelineLabel = false)
-            },
+    private fun addPresetStyles(container: LinearLayout) {
+        container.addView(label("Quick Presets"))
+        val presets = listOf(
+            "Title" to Pair(Color.WHITE, 48f),
+            "Caption" to Pair(0xFFFFEB3B.toInt(), 32f),
+            "Hook ⚡" to Pair(0xFF00E5FF.toInt(), 42f),
+            "Neon Pop" to Pair(0xFFFF4081.toInt(), 40f),
+            "Sub Black" to Pair(0xFF111111.toInt(), 28f),
         )
+        val scroller = HorizontalScrollView(activity).apply {
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
+        presets.forEach { (name, props) ->
+            val btn = TextView(activity).apply {
+                text = name
+                textSize = 11.5f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = px(8).toFloat()
+                    setColor(chipIdle)
+                    setStroke(px(1), Color.parseColor("#2B3442"))
+                }
+                setPadding(px(12), px(6), px(12), px(6))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    px(34),
+                ).also { it.setMargins(0, 0, px(6), 0) }
+                setOnClickListener {
+                    targetOverlay.color = props.first
+                    targetOverlay.fontSize = props.second
+                    applyPreviewChanges(refreshTimelineLabel = false)
+                }
+            }
+            row.addView(btn)
+        }
+        scroller.addView(row)
+        container.addView(scroller)
+    }
 
-        container.addView(label("Text RGB"))
-        container.addView(colorSliderRow("Red", Color.red(overlay.color)) { value: Int ->
-            overlay.color = Color.argb(Color.alpha(overlay.color), value, Color.green(overlay.color), Color.blue(overlay.color))
+    // ── Tab 1: Colors & Glow ────────────────────────────────────────────────
+    private fun addTextColorControls(container: LinearLayout) {
+        container.addView(label("Primary Color"))
+        val colors = listOf(
+            ChipSpec("White", Color.WHITE),
+            ChipSpec("Yellow", 0xFFFFEB3B.toInt()),
+            ChipSpec("Gold", 0xFFFFD700.toInt()),
+            ChipSpec("Cyan", 0xFF00E5FF.toInt()),
+            ChipSpec("Green", 0xFF76FF03.toInt()),
+            ChipSpec("Pink", 0xFFFF4081.toInt()),
+            ChipSpec("Purple", 0xFFAB47BC.toInt()),
+            ChipSpec("Red", 0xFFFF5252.toInt()),
+            ChipSpec("Gray", 0xFF9E9E9E.toInt()),
+            ChipSpec("Black", 0xFF111111.toInt()),
+        )
+        addColorChipRow(container, colors) { color ->
+            targetOverlay.color = color
             applyPreviewChanges(refreshTimelineLabel = false)
-        })
-        container.addView(colorSliderRow("Green", Color.green(overlay.color)) { value: Int ->
-            overlay.color = Color.argb(Color.alpha(overlay.color), Color.red(overlay.color), value, Color.blue(overlay.color))
-            applyPreviewChanges(refreshTimelineLabel = false)
-        })
-        container.addView(colorSliderRow("Blue", Color.blue(overlay.color)) { value: Int ->
-            overlay.color = Color.argb(Color.alpha(overlay.color), Color.red(overlay.color), Color.green(overlay.color), value)
-            applyPreviewChanges(refreshTimelineLabel = false)
-        })
+        }
     }
 
     private fun addGradientControls(container: LinearLayout) {
-        container.addView(label("Gradient"))
-        addColorChipRow(
-            container = container,
-            chips = listOf(
-                ChipSpec("Off", Color.TRANSPARENT),
-                ChipSpec("Sky", 0xFF35C7FF.toInt()),
-                ChipSpec("Fire", 0xFFFF4D6D.toInt()),
-                ChipSpec("Neon", 0xFFB967FF.toInt()),
-                ChipSpec("Gold", 0xFFFFB000.toInt()),
-            ),
-            onPick = { color: Int ->
-                if (color == Color.TRANSPARENT) {
-                    overlay.gradientEnabled = false
-                } else {
-                    overlay.gradientEnabled = true
-                    overlay.gradientStartColor = when (color) {
-                        0xFFFF4D6D.toInt() -> 0xFFFFD166.toInt()
-                        0xFFB967FF.toInt() -> 0xFF00F5FF.toInt()
-                        0xFFFFB000.toInt() -> 0xFFFFF3B0.toInt()
-                        else -> Color.WHITE
-                    }
-                    overlay.gradientEndColor = color
-                }
-                applyPreviewChanges(refreshTimelineLabel = false)
-            },
+        container.addView(label("Gradient Blend"))
+        val gradientPresets = listOf(
+            "Off" to Pair(Color.TRANSPARENT, Color.TRANSPARENT),
+            "🔥 Fire" to Pair(0xFFFFD166.toInt(), 0xFFFF4D6D.toInt()),
+            "🌊 Sky" to Pair(Color.WHITE, 0xFF00E5FF.toInt()),
+            "💜 Neon" to Pair(0xFF00F5FF.toInt(), 0xFFB967FF.toInt()),
+            "✨ Gold" to Pair(0xFFFFF3B0.toInt(), 0xFFFFB000.toInt()),
+            "🌅 Sunset" to Pair(0xFFFF758C.toInt(), 0xFFFF7EB3.toInt()),
         )
-        container.addView(colorSliderRow("Start R", Color.red(overlay.gradientStartColor)) { value: Int ->
-            overlay.gradientEnabled = true
-            overlay.gradientStartColor = Color.argb(Color.alpha(overlay.gradientStartColor), value, Color.green(overlay.gradientStartColor), Color.blue(overlay.gradientStartColor))
-            applyPreviewChanges(refreshTimelineLabel = false)
-        })
-        container.addView(colorSliderRow("Start G", Color.green(overlay.gradientStartColor)) { value: Int ->
-            overlay.gradientEnabled = true
-            overlay.gradientStartColor = Color.argb(Color.alpha(overlay.gradientStartColor), Color.red(overlay.gradientStartColor), value, Color.blue(overlay.gradientStartColor))
-            applyPreviewChanges(refreshTimelineLabel = false)
-        })
-        container.addView(colorSliderRow("Start B", Color.blue(overlay.gradientStartColor)) { value: Int ->
-            overlay.gradientEnabled = true
-            overlay.gradientStartColor = Color.argb(Color.alpha(overlay.gradientStartColor), Color.red(overlay.gradientStartColor), Color.green(overlay.gradientStartColor), value)
-            applyPreviewChanges(refreshTimelineLabel = false)
-        })
-        container.addView(colorSliderRow("End R", Color.red(overlay.gradientEndColor)) { value: Int ->
-            overlay.gradientEnabled = true
-            overlay.gradientEndColor = Color.argb(Color.alpha(overlay.gradientEndColor), value, Color.green(overlay.gradientEndColor), Color.blue(overlay.gradientEndColor))
-            applyPreviewChanges(refreshTimelineLabel = false)
-        })
-        container.addView(colorSliderRow("End G", Color.green(overlay.gradientEndColor)) { value: Int ->
-            overlay.gradientEnabled = true
-            overlay.gradientEndColor = Color.argb(Color.alpha(overlay.gradientEndColor), Color.red(overlay.gradientEndColor), value, Color.blue(overlay.gradientEndColor))
-            applyPreviewChanges(refreshTimelineLabel = false)
-        })
-        container.addView(colorSliderRow("End B", Color.blue(overlay.gradientEndColor)) { value: Int ->
-            overlay.gradientEnabled = true
-            overlay.gradientEndColor = Color.argb(Color.alpha(overlay.gradientEndColor), Color.red(overlay.gradientEndColor), Color.green(overlay.gradientEndColor), value)
-            applyPreviewChanges(refreshTimelineLabel = false)
-        })
+        val scroller = HorizontalScrollView(activity).apply {
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
+        gradientPresets.forEach { (label, colors) ->
+            val btn = TextView(activity).apply {
+                text = label
+                textSize = 12f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = px(8).toFloat()
+                    setColor(chipIdle)
+                    setStroke(px(1), Color.parseColor("#2B3442"))
+                }
+                setPadding(px(12), px(6), px(12), px(6))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    px(36),
+                ).also { it.setMargins(0, 0, px(6), 0) }
+                setOnClickListener {
+                    if (colors.first == Color.TRANSPARENT) {
+                        targetOverlay.gradientEnabled = false
+                    } else {
+                        targetOverlay.gradientEnabled = true
+                        targetOverlay.gradientStartColor = colors.first
+                        targetOverlay.gradientEndColor = colors.second
+                    }
+                    applyPreviewChanges(refreshTimelineLabel = false)
+                }
+            }
+            row.addView(btn)
+        }
+        scroller.addView(row)
+        container.addView(scroller)
     }
 
-    private fun addBackgroundControls(container: LinearLayout) {
-        container.addView(label("Background"))
-        addColorChipRow(
-            container = container,
-            chips = listOf(
-                ChipSpec("None", Color.TRANSPARENT),
-                ChipSpec("Black", 0x99000000.toInt()),
-                ChipSpec("White", 0xCCFFFFFF.toInt()),
-                ChipSpec("Yellow", 0xCCFFEB3B.toInt()),
-                ChipSpec("Blue", 0xCC0D47A1.toInt()),
-                ChipSpec("Red", 0xCCB71C1C.toInt()),
-            ),
-            onPick = { color: Int ->
-                overlay.backgroundColor = color
-                applyPreviewChanges(refreshTimelineLabel = false)
-            },
+    private fun addShadowControls(container: LinearLayout) {
+        container.addView(label("Shadow & Neon Glow"))
+        val shadowPresets = listOf(
+            "Off" to Pair(Color.TRANSPARENT, 0f),
+            "Soft Blur" to Pair(0x88000000.toInt(), 8f),
+            "Strong Drop" to Pair(0xDD000000.toInt(), 16f),
+            "✨ Gold Glow" to Pair(0xAAFFD700.toInt(), 18f),
+            "🔮 Neon Cyan" to Pair(0xAA00E5FF.toInt(), 18f),
+            "🔴 Red Glow" to Pair(0xAAFF5252.toInt(), 18f),
         )
+        val scroller = HorizontalScrollView(activity).apply {
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
+        shadowPresets.forEach { (label, pair) ->
+            val btn = TextView(activity).apply {
+                text = label
+                textSize = 11.5f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = px(8).toFloat()
+                    setColor(chipIdle)
+                    setStroke(px(1), Color.parseColor("#2B3442"))
+                }
+                setPadding(px(12), px(6), px(12), px(6))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    px(36),
+                ).also { it.setMargins(0, 0, px(6), 0) }
+                setOnClickListener {
+                    if (pair.first == Color.TRANSPARENT) {
+                        targetOverlay.shadowEnabled = false
+                        targetOverlay.shadowBlur = 0f
+                    } else {
+                        targetOverlay.shadowEnabled = true
+                        targetOverlay.shadowColor = pair.first
+                        targetOverlay.shadowBlur = pair.second
+                        targetOverlay.shadowOffsetY = 3f
+                    }
+                    applyPreviewChanges(refreshTimelineLabel = false)
+                }
+            }
+            row.addView(btn)
+        }
+        scroller.addView(row)
+        container.addView(scroller)
 
-        container.addView(label("Background RGB"))
-        container.addView(colorSliderRow("Alpha", Color.alpha(overlay.backgroundColor)) { value: Int ->
-            overlay.backgroundColor = Color.argb(
-                value,
-                Color.red(overlay.backgroundColor),
-                Color.green(overlay.backgroundColor),
-                Color.blue(overlay.backgroundColor),
-            )
-            applyPreviewChanges(refreshTimelineLabel = false)
-        })
-        container.addView(colorSliderRow("Red", Color.red(overlay.backgroundColor)) { value: Int ->
-            val alpha = nonZeroBackgroundAlpha()
-            overlay.backgroundColor = Color.argb(alpha, value, Color.green(overlay.backgroundColor), Color.blue(overlay.backgroundColor))
-            applyPreviewChanges(refreshTimelineLabel = false)
-        })
-        container.addView(colorSliderRow("Green", Color.green(overlay.backgroundColor)) { value: Int ->
-            val alpha = nonZeroBackgroundAlpha()
-            overlay.backgroundColor = Color.argb(alpha, Color.red(overlay.backgroundColor), value, Color.blue(overlay.backgroundColor))
-            applyPreviewChanges(refreshTimelineLabel = false)
-        })
-        container.addView(colorSliderRow("Blue", Color.blue(overlay.backgroundColor)) { value: Int ->
-            val alpha = nonZeroBackgroundAlpha()
-            overlay.backgroundColor = Color.argb(alpha, Color.red(overlay.backgroundColor), Color.green(overlay.backgroundColor), value)
-            applyPreviewChanges(refreshTimelineLabel = false)
-        })
+        container.addView(
+            sliderRow(
+                title = "Blur Radius",
+                min = 0,
+                max = 40,
+                initial = targetOverlay.shadowBlur.roundToInt().coerceIn(0, 40),
+                formatter = { if (it == 0) "Off" else "${it}px" },
+                onChange = { value ->
+                    targetOverlay.shadowBlur = value.toFloat()
+                    targetOverlay.shadowEnabled = value > 0
+                    applyPreviewChanges(refreshTimelineLabel = false)
+                },
+            ),
+        )
+    }
+
+    // ── Tab 2: Background & 3D ──────────────────────────────────────────────
+    private fun addBackgroundControls(container: LinearLayout) {
+        container.addView(label("Background Pill Style"))
+        val pills = listOf(
+            "None" to Color.TRANSPARENT,
+            "Black Pill" to 0xCC000000.toInt(),
+            "Frosted White" to 0xDDFFFFFF.toInt(),
+            "Yellow Tag" to 0xCCFFEB3B.toInt(),
+            "Red Accent" to 0xCCB71C1C.toInt(),
+            "Deep Blue" to 0xCC0D47A1.toInt(),
+        )
+        val scroller = HorizontalScrollView(activity).apply {
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
+        pills.forEach { (label, color) ->
+            val btn = TextView(activity).apply {
+                text = label
+                textSize = 12f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = px(8).toFloat()
+                    setColor(chipIdle)
+                    setStroke(px(1), Color.parseColor("#2B3442"))
+                }
+                setPadding(px(12), px(6), px(12), px(6))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    px(36),
+                ).also { it.setMargins(0, 0, px(6), 0) }
+                setOnClickListener {
+                    targetOverlay.backgroundColor = color
+                    if (color != Color.TRANSPARENT) {
+                        targetOverlay.backgroundPadding = targetOverlay.backgroundPadding.coerceAtLeast(14f)
+                        targetOverlay.backgroundCornerRadius = targetOverlay.backgroundCornerRadius.coerceAtLeast(12f)
+                    }
+                    applyPreviewChanges(refreshTimelineLabel = false)
+                }
+            }
+            row.addView(btn)
+        }
+        scroller.addView(row)
+        container.addView(scroller)
+
         container.addView(
             sliderRow(
                 title = "Padding",
                 min = 0,
-                max = 96,
-                initial = overlay.backgroundPadding.roundToInt().coerceIn(0, 96),
-                formatter = { value: Int -> if (value == 0) "Auto" else "${value}px" },
-                onChange = { value: Int ->
-                    overlay.backgroundPadding = value.toFloat()
-                    if (value > 0 && Color.alpha(overlay.backgroundColor) == 0) {
-                        overlay.backgroundColor = 0x99000000.toInt()
+                max = 64,
+                initial = targetOverlay.backgroundPadding.roundToInt().coerceIn(0, 64),
+                formatter = { "${it}px" },
+                onChange = { value ->
+                    targetOverlay.backgroundPadding = value.toFloat()
+                    if (value > 0 && Color.alpha(targetOverlay.backgroundColor) == 0) {
+                        targetOverlay.backgroundColor = 0xCC000000.toInt()
                     }
                     applyPreviewChanges(refreshTimelineLabel = false)
                 },
@@ -329,16 +702,13 @@ class TextEditorPanel(
         )
         container.addView(
             sliderRow(
-                title = "Round",
+                title = "Corner Radius",
                 min = 0,
-                max = 72,
-                initial = overlay.backgroundCornerRadius.roundToInt().coerceIn(0, 72),
-                formatter = { value: Int -> if (value == 0) "Auto" else "${value}px" },
-                onChange = { value: Int ->
-                    overlay.backgroundCornerRadius = value.toFloat()
-                    if (value > 0 && Color.alpha(overlay.backgroundColor) == 0) {
-                        overlay.backgroundColor = 0x99000000.toInt()
-                    }
+                max = 48,
+                initial = targetOverlay.backgroundCornerRadius.roundToInt().coerceIn(0, 48),
+                formatter = { "${it}px" },
+                onChange = { value ->
+                    targetOverlay.backgroundCornerRadius = value.toFloat()
                     applyPreviewChanges(refreshTimelineLabel = false)
                 },
             ),
@@ -346,187 +716,178 @@ class TextEditorPanel(
     }
 
     private fun addStrokeAndDepthControls(container: LinearLayout) {
-        container.addView(label("Stroke"))
+        container.addView(label("Stroke Border"))
         container.addView(
             sliderRow(
                 title = "Width",
                 min = 0,
                 max = 18,
-                initial = overlay.strokeWidth.roundToInt().coerceIn(0, 18),
-                formatter = { value: Int -> "${value}px" },
-                onChange = { value: Int ->
-                    overlay.strokeWidth = value.toFloat()
+                initial = targetOverlay.strokeWidth.roundToInt().coerceIn(0, 18),
+                formatter = { "${it}px" },
+                onChange = { value ->
+                    targetOverlay.strokeWidth = value.toFloat()
                     applyPreviewChanges(refreshTimelineLabel = false)
                 },
             ),
         )
-        addColorChipRow(
-            container = container,
-            chips = listOf(
-                ChipSpec("Off", Color.TRANSPARENT),
-                ChipSpec("Black", Color.BLACK),
-                ChipSpec("White", Color.WHITE),
-                ChipSpec("Gold", 0xFFFFD54F.toInt()),
-                ChipSpec("Cyan", 0xFF00E5FF.toInt()),
-            ),
-            onPick = { color: Int ->
-                if (color == Color.TRANSPARENT) {
-                    overlay.strokeWidth = 0f
-                } else {
-                    overlay.strokeColor = color
-                    overlay.strokeWidth = overlay.strokeWidth.coerceAtLeast(4f)
-                }
-                applyPreviewChanges(refreshTimelineLabel = false)
-            },
+        val strokeColors = listOf(
+            ChipSpec("Off", Color.TRANSPARENT),
+            ChipSpec("Black", Color.BLACK),
+            ChipSpec("White", Color.WHITE),
+            ChipSpec("Gold", 0xFFFFD54F.toInt()),
+            ChipSpec("Cyan", 0xFF00E5FF.toInt()),
+            ChipSpec("Red", 0xFFFF5252.toInt()),
         )
+        addColorChipRow(container, strokeColors) { color ->
+            if (color == Color.TRANSPARENT) {
+                targetOverlay.strokeWidth = 0f
+            } else {
+                targetOverlay.strokeColor = color
+                targetOverlay.strokeWidth = targetOverlay.strokeWidth.coerceAtLeast(4f)
+            }
+            applyPreviewChanges(refreshTimelineLabel = false)
+        }
 
-        container.addView(label("3D Depth"))
+        container.addView(label("3D Depth Extrusion"))
         container.addView(
             sliderRow(
                 title = "Depth",
                 min = 0,
                 max = 24,
-                initial = overlay.depthPx.roundToInt().coerceIn(0, 24),
-                formatter = { value: Int -> "${value}px" },
-                onChange = { value: Int ->
-                    overlay.depthPx = value.toFloat()
-                    if (value > 0 && Color.alpha(overlay.depthColor) == 0) {
-                        overlay.depthColor = 0x99000000.toInt()
+                initial = targetOverlay.depthPx.roundToInt().coerceIn(0, 24),
+                formatter = { "${it}px" },
+                onChange = { value ->
+                    targetOverlay.depthPx = value.toFloat()
+                    if (value > 0 && Color.alpha(targetOverlay.depthColor) == 0) {
+                        targetOverlay.depthColor = 0xAA000000.toInt()
                     }
                     applyPreviewChanges(refreshTimelineLabel = false)
                 },
             ),
         )
-        container.addView(colorSliderRow("Depth Alpha", Color.alpha(overlay.depthColor)) { value: Int ->
-            overlay.depthColor = Color.argb(value, Color.red(overlay.depthColor), Color.green(overlay.depthColor), Color.blue(overlay.depthColor))
-            applyPreviewChanges(refreshTimelineLabel = false)
-        })
     }
 
-    private fun addShadowControls(container: LinearLayout) {
-        container.addView(label("Shadow"))
-        addColorChipRow(
-            container = container,
-            chips = listOf(
-                ChipSpec("Off", Color.TRANSPARENT),
-                ChipSpec("Soft", 0x88000000.toInt()),
-                ChipSpec("Strong", 0xCC000000.toInt()),
-                ChipSpec("Glow", 0xAA00E5FF.toInt()),
-            ),
-            onPick = { color: Int ->
-                if (color == Color.TRANSPARENT) {
-                    overlay.shadowEnabled = false
-                    overlay.shadowBlur = 0f
-                } else {
-                    overlay.shadowEnabled = true
-                    overlay.shadowColor = color
-                    overlay.shadowBlur = overlay.shadowBlur.coerceAtLeast(6f)
-                    overlay.shadowOffsetY = overlay.shadowOffsetY.takeIf { it != 0f } ?: 3f
+    // ── Tab 3: Animations & Viral Caption Styles ────────────────────────────
+    private fun addViralCaptionControls(container: LinearLayout) {
+        container.addView(label("Viral Animated Caption Style"))
+        val styles = listOf(
+            "Static (None)" to null,
+            "🔥 MrBeast Pop" to "MRBEAST",
+            "⚡ Hormozi Kinetic" to "HORMOZI",
+            "🔮 Cyberpunk" to "CYBERPUNK",
+            "🎬 Cinema Subtitle" to "CINEMA",
+            "🎤 Karaoke Live" to "KARAOKE",
+        )
+        val scroller = HorizontalScrollView(activity).apply {
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
+        styles.forEach { (label, style) ->
+            val btn = TextView(activity).apply {
+                text = label
+                textSize = 12f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = px(8).toFloat()
+                    setColor(chipIdle)
+                    setStroke(px(1), Color.parseColor("#2B3442"))
                 }
-                applyPreviewChanges(refreshTimelineLabel = false)
-            },
-        )
+                setPadding(px(12), px(8), px(12), px(8))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    px(38),
+                ).also { it.setMargins(0, 0, px(6), 0) }
+                setOnClickListener {
+                    targetOverlay.captionStyle = style
+                    targetOverlay.wordCues = emptyList<WordCue>()
+                    targetOverlay.interpolateWordCuesIfNeeded()
+                    applyPreviewChanges(refreshTimelineLabel = false)
+                }
+            }
+            row.addView(btn)
+        }
+        scroller.addView(row)
+        container.addView(scroller)
+
+        container.addView(label("Active Word Scale"))
         container.addView(
             sliderRow(
-                title = "Blur",
-                min = 0,
-                max = 40,
-                initial = overlay.shadowBlur.roundToInt().coerceIn(0, 40),
-                formatter = { value: Int -> if (value == 0) "Off" else "${value}px" },
-                onChange = { value: Int ->
-                    overlay.shadowBlur = value.toFloat()
-                    overlay.shadowEnabled = value > 0
+                title = "Scale",
+                min = 100,
+                max = 160,
+                initial = (targetOverlay.activeWordScale * 100f).roundToInt().coerceIn(100, 160),
+                formatter = { "%.2fx".format(it / 100f) },
+                onChange = { value ->
+                    targetOverlay.activeWordScale = value / 100f
                     applyPreviewChanges(refreshTimelineLabel = false)
                 },
             ),
         )
-        container.addView(
-            sliderRow(
-                title = "Offset X",
-                min = -40,
-                max = 40,
-                initial = overlay.shadowOffsetX.roundToInt().coerceIn(-40, 40),
-                formatter = { value: Int -> "${value}px" },
-                onChange = { value: Int ->
-                    overlay.shadowOffsetX = value.toFloat()
-                    overlay.shadowEnabled = overlay.shadowBlur > 0f
-                    applyPreviewChanges(refreshTimelineLabel = false)
-                },
-            ),
+
+        container.addView(label("Keyword Highlight Color"))
+        val highlightColors = listOf(
+            ChipSpec("Yellow", 0xFFFFEB3B.toInt()),
+            ChipSpec("Green", 0xFF00FF66.toInt()),
+            ChipSpec("Red", 0xFFFF2A55.toInt()),
+            ChipSpec("Cyan", 0xFF00E5FF.toInt()),
+            ChipSpec("White", Color.WHITE),
         )
-        container.addView(
-            sliderRow(
-                title = "Offset Y",
-                min = -40,
-                max = 40,
-                initial = overlay.shadowOffsetY.roundToInt().coerceIn(-40, 40),
-                formatter = { value: Int -> "${value}px" },
-                onChange = { value: Int ->
-                    overlay.shadowOffsetY = value.toFloat()
-                    overlay.shadowEnabled = overlay.shadowBlur > 0f
-                    applyPreviewChanges(refreshTimelineLabel = false)
-                },
-            ),
-        )
-        container.addView(colorSliderRow("Alpha", Color.alpha(overlay.shadowColor)) { value: Int ->
-            overlay.shadowColor = Color.argb(value, Color.red(overlay.shadowColor), Color.green(overlay.shadowColor), Color.blue(overlay.shadowColor))
-            overlay.shadowEnabled = value > 0 && overlay.shadowBlur > 0f
+        addColorChipRow(container, highlightColors) { color ->
+            targetOverlay.highlightColor = color
+            targetOverlay.glowColor = color
             applyPreviewChanges(refreshTimelineLabel = false)
-        })
+        }
     }
 
-    private fun addStyleControls(container: LinearLayout) {
-        container.addView(label("Style"))
-        val row = toolRow()
-        row.addView(toggleButton("Bold", overlay.bold, Typeface.BOLD) { active: Boolean -> overlay.bold = active })
-        row.addView(toggleButton("Italic", overlay.italic, Typeface.ITALIC) { active: Boolean -> overlay.italic = active })
-        row.addView(toggleButton("Under", overlay.underline, Typeface.NORMAL) { active: Boolean -> overlay.underline = active })
-        row.addView(toggleButton("Caps", overlay.allCaps, Typeface.BOLD) { active: Boolean -> overlay.allCaps = active })
-        container.addView(row)
-    }
-
-    private fun addActions(container: LinearLayout, editText: EditText) {
-        container.addView(divider())
-        val row = LinearLayout(activity)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.setPadding(0, px(8), 0, 0)
-        row.addView(actionButton("Duplicate", Color.parseColor("#171C23"), Color.WHITE, Color.parseColor("#222A36")) {
-            overlay.text = editText.text.toString().ifEmpty { "Text" }
+    // ── Bottom Actions ──────────────────────────────────────────────────────
+    private fun addActions(root: LinearLayout, editText: EditText) {
+        val row = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, px(10), 0, 0)
+        }
+        row.addView(actionButton("📋 Duplicate", Color.parseColor("#171C23"), Color.WHITE, Color.parseColor("#222A36")) {
+            targetOverlay.text = editText.text.toString().ifEmpty { "Text" }
             applyPreviewChanges(refreshTimelineLabel = true)
-            onDuplicate(overlay)
+            onDuplicate(targetOverlay)
             dialog.dismiss()
         })
-        row.addView(actionButton("Delete", Color.parseColor("#1A1214"), Color.parseColor("#F85149"), Color.parseColor("#4A1E22")) {
-            onDelete(overlay)
-            previewView.removeTextOverlay(overlay.id)
+        row.addView(actionButton("🗑️ Delete", Color.parseColor("#2B1517"), Color.parseColor("#FF6B6B"), Color.parseColor("#4A1E22")) {
+            onDelete(targetOverlay)
+            previewView.removeTextOverlay(targetOverlay.id)
             dialog.dismiss()
         })
-        row.addView(actionButton("Done", Color.parseColor("#1F6FEB"), Color.WHITE, Color.parseColor("#388BFD")) {
-            overlay.text = editText.text.toString().ifEmpty { "Text" }
+        row.addView(actionButton("✅ Done", Color.parseColor("#1F6FEB"), Color.WHITE, Color.parseColor("#388BFD")) {
+            targetOverlay.text = editText.text.toString().ifEmpty { "Text" }
             applyPreviewChanges(refreshTimelineLabel = true)
-            onDone(overlay)
+            onDone(targetOverlay)
             dialog.dismiss()
         })
-        container.addView(row)
+        root.addView(row)
     }
 
     private fun applyPreviewChanges(refreshTimelineLabel: Boolean) {
         isApplyingPreview = true
         try {
-            onLiveUpdate(overlay, refreshTimelineLabel)
+            updateLivePreviewBox()
+            onLiveUpdate(targetOverlay, refreshTimelineLabel)
             previewView.updateTextOverlay(
-                overlay.id,
-                overlay.x,
-                overlay.y,
-                overlay.scale,
-                overlay.rotation,
-                overlay.color,
-                overlay.fontSize,
-                overlay.startTimeMs,
-                overlay.endTimeMs,
+                targetOverlay.id,
+                targetOverlay.x,
+                targetOverlay.y,
+                targetOverlay.scale,
+                targetOverlay.rotation,
+                targetOverlay.color,
+                targetOverlay.fontSize,
+                targetOverlay.startTimeMs,
+                targetOverlay.endTimeMs,
             )
-            previewView.updateTextOverlayOpacity(overlay.id, overlay.opacity, 0, 0)
-            NativeBridge.setTextOverlayBitmap(previewView, overlay)
+            previewView.updateTextOverlayOpacity(targetOverlay.id, targetOverlay.opacity, 0, 0)
+            NativeBridge.setTextOverlayBitmap(previewView, targetOverlay)
+            previewView.postInvalidateOnAnimation()
         } catch (e: Exception) {
             android.util.Log.w("[TextEditor]", "updatePreview: ${e.message}")
         } finally {
@@ -539,7 +900,14 @@ class TextEditorPanel(
         chips: List<ChipSpec>,
         onPick: (Int) -> Unit,
     ) {
-        val row = toolRow()
+        val scroller = HorizontalScrollView(activity).apply {
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        val row = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, px(4), 0, px(10))
+        }
         for (chip in chips) {
             val color = chip.color
             val button = createChip(chip.label, displayChipColor(color))
@@ -547,23 +915,30 @@ class TextEditorPanel(
             button.setOnClickListener { onPick(color) }
             row.addView(button)
         }
-        container.addView(row)
+        scroller.addView(row)
+        container.addView(scroller)
     }
 
     private fun createChip(text: String, backgroundColor: Int): TextView {
-        val view = TextView(activity)
-        view.text = text
-        view.textSize = 11f
-        view.gravity = Gravity.CENTER
-        view.background = android.graphics.drawable.GradientDrawable().apply {
-            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-            cornerRadius = px(6).toFloat()
-            setColor(backgroundColor)
+        val view = TextView(activity).apply {
+            this.text = text
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = px(8).toFloat()
+                setColor(backgroundColor)
+                setStroke(px(1), Color.parseColor("#303844"))
+            }
+            setTextColor(readableTextColor(backgroundColor))
+            setPadding(px(12), px(6), px(12), px(6))
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                px(34),
+            ).also { it.setMargins(0, 0, px(6), 0) }
+            layoutParams = params
         }
-        view.setTextColor(readableTextColor(backgroundColor))
-        val params = LinearLayout.LayoutParams(0, px(36), 1f)
-        params.setMargins(px(2), 0, px(2), 0)
-        view.layoutParams = params
         return view
     }
 
@@ -573,15 +948,16 @@ class TextEditorPanel(
         style: Int,
         onToggle: (Boolean) -> Unit,
     ): TextView {
-        val view = createChip(text, if (active) Color.WHITE else chipIdle)
-        view.textSize = 12f
-        view.setTypeface(null, style)
+        val view = createChip(text, if (active) Color.WHITE else chipIdle).apply {
+            textSize = 12f
+            setTypeface(null, style)
+        }
         var current = active
         fun refresh() {
             view.setTextColor(if (current) Color.BLACK else Color.WHITE)
             view.background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = px(6).toFloat()
+                cornerRadius = px(8).toFloat()
                 setColor(if (current) Color.WHITE else chipIdle)
                 setStroke(px(1), if (current) Color.WHITE else Color.parseColor("#222A36"))
             }
@@ -597,24 +973,26 @@ class TextEditorPanel(
     }
 
     private fun actionButton(text: String, backgroundColor: Int, textColor: Int, strokeColor: Int = Color.TRANSPARENT, action: () -> Unit): TextView {
-        val view = TextView(activity)
-        view.text = text
-        view.textSize = 13f
-        view.gravity = Gravity.CENTER
-        view.setTypeface(null, Typeface.BOLD)
-        view.setTextColor(textColor)
-        view.background = android.graphics.drawable.GradientDrawable().apply {
-            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-            cornerRadius = px(8).toFloat()
-            setColor(backgroundColor)
-            if (strokeColor != Color.TRANSPARENT) {
-                setStroke(px(1), strokeColor)
+        val view = TextView(activity).apply {
+            this.text = text
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = px(10).toFloat()
+                setColor(backgroundColor)
+                if (strokeColor != Color.TRANSPARENT) {
+                    setStroke(px(1), strokeColor)
+                }
             }
+            val params = LinearLayout.LayoutParams(0, px(44), 1f).also {
+                it.setMargins(px(4), 0, px(4), 0)
+            }
+            layoutParams = params
+            setOnClickListener { action() }
         }
-        val params = LinearLayout.LayoutParams(0, px(44), 1f)
-        params.setMargins(px(4), 0, px(4), 0)
-        view.layoutParams = params
-        view.setOnClickListener { action() }
         return view
     }
 
@@ -627,116 +1005,100 @@ class TextEditorPanel(
         onChange: (Int) -> Unit,
     ): LinearLayout {
         val safeInitial = initial.coerceIn(min, max)
-        val row = LinearLayout(activity)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.gravity = Gravity.CENTER_VERTICAL
-        row.setPadding(0, px(2), 0, px(8))
+        val container = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = px(10).toFloat()
+                setColor(Color.parseColor("#141920"))
+                setStroke(px(1), Color.parseColor("#1E2632"))
+            }
+            setPadding(px(12), px(8), px(12), px(8))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).also { it.bottomMargin = px(8) }
+        }
 
-        val titleView = TextView(activity)
-        titleView.text = title
-        titleView.textSize = 12f
-        titleView.setTextColor(Color.parseColor("#8A99AD"))
-        titleView.layoutParams = LinearLayout.LayoutParams(px(74), LinearLayout.LayoutParams.WRAP_CONTENT)
-        row.addView(titleView)
+        val headerRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val titleView = TextView(activity).apply {
+            text = title
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#8A99AD"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val valueText = TextView(activity).apply {
+            text = formatter(safeInitial)
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(accentBlue)
+        }
+        headerRow.addView(titleView)
+        headerRow.addView(valueText)
+        container.addView(headerRow)
 
-        val valueText = TextView(activity)
-        valueText.text = formatter(safeInitial)
-        valueText.textSize = 12f
-        valueText.setTextColor(Color.WHITE)
-        valueText.gravity = Gravity.END
-        valueText.layoutParams = LinearLayout.LayoutParams(px(64), LinearLayout.LayoutParams.WRAP_CONTENT)
-
-        val seekBar = SeekBar(activity)
-        seekBar.max = (max - min).coerceAtLeast(1)
-        seekBar.progress = safeInitial - min
-        seekBar.progressTintList = ColorStateList.valueOf(Color.parseColor("#388BFD"))
-        seekBar.thumbTintList = ColorStateList.valueOf(Color.WHITE)
-        seekBar.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        seekBar.setOnSeekBarChangeListener(seekListener { progress: Int ->
-            val value = (progress + min).coerceIn(min, max)
-            valueText.text = formatter(value)
-            onChange(value)
-        })
-        row.addView(seekBar)
-        row.addView(valueText)
-        return row
-    }
-
-    private fun colorSliderRow(title: String, initial: Int, onChange: (Int) -> Unit): LinearLayout {
-        return sliderRow(
-            title = title,
-            min = 0,
-            max = 255,
-            initial = initial.coerceIn(0, 255),
-            formatter = { value: Int -> value.toString() },
-            onChange = onChange,
-        )
+        val seekBar = SeekBar(activity).apply {
+            this.max = (max - min).coerceAtLeast(1)
+            progress = safeInitial - min
+            progressTintList = ColorStateList.valueOf(accentBlue)
+            thumbTintList = ColorStateList.valueOf(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).also { it.topMargin = px(4) }
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar, p: Int, fromUser: Boolean) {
+                    val value = (p + min).coerceIn(min, max)
+                    valueText.text = formatter(value)
+                    onChange(value)
+                }
+                override fun onStartTrackingTouch(sb: SeekBar) = Unit
+                override fun onStopTrackingTouch(sb: SeekBar) = Unit
+            })
+        }
+        container.addView(seekBar)
+        return container
     }
 
     private fun createHandle(): LinearLayout {
-        val handle = LinearLayout(activity)
-        handle.gravity = Gravity.CENTER
-        handle.setPadding(0, 0, 0, px(12))
-        val bar = View(activity)
-        bar.background = android.graphics.drawable.GradientDrawable().apply {
-            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-            cornerRadius = px(999).toFloat()
-            setColor(Color.parseColor("#3A4452"))
+        val handle = LinearLayout(activity).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, px(10))
         }
-        val params = LinearLayout.LayoutParams(px(36), px(4))
-        params.gravity = Gravity.CENTER
-        bar.layoutParams = params
+        val bar = View(activity).apply {
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = px(999).toFloat()
+                setColor(Color.parseColor("#3A4452"))
+            }
+            val params = LinearLayout.LayoutParams(px(36), px(4)).also {
+                it.gravity = Gravity.CENTER
+            }
+            layoutParams = params
+        }
         handle.addView(bar)
         return handle
     }
 
-    private fun createTitle(): TextView {
-        val view = TextView(activity)
-        view.text = "Edit Text"
-        view.textSize = 16f
-        view.setTypeface(null, Typeface.BOLD)
-        view.setTextColor(Color.WHITE)
-        view.gravity = Gravity.CENTER
-        view.setPadding(0, 0, 0, px(16))
-        return view
-    }
-
     private fun label(text: String): TextView {
-        val view = TextView(activity)
-        view.text = text
-        view.textSize = 12f
-        view.setTextColor(Color.parseColor("#AAAAAA"))
-        view.setPadding(0, px(4), 0, px(2))
-        return view
-    }
-
-    private fun divider(): View {
-        val view = View(activity)
-        view.setBackgroundColor(Color.parseColor("#333333"))
-        val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(1))
-        params.setMargins(0, px(8), 0, px(8))
-        view.layoutParams = params
-        return view
-    }
-
-    private fun toolRow(): LinearLayout {
-        val row = LinearLayout(activity)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.setPadding(0, px(4), 0, px(12))
-        return row
-    }
-
-    private fun seekListener(onChange: (Int) -> Unit): SeekBar.OnSeekBarChangeListener {
-        return object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) = onChange(progress)
-            override fun onStartTrackingTouch(seekBar: SeekBar) = Unit
-            override fun onStopTrackingTouch(seekBar: SeekBar) = Unit
+        return TextView(activity).apply {
+            this.text = text
+            textSize = 11.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#7E8B9B"))
+            setPadding(0, px(4), 0, px(4))
         }
     }
 
-    private fun nonZeroBackgroundAlpha(): Int {
-        val alpha = Color.alpha(overlay.backgroundColor)
-        return if (alpha > 0) alpha else 204
+    private fun toolRow(): LinearLayout {
+        return LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, px(2), 0, px(8))
+        }
     }
 
     private fun displayChipColor(color: Int): Int {

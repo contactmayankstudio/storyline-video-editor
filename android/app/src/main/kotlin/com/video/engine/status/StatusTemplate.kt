@@ -15,6 +15,31 @@ data class StatusTextOverlay(
     val colorHex: String = "0xFFFFFFFF"
 )
 
+/**
+ * Customizable texts model allowing the user to change ANY text, name, title, quote,
+ * or tagline in any template with zero hardcoded locks.
+ */
+data class StatusCustomTexts(
+    var titleText: String? = null,
+    var userName: String? = null,
+    var quoteText: String? = null,
+    var taglineText: String? = null,
+    var hideDefaultOverlays: Boolean = false,
+    var textColorHex: String? = null,
+    var glowColorHex: String? = null
+) : java.io.Serializable
+
+enum class StatusDesignTheme {
+    NEON_BEAT_BASS,        // Pulsating neon borders, 22-band audio visualizer bars, vinyl disc, strobe bass
+    ROMANTIC_LOVE_LOCKET,  // Floating glowing hearts, romantic heart-locket frame, couple script, rose-gold bokeh
+    ROYAL_ATTITUDE_KING,   // Floating 3D golden crown, fiery embers & smoke sparks, dark vignette, heavy bass
+    VINTAGE_POLAROID_FILM, // Tilted polaroid card with white border, washi tape, 35mm film grain, vintage REC timestamp
+    SPOTIFY_MUSIC_PLAYER,  // Floating glassmorphic music player card, album art, progress bar, track title, karaoke lyrics
+    CYBERPUNK_GLITCH_HUD,  // Cyan/magenta HUD corner brackets, matrix digital scanlines, glitch slice cuts
+    BIRTHDAY_CONFETTI,     // Raining colorful confetti, floating balloons, celebration star sparkles, party ribbon
+    DIVINE_BHAKTI_AURA     // Saffron glowing halo aura, om/trishul motif, rising temple incense smoke
+}
+
 data class StatusTemplate(
     val id: String,
     val title: String,
@@ -102,6 +127,46 @@ fun StatusTemplate.getMotionStyle(): TemplateMotionStyle {
                 1 -> TemplateMotionStyle.VELOCITY_RAMP
                 2 -> TemplateMotionStyle.FLASH_BEAT_CUTS
                 else -> TemplateMotionStyle.PHONK_ATTITUDE
+            }
+        }
+    }
+}
+
+fun StatusTemplate.getDesignTheme(): StatusDesignTheme {
+    val lowerId = id.lowercase(java.util.Locale.US)
+    val lowerCat = category.lowercase(java.util.Locale.US)
+    val lowerTitle = title.lowercase(java.util.Locale.US)
+
+    return when {
+        lowerCat.contains("love") || lowerTitle.contains("love") || lowerTitle.contains("romantic") || lowerTitle.contains("heart") || lowerTitle.contains("couple") || lowerTitle.contains("pehla nasha") ->
+            StatusDesignTheme.ROMANTIC_LOVE_LOCKET
+
+        lowerCat.contains("attitude") || lowerTitle.contains("attitude") || lowerTitle.contains("sigma") || lowerTitle.contains("mafia") || lowerTitle.contains("swag") || lowerTitle.contains("king") || lowerTitle.contains("gangster") ->
+            StatusDesignTheme.ROYAL_ATTITUDE_KING
+
+        lowerTitle.contains("polaroid") || lowerTitle.contains("vintage") || lowerTitle.contains("film") || lowerTitle.contains("retro") || lowerTitle.contains("golden hour") || lowerCat.contains("retro") || lowerId.contains("vhs") ->
+            StatusDesignTheme.VINTAGE_POLAROID_FILM
+
+        lowerTitle.contains("spotify") || lowerTitle.contains("player") || lowerTitle.contains("lyric") || lowerCat.contains("lyrical") || lowerTitle.contains("music") || lowerTitle.contains("acoustic") ->
+            StatusDesignTheme.SPOTIFY_MUSIC_PLAYER
+
+        lowerTitle.contains("cyber") || lowerTitle.contains("neon") || lowerTitle.contains("rave") || lowerCat.contains("cyber") ->
+            StatusDesignTheme.CYBERPUNK_GLITCH_HUD
+
+        lowerCat.contains("birthday") || lowerCat.contains("celebration") || lowerTitle.contains("birthday") || lowerTitle.contains("party") ->
+            StatusDesignTheme.BIRTHDAY_CONFETTI
+
+        lowerCat.contains("bhakti") || lowerCat.contains("spiritual") || lowerTitle.contains("mahakal") || lowerTitle.contains("krishna") || lowerTitle.contains("shiva") || lowerTitle.contains("divine") || lowerTitle.contains("ram") ->
+            StatusDesignTheme.DIVINE_BHAKTI_AURA
+
+        else -> {
+            when (Math.abs(id.hashCode()) % 6) {
+                0 -> StatusDesignTheme.NEON_BEAT_BASS
+                1 -> StatusDesignTheme.SPOTIFY_MUSIC_PLAYER
+                2 -> StatusDesignTheme.ROYAL_ATTITUDE_KING
+                3 -> StatusDesignTheme.VINTAGE_POLAROID_FILM
+                4 -> StatusDesignTheme.CYBERPUNK_GLITCH_HUD
+                else -> StatusDesignTheme.NEON_BEAT_BASS
             }
         }
     }

@@ -36,7 +36,7 @@ class PhotoCanvasView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
 ) : View(context, attrs) {
     companion object {
-        const val DEFAULT_CANVAS_WIDTH = 1080
+        const val DEFAULT_CANVAS_WIDTH = 1920
         const val DEFAULT_CANVAS_HEIGHT = 1080
         private const val MIN_CANVAS_SIDE = 256
         private const val MAX_CANVAS_SIDE = 4096
@@ -156,6 +156,8 @@ class PhotoCanvasView @JvmOverloads constructor(
     private var magicSweepRevealFraction = 1f
     private var magicSweepBeforeBitmap: Bitmap? = null
     private var originalUneditedBitmap: Bitmap? = null
+    var onMagicSweepFractionChanged: ((Float) -> Unit)? = null
+    private var isDraggingCanvasMagicSweep = false
     private var currentStroke: PhotoBrushStroke? = null
 
     private val undoStack = ArrayDeque<PhotoCanvasSnapshot>()
@@ -1133,6 +1135,7 @@ class PhotoCanvasView @JvmOverloads constructor(
         this.canvasSizeLabel = canvasSizeLabel.ifBlank { "${nextWidth}x${nextHeight}" }
         canvasRect.set(0f, 0f, nextWidth.toFloat(), nextHeight.toFloat())
         baseImage = bitmap
+        originalUneditedBitmap = bitmap?.runCatching { copy(Bitmap.Config.ARGB_8888, false) }?.getOrNull()
         magicSweepBeforeBitmap?.let { if (!it.isRecycled) it.recycle() }
         magicSweepBeforeBitmap = null
         magicSweepInProgress = false
@@ -1205,7 +1208,7 @@ class PhotoCanvasView @JvmOverloads constructor(
         canvas.drawColor(Color.rgb(218, 236, 252))
         canvas.save()
         canvas.concat(viewMatrix)
-        if (magicSweepBeforeBitmap != null && magicSweepRevealFraction < 0.98f) {
+        if (magicSweepBeforeBitmap != null && (magicSweepInProgress || magicSweepRevealFraction < 0.98f)) {
             drawMagicSweepPreview(canvas)
         } else {
             drawDesign(canvas, showSelection = true, transparentOutput = false)
@@ -1218,6 +1221,19 @@ class PhotoCanvasView @JvmOverloads constructor(
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 activePointerId = event.getPointerId(0)
+                if (magicSweepInProgress) {
+                    val currentSplitViewX = magicSweepViewXForFraction(magicSweepRevealFraction)
+                    val touchDist = Math.abs(event.x - currentSplitViewX)
+                    val densityPx = resources.displayMetrics.density
+                    if (touchDist < 70f * densityPx || selectedLayerItem() == null) {
+                        isDraggingCanvasMagicSweep = true
+                        val frac = magicSweepFractionForViewX(event.x)
+                        previewMagicSweep(frac)
+                        onMagicSweepFractionChanged?.invoke(frac)
+                        parent.requestDisallowInterceptTouchEvent(true)
+                        return true
+                    }
+                }
                 if (drawModeEnabled) {
                     startBrushStroke(mapped.first, mapped.second)
                     parent.requestDisallowInterceptTouchEvent(true)
@@ -1257,6 +1273,12 @@ class PhotoCanvasView @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
+                if (isDraggingCanvasMagicSweep) {
+                    val frac = magicSweepFractionForViewX(event.x)
+                    previewMagicSweep(frac)
+                    onMagicSweepFractionChanged?.invoke(frac)
+                    return true
+                }
                 if (drawModeEnabled) {
                     appendBrushStroke(mapped.first, mapped.second)
                     return true
@@ -1279,6 +1301,16 @@ class PhotoCanvasView @JvmOverloads constructor(
             MotionEvent.ACTION_UP,
             MotionEvent.ACTION_CANCEL -> {
                 activePointerId = MotionEvent.INVALID_POINTER_ID
+                if (isDraggingCanvasMagicSweep) {
+                    isDraggingCanvasMagicSweep = false
+                    val frac = magicSweepRevealFraction()
+                    if (frac >= 0.96f) {
+                        commitMagicSweep(forceClose = true)
+                    }
+                    onMagicSweepFractionChanged?.invoke(frac)
+                    parent.requestDisallowInterceptTouchEvent(false)
+                    return true
+                }
                 if (drawModeEnabled) {
                     finishBrushStroke()
                 } else if (selectedLayerIsTransformable()) {

@@ -1,6 +1,7 @@
 package com.video.engine.transition
 
 import android.app.Activity
+import android.widget.Toast
 import com.video.engine.ModernSheet
 import com.video.engine.VideoPreviewView
 
@@ -101,11 +102,27 @@ class TransitionPanel(
                 onApply(transition)
             },
         ) {
-            categories(listOf("Popular", "Fast", "Pro"), selected = 0) { tabIdx, _ ->
+            compactActionRow(
+                listOf(
+                    ModernSheet.CompactAction(
+                        title = "▶️ Replay Live Preview",
+                        isPrimary = true,
+                        onClick = { onApply(transition) },
+                    ),
+                    ModernSheet.CompactAction(
+                        title = "✂️ Remove / Cut",
+                        isDestructive = true,
+                        onClick = { applyPreset(TransitionType.NONE, 0) },
+                    ),
+                ),
+            )
+            divider()
+
+            categories(listOf("Popular", "Cinematic", "Fast Action"), selected = 0) { tabIdx, _ ->
                 val (chosenType, chosenDuration) = when (tabIdx) {
                     0 -> Pair(TransitionType.CROSS, 450)
-                    1 -> Pair(TransitionType.FADE, 220)
-                    2 -> Pair(TransitionType.CROSS, 900)
+                    1 -> Pair(TransitionType.CROSS, 900)
+                    2 -> Pair(TransitionType.SLIDE, 320)
                     else -> Pair(TransitionType.CROSS, 450)
                 }
                 applyPreset(chosenType, chosenDuration)
@@ -115,10 +132,10 @@ class TransitionPanel(
             val popularPresets = listOf(
                 Triple("None", TransitionType.NONE, 0),
                 Triple("Soft Cross", TransitionType.CROSS, 450),
-                Triple("Quick Fade", TransitionType.FADE, 220),
-                Triple("Smooth Wipe", TransitionType.WIPE, 500),
-                Triple("Push Slide", TransitionType.SLIDE, 420),
-                Triple("Dissolve", TransitionType.CROSS, 900),
+                Triple("Quick Fade", TransitionType.FADE, 250),
+                Triple("Smooth Wipe", TransitionType.WIPE, 480),
+                Triple("Push Slide", TransitionType.SLIDE, 400),
+                Triple("Film Dissolve", TransitionType.CROSS, 850),
             )
             val selectedPopular = popularPresets.indexOfFirst { (_, type, _) -> type == transition.type }
             val transitionCards = popularPresets.map { (label, type, _) ->
@@ -129,9 +146,17 @@ class TransitionPanel(
                     TransitionType.WIPE -> Pair(android.graphics.Color.parseColor("#065F46"), android.graphics.Color.parseColor("#10B981"))
                     TransitionType.SLIDE -> Pair(android.graphics.Color.parseColor("#4C1D95"), android.graphics.Color.parseColor("#8B5CF6"))
                 }
+                val emoji = when (type) {
+                    TransitionType.NONE -> "✂️"
+                    TransitionType.FADE -> "🎬"
+                    TransitionType.CROSS -> "✨"
+                    TransitionType.WIPE -> "🌊"
+                    TransitionType.SLIDE -> "➡️"
+                }
                 ModernSheet.VisualCard(
                     id = label,
                     label = label,
+                    emoji = emoji,
                     swatchGradient = gradient,
                 )
             }
@@ -141,8 +166,9 @@ class TransitionPanel(
                 columns = 3,
                 dismissOnSelect = false,
             ) { index, _ ->
-                val (_, type, durationMs) = popularPresets[index]
+                val (label, type, durationMs) = popularPresets[index]
                 applyPreset(type, if (durationMs > 0) durationMs else transition.durationMs)
+                Toast.makeText(activity, "🎬 Transition: $label applied", Toast.LENGTH_SHORT).show()
             }
 
             divider()

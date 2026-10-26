@@ -156,6 +156,12 @@ class TimelineCanvasView @JvmOverloads constructor(
         color = DesignSystem.Colors.textSecondary; textSize = dp(9f); textAlign = Paint.Align.CENTER; isFakeBoldText = true
     }
     private val coverCardRect = RectF()
+    private var isTouchDownOnCover = false
+    private val handleGripPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1.5f).toFloat()
+        strokeCap = Paint.Cap.ROUND
+    }
     private val trackBadgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = DesignSystem.Colors.buttonEnabled }
     private val trackBadgeStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeWidth = dp(0.75f).toFloat(); color = DesignSystem.Colors.borderCard
@@ -164,7 +170,9 @@ class TimelineCanvasView @JvmOverloads constructor(
         color = Color.WHITE; textSize = dp(8f); textAlign = Paint.Align.CENTER; isFakeBoldText = true
     }
     private val trackBadgeRect = RectF()
-    private val thumbnailPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val thumbnailPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+        isDither = true
+    }
     private val trackActionChipShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#12000000")
     }
@@ -357,6 +365,14 @@ class TimelineCanvasView @JvmOverloads constructor(
     // ── Pinch zoom ────────────────────────────────────────────────────────────
     private var zoomFocusX = 0f
     private var zoomFocusScrollX = 0f
+    private fun minAllowedPxPerSecond(): Float {
+        val totalMs = maxTimelineEndMs()
+        if (totalMs <= 30_000L) return 20f
+        val availableW = (width.takeIf { it > 0 } ?: 1080) - dp(80)
+        val fitPps = (availableW.toFloat() / (totalMs / 1000f).coerceAtLeast(1f))
+        return fitPps.coerceIn(0.04f, 24f)
+    }
+
     private val scaleDetector = ScaleGestureDetector(context,
         object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScaleBegin(d: ScaleGestureDetector): Boolean {
@@ -365,7 +381,8 @@ class TimelineCanvasView @JvmOverloads constructor(
                 return true
             }
             override fun onScale(d: ScaleGestureDetector): Boolean {
-                val newPps = (pxPerSecond * d.scaleFactor).coerceIn(24f, 6000f)
+                val minPps = minAllowedPxPerSecond()
+                val newPps = (pxPerSecond * d.scaleFactor).coerceIn(minPps, 6000f)
                 // Keep focus point stable
                 val focusMs = (zoomFocusScrollX + zoomFocusX - centerX()) / (pxPerSecond / 1000f)
                 pxPerSecond = newPps
@@ -527,9 +544,27 @@ class TimelineCanvasView @JvmOverloads constructor(
     }
 
     fun setZoomPxPerSecond(pps: Float) {
-        pxPerSecond = pps.coerceIn(24f, 6000f)
+        pxPerSecond = pps.coerceIn(minAllowedPxPerSecond(), 6000f)
         recalcContentWidth()
         invalidateAssetRequestWindow()
+        scheduleAssetRequests()
+        invalidate()
+    }
+
+    fun jumpToStart() {
+        scroller.abortAnimation()
+        scrollX = 0f
+        val newMs = 0L
+        updatePlayheadWithHaptics(newMs)
+        scheduleAssetRequests()
+        invalidate()
+    }
+
+    fun jumpToEnd() {
+        scroller.abortAnimation()
+        scrollX = maxScrollX()
+        val totalMs = maxTimelineEndMs()
+        updatePlayheadWithHaptics(totalMs)
         scheduleAssetRequests()
         invalidate()
     }
@@ -630,7 +665,7 @@ class TimelineCanvasView @JvmOverloads constructor(
         lastAssetTrackCount = trackCount
         tracks.forEach { track ->
             track.clips.forEach { clip ->
-                requestThumbnails(clip, windowStartPx, windowEndPx)
+                requestThumbnails(clip, windowStartPx, windowEndPx, priority = (clip.id == selectedClipId))
                 requestWaveform(clip, windowStartPx, windowEndPx)
             }
         }
@@ -779,13 +814,19 @@ class TimelineCanvasView @JvmOverloads constructor(
 
     private fun drawCoverCard(canvas: Canvas) {
         val hasClips = tracks.any { it.clips.isNotEmpty() }
-        if (!hasClips) return
+        if (!hasClips) {
+            coverCardRect.setEmpty()
+            return
+        }
 
         val zeroX = msToX(0L)
         val cardW = dp(62).toFloat()
         val cardRight = zeroX - dp(8).toFloat()
         val cardLeft = cardRight - cardW
-        if (cardRight <= 0f) return
+        if (cardRight <= 0f) {
+            coverCardRect.setEmpty()
+            return
+        }
 
         val videoTrackIndex = tracks.indexOfFirst { it.type == TrackType.VIDEO }.takeIf { it >= 0 } ?: 0
         val top = trackTop(videoTrackIndex).toFloat()
@@ -991,29 +1032,57 @@ class TimelineCanvasView @JvmOverloads constructor(
     private val clipThumbnails = mutableMapOf<String, List<android.graphics.Bitmap>>()
     private val clipThumbnailKeys = mutableMapOf<String, String>()
 
-    private fun requestThumbnails(clip: ClipSegment, windowStartPx: Float, windowEndPx: Float) {
+    private fun requestThumbnails(
+        clip: ClipSegment,
+        windowStartPx: Float,
+        windowEndPx: Float,
+        priority: Boolean = false,
+    ) {
         if (clip.trackType != TrackType.VIDEO && !clip.trackType.isOverlayLike()) return
         if (clip.sourcePath.isBlank()) return
         val clipLeftPx = clipContentStartPx(clip)
         val clipRightPx = clipContentEndPx(clip)
-        if (clipRightPx < windowStartPx || clipLeftPx > windowEndPx) return
+        if (!priority && (clipRightPx < windowStartPx || clipLeftPx > windowEndPx)) return
         val track = tracks.firstOrNull { it.clips.any { c -> c.id == clip.id } }
         val actualLaneH = track?.let { trackLaneHeightPx(it) } ?: laneHeightPx
-        val targetH = (actualLaneH * 2).coerceIn(120, 320)
+        val targetH = (actualLaneH * 2).coerceIn(160, 360)
         val visibleWidth = (min(clipRightPx, windowEndPx) - max(clipLeftPx, windowStartPx))
             .roundToInt()
             .coerceAtLeast(dp(72))
         val assetWindowWidth = (windowEndPx - windowStartPx).roundToInt().coerceAtLeast(dp(72))
-        val viewportW = (visibleWidth.coerceAtMost(assetWindowWidth) * 2).coerceIn(120, 1920)
+        val viewportW = (visibleWidth.coerceAtMost(assetWindowWidth) * 2).coerceIn(160, 1920)
         val key = TimelineThumbnailCache.buildRequestKey(clip, viewportW, targetH)
         if (clipThumbnailKeys[clip.id] == key && clipThumbnails[clip.id]?.isNotEmpty() == true) return
         clipThumbnailKeys[clip.id] = key
-        TimelineThumbnailCache.requestStrip(clip, viewportW, targetH) { k, bitmaps ->
+        val isPriority = priority || clip.id == selectedClipId
+        TimelineThumbnailCache.requestStrip(clip, viewportW, targetH, priority = isPriority) { k, bitmaps ->
             if (clipThumbnailKeys[clip.id] == k) {
                 clipThumbnails[clip.id] = bitmaps
                 throttledInvalidate()
             }
         }
+    }
+
+    fun notifyClipSplit(leftClipId: String, rightClipId: String) {
+        val existing = clipThumbnails[leftClipId]
+        if (!existing.isNullOrEmpty()) {
+            val leftClip = tracks.flatMap { it.clips }.firstOrNull { it.id == leftClipId }
+            val rightClip = tracks.flatMap { it.clips }.firstOrNull { it.id == rightClipId }
+            if (leftClip != null && rightClip != null) {
+                val totalDur = leftClip.durationMs + rightClip.durationMs
+                val splitRatio = (leftClip.durationMs.toFloat() / totalDur.coerceAtLeast(1L)).coerceIn(0.05f, 0.95f)
+                val splitIdx = (existing.size * splitRatio).roundToInt().coerceIn(1, existing.size - 1)
+                val leftSlice = existing.subList(0, splitIdx)
+                val rightSlice = existing.subList(splitIdx, existing.size)
+                if (leftSlice.isNotEmpty()) clipThumbnails[leftClipId] = leftSlice
+                if (rightSlice.isNotEmpty()) clipThumbnails[rightClipId] = rightSlice
+            } else {
+                clipThumbnails[rightClipId] = existing
+            }
+        }
+        invalidateAssetRequestWindow()
+        scheduleAssetRequests(immediate = true)
+        postInvalidateOnAnimation()
     }
 
     private fun drawTracks(canvas: Canvas) {
@@ -1150,7 +1219,7 @@ class TimelineCanvasView @JvmOverloads constructor(
                 val tx = left + i * tileW
                 if (tx + tileW < clampedLeft || tx > clampedRight) return@forEachIndexed
                 thumbSrcRect.set(0, 0, bmp.width, bmp.height)
-                thumbDstRect.set(tx, top + dp(2), tx + tileW, bottom - dp(2))
+                thumbDstRect.set(tx, top + dp(2), tx + tileW + 0.5f, bottom - dp(2))
                 canvas.drawBitmap(bmp, thumbSrcRect, thumbDstRect, thumbnailPaint)
             }
             canvas.restore()
@@ -1207,14 +1276,31 @@ class TimelineCanvasView @JvmOverloads constructor(
             val durLabel = formatClipDuration(clip.durationMs)
             val midX = (clipRect.left + clipRect.right) / 2f
             canvas.drawText(durLabel, midX, clipRect.bottom - dp(4), durationTextPaint)
+
+            val isTrimmingThis = gestureClipId == clip.id
+            val isTrimStart = isTrimmingThis && gesture == GestureKind.TRIM_START
+            val isTrimEnd = isTrimmingThis && gesture == GestureKind.TRIM_END
+
             // Left handle
-            handleRect.set(clipRect.left, top + dp(2), clipRect.left + handleWidthPx, bottom - dp(2))
-            handlePaint.color = Color.WHITE
+            val handleW = handleWidthPx.toFloat()
+            val handleHMargin = dp(2).toFloat()
+            handleRect.set(clipRect.left, top + handleHMargin, clipRect.left + handleW, bottom - handleHMargin)
+            handlePaint.color = if (isTrimStart) Color.parseColor("#FFCC00") else Color.WHITE
             canvas.drawRoundRect(handleRect, dp(4).toFloat(), dp(4).toFloat(), handlePaint)
+            val gripX = handleRect.centerX()
+            val gripYMid = handleRect.centerY()
+            val gripHalfH = dp(6).toFloat()
+            handleGripPaint.color = if (isTrimStart) Color.parseColor("#1C1C1E") else Color.parseColor("#8E8E93")
+            canvas.drawLine(gripX, gripYMid - gripHalfH, gripX, gripYMid + gripHalfH, handleGripPaint)
+
             // Right handle
             if (right <= clipDrawRight + 0.5f) {
-                handleRect.set(clipRect.right - handleWidthPx, top + dp(2), clipRect.right, bottom - dp(2))
+                handleRect.set(clipRect.right - handleW, top + handleHMargin, clipRect.right, bottom - handleHMargin)
+                handlePaint.color = if (isTrimEnd) Color.parseColor("#FFCC00") else Color.WHITE
                 canvas.drawRoundRect(handleRect, dp(4).toFloat(), dp(4).toFloat(), handlePaint)
+                val rGripX = handleRect.centerX()
+                val rGripYMid = handleRect.centerY()
+                canvas.drawLine(rGripX, rGripYMid - gripHalfH, rGripX, rGripYMid + gripHalfH, handleGripPaint)
             }
         }
     }
@@ -1533,9 +1619,31 @@ class TimelineCanvasView @JvmOverloads constructor(
             MotionEvent.ACTION_MOVE -> onMove(event)
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 if (gesture == GestureKind.SCROLL) {
-                    // No fling — timeline stops exactly where finger is released
-                    // for precise 1:1 scrubbing without inertial drift.
-                    scroller.abortAnimation()
+                    velocityTracker.computeCurrentVelocity(1000, 14000f)
+                    val vx = velocityTracker.xVelocity
+                    val minFling = ViewConfiguration.get(context).scaledMinimumFlingVelocity
+                    if (kotlin.math.abs(vx) >= minFling) {
+                        val totalMs = maxTimelineEndMs()
+                        val durationMultiplier = when {
+                            totalMs > 3_600_000L -> 2.4f  // > 1 hour
+                            totalMs > 600_000L -> 1.7f    // > 10 minutes
+                            else -> 1.0f
+                        }
+                        val finalVx = (vx * durationMultiplier).coerceIn(-18000f, 18000f)
+                        scroller.fling(
+                            scrollX.toInt(),
+                            scrollY.toInt(),
+                            -finalVx.toInt(),
+                            0,
+                            0,
+                            maxScrollX().toInt(),
+                            0,
+                            maxScrollY().toInt(),
+                        )
+                        postInvalidateOnAnimation()
+                    } else {
+                        scroller.abortAnimation()
+                    }
                 }
                 parent?.requestDisallowInterceptTouchEvent(false)
                 onUp(event)
@@ -1638,44 +1746,81 @@ class TimelineCanvasView @JvmOverloads constructor(
             return
         }
 
-        // Find clip under touch
+        // 1. Check trim handles of selected clip first (BEFORE ANY OTHER HIT TESTING!)
+        val selId = selectedClipId
+        if (selId != null) {
+            val selClip = tracks.asSequence().flatMap { it.clips.asSequence() }.firstOrNull { it.id == selId }
+            if (selClip != null && trackLocked[selClip.trackType] != true) {
+                val tIndex = tracks.indexOfFirst { it.type == selClip.trackType }
+                if (tIndex >= 0) {
+                    val cTop = clipTop(tIndex, selClip)
+                    val cBottom = clipBottom(tIndex, selClip)
+                    val vMargin = dp(14).toFloat()
+                    if (event.y in (cTop - vMargin)..(cBottom + vMargin)) {
+                        val left = msToX(selClip.startTimeMs)
+                        val right = msToX(selClip.startTimeMs + selClip.durationMs)
+                        val clipWidth = right - left
+                        // Generous 28dp radius around handles so human fingers easily grab them
+                        val handleRadius = if (clipWidth < dp(44)) {
+                            (clipWidth * 0.45f).coerceAtLeast(dp(14).toFloat())
+                        } else {
+                            dp(28).toFloat()
+                        }
+                        val distLeft = abs(event.x - left)
+                        val distRight = abs(event.x - right)
+
+                        if (distLeft <= handleRadius && distRight <= handleRadius) {
+                            gesture = if (distLeft <= distRight) GestureKind.TRIM_START else GestureKind.TRIM_END
+                            gestureClipId = selClip.id
+                            gestureClipSnapshot = selClip
+                            gestureStartScrollX = scrollX
+                            gestureStartScrollY = scrollY
+                            vibrate()
+                            invalidate()
+                            return
+                        } else if (distLeft <= handleRadius) {
+                            gesture = GestureKind.TRIM_START
+                            gestureClipId = selClip.id
+                            gestureClipSnapshot = selClip
+                            gestureStartScrollX = scrollX
+                            gestureStartScrollY = scrollY
+                            vibrate()
+                            invalidate()
+                            return
+                        } else if (distRight <= handleRadius) {
+                            gesture = GestureKind.TRIM_END
+                            gestureClipId = selClip.id
+                            gestureClipSnapshot = selClip
+                            gestureStartScrollX = scrollX
+                            gestureStartScrollY = scrollY
+                            vibrate()
+                            invalidate()
+                            return
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Check if touch down is on the Cover Card (strictly to the left of 0ms)
+        if (!coverCardRect.isEmpty && coverCardRect.contains(event.x, event.y) && event.x < msToX(0L)) {
+            isTouchDownOnCover = true
+            return
+        }
+
+        // 3. Find clip under touch
         val clip = findClipAt(event.x, event.y)
         if (clip == null) {
             // Touch in empty timeline space — intended for scrolling,
             // never open import sheet from empty track space!
             return
         }
-        val left = msToX(clip.startTimeMs)
-        val right = msToX(clip.startTimeMs + clip.durationMs)
 
         val isTrackLocked = trackLocked[clip.trackType] == true
         if (isTrackLocked) {
             touchDownClipId = clip.id
             touchDownClip = clip
             return
-        }
-
-        val handleTouchMargin = dp(8).toFloat()
-        val clipWidth = right - left
-        // Ensure trim handles on small clips do not completely cover the clip body and hijack scroll gestures.
-        // Cap handle reach to at most 28% of clip width so at least 44% in the middle is reserved for clip body.
-        val maxHandleReach = if (clipWidth > 0f) {
-            (handleWidthPx + handleTouchMargin).coerceAtMost(clipWidth * 0.28f)
-        } else 0f
-
-        if (clip.id == selectedClipId && maxHandleReach > 0f) {
-            if (event.x <= left + maxHandleReach) {
-                gesture = GestureKind.TRIM_START
-                gestureClipId = clip.id
-                gestureClipSnapshot = clip
-                return
-            }
-            if (event.x >= right - maxHandleReach) {
-                gesture = GestureKind.TRIM_END
-                gestureClipId = clip.id
-                gestureClipSnapshot = clip
-                return
-            }
         }
 
         // Touch is on clip body: default to scrolling unless long-press is held
@@ -1695,6 +1840,13 @@ class TimelineCanvasView @JvmOverloads constructor(
         gestureCurrentX = event.x
         gestureCurrentY = event.y
 
+        if (isTouchDownOnCover) {
+            val dist = kotlin.math.hypot(dx, dy)
+            if (dist > touchSlop) {
+                isTouchDownOnCover = false
+            }
+        }
+
         // Cancel pending import chip tracking if movement exceeds touch slop
         if (pendingImportChipTrack != null) {
             val chipMoveDist = kotlin.math.hypot(event.x - pendingImportChipDownX, event.y - pendingImportChipDownY)
@@ -1703,27 +1855,30 @@ class TimelineCanvasView @JvmOverloads constructor(
             }
         }
 
+        val isTrim = gesture == GestureKind.TRIM_START || gesture == GestureKind.TRIM_END
         if (!gestureStarted) {
             if (abs(dx) < touchSlop && abs(dy) < touchSlop) return
             gestureStarted = true
             longPressHandler.removeCallbacks(longPressRunnable) // cancel long press on move
-            val clip = touchDownClip
-            val shouldMoveDirectly = clip != null && (clipMoveArmed || clip.id == selectedClipId || clip.trackType == TrackType.AUDIO)
-            if (shouldMoveDirectly && clip != null && trackLocked[clip.trackType] != true) {
-                clipMoveArmed = true
-                gesture = GestureKind.MOVE
-                gestureClipId = clip.id
-                gestureClipSnapshot = clip
-                gestureStartScrollX = scrollX
-                gestureStartScrollY = scrollY
-                vibrate()
-                if (clip.id != selectedClipId) {
-                    selectedClipId = clip.id
-                    listener?.onClipSelected(clip.id)
+            if (!isTrim) {
+                val clip = touchDownClip
+                val shouldMoveDirectly = clip != null && (clipMoveArmed || clip.id == selectedClipId || clip.trackType == TrackType.AUDIO)
+                if (shouldMoveDirectly && clip != null && trackLocked[clip.trackType] != true) {
+                    clipMoveArmed = true
+                    gesture = GestureKind.MOVE
+                    gestureClipId = clip.id
+                    gestureClipSnapshot = clip
+                    gestureStartScrollX = scrollX
+                    gestureStartScrollY = scrollY
+                    vibrate()
+                    if (clip.id != selectedClipId) {
+                        selectedClipId = clip.id
+                        listener?.onClipSelected(clip.id)
+                    }
+                    invalidate()
+                } else {
+                    longPressHandler.removeCallbacks(clipMoveArmRunnable)
                 }
-                invalidate()
-            } else {
-                longPressHandler.removeCallbacks(clipMoveArmRunnable)
             }
             pendingImportChipTrack = null
             if (lockedScrollAxis == ScrollAxis.NONE) {
@@ -1819,19 +1974,19 @@ class TimelineCanvasView @JvmOverloads constructor(
             gestureClipId?.let { commitGesture(it, event.x - touchDownX, event.y - touchDownY) }
         } else if (!gestureStarted) {
             // Touch released without dragging (Tap)
-            if (coverCardRect.contains(event.x, event.y)) {
-                onCoverClicked?.invoke()
-                cleanupGestureState()
-                return
-            }
             val clip = touchDownClip
             if (clip != null) {
-                // Tapped on a clip -> select it
+                // Tapped on a clip -> select it (NEVER OPEN COVER!)
                 if (clip.id != selectedClipId) {
                     selectedClipId = clip.id
                     listener?.onClipSelected(clip.id)
                     invalidate()
                 }
+            } else if (isTouchDownOnCover && !coverCardRect.isEmpty && coverCardRect.contains(event.x, event.y) && event.x < msToX(0L)) {
+                // User intentionally tapped the Cover card
+                onCoverClicked?.invoke()
+                cleanupGestureState()
+                return
             } else if (event.y < rulerHeightPx) {
                 val ms = xToMs(event.x)
                 updatePlayheadWithHaptics(ms)
@@ -1853,6 +2008,7 @@ class TimelineCanvasView @JvmOverloads constructor(
     }
 
     private fun cleanupGestureState() {
+        isTouchDownOnCover = false
         snapTimeMs = null
         lockedScrollAxis = ScrollAxis.NONE
         gesture = GestureKind.NONE
