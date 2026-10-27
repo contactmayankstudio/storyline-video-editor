@@ -31,7 +31,7 @@
     <string name="nav_create">Create</string>
     <string name="nav_projects">Projects</string>
     <string name="nav_settings">Settings</string>
-    <string name="ai_status_title">AI Copilot</string>
+    <string name="ai_status_title">AI Ask</string>
     <string name="ai_status_summary_default">AI tracks playback, export, device health, and new hosted builds.</string>
     <string name="ai_status_update_checking">Hosted update: checking latest build…</string>
     <string name="ai_status_open_update_action">Open Update Site</string>

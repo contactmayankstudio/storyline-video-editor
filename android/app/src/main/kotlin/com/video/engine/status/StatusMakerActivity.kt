@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.SurfaceTexture
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.media.AudioAttributes
@@ -20,6 +21,8 @@ import android.util.Log
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
+import android.view.Surface
+import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -488,6 +491,9 @@ class StatusMakerActivity : ComponentActivity() {
         val livePreviewView = dialogView.findViewById<StatusTemplateLivePreviewView>(
             R.id.statusLivePreviewView
         )
+        val videoTextureView = dialogView.findViewById<TextureView>(
+            R.id.statusLivePreviewTextureView
+        )
         val titleTv = dialogView.findViewById<TextView>(R.id.statusPreviewTitle)
         val categoryBadge = dialogView.findViewById<TextView>(R.id.statusPreviewCategoryBadge)
         val durationChip = dialogView.findViewById<TextView>(R.id.statusPreviewDurationChip)
@@ -502,11 +508,40 @@ class StatusMakerActivity : ComponentActivity() {
         val ctaText = dialogView.findViewById<TextView>(R.id.statusPreviewCtaText)
         val testPhotoBtn = dialogView.findViewById<View>(R.id.statusPreviewTestPhotoBtn)
         val testPhotoText = dialogView.findViewById<TextView>(R.id.statusPreviewTestPhotoText)
+        val prevTemplateBtn = dialogView.findViewById<View>(R.id.statusPreviewPrevTemplateBtn)
         val nextTemplateBtn = dialogView.findViewById<View>(R.id.statusPreviewNextTemplateBtn)
         val editTextBtn = dialogView.findViewById<View>(R.id.statusPreviewEditTextBtn)
         val editTextTitle = dialogView.findViewById<TextView>(R.id.statusPreviewEditText)
         val changeMusicBtn = dialogView.findViewById<View>(R.id.statusPreviewChangeMusicBtn)
         val changeMusicText = dialogView.findViewById<TextView>(R.id.statusPreviewChangeMusicText)
+
+        var videoPreviewPlayer: MediaPlayer? = null
+
+        fun stopVideoPreviewPlayer() {
+            try {
+                videoPreviewPlayer?.stop()
+                videoPreviewPlayer?.release()
+            } catch (_: Exception) {}
+            videoPreviewPlayer = null
+        }
+
+        fun setupVideoPlayback(surface: Surface) {
+            if (activePhotoPath == null || !StatusMediaHelper.isVideoFile(activePhotoPath)) return
+            stopVideoPreviewPlayer()
+            try {
+                val vp = MediaPlayer().apply {
+                    setDataSource(activePhotoPath)
+                    setSurface(surface)
+                    isLooping = true
+                    setVolume(0f, 0f) // Mute video so template music plays
+                    prepare()
+                    start()
+                }
+                videoPreviewPlayer = vp
+            } catch (e: Exception) {
+                Log.w("StatusMakerActivity", "Video preview playback failed", e)
+            }
+        }
 
         fun bindTemplateState(tmpl: StatusTemplate) {
             currentActiveTemplate = tmpl
@@ -515,11 +550,11 @@ class StatusMakerActivity : ComponentActivity() {
             durationChip?.text = "⏱️ ${tmpl.durationMs / 1000}s"
             val isVideo = activePhotoPath != null && StatusMediaHelper.isVideoFile(activePhotoPath)
             photosChip?.text = if (activePhotoPath != null) {
-                if (isVideo) "🎬 Video Loaded" else "📸 Photo Loaded"
+                if (isVideo) "🎬 Video Motion • 60fps" else "📸 Photo Loaded"
             } else "⚡ 1-Click Status"
             bpmChip?.text = "🎵 ${tmpl.bpm} BPM"
             descTv?.text = if (activePhotoPath != null) {
-                if (isVideo) "⚡ Live animated preview of your video with ${tmpl.title}! Tap Export to save."
+                if (isVideo) "⚡ Continuous motion video with ${tmpl.title}! Tap Export to save."
                 else "⚡ Live animated preview of your photo with ${tmpl.title}! Tap Export to save."
             } else tmpl.description
             ctaText?.text = if (activePhotoPath != null) "⚡ 1-CLICK EXPORT TO GALLERY" else "⚡ CREATE STATUS VIDEO"
@@ -577,10 +612,44 @@ class StatusMakerActivity : ComponentActivity() {
                 try { previewMediaPlayer?.setVolume(0f, 0f) } catch (_: Exception) {}
             }
 
+            livePreviewView?.hasActiveLiveVideo = isVideo
+            val vtv = videoTextureView
+            if (vtv != null) {
+                if (isVideo) {
+                    vtv.visibility = View.VISIBLE
+                    val st = vtv.surfaceTexture
+                    if (vtv.isAvailable && st != null) {
+                        setupVideoPlayback(Surface(st))
+                    } else {
+                        vtv.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                            override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, w: Int, h: Int) {
+                                setupVideoPlayback(Surface(surfaceTexture))
+                            }
+                            override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, w: Int, h: Int) {}
+                            override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+                                stopVideoPreviewPlayer()
+                                return true
+                            }
+                            override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) {}
+                        }
+                    }
+                } else {
+                    vtv.visibility = View.GONE
+                    stopVideoPreviewPlayer()
+                }
+            }
+
             livePreviewView?.bindTemplate(tmpl, previewMediaPlayer)
             livePreviewView?.customTexts = activeCustomTexts
             livePreviewView?.customStatusText = activeCustomText
             livePreviewView?.setCustomPhoto(activePhotoPath)
+            livePreviewView?.onPlaybackStateChanged = { playing ->
+                if (playing) {
+                    try { videoPreviewPlayer?.start() } catch (_: Exception) {}
+                } else {
+                    try { videoPreviewPlayer?.pause() } catch (_: Exception) {}
+                }
+            }
             livePreviewView?.onTextClickListener = {
                 showProTextAndNameEditorDialog(currentActiveTemplate) {
                     livePreviewView?.customTexts = activeCustomTexts
@@ -660,6 +729,28 @@ class StatusMakerActivity : ComponentActivity() {
             }
         }
 
+        // Previous Template switcher on the fly!
+        prevTemplateBtn?.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            val all = StatusTemplateRepository.allTemplates
+            val currentIdx = all.indexOfFirst { it.id == currentActiveTemplate.id }
+            val prevIdx = if (currentIdx > 0) currentIdx - 1 else all.size - 1
+            val prevTmpl = all[prevIdx]
+            currentProjectFile = null
+            bindTemplateState(prevTmpl)
+            if (activePhotoPaths.isNotEmpty()) {
+                Thread {
+                    currentProjectFile = StatusProjectBuilder.buildProjectFile(
+                        this@StatusMakerActivity,
+                        prevTmpl,
+                        activePhotoPaths,
+                        activeCustomAudioPath,
+                        activeCustomText
+                    )
+                }.start()
+            }
+        }
+
         // Next Template switcher on the fly!
         nextTemplateBtn?.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
@@ -690,6 +781,7 @@ class StatusMakerActivity : ComponentActivity() {
         val dialog = AlertDialog.Builder(this)
             .setView(dialogView)
             .setOnDismissListener {
+                stopVideoPreviewPlayer()
                 livePreviewView?.release()
                 stopPreviewAudio()
                 activePreviewDialog = null

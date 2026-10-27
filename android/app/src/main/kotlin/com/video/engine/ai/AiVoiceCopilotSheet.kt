@@ -86,9 +86,11 @@ class AiVoiceCopilotSheet(
     private var isListening: Boolean = false
 
     private val suggestionChips = listOf(
+        Pair("💬 Kuch Bhi Poocho", "kaise ho bhai aur kya chal raha hai"),
+        Pair("💡 Ray & Advice", "video viral karne ke liye meri madad karo"),
+        Pair("📜 Shayari Studio", "mujhe attitude shayari likh ke do"),
         Pair("💡 Viral Hook Ideas", "video ke liye viral hooks batao"),
         Pair("🌍 Duniya Me Kya Chal Raha", "duniya me kya chal raha hai"),
-        Pair("📜 Shayari Likh Do", "mujhe sayri likh ke do"),
         Pair("👑 Pure App Ka Master", "pure app ka master"),
         Pair("🎵 1-Tap Auto Beat Cut", "auto beat cut karo"),
         Pair("📸 Fun Camera", "camera kholo"),
@@ -354,7 +356,7 @@ class AiVoiceCopilotSheet(
         header.addView(aiIcon)
 
         val titleView = TextView(activity).apply {
-            text = "⚡ AI Copilot"
+            text = "⚡ AI Ask"
             textSize = 15f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(COLOR_TEXT_PRIMARY)
@@ -871,7 +873,7 @@ class AiVoiceCopilotSheet(
 
         // Chat Input Field
         chatInput = EditText(activity).apply {
-            hint = "Bolo ya type karo... kya karna hai?"
+            hint = "Poocho kuch bhi... (Ask anything, ideas, edit)"
             setHintTextColor(Color.parseColor("#64748B"))
             setTextColor(COLOR_TEXT_PRIMARY)
             textSize = 13.5f
@@ -1019,7 +1021,7 @@ class AiVoiceCopilotSheet(
         } else {
             chat.visibility = View.VISIBLE
             cli.visibility = View.GONE
-            title.text = "⚡ AI Copilot"
+            title.text = "⚡ AI Ask"
             btn.text = ">_ CLI"
             btn.visibility = View.GONE
             locale.visibility = View.GONE
@@ -1394,7 +1396,8 @@ class AiVoiceCopilotSheet(
 
         // Special Handler C: Pure App Ka Master (Full App Control & Navigation)
         val isAppMaster = (parsed.intent is VideoEditIntent.Conversational &&
-            (parsed.intent as VideoEditIntent.Conversational).reply.contains("Master AI Copilot Hoon"))
+            ((parsed.intent as VideoEditIntent.Conversational).reply.contains("Master AI Ask Hoon") ||
+             (parsed.intent as VideoEditIntent.Conversational).reply.contains("Master AI Copilot Hoon")))
         if (isAppMaster) {
             val reply = (parsed.intent as VideoEditIntent.Conversational).reply
             cliPanel?.let { cli ->
@@ -1414,116 +1417,41 @@ class AiVoiceCopilotSheet(
             return
         }
 
-        // 3. Online AI for World Knowledge, Custom Shayari & Conversational Chat
-        if (OnlineGeminiClient.hasApiKey(activity)) {
-            val thinkingBubble = renderAssistantBubble("✨ Storyline AI soch raha hai... ⏳", isSuccess = true)
-            chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
-
-            val history = AiChatHistoryStore.getHistory(activity).takeLast(4).map {
-                Pair(it.sender, it.text)
-            }
-
-            OnlineGeminiClient.query(
-                context = activity,
-                prompt = query,
-                recentHistory = history,
-                onSuccess = { geminiAnswer ->
-                    thinkingBubble.text = geminiAnswer
-                    AiChatHistoryStore.addMessage(
-                        activity,
-                        AiChatHistoryStore.ChatMessage("assistant", geminiAnswer, isSuccess = true),
-                    )
-                    cliPanel?.appendLog("[AI]", geminiAnswer)
-                    cliPanel?.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
-                    AiTtsVoiceoverManager.speak(activity, geminiAnswer)
-
-                    val isShayariPrompt = lower.contains("sayri") || lower.contains("shayari") || lower.contains("poetry") || lower.contains("kavita")
-                    if (isShayariPrompt) {
-                        renderActionPillsUnderBubble(thinkingBubble, listOf(
-                            Pair("🔤 Add to Video") { dispatcher.addShayariTextOverlay(geminiAnswer) },
-                            Pair("🌟 Status Maker") { dispatcher.openStatusMaker() },
-                            Pair("🗣️ Bolkar Suno") { AiTtsVoiceoverManager.speak(activity, geminiAnswer) },
-                            Pair("📋 Copy Text") { copyToClipboard(geminiAnswer) },
-                        ))
-                    } else if (lower.contains("trend") || lower.contains("duniya me")) {
-                        renderActionPillsUnderBubble(thinkingBubble, listOf(
-                            Pair("🎵 Auto Beat Cut") { dispatcher.autoBeatCut() },
-                            Pair("🚀 Full AI Edit") { handleUserCommand("full ai edit") },
-                            Pair("🌟 Status Maker") { dispatcher.openStatusMaker() },
-                        ))
-                    }
-                    chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
-                },
-                onFallback = { offlineFallback ->
-                    thinkingBubble.text = offlineFallback
-                    AiTtsVoiceoverManager.speak(activity, offlineFallback)
-                    chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
-                },
-            )
-            return
-        }
-
-        // Offline Conversational Engine fallback
-        val isShayari = (parsed.intent is VideoEditIntent.Conversational &&
-            (parsed.intent as VideoEditIntent.Conversational).executeIntent is VideoEditIntent.AddShayariOverlay)
-        if (isShayari) {
-            val conv = parsed.intent as VideoEditIntent.Conversational
-            val shayari = (conv.executeIntent as VideoEditIntent.AddShayariOverlay).shayariText
-            cliPanel?.let { cli ->
-                cli.appendLog("[AI]", conv.reply)
-                cli.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
-            }
-            val pills = listOf<Pair<String, () -> Unit>>(
-                Pair("🔤 Add to Video") { dispatcher.addShayariTextOverlay(shayari) },
-                Pair("🌟 Status Maker") { dispatcher.openStatusMaker() },
-                Pair("🗣️ Bolkar Suno") { AiTtsVoiceoverManager.speak(activity, shayari) },
-                Pair("📋 Copy Text") { copyToClipboard(shayari) },
-            )
-            addAssistantBubble(conv.reply, isSuccess = true, actionPills = pills)
-            AiTtsVoiceoverManager.speak(activity, shayari)
-            chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
-            return
-        }
-
-        val isWorldTrends = (parsed.intent is VideoEditIntent.Conversational &&
-            (parsed.intent as VideoEditIntent.Conversational).reply.contains("Duniya Me Abhi Ye"))
-        if (isWorldTrends) {
-            val reply = (parsed.intent as VideoEditIntent.Conversational).reply
-            cliPanel?.let { cli ->
-                cli.appendLog("[AI]", reply)
-                cli.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
-            }
-            val pills = listOf<Pair<String, () -> Unit>>(
-                Pair("🎵 Auto Beat Cut") { dispatcher.autoBeatCut() },
-                Pair("🚀 Full AI Edit") { handleUserCommand("full ai edit") },
-                Pair("🌟 Status Maker") { dispatcher.openStatusMaker() },
-            )
-            addAssistantBubble(reply, isSuccess = true, actionPills = pills)
-            AiTtsVoiceoverManager.speak(activity, reply)
-            chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
-            return
-        }
-
-        val fallbackReply = if (parsed.intent is VideoEditIntent.Conversational) {
-            (parsed.intent as VideoEditIntent.Conversational).reply
-        } else {
-            SmartConversationalEngine.generateHelpfulFallback(query)
-        }
-
-        cliPanel?.let { cli ->
-            cli.appendLog("[AI]", fallbackReply)
-            cli.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
-        }
-
-        val pills = listOf<Pair<String, () -> Unit>>(
-            Pair("✂️ Remove Silence") { handleUserCommand("remove silence") },
-            Pair("🎵 Auto Beat Cut") { dispatcher.autoBeatCut() },
-            Pair("🚀 Full AI Edit") { handleUserCommand("full ai edit") },
-        )
-        addAssistantBubble(fallbackReply, isSuccess = true, actionPills = pills)
-        AiTtsVoiceoverManager.speak(activity, fallbackReply)
+        // 3. Conversational AI Ask (Ask anything, advice, ideas, shayari, Q&A)
+        val thinkingBubble = renderAssistantBubble("✨ AI Ask soch raha hai... ⏳", isSuccess = true)
         chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
-        return
+
+        MultiProviderAiRouter.query(
+            prompt = query,
+            context = activity,
+            onResponse = { aiAnswer ->
+                thinkingBubble.text = aiAnswer
+                AiChatHistoryStore.addMessage(
+                    activity,
+                    AiChatHistoryStore.ChatMessage("assistant", aiAnswer, isSuccess = true),
+                )
+                cliPanel?.appendLog("[AI]", aiAnswer)
+                cliPanel?.setStatus(AiTerminalConsolePanel.STATUS_READY, "#3FB950")
+                AiTtsVoiceoverManager.speak(activity, aiAnswer)
+
+                val isShayariPrompt = lower.contains("sayri") || lower.contains("shayari") || lower.contains("poetry") || lower.contains("kavita")
+                if (isShayariPrompt) {
+                    renderActionPillsUnderBubble(thinkingBubble, listOf(
+                        Pair("🔤 Add to Video") { dispatcher.addShayariTextOverlay(aiAnswer) },
+                        Pair("🌟 Status Maker") { dispatcher.openStatusMaker() },
+                        Pair("🗣️ Bolkar Suno") { AiTtsVoiceoverManager.speak(activity, aiAnswer) },
+                        Pair("📋 Copy Text") { copyToClipboard(aiAnswer) },
+                    ))
+                } else if (lower.contains("trend") || lower.contains("duniya me") || lower.contains("viral") || lower.contains("ray") || lower.contains("advice")) {
+                    renderActionPillsUnderBubble(thinkingBubble, listOf(
+                        Pair("🎵 Auto Beat Cut") { dispatcher.autoBeatCut() },
+                        Pair("🚀 Full AI Edit") { handleUserCommand("full ai edit") },
+                        Pair("🌟 Status Maker") { dispatcher.openStatusMaker() },
+                    ))
+                }
+                chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+            }
+        )
     }
 
     private fun handleAutoPilotAndExportExecution(command: ParsedCommand) {
@@ -1849,7 +1777,7 @@ class AiVoiceCopilotSheet(
         chatContainer.removeAllViews()
         val history = AiChatHistoryStore.getHistory(activity)
         if (history.isEmpty()) {
-            val welcomeText = "👋 Hey! Main tumhara pro AI video editor hoon. Bolo ya chat karo — puri timeline edit aur export turant ho jayegi! 🎬✨"
+            val welcomeText = "👋 Hey! Main Storyline ka AI Ask hoon. Poocho kuch bhi — creator advice, viral tips, shayari, ideas ya timeline edits! 🎬💬"
             renderAssistantBubble(
                 welcomeText,
                 isSuccess = true,

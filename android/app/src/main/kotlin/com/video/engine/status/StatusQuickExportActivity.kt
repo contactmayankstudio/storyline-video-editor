@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.SurfaceTexture
 import android.graphics.drawable.GradientDrawable
 import android.media.AudioAttributes
 import android.media.MediaPlayer
@@ -17,6 +18,8 @@ import android.provider.MediaStore
 import android.util.Log
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
+import android.view.Surface
+import android.view.TextureView
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -99,6 +102,7 @@ class StatusQuickExportActivity : ComponentActivity() {
     private var previewView: VideoPreviewView? = null
     private var livePreviewView: StatusTemplateLivePreviewView? = null
     private var previewMediaPlayer: MediaPlayer? = null
+    private var videoTexturePlayer: MediaPlayer? = null
     private var isPlaying = false
     private var isExporting = false
     private var isProjectLoaded = false
@@ -358,6 +362,57 @@ class StatusQuickExportActivity : ComponentActivity() {
         if (!customText.isNullOrBlank()) {
             lpv.customStatusText = customText
         }
+        val isVideo = photoPaths.isNotEmpty() && StatusMediaHelper.isVideoFile(photoPaths[0])
+        if (isVideo) {
+            val textureView = TextureView(this).apply {
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            }
+            previewContainer.addView(textureView, 0)
+            lpv.hasActiveLiveVideo = true
+
+            fun startVideo(surface: Surface) {
+                try {
+                    videoTexturePlayer?.release()
+                    videoTexturePlayer = MediaPlayer().apply {
+                        setDataSource(photoPaths[0])
+                        setSurface(surface)
+                        isLooping = true
+                        setVolume(0f, 0f)
+                        prepare()
+                        start()
+                    }
+                } catch (_: Exception) {}
+            }
+
+            val st = textureView.surfaceTexture
+            if (textureView.isAvailable && st != null) {
+                startVideo(Surface(st))
+            } else {
+                textureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                    override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, w: Int, h: Int) {
+                        startVideo(Surface(surfaceTexture))
+                    }
+                    override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, w: Int, h: Int) {}
+                    override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+                        videoTexturePlayer?.release()
+                        videoTexturePlayer = null
+                        return true
+                    }
+                    override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) {}
+                }
+            }
+            lpv.onPlaybackStateChanged = { playing ->
+                if (playing) {
+                    try { videoTexturePlayer?.start() } catch (_: Exception) {}
+                } else {
+                    try { videoTexturePlayer?.pause() } catch (_: Exception) {}
+                }
+            }
+        }
+
         currentTemplate?.let { tm ->
             lpv.bindTemplate(tm, previewMediaPlayer)
             if (photoPaths.isNotEmpty()) {
@@ -947,6 +1002,11 @@ class StatusQuickExportActivity : ComponentActivity() {
     override fun onDestroy() {
         progressCheckRunnable?.let { handler.removeCallbacks(it) }
         stopAudioPlayback()
+        try {
+            videoTexturePlayer?.stop()
+            videoTexturePlayer?.release()
+        } catch (_: Exception) {}
+        videoTexturePlayer = null
         previewView?.stopPlayback()
         if (!isExporting) {
             try { stopService(Intent(this, ExportService::class.java)) } catch (_: Exception) {}

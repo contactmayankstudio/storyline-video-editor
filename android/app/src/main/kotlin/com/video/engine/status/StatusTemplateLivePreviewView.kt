@@ -14,6 +14,7 @@ import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
+import android.os.Build
 import android.os.SystemClock
 import android.util.AttributeSet
 import android.util.TypedValue
@@ -76,6 +77,18 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
             field = value.coerceIn(0.55f, 2.8f)
             postInvalidateOnAnimation()
         }
+
+    /**
+     * When true, live video is actively playing in real-time beneath this view via a hardware TextureView.
+     * In this mode, renderFrameAt skips solid slide bitmap rendering so real motion video shines through!
+     */
+    var hasActiveLiveVideo: Boolean = false
+        set(value) {
+            field = value
+            postInvalidateOnAnimation()
+        }
+
+    var onPlaybackStateChanged: ((Boolean) -> Unit)? = null
 
     private var isDraggingText = false
     private var isTouchInteractingWithText = false
@@ -619,18 +632,25 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         }
     }
 
-    fun renderFrameAt(canvas: Canvas, w: Float, h: Float, elapsedMs: Long, isExport: Boolean = false) {
+    fun renderFrameAt(
+        canvas: Canvas,
+        w: Float,
+        h: Float,
+        elapsedMs: Long,
+        isExport: Boolean = false,
+        motionFrameBitmap: Bitmap? = null
+    ) {
         val tm = template ?: return
         val totalDurationMs = tm.durationMs.coerceAtLeast(6000L)
-        val numSlides = if (customPhotoBitmap != null) 4 else sampleSlides.size.coerceAtLeast(1)
+        val numSlides = if (customPhotoBitmap != null || motionFrameBitmap != null) 4 else sampleSlides.size.coerceAtLeast(1)
         val slideDurationMs = totalDurationMs / numSlides
         val currentSlideIndex = ((elapsedMs / slideDurationMs) % numSlides).toInt()
         val slideProgress = (elapsedMs % slideDurationMs) / slideDurationMs.toFloat()
 
         // 1. Draw Active Slide with Ken Burns Dynamic Zoom
-        val currentBmp = customPhotoBitmap ?: sampleSlides[currentSlideIndex % sampleSlides.size]
+        val currentBmp = motionFrameBitmap ?: (customPhotoBitmap ?: sampleSlides[currentSlideIndex % sampleSlides.size])
         val nextSlideIndex = (currentSlideIndex + 1) % numSlides
-        val nextBmp = customPhotoBitmap ?: sampleSlides[nextSlideIndex % sampleSlides.size]
+        val nextBmp = motionFrameBitmap ?: (customPhotoBitmap ?: sampleSlides[nextSlideIndex % sampleSlides.size])
 
         if (currentBmp.isRecycled || nextBmp.isRecycled) {
             ensureSampleSlides()
@@ -782,90 +802,95 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
             canvas.rotate(rollDeg, w / 2f, h / 2f)
         }
 
-        val photoRatio = currentBmp.width.toFloat() / currentBmp.height.toFloat()
-        val isNonPortrait = customPhotoBitmap != null && Math.abs(photoRatio - 9f / 16f) > 0.04f
-
-        if (isNonPortrait) {
-            // 1. Ambient blurred / cover background to fill 9:16 canvas seamlessly
-            val bgScale = Math.max(w / currentBmp.width.toFloat(), h / currentBmp.height.toFloat())
-            val bgW = currentBmp.width.toFloat() * bgScale
-            val bgH = currentBmp.height.toFloat() * bgScale
-            matrix.reset()
-            matrix.postScale(bgScale, bgScale)
-            matrix.postTranslate((w - bgW) / 2f, (h - bgH) / 2f)
-            bgPaint.alpha = 135
-            canvas.drawBitmap(currentBmp, matrix, bgPaint)
-
-            // Scrim
-            canvas.drawRect(0f, 0f, w, h, dimPaint)
-
-            // 2. Full original photo centered with fitCenter so NOTHING is cut off!
-            val fgScale = Math.min(w / currentBmp.width.toFloat(), h / currentBmp.height.toFloat()) * zoom
-            val fgW = currentBmp.width.toFloat() * fgScale
-            val fgH = currentBmp.height.toFloat() * fgScale
-            matrix.reset()
-            matrix.postScale(fgScale, fgScale)
-            matrix.postTranslate((w - fgW) / 2f, (h - fgH) / 2f)
-            bgPaint.alpha = 255
-            canvas.drawBitmap(currentBmp, matrix, bgPaint)
+        if (hasActiveLiveVideo && !isExport) {
+            // Live continuous motion video is actively rendering underneath via hardware TextureView!
+            // Skip solid photo rendering so the moving video shines through at 60 FPS!
         } else {
-            val baseScale = Math.max(w / currentBmp.width.toFloat(), h / currentBmp.height.toFloat()) * zoom
-            val scaledW = currentBmp.width.toFloat() * baseScale
-            val scaledH = currentBmp.height.toFloat() * baseScale
+            val photoRatio = currentBmp.width.toFloat() / currentBmp.height.toFloat()
+            val isNonPortrait = (customPhotoBitmap != null || motionFrameBitmap != null) && Math.abs(photoRatio - 9f / 16f) > 0.04f
 
-            matrix.reset()
-            matrix.postScale(baseScale, baseScale)
-            matrix.postTranslate((w - scaledW) / 2f, (h - scaledH) / 2f)
+            if (isNonPortrait) {
+                // 1. Ambient blurred / cover background to fill 9:16 canvas seamlessly
+                val bgScale = Math.max(w / currentBmp.width.toFloat(), h / currentBmp.height.toFloat())
+                val bgW = currentBmp.width.toFloat() * bgScale
+                val bgH = currentBmp.height.toFloat() * bgScale
+                matrix.reset()
+                matrix.postScale(bgScale, bgScale)
+                matrix.postTranslate((w - bgW) / 2f, (h - bgH) / 2f)
+                bgPaint.alpha = 135
+                canvas.drawBitmap(currentBmp, matrix, bgPaint)
 
-            // Draw primary photo
-            bgPaint.alpha = 255
-            canvas.drawBitmap(currentBmp, matrix, bgPaint)
-        }
+                // Scrim
+                canvas.drawRect(0f, 0f, w, h, dimPaint)
 
-        // 2. High-Energy Cinematic Transitions (3D Cube Flip, Film Strip Roll, Glitch Slice, Zoom Burst, Spotify Slide, Heart Iris, Whip Pan, Punch Zoom, Flash Cut, Push Slide, Crossfade)
-        if (slideProgress > 0.70f) {
-            val rawProgress = (slideProgress - 0.70f) / 0.30f
-            val t = (rawProgress * rawProgress * (3f - 2f * rawProgress)).coerceIn(0f, 1f)
-            val designTheme = tm.getDesignTheme()
+                // 2. Full original photo centered with fitCenter so NOTHING is cut off!
+                val fgScale = Math.min(w / currentBmp.width.toFloat(), h / currentBmp.height.toFloat()) * zoom
+                val fgW = currentBmp.width.toFloat() * fgScale
+                val fgH = currentBmp.height.toFloat() * fgScale
+                matrix.reset()
+                matrix.postScale(fgScale, fgScale)
+                matrix.postTranslate((w - fgW) / 2f, (h - fgH) / 2f)
+                bgPaint.alpha = 255
+                canvas.drawBitmap(currentBmp, matrix, bgPaint)
+            } else {
+                val baseScale = Math.max(w / currentBmp.width.toFloat(), h / currentBmp.height.toFloat()) * zoom
+                val scaledW = currentBmp.width.toFloat() * baseScale
+                val scaledH = currentBmp.height.toFloat() * baseScale
 
-            val effectiveTransition = when {
-                transitionType in listOf("cube_3d_flip", "3d_flip", "cube") -> "cube_3d_flip"
-                transitionType in listOf("film_strip_roll", "film_roll") -> "film_strip_roll"
-                transitionType in listOf("neon_glitch_slice") -> "neon_glitch_slice"
-                transitionType in listOf("zoom_burst_spin") -> "zoom_burst_spin"
-                transitionType in listOf("spotify_card_slide") -> "spotify_card_slide"
-                transitionType in listOf("whip_right", "whip_left", "whip", "whip_pan") -> transitionType
-                transitionType in listOf("zoom_in", "zoom", "punch_zoom") -> "zoom_in"
-                transitionType in listOf("glitch", "rgb_glitch_split") -> "glitch"
-                transitionType in listOf("flash", "light_leak") -> "flash"
-                transitionType in listOf("slide", "slide_up", "push_up") -> "slide"
-                transitionType in listOf("heart_iris", "heart_burst_wipe", "circle_wipe", "iris") -> "heart_burst_wipe"
-                // Design theme signature transitions
-                designTheme == StatusDesignTheme.VINTAGE_POLAROID_FILM -> if (currentSlideIndex % 2 == 0) "film_strip_roll" else "flash"
-                designTheme == StatusDesignTheme.ROMANTIC_LOVE_LOCKET -> if (currentSlideIndex % 2 == 0) "heart_burst_wipe" else "zoom_in"
-                designTheme == StatusDesignTheme.ROYAL_ATTITUDE_KING -> if (currentSlideIndex % 2 == 0) "cube_3d_flip" else "glitch"
-                designTheme == StatusDesignTheme.SPOTIFY_MUSIC_PLAYER -> if (currentSlideIndex % 2 == 0) "spotify_card_slide" else "whip_right"
-                designTheme == StatusDesignTheme.CYBERPUNK_GLITCH_HUD -> if (currentSlideIndex % 2 == 0) "neon_glitch_slice" else "glitch"
-                designTheme == StatusDesignTheme.BIRTHDAY_CONFETTI -> if (currentSlideIndex % 2 == 0) "zoom_burst_spin" else "heart_burst_wipe"
-                designTheme == StatusDesignTheme.DIVINE_BHAKTI_AURA -> "crossfade"
-                motionStyle == TemplateMotionStyle.VELOCITY_RAMP -> if (currentSlideIndex % 2 == 0) "whip_right" else "whip_left"
-                motionStyle == TemplateMotionStyle.THREE_D_ZOOM -> "zoom_in"
-                motionStyle == TemplateMotionStyle.PHONK_ATTITUDE || motionStyle == TemplateMotionStyle.NEON_CYBERPUNK -> "glitch"
-                motionStyle == TemplateMotionStyle.FLASH_BEAT_CUTS -> "flash"
-                motionStyle == TemplateMotionStyle.ROMANTIC_LOVE -> "heart_burst_wipe"
-                else -> "crossfade"
+                matrix.reset()
+                matrix.postScale(baseScale, baseScale)
+                matrix.postTranslate((w - scaledW) / 2f, (h - scaledH) / 2f)
+
+                // Draw primary photo
+                bgPaint.alpha = 255
+                canvas.drawBitmap(currentBmp, matrix, bgPaint)
             }
 
-            renderCinematicTransition(
-                canvas = canvas,
-                w = w,
-                h = h,
-                transition = effectiveTransition,
-                t = t,
-                currentBmp = currentBmp,
-                nextBmp = nextBmp,
-                elapsedMs = elapsedMs
-            )
+            // 2. High-Energy Cinematic Transitions (3D Cube Flip, Film Strip Roll, Glitch Slice, Zoom Burst, Spotify Slide, Heart Iris, Whip Pan, Punch Zoom, Flash Cut, Push Slide, Crossfade)
+            if (motionFrameBitmap == null && slideProgress > 0.70f) {
+                val rawProgress = (slideProgress - 0.70f) / 0.30f
+                val t = (rawProgress * rawProgress * (3f - 2f * rawProgress)).coerceIn(0f, 1f)
+                val designTheme = tm.getDesignTheme()
+
+                val effectiveTransition = when {
+                    transitionType in listOf("cube_3d_flip", "3d_flip", "cube") -> "cube_3d_flip"
+                    transitionType in listOf("film_strip_roll", "film_roll") -> "film_strip_roll"
+                    transitionType in listOf("neon_glitch_slice") -> "neon_glitch_slice"
+                    transitionType in listOf("zoom_burst_spin") -> "zoom_burst_spin"
+                    transitionType in listOf("spotify_card_slide") -> "spotify_card_slide"
+                    transitionType in listOf("whip_right", "whip_left", "whip", "whip_pan") -> transitionType
+                    transitionType in listOf("zoom_in", "zoom", "punch_zoom") -> "zoom_in"
+                    transitionType in listOf("glitch", "rgb_glitch_split") -> "glitch"
+                    transitionType in listOf("flash", "light_leak") -> "flash"
+                    transitionType in listOf("slide", "slide_up", "push_up") -> "slide"
+                    transitionType in listOf("heart_iris", "heart_burst_wipe", "circle_wipe", "iris") -> "heart_burst_wipe"
+                    // Design theme signature transitions
+                    designTheme == StatusDesignTheme.VINTAGE_POLAROID_FILM -> if (currentSlideIndex % 2 == 0) "film_strip_roll" else "flash"
+                    designTheme == StatusDesignTheme.ROMANTIC_LOVE_LOCKET -> if (currentSlideIndex % 2 == 0) "heart_burst_wipe" else "zoom_in"
+                    designTheme == StatusDesignTheme.ROYAL_ATTITUDE_KING -> if (currentSlideIndex % 2 == 0) "cube_3d_flip" else "glitch"
+                    designTheme == StatusDesignTheme.SPOTIFY_MUSIC_PLAYER -> if (currentSlideIndex % 2 == 0) "spotify_card_slide" else "whip_right"
+                    designTheme == StatusDesignTheme.CYBERPUNK_GLITCH_HUD -> if (currentSlideIndex % 2 == 0) "neon_glitch_slice" else "glitch"
+                    designTheme == StatusDesignTheme.BIRTHDAY_CONFETTI -> if (currentSlideIndex % 2 == 0) "zoom_burst_spin" else "heart_burst_wipe"
+                    designTheme == StatusDesignTheme.DIVINE_BHAKTI_AURA -> "crossfade"
+                    motionStyle == TemplateMotionStyle.VELOCITY_RAMP -> if (currentSlideIndex % 2 == 0) "whip_right" else "whip_left"
+                    motionStyle == TemplateMotionStyle.THREE_D_ZOOM -> "zoom_in"
+                    motionStyle == TemplateMotionStyle.PHONK_ATTITUDE || motionStyle == TemplateMotionStyle.NEON_CYBERPUNK -> "glitch"
+                    motionStyle == TemplateMotionStyle.FLASH_BEAT_CUTS -> "flash"
+                    motionStyle == TemplateMotionStyle.ROMANTIC_LOVE -> "heart_burst_wipe"
+                    else -> "crossfade"
+                }
+
+                renderCinematicTransition(
+                    canvas = canvas,
+                    w = w,
+                    h = h,
+                    transition = effectiveTransition,
+                    t = t,
+                    currentBmp = currentBmp,
+                    nextBmp = nextBmp,
+                    elapsedMs = elapsedMs
+                )
+            }
         }
 
         // 3. RGB Glitch Chromatic Aberration on Beat Drops (enhanced for PHONK & NEON)
@@ -989,33 +1014,45 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
             }.getOrNull()
         } else null
 
+        val videoDurationUs = if (videoRetriever != null) {
+            val durStr = runCatching { videoRetriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION) }.getOrNull()
+            (durStr?.toLongOrNull() ?: totalDurationMs) * 1000L
+        } else totalDurationMs * 1000L
+
         return try {
             for (frame in 0 until totalFrames) {
                 val timeMs = (frame * 1000L) / fps
                 val ptsNano = (frame * 1_000_000_000L) / fps
 
-                if (videoRetriever != null) {
-                    val rawFrame = videoRetriever.getFrameAtTime(timeMs * 1000L, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                    if (rawFrame != null) {
-                        val fittedFrame = StatusMediaHelper.smartCropToPortrait916(rawFrame)
-                        val prevBmp = customPhotoBitmap
-                        customPhotoBitmap = fittedFrame
-                        renderFrameAt(frameCanvas, width.toFloat(), height.toFloat(), timeMs, isExport = true)
-                        if (fittedFrame != rawFrame && !fittedFrame.isRecycled) {
-                            fittedFrame.recycle()
-                        }
-                        if (rawFrame != prevBmp && !rawFrame.isRecycled) {
-                            rawFrame.recycle()
-                        }
-                        customPhotoBitmap = prevBmp
+                var motionFrame: Bitmap? = null
+                if (videoRetriever != null && videoDurationUs > 0) {
+                    val frameTimeUs = (timeMs * 1000L) % videoDurationUs
+                    val rawFrame = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                        runCatching {
+                            videoRetriever.getScaledFrameAtTime(
+                                frameTimeUs,
+                                android.media.MediaMetadataRetriever.OPTION_CLOSEST,
+                                width,
+                                height
+                            )
+                        }.getOrNull() ?: videoRetriever.getFrameAtTime(frameTimeUs, android.media.MediaMetadataRetriever.OPTION_CLOSEST)
                     } else {
-                        renderFrameAt(frameCanvas, width.toFloat(), height.toFloat(), timeMs, isExport = true)
+                        videoRetriever.getFrameAtTime(frameTimeUs, android.media.MediaMetadataRetriever.OPTION_CLOSEST)
                     }
-                } else {
-                    renderFrameAt(frameCanvas, width.toFloat(), height.toFloat(), timeMs, isExport = true)
+                    if (rawFrame != null) {
+                        motionFrame = if (rawFrame.width == width && rawFrame.height == height) {
+                            rawFrame
+                        } else {
+                            StatusMediaHelper.smartCropToPortrait916(rawFrame).also {
+                                if (it != rawFrame && !rawFrame.isRecycled) rawFrame.recycle()
+                            }
+                        }
+                    }
                 }
 
+                renderFrameAt(frameCanvas, width.toFloat(), height.toFloat(), timeMs, isExport = true, motionFrameBitmap = motionFrame)
                 encoder.encodeFrame(frameBitmap, ptsNano)
+                motionFrame?.let { if (!it.isRecycled && it != customPhotoBitmap) it.recycle() }
 
                 val progress = (frame * 85 / totalFrames)
                 onProgress(progress)
@@ -2164,6 +2201,7 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
             postInvalidateOnAnimation()
         }
         try { performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY) } catch (_: Exception) {}
+        onPlaybackStateChanged?.invoke(isPlaying)
     }
 
     private var onCreateStatusClick: (() -> Unit)? = null

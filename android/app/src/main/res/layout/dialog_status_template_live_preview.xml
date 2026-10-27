@@ -119,6 +119,14 @@
                     android:clipToOutline="true"
                     android:elevation="12dp">
 
+                    <!-- Real Hardware Continuous Motion Video Surface for Videos -->
+                    <TextureView
+                        android:id="@+id/statusLivePreviewTextureView"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:visibility="gone" />
+
+                    <!-- Live Animated Template Elements (Overlays, Lyrics, Visualizer, Particles) -->
                     <com.video.engine.status.StatusTemplateLivePreviewView
                         android:id="@+id/statusLivePreviewView"
                         android:layout_width="match_parent"
@@ -257,15 +265,51 @@
                     </FrameLayout>
 
                     <FrameLayout
-                        android:id="@+id/statusPreviewNextTemplateBtn"
+                        android:id="@+id/statusPreviewPrevTemplateBtn"
                         android:layout_width="wrap_content"
                         android:layout_height="34dp"
-                        android:layout_marginStart="8dp"
+                        android:layout_marginStart="6dp"
                         android:background="@drawable/launch_count_chip_background"
                         android:clickable="true"
                         android:focusable="true"
-                        android:paddingStart="12dp"
-                        android:paddingEnd="12dp">
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp">
+
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="⏮️"
+                                android:textSize="12sp" />
+
+                            <TextView
+                                android:id="@+id/statusPreviewPrevTemplateText"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="4dp"
+                                android:text="Prev"
+                                android:textColor="#8A99AD"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                    </FrameLayout>
+
+                    <FrameLayout
+                        android:id="@+id/statusPreviewNextTemplateBtn"
+                        android:layout_width="wrap_content"
+                        android:layout_height="34dp"
+                        android:layout_marginStart="6dp"
+                        android:background="@drawable/launch_count_chip_background"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp">
 
                         <LinearLayout
                             android:layout_width="wrap_content"
@@ -278,16 +322,16 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="⏭️"
-                                android:textSize="13sp" />
+                                android:textSize="12sp" />
 
                             <TextView
                                 android:id="@+id/statusPreviewNextTemplateText"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:layout_marginStart="6dp"
-                                android:text="Next Style"
+                                android:layout_marginStart="4dp"
+                                android:text="Next"
                                 android:textColor="#D946EF"
-                                android:textSize="12sp"
+                                android:textSize="11.5sp"
                                 android:textStyle="bold" />
                         </LinearLayout>
                     </FrameLayout>

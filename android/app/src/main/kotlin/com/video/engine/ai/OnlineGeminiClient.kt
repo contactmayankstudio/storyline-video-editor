@@ -145,7 +145,7 @@ object OnlineGeminiClient {
 
         executor.execute {
             val telemetry = DeviceTelemetryProvider.buildSystemContextPrompt(context)
-            val systemInstruction = "You are Storyline AI Copilot (Storyline AI), the native creative AI assistant built inside Storyline Video Editor.\n" +
+            val systemInstruction = "You are Storyline AI Ask (Storyline AI), the native creative AI companion built inside Storyline Video Editor.\n" +
                 "You chat naturally, warmly, and smartly in Hindi, Hinglish, or English.\n" +
                 "\n" +
                 "CRITICAL CONFIDENTIALITY & PERSONA RULES (STRICT):\n" +

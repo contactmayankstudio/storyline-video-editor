@@ -712,7 +712,7 @@ class AiIntentParserTest {
             val res = AiIntentParser.parse(q)
             assertTrue("Expected Conversational for '$q', got ${res.intent}", res.intent is VideoEditIntent.Conversational)
             val conv = res.intent as VideoEditIntent.Conversational
-            assertTrue("Expected master report in reply for '$q'", conv.reply.contains("Master AI Copilot Hoon"))
+            assertTrue("Expected master report in reply for '$q'", conv.reply.contains("Master AI Ask Hoon") || conv.reply.contains("Master AI Copilot Hoon"))
         }
     }
 

@@ -285,27 +285,78 @@ object SmartConversationalEngine {
     }
 
     /**
-     * Generate friendly, intelligent fallback when a user asks something unconventional.
+     * Generate friendly, intelligent fallback when a user asks something unconventional or chats about anything ("xyz").
      */
     fun generateHelpfulFallback(rawText: String): String {
         val clean = rawText.trim()
         val lower = clean.lowercase(Locale.ROOT)
-        if (lower.contains("play") || lower.contains("chalao") || lower.contains("chalu") || lower.contains("start")) {
+
+        // 1. Play / Pause direct requests
+        if (lower in listOf("play", "chalao", "chalu karo", "play karo", "shuru karo") || lower.startsWith("play ")) {
             return "Video play kar raha hoon bhai! ▶️"
         }
-        if (lower.contains("pause") || lower.contains("roko") || lower.contains("stop") || lower.contains("band")) {
+        if (lower in listOf("pause", "roko", "stop", "rok do", "pause karo", "band karo") || lower.startsWith("pause ")) {
             return "Video pause kar di hai bhai! ⏸️"
         }
-        return "Bhai aap video me kya edit karna chahte ho? Aap seedhe bol ya type kar sakte ho:\n\n" +
-            "• 'Status banao' (1-photo se Storyline Status Pro jordaar video)\n" +
-            "• 'Play' ya 'Pause' (video chalane/rokne ke liye)\n" +
-            "• 'Silence hatao' (dead pauses trim karne ke liye)\n" +
-            "• 'Cut karo' (current frame par split karne ke liye)\n" +
-            "• '9:16 karo' ya '16:9 karo' (aspect ratio badalne ke liye)\n" +
-            "• 'Teal Orange look do' (cinematic LUT lagane ke liye)\n" +
-            "• 'Auto Captions' (subtitles add karne ke liye)\n" +
-            "• 'Speed 2x karo' (fast forward ke liye)\n" +
-            "• 'Export karo' (gallery me save karne ke liye)"
+
+        // 2. Greetings & Personal Well-being (Kaise ho, kya haal hai)
+        if (lower.contains("kaise ho") || lower.contains("kya haal") || lower.contains("kese ho") ||
+            lower.contains("hello") || lower.contains("hi") || lower.contains("hey") ||
+            lower.contains("kya chal raha") || lower.contains("namaste") || lower.contains("pranam")) {
+            return "Main bilkul mast aur high energy me hoon bhai! 🚀 Aap batao aapka din kaisa ja raha hai? " +
+                "Koi sawaal poochna ho, ray/mashwara chahiye ya video edit karna ho — bina kisi jhijhak ke poocho, main AI Ask hamesha haazir hoon! ✨"
+        }
+
+        // 3. Identity & What can you do (Tum kaun ho, naam kya hai)
+        if (lower.contains("tum kaun ho") || lower.contains("tum kon ho") || lower.contains("naam kya") ||
+            lower.contains("who are you") || lower.contains("ai ask kya hai") || lower.contains("kya kar sakte ho")) {
+            return "Main Storyline app ka native **AI Ask** companion hoon! 🤖💬\n\n" +
+                "Aap mujhse duniya bhar ki kisi bhi cheez par baat kar sakte ho:\n" +
+                "• 💡 **Ray & Salah (Advice):** Creator strategy, viral topics, storytelling aur life advice\n" +
+                "• 📜 **Shayari & Quotes:** Romantic, Attitude, Motivational aur Dosti shayari\n" +
+                "• 🎬 **Video Direction:** Viral hooks, beat drops, color grading aur fonts\n" +
+                "• ⚡ **Direct Editing:** 'Cut karo', 'Silence hatao', 'Status banao', 'Export karo'\n\n" +
+                "Kuch bhi poocho bhai, main har baat ka jawab dunga! 🌟"
+        }
+
+        // 4. Creator Advice / Ray / Mashwara (Viral views, subscribers, growth)
+        if (lower.contains("ray") || lower.contains("mashwara") || lower.contains("advice") ||
+            lower.contains("salah") || lower.contains("opinion") || lower.contains("kya karu") ||
+            lower.contains("views kaise") || lower.contains("viral kaise") || lower.contains("grow kaise") ||
+            lower.contains("subscribers") || lower.contains("reels viral") || lower.contains("followers")) {
+            return "Bhai meri mashwara aur viral growth ki 4 golden tips ye hain:\n\n" +
+                "1️⃣ **Pehle 3 Seconds Ka Hook:** Shuruat me hi curiosity generate karo ya fast beat zoom lagao taaki koi scroll na kare.\n" +
+                "2️⃣ **Fast Beat-Drop Cuts:** 🎵 Auto Beat Cut feature se gaane ke har kick par video ko split & zoom karo. Audience retention 90%+ aati hai!\n" +
+                "3️⃣ **9:16 Vertical Cinema:** Screen par black bars na rakhein, poori screen fill karein.\n" +
+                "4️⃣ **Call to Action / Comment Bait:** Caption me viewer se unki ray zaroor maangein!\n\n" +
+                "Bolo bhai, apni video me abhi kya plan karein? Main turant help karta hoon! 🚀🔥"
+        }
+
+        // 5. Jokes & Fun (Chutkula, hasao, funny)
+        if (lower.contains("joke") || lower.contains("chutkula") || lower.contains("hasao") || lower.contains("funny") || lower.contains("mazedaar")) {
+            return "Ek mazedaar baat suno bhai 😄:\n\n" +
+                "Ek dost doosre se bola: 'Bhai meri reel par 1 million views aane wale hain!'\n" +
+                "Doosra bola: 'Sachi? Abhi kitne aaye hain?'\n" +
+                "Pehla: 'Bas 9 lakh 99 hazar 995 views bache hain!' 😂🎬\n\n" +
+                "Chalo aao milkar sach me 1 million views wali video banate hain! ✨"
+        }
+
+        // 6. Script & Story Ideas (Story batao, script likho, idea do)
+        if (lower.contains("story") || lower.contains("script") || lower.contains("kahani") ||
+            lower.contains("dialogue") || lower.contains("idea do") || lower.contains("concept")) {
+            return "🎬 **Aapke Liye Ek High-Retention Video Concept:**\n\n" +
+                "• **Hook (0-3s):** Screen par glowing text: *'Ye galti 99% log karte hain...'* + slow zoom in.\n" +
+                "• **Beat Drop (3-8s):** Audio ka drop aate hi punchy visual cut + dynamic solution.\n" +
+                "• **Ending (8-12s):** *'Follow karein aisi aur tips ke liye!'* + aesthetic fade out.\n\n" +
+                "Ise banana bohot aasan hai — bolo to abhi timeline par text overlay set kar doon? 💡"
+        }
+
+        // 7. General Knowledge / XYZ Open Discussion
+        return "Bhai main aapki baat samajh gaya! **AI Ask** par aap mujhse kuch bhi baat, ray ya sawal-jawab kar sakte ho: 💬\n\n" +
+            "• **Sawaal Poocho:** Creator growth, video ideas, technical gyaan, ya social media trends.\n" +
+            "• **Shayari & Creative Quotes:** Kisi bhi mood (Attitude, Love, Dard, Zindagi) par shayari likhwao.\n" +
+            "• **Live Video Edits:** 'Status banao', 'Cut karo', 'Silence trim karo', 'Beat cut lagao'.\n\n" +
+            "Aap batao bhai, iske baare me aur detail me baat karein ya video me kuch magical edit karein? 🚀✨"
     }
 
     private fun matchesConversationalStatusMaker(text: String): Boolean {
@@ -446,7 +497,7 @@ object SmartConversationalEngine {
     }
 
     fun getAppMasterReport(): String {
-        return "👑 **Main Storyline Video Editor Ka Master AI Copilot Hoon!** 🚀\n\n" +
+        return "👑 **Main Storyline Video Editor Ka Master AI Ask Hoon!** 🚀\n\n" +
             "Aapki ek aawaaz ya chat message par main poore app ke saare tools control kar sakta hoon:\n\n" +
             "• 📸 **Fun Camera:** 'Camera kholo' bolo -> Snapchat lenses & selfie glow camera launch hoga!\n" +
             "• 🌟 **Status Maker:** 'Status maker kholo' -> 1-Photo se Storyline Status Pro banega!\n" +

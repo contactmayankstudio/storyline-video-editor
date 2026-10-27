@@ -190,7 +190,7 @@
             android:paddingTop="8dp"
             android:paddingEnd="12dp"
             android:paddingBottom="8dp"
-            android:text="⚡ AI Copilot: Active"
+            android:text="⚡ AI Ask: Active"
             android:textColor="@color/accent_cyan"
             android:textSize="10sp"
             android:textStyle="bold"
@@ -750,7 +750,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="5dp"
                     android:fontFamily="sans-serif-medium"
-                    android:text="AI Copilot"
+                    android:text="AI Ask"
                     android:textColor="#38BDF8"
                     android:textSize="11.5sp"
                     android:textStyle="bold" />
@@ -1006,7 +1006,7 @@
                 <LinearLayout android:id="@+id/aiCopilotButton"
                     style="@style/ToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_magic_wand" android:tint="@color/accent_cyan"/>
-                    <TextView style="@style/ToolbarLabel" android:text="AI Copilot" android:textColor="@color/accent_cyan"/>
+                    <TextView style="@style/ToolbarLabel" android:text="AI Ask" android:textColor="@color/accent_cyan"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/cutButton"
@@ -1122,7 +1122,7 @@
 
                 <LinearLayout android:id="@+id/clipAiCopilotButton" style="@style/ClipToolbarItem">
                     <ImageView style="@style/ToolbarIcon" android:src="@drawable/ic_magic_wand" android:tint="@color/accent_cyan"/>
-                    <TextView android:id="@+id/clipAiCopilotLabel" style="@style/ClipToolbarLabel" android:text="AI Copilot" android:textColor="@color/accent_cyan"/>
+                    <TextView android:id="@+id/clipAiCopilotLabel" style="@style/ClipToolbarLabel" android:text="AI Ask" android:textColor="@color/accent_cyan"/>
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/clipDeleteButton" style="@style/ClipToolbarItem.Delete">

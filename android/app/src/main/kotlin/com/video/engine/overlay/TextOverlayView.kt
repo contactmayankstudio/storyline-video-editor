@@ -387,19 +387,10 @@ class TextOverlayView @JvmOverloads constructor(
                 onSelected?.invoke()
 
                 // Check hit against the 4 corner handles using physical screen coordinates
-                val hitTL = isNearHandle(tlDeleteButton, event.rawX, event.rawY)
-                val hitTR = isNearHandle(trStretchButton, event.rawX, event.rawY)
-                val hitBL = isNearHandle(blResetButton, event.rawX, event.rawY)
-                val hitBR = isNearHandle(brScaleRotateButton, event.rawX, event.rawY)
-
-                if (hitTL || hitTR || hitBL || hitBR) {
+                val touchedCorner = findTouchedCorner(event.rawX, event.rawY)
+                if (touchedCorner != null) {
                     activeTouchMode = TouchMode.SCALE_ROTATE
-                    activeCorner = when {
-                        hitTL -> Corner.TOP_LEFT
-                        hitTR -> Corner.TOP_RIGHT
-                        hitBL -> Corner.BOTTOM_LEFT
-                        else -> Corner.BOTTOM_RIGHT
-                    }
+                    activeCorner = touchedCorner
                     computeCenterScreen()
                     startDist = hypot((event.rawX - centerScreenX).toDouble(), (event.rawY - centerScreenY).toDouble()).toFloat().coerceAtLeast(10f)
                     startScale = scaleX
@@ -454,19 +445,71 @@ class TextOverlayView @JvmOverloads constructor(
                             hasMovedBeyondSlop = true
                         }
                         if (hasMovedBeyondSlop) {
-                            val currDist = hypot((event.rawX - centerScreenX).toDouble(), (event.rawY - centerScreenY).toDouble()).toFloat()
-                            val factor = (currDist / startDist).coerceIn(0.15f, 8.0f)
-                            val newScale = (startScale * factor).coerceIn(0.2f, 8.0f)
-                            scaleX = newScale
-                            scaleY = newScale
+                            when (activeCorner) {
+                                Corner.BOTTOM_RIGHT -> {
+                                    // Primary 1-finger zoom (chota/bada) & smooth rotation
+                                    val currDist = hypot((event.rawX - centerScreenX).toDouble(), (event.rawY - centerScreenY).toDouble()).toFloat()
+                                    val factor = (currDist / startDist).coerceIn(0.15f, 8.0f)
+                                    val newScale = (startScale * factor).coerceIn(0.2f, 8.0f)
+                                    scaleX = newScale
+                                    scaleY = newScale
 
-                            val currAngle = atan2((event.rawY - centerScreenY).toDouble(), (event.rawX - centerScreenX).toDouble())
-                            val deltaDeg = Math.toDegrees(currAngle - startAngle).toFloat()
-                            rotation = startRotation + deltaDeg
+                                    val currAngle = atan2((event.rawY - centerScreenY).toDouble(), (event.rawX - centerScreenX).toDouble())
+                                    val deltaDeg = Math.toDegrees(currAngle - startAngle).toFloat()
+                                    rotation = startRotation + deltaDeg
 
-                            syncControlChromeScale()
-                            clampToParentBounds()
-                            notifyTransformChanged()
+                                    syncControlChromeScale()
+                                    clampToParentBounds()
+                                    notifyTransformChanged()
+                                }
+                                Corner.TOP_RIGHT -> {
+                                    // Horizontal Stretch (choda/patla) AND Zoom
+                                    val rad = Math.toRadians(rotation.toDouble())
+                                    val cos = Math.cos(rad)
+                                    val sin = Math.sin(rad)
+                                    val dx = event.rawX - startRawX
+                                    val dy = event.rawY - startRawY
+                                    val projDelta = (dx * cos + dy * sin).toFloat()
+                                    val parentW = (parent as? View)?.width ?: 1000
+                                    val newWidth = (startMaxWidth + (projDelta * 2f / scaleX.coerceAtLeast(0.1f)).toInt()).coerceIn(dp(60), (parentW * 0.95f).toInt())
+                                    textView.maxWidth = newWidth
+                                    textView.requestLayout()
+
+                                    val currDist = hypot((event.rawX - centerScreenX).toDouble(), (event.rawY - centerScreenY).toDouble()).toFloat()
+                                    val factor = (currDist / startDist).coerceIn(0.25f, 4.0f)
+                                    val newScale = (startScale * factor).coerceIn(0.2f, 8.0f)
+                                    scaleX = newScale
+                                    scaleY = newScale
+
+                                    syncControlChromeScale()
+                                    notifyTransformChanged()
+                                }
+                                Corner.BOTTOM_LEFT -> {
+                                    // Zoom (chota/bada)
+                                    val currDist = hypot((event.rawX - centerScreenX).toDouble(), (event.rawY - centerScreenY).toDouble()).toFloat()
+                                    val factor = (currDist / startDist).coerceIn(0.15f, 8.0f)
+                                    val newScale = (startScale * factor).coerceIn(0.2f, 8.0f)
+                                    scaleX = newScale
+                                    scaleY = newScale
+
+                                    syncControlChromeScale()
+                                    clampToParentBounds()
+                                    notifyTransformChanged()
+                                }
+                                Corner.TOP_LEFT -> {
+                                    // Dragging TL also allows zoom
+                                    val currDist = hypot((event.rawX - centerScreenX).toDouble(), (event.rawY - centerScreenY).toDouble()).toFloat()
+                                    val factor = (currDist / startDist).coerceIn(0.15f, 8.0f)
+                                    val newScale = (startScale * factor).coerceIn(0.2f, 8.0f)
+                                    scaleX = newScale
+                                    scaleY = newScale
+
+                                    syncControlChromeScale()
+                                    clampToParentBounds()
+                                    notifyTransformChanged()
+                                }
+                                null -> Unit
+                            }
                         }
                     }
                     TouchMode.NONE -> Unit
@@ -527,6 +570,42 @@ class TextOverlayView @JvmOverloads constructor(
             }
         }
         return true
+    }
+
+    private fun getCornerScreenPosition(corner: Corner): Pair<Float, Float> {
+        computeCenterScreen()
+        val hw = (width * 0.5f) * scaleX
+        val hh = (height * 0.5f) * scaleY
+        val rad = Math.toRadians(rotation.toDouble())
+        val cos = Math.cos(rad).toFloat()
+        val sin = Math.sin(rad).toFloat()
+
+        val (lx, ly) = when (corner) {
+            Corner.TOP_LEFT -> Pair(-hw, -hh)
+            Corner.TOP_RIGHT -> Pair(hw, -hh)
+            Corner.BOTTOM_LEFT -> Pair(-hw, hh)
+            Corner.BOTTOM_RIGHT -> Pair(hw, hh)
+        }
+
+        val screenX = centerScreenX + (lx * cos - ly * sin)
+        val screenY = centerScreenY + (lx * sin + ly * cos)
+        return Pair(screenX, screenY)
+    }
+
+    private fun findTouchedCorner(rawX: Float, rawY: Float): Corner? {
+        val hitRadius = dp(46f).toFloat()
+        var bestCorner: Corner? = null
+        var bestDist = Float.MAX_VALUE
+
+        for (c in Corner.values()) {
+            val (cx, cy) = getCornerScreenPosition(c)
+            val dist = hypot((rawX - cx).toDouble(), (rawY - cy).toDouble()).toFloat()
+            if (dist <= hitRadius && dist < bestDist) {
+                bestDist = dist
+                bestCorner = c
+            }
+        }
+        return bestCorner
     }
 
     private fun isNearHandle(view: View, rawX: Float, rawY: Float): Boolean {
