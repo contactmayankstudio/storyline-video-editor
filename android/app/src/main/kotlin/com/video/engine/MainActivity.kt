@@ -2441,6 +2441,9 @@ class VideoEditorActivity : ComponentActivity() {
         timelineCurrentTimeText?.visibility = View.VISIBLE
         timelineCurrentTimeText?.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
         timelineCurrentTimeText?.setTextColor(DesignSystem.Colors.textPrimary)
+        timelineCurrentTimeText?.setOnClickListener {
+            applyEditorPlayhead(0L)
+        }
         updateTimelineTimeText(0L)
         previewAspectRatioText = null
         clipToolbarContextLabel?.visibility = View.GONE

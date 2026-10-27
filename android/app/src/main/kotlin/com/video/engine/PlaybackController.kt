@@ -234,7 +234,7 @@ class PlaybackController(
         val requestedTimeMs = playheadTimeMsProvider().coerceAtLeast(0L)
         val startTimeMs = when {
             availableDurationMs <= 1L -> 0L
-            requestedTimeMs >= availableDurationMs -> 0L
+            requestedTimeMs >= (availableDurationMs - 800L).coerceAtLeast(0L) -> 0L
             else -> requestedTimeMs
         }
         cancelPendingSmoothPlay()

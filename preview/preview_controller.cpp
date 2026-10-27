@@ -18,6 +18,7 @@
 #include <chrono>
 #include <thread>
 #include <mutex>
+#include <unordered_set>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -937,17 +938,35 @@ bool PreviewController::switchDecoderSourceLocked(const std::shared_ptr<Clip>& c
         }
     }
 
-    // Keep at most 4 open decoders in m_clipDecoders to conserve memory
-    while (m_clipDecoders.size() > 4) {
-        auto oldest = m_clipDecoders.begin();
-        if (oldest->first == clipId || oldest->first == m_lastRenderedClipId) {
-            oldest = std::next(oldest);
-            if (oldest == m_clipDecoders.end()) break;
+    // Keep open decoders in m_clipDecoders while strictly protecting all active clips
+    std::unordered_set<int> activeClipIds;
+    if (m_timeline) {
+        for (const auto& c : m_timeline->getActiveClipsAtTime(m_currentTimeMs)) {
+            if (c) {
+                activeClipIds.insert(static_cast<int>(c->getId()));
+            }
         }
-        if (oldest->second.decoder) {
-            oldest->second.decoder->close();
+    }
+    activeClipIds.insert(clipId);
+    if (m_lastRenderedClipId > 0) {
+        activeClipIds.insert(m_lastRenderedClipId);
+    }
+
+    const size_t maxDecoders = std::max<size_t>(16, activeClipIds.size() + 4);
+    if (m_clipDecoders.size() > maxDecoders) {
+        for (auto itDel = m_clipDecoders.begin(); itDel != m_clipDecoders.end() && m_clipDecoders.size() > maxDecoders; ) {
+            if (activeClipIds.find(itDel->first) == activeClipIds.end()) {
+                if (itDel->second.decoder) {
+                    itDel->second.decoder->close();
+                }
+                if (itDel->second.texture) {
+                    itDel->second.texture->release();
+                }
+                itDel = m_clipDecoders.erase(itDel);
+            } else {
+                ++itDel;
+            }
         }
-        m_clipDecoders.erase(oldest);
     }
 
     m_openVideoPath = decoderPath;
@@ -1002,7 +1021,7 @@ void PreviewController::prewarmClip(int clipId, const std::string& path) {
         if (it != m_clipDecoders.end() && it->second.decoder) {
             return;
         }
-        if (m_clipDecoders.size() >= 4) {
+        if (m_clipDecoders.size() >= 16) {
             return;
         }
     }
@@ -1882,46 +1901,46 @@ bool PreviewController::renderTimelineFrameLocked(
                             keyframeOnlyScrub,
                             &frame,
                             &overlayRenderedSourceMs)) {
-                        continue;
-                    }
-
-                    const int fw = static_cast<int>(frame.width);
-                    const int fh = static_cast<int>(frame.height);
-                    if (fw <= 0 || fh <= 0 || frame.rgb.empty()) {
-                        continue;
-                    }
-
-                    if (!state.texture) {
-                        state.texture = std::make_unique<GPU::GLTexture>();
-                    }
-                    if (!state.texture->initialize(fw, fh)) {
-                        continue;
-                    }
-
-                    const size_t pixelCount = static_cast<size_t>(fw) * fh;
-                    const uint8_t* rgba = nullptr;
-                    if (frame.rgb.size() >= pixelCount * 4) {
-                        rgba = frame.rgb.data();
-                    } else if (frame.rgb.size() >= pixelCount * 3) {
-                        if (m_compositeScratch.size() != pixelCount * 4) {
-                            m_compositeScratch.resize(pixelCount * 4);
+                        if (!state.texture || !state.texture->isValid()) {
+                            continue;
                         }
-                        const uint8_t* src = frame.rgb.data();
-                        uint8_t* dst = m_compositeScratch.data();
-                        for (size_t i = 0; i < pixelCount; ++i) {
-                            dst[i * 4 + 0] = src[i * 3 + 0];
-                            dst[i * 4 + 1] = src[i * 3 + 1];
-                            dst[i * 4 + 2] = src[i * 3 + 2];
-                            dst[i * 4 + 3] = 0xFF;
+                    } else {
+                        const int fw = static_cast<int>(frame.width);
+                        const int fh = static_cast<int>(frame.height);
+                        if (fw <= 0 || fh <= 0 || frame.rgb.empty()) {
+                            if (!state.texture || !state.texture->isValid()) {
+                                continue;
+                            }
+                        } else {
+                            if (!state.texture) {
+                                state.texture = std::make_unique<GPU::GLTexture>();
+                            }
+                            if (state.texture->initialize(fw, fh)) {
+                                const size_t pixelCount = static_cast<size_t>(fw) * fh;
+                                const uint8_t* rgba = nullptr;
+                                if (frame.rgb.size() >= pixelCount * 4) {
+                                    rgba = frame.rgb.data();
+                                } else if (frame.rgb.size() >= pixelCount * 3) {
+                                    if (m_compositeScratch.size() != pixelCount * 4) {
+                                        m_compositeScratch.resize(pixelCount * 4);
+                                    }
+                                    const uint8_t* src = frame.rgb.data();
+                                    uint8_t* dst = m_compositeScratch.data();
+                                    for (size_t i = 0; i < pixelCount; ++i) {
+                                        dst[i * 4 + 0] = src[i * 3 + 0];
+                                        dst[i * 4 + 1] = src[i * 3 + 1];
+                                        dst[i * 4 + 2] = src[i * 3 + 2];
+                                        dst[i * 4 + 3] = 0xFF;
+                                    }
+                                    rgba = m_compositeScratch.data();
+                                }
+                                if (rgba) {
+                                    state.texture->update(rgba);
+                                    state.lastRenderedSourceMs = overlayRenderedSourceMs;
+                                }
+                            }
                         }
-                        rgba = m_compositeScratch.data();
                     }
-                    if (!rgba) {
-                        continue;
-                    }
-
-                    state.texture->update(rgba);
-                    state.lastRenderedSourceMs = overlayRenderedSourceMs;
                 }
                 if (!state.texture || !state.texture->isValid()) {
                     continue;
@@ -2103,11 +2122,14 @@ bool PreviewController::decodeClipFrameLocked(
             state.hasLastDecodedFrame = false;
             return false;
         }
-        state.decoder->setPreviewScaleLimit(
-            resolveSuperResolutionPreviewScaleLimitLocked(
-                m_ghostPreviewEnabled ? m_ghostPreviewLongEdgePx : 0,
-                state.decoder->getWidth(),
-                state.decoder->getHeight()));
+        int scaleLimit = resolveSuperResolutionPreviewScaleLimitLocked(
+            m_ghostPreviewEnabled ? m_ghostPreviewLongEdgePx : 0,
+            state.decoder->getWidth(),
+            state.decoder->getHeight());
+        if (scaleLimit <= 0) {
+            scaleLimit = 960;
+        }
+        state.decoder->setPreviewScaleLimit(scaleLimit);
         state.openPath = decoderPath;
         state.mediaDurationMs = static_cast<int64_t>(state.decoder->getDuration() * 1000.0);
         state.texture.reset();
@@ -2599,22 +2621,20 @@ void PreviewController::updateAdaptiveOverloadScoreLocked(int64_t renderCostMs) 
 }
 
 bool PreviewController::shouldBypassOverlayCompositionLocked() const {
-    return m_adaptiveFrameDropEnabled &&
-        m_isPlaying.load() &&
-        m_budgetBypassOverlayComposition;
+    return false;
 }
 
 int64_t PreviewController::playbackCompositeReuseWindowMsLocked(int64_t approximateFrameMs) const {
     const int64_t frameMs = std::max<int64_t>(1, approximateFrameMs);
-    int64_t floorMs = 96;
+    int64_t floorMs = 33;
     if (m_frameDropOverloadScore >= 8) {
-        floorMs = 180;
+        floorMs = 66;
     } else if (m_frameDropOverloadScore >= 5) {
-        floorMs = 144;
+        floorMs = 48;
     } else if (m_frameDropOverloadScore >= 3) {
-        floorMs = 120;
+        floorMs = 38;
     }
-    return std::max<int64_t>(floorMs, frameMs * 2);
+    return std::max<int64_t>(floorMs, frameMs);
 }
 
 int PreviewController::resolvePreviewScaleLimitLocked() const {

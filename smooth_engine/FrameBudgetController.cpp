@@ -62,7 +62,7 @@ FrameBudgetDecision FrameBudgetController::applyPressureTier(
         decision.predictiveLookAroundMs = std::clamp(std::min(baseLookAroundMs, 500), 200, baseLookAroundMs);
         decision.predictiveSampleStepMs = std::clamp(std::max(baseSampleStepMs, 220), 16, 1000);
         decision.predictiveCacheMaxFrames = std::clamp(std::min(baseCacheMaxFrames, 10), 4, baseCacheMaxFrames);
-        decision.bypassOverlayComposition = input.playing;
+        decision.bypassOverlayComposition = false;
         decision.allowPredictivePrefetch = false;
         scale = 0.70;
     } else if (decision.overloadScore >= 5) {
