@@ -44,7 +44,7 @@ class StatusTemplateCommunityTest {
             description = "Community template exported from editor.",
             gradientStartHex = "#FF0844",
             gradientEndHex = "#FFB199",
-            audioAssetPath = "music_bgm/attitude_bass_drop.wav",
+            audioAssetPath = "music_bgm/attitude_bass_drop.m4a",
             lutFilter = "",
             slots = listOf(
                 StatusSlot(1, 5000L, "crossfade"),

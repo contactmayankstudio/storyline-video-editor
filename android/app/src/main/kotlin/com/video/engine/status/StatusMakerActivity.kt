@@ -1230,12 +1230,12 @@ class StatusMakerActivity : ComponentActivity() {
         val tracks = listOf(
             Triple("🎵 Extract Audio from Reel / Video...", "", "extract"),
             Triple("📂 Pick from Phone Storage...", "", "phone"),
-            Triple("Attitude Bass Drop 🔥 (130 BPM)", "music_bgm/attitude_bass_drop.wav", "preset"),
-            Triple("Energetic Reels Trap ⚡ (135 BPM)", "music_bgm/energetic_reels_trap_beat.wav", "preset"),
-            Triple("Romantic Acoustic Love 💖 (100 BPM)", "music_bgm/romantic_acoustic_love.wav", "preset"),
-            Triple("Lo-Fi Chill Vlog 🎧 (88 BPM)", "music_bgm/lofi_chill_vlog_beat.wav", "preset"),
-            Triple("Devotional Ambient Flute 🙏 (75 BPM)", "music_bgm/devotional_ambient_flute.wav", "preset"),
-            Triple("Sad Emotional Piano 🥺 (72 BPM)", "music_bgm/sad_piano_emotional.wav", "preset")
+            Triple("Attitude Bass Drop 🔥 (130 BPM)", "music_bgm/attitude_bass_drop.m4a", "preset"),
+            Triple("Energetic Reels Trap ⚡ (135 BPM)", "music_bgm/energetic_reels_trap_beat.m4a", "preset"),
+            Triple("Romantic Acoustic Love 💖 (100 BPM)", "music_bgm/romantic_acoustic_love.m4a", "preset"),
+            Triple("Lo-Fi Chill Vlog 🎧 (88 BPM)", "music_bgm/lofi_chill_vlog_beat.m4a", "preset"),
+            Triple("Devotional Ambient Flute 🙏 (75 BPM)", "music_bgm/devotional_ambient_flute.m4a", "preset"),
+            Triple("Sad Emotional Piano 🥺 (72 BPM)", "music_bgm/sad_piano_emotional.m4a", "preset")
         )
 
         val titles = tracks.map { it.first }.toTypedArray()

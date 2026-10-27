@@ -261,10 +261,18 @@ object StatusMediaHelper {
     fun extractAudioAssetToLocal(context: Context, assetPath: String): File? {
         return try {
             val audioDir = File(context.filesDir, "status_bgm").apply { mkdirs() }
-            val fileName = File(assetPath).name
+            var resolvedAssetPath = assetPath
+            if (resolvedAssetPath.endsWith(".wav", ignoreCase = true)) {
+                val candidateM4a = resolvedAssetPath.substringBeforeLast(".") + ".m4a"
+                try {
+                    context.assets.open(candidateM4a).close()
+                    resolvedAssetPath = candidateM4a
+                } catch (_: Exception) {}
+            }
+            val fileName = File(resolvedAssetPath).name
             val outFile = File(audioDir, fileName)
             if (!outFile.exists() || outFile.length() == 0L) {
-                context.assets.open(assetPath).use { input ->
+                context.assets.open(resolvedAssetPath).use { input ->
                     FileOutputStream(outFile).use { output ->
                         input.copyTo(output)
                     }

@@ -47,7 +47,7 @@
                 android:id="@+id/statusMakerHeaderTitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="⚡ Mast Video Maker Pro"
+                android:text="⚡ Storyline Status Pro"
                 android:textColor="#FFFFFF"
                 android:textSize="18sp"
                 android:textStyle="bold" />

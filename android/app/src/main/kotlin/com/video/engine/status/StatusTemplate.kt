@@ -187,7 +187,7 @@ object StatusTemplateRepository {
             description = "Viral Storyline 3D depth zoom with camera roll, beat drop shake, and high-impact bass cuts.",
             gradientStartHex = "#FF0844",
             gradientEndHex = "#FFB199",
-            audioAssetPath = "music_bgm/attitude_bass_drop.wav",
+            audioAssetPath = "music_bgm/attitude_bass_drop.m4a",
             lutFilter = "vibrant_pop_reels.cube",
             slots = listOf(
                 StatusSlot(1, 3000L, "zoom_in"),
@@ -212,7 +212,7 @@ object StatusTemplateRepository {
             description = "Ultra-smooth speed ramping flow with slow-to-fast curve transitions, motion blur, and whip pans.",
             gradientStartHex = "#00F2FE",
             gradientEndHex = "#4FACFE",
-            audioAssetPath = "music_bgm/energetic_reels_trap_beat.wav",
+            audioAssetPath = "music_bgm/energetic_reels_trap_beat.m4a",
             lutFilter = "cinematic_teal_and_orange.cube",
             slots = listOf(
                 StatusSlot(1, 2750L, "flash"),
@@ -237,7 +237,7 @@ object StatusTemplateRepository {
             description = "Aggressive phonk bass drops with dutch angle tilts, RGB split glitches, and dark contrast.",
             gradientStartHex = "#8E2DE2",
             gradientEndHex = "#4A00E0",
-            audioAssetPath = "music_bgm/attitude_bass_drop.wav",
+            audioAssetPath = "music_bgm/attitude_bass_drop.m4a",
             lutFilter = "moody_dark_film.cube",
             slots = listOf(
                 StatusSlot(1, 3000L, "glitch"),
@@ -262,7 +262,7 @@ object StatusTemplateRepository {
             description = "Futuristic neon holograms, chromatic RGB aberration, and electronic rave trap beats.",
             gradientStartHex = "#FF007F",
             gradientEndHex = "#7928CA",
-            audioAssetPath = "music_bgm/energetic_reels_trap_beat.wav",
+            audioAssetPath = "music_bgm/energetic_reels_trap_beat.m4a",
             lutFilter = "cyberpunk_neon.cube",
             slots = listOf(
                 StatusSlot(1, 3250L, "glitch"),
@@ -287,7 +287,7 @@ object StatusTemplateRepository {
             description = "Vintage 35mm film burn, nostalgic amber lens flares, and aesthetic Ken Burns drift.",
             gradientStartHex = "#F7971E",
             gradientEndHex = "#FFD200",
-            audioAssetPath = "music_bgm/lofi_chill_vlog_beat.wav",
+            audioAssetPath = "music_bgm/lofi_chill_vlog_beat.m4a",
             lutFilter = "vintage_warm_70s.cube",
             slots = listOf(
                 StatusSlot(1, 3500L, "fade"),
@@ -312,7 +312,7 @@ object StatusTemplateRepository {
             description = "Heavy gangster 808 bass punch with dramatic zoom snaps, dark vignette, and attitude swag.",
             gradientStartHex = "#232526",
             gradientEndHex = "#414345",
-            audioAssetPath = "music_bgm/attitude_bass_drop.wav",
+            audioAssetPath = "music_bgm/attitude_bass_drop.m4a",
             lutFilter = "moody_dark_film.cube",
             slots = listOf(
                 StatusSlot(1, 3000L, "zoom_in"),
@@ -337,7 +337,7 @@ object StatusTemplateRepository {
             description = "Dreamy acoustic guitar strums with rhythmic heartbeat pulse zooms and glowing love lyrics.",
             gradientStartHex = "#FF758C",
             gradientEndHex = "#FF7EB3",
-            audioAssetPath = "music_bgm/romantic_acoustic_love.wav",
+            audioAssetPath = "music_bgm/romantic_acoustic_love.m4a",
             lutFilter = "vibrant_pop_reels.cube",
             slots = listOf(
                 StatusSlot(1, 3500L, "zoom_in"),
@@ -362,7 +362,7 @@ object StatusTemplateRepository {
             description = "Divine Damru trance drops with fiery saffron-gold smoke glow and dramatic power zooms.",
             gradientStartHex = "#F12711",
             gradientEndHex = "#F5AF19",
-            audioAssetPath = "music_bgm/devotional_ambient_flute.wav",
+            audioAssetPath = "music_bgm/devotional_ambient_flute.m4a",
             lutFilter = "cinematic_teal_and_orange.cube",
             slots = listOf(
                 StatusSlot(1, 3500L, "flash"),
@@ -387,7 +387,7 @@ object StatusTemplateRepository {
             description = "Ultra-fast strobe lighting synced to peak EDM bass kicks with explosive speed cuts.",
             gradientStartHex = "#FC466B",
             gradientEndHex = "#3F5EFB",
-            audioAssetPath = "music_bgm/energetic_reels_trap_beat.wav",
+            audioAssetPath = "music_bgm/energetic_reels_trap_beat.m4a",
             lutFilter = "vibrant_pop_reels.cube",
             slots = listOf(
                 StatusSlot(1, 3333L, "flash"),
@@ -411,7 +411,7 @@ object StatusTemplateRepository {
             description = "Epic widescreen letterbox intro with cinematic teal-orange color grading and blockbuster cuts.",
             gradientStartHex = "#141E30",
             gradientEndHex = "#243B55",
-            audioAssetPath = "music_bgm/attitude_bass_drop.wav",
+            audioAssetPath = "music_bgm/attitude_bass_drop.m4a",
             lutFilter = "cinematic_teal_and_orange.cube",
             slots = listOf(
                 StatusSlot(1, 3000L, "fade"),
@@ -437,7 +437,7 @@ object StatusTemplateRepository {
             description = "Dreamy acoustic guitar chords with soft warm film glow and lyrical poetry.",
             gradientStartHex = "#FF758C",
             gradientEndHex = "#FF7EB3",
-            audioAssetPath = "music_bgm/romantic_acoustic_love.wav",
+            audioAssetPath = "music_bgm/romantic_acoustic_love.m4a",
             lutFilter = "vintage_warm_70s.cube",
             slots = listOf(
                 StatusSlot(1, 3500L, "crossfade"),
@@ -461,7 +461,7 @@ object StatusTemplateRepository {
             description = "Gentle heartbeat zoom pulses with floating romantic heart aesthetics.",
             gradientStartHex = "#F80759",
             gradientEndHex = "#BC4E9C",
-            audioAssetPath = "music_bgm/romantic_acoustic_love.wav",
+            audioAssetPath = "music_bgm/romantic_acoustic_love.m4a",
             lutFilter = "vibrant_pop_reels.cube",
             slots = listOf(
                 StatusSlot(1, 3000L, "zoom_in"),
@@ -485,7 +485,7 @@ object StatusTemplateRepository {
             description = "Warm golden hour lens flares, amber sunset hues, and peaceful acoustic strums.",
             gradientStartHex = "#FF512F",
             gradientEndHex = "#F09819",
-            audioAssetPath = "music_bgm/romantic_acoustic_love.wav",
+            audioAssetPath = "music_bgm/romantic_acoustic_love.m4a",
             lutFilter = "cinematic_teal_and_orange.cube",
             slots = listOf(
                 StatusSlot(1, 3250L, "fade"),
@@ -509,7 +509,7 @@ object StatusTemplateRepository {
             description = "Deep emotional love status with romantic violin swells and soft slides.",
             gradientStartHex = "#EE9CA7",
             gradientEndHex = "#FFDDE1",
-            audioAssetPath = "music_bgm/romantic_acoustic_love.wav",
+            audioAssetPath = "music_bgm/romantic_acoustic_love.m4a",
             lutFilter = "vintage_warm_70s.cube",
             slots = listOf(
                 StatusSlot(1, 3000L, "crossfade"),
@@ -534,7 +534,7 @@ object StatusTemplateRepository {
             description = "Falling rose petals with pink blush tones and sweet romantic quotes.",
             gradientStartHex = "#E55D87",
             gradientEndHex = "#5FC3E4",
-            audioAssetPath = "music_bgm/romantic_acoustic_love.wav",
+            audioAssetPath = "music_bgm/romantic_acoustic_love.m4a",
             lutFilter = "vibrant_pop_reels.cube",
             slots = listOf(
                 StatusSlot(1, 3666L, "fade"),
@@ -557,7 +557,7 @@ object StatusTemplateRepository {
             description = "Glittering sparks and luminous glows capturing love at first sight.",
             gradientStartHex = "#D4FC79",
             gradientEndHex = "#96E6A1",
-            audioAssetPath = "music_bgm/romantic_acoustic_love.wav",
+            audioAssetPath = "music_bgm/romantic_acoustic_love.m4a",
             lutFilter = "vibrant_pop_reels.cube",
             slots = listOf(
                 StatusSlot(1, 3000L, "crossfade"),
@@ -581,7 +581,7 @@ object StatusTemplateRepository {
             description = "Elegant handwritten lyrical script with soulful acoustic background.",
             gradientStartHex = "#FF6E7F",
             gradientEndHex = "#BFE9FF",
-            audioAssetPath = "music_bgm/romantic_acoustic_love.wav",
+            audioAssetPath = "music_bgm/romantic_acoustic_love.m4a",
             lutFilter = "vintage_warm_70s.cube",
             slots = listOf(
                 StatusSlot(1, 3500L, "slide"),
@@ -605,7 +605,7 @@ object StatusTemplateRepository {
             description = "Moonlit starry night aesthetic with gentle blue radiance and romantic ambiance.",
             gradientStartHex = "#2C3E50",
             gradientEndHex = "#FD746C",
-            audioAssetPath = "music_bgm/romantic_acoustic_love.wav",
+            audioAssetPath = "music_bgm/romantic_acoustic_love.m4a",
             lutFilter = "moody_dark_film.cube",
             slots = listOf(
                 StatusSlot(1, 3250L, "fade"),
@@ -629,7 +629,7 @@ object StatusTemplateRepository {
             description = "Opulent Indian wedding aesthetic with marigold garlands and golden shimmer.",
             gradientStartHex = "#F12711",
             gradientEndHex = "#F5AF19",
-            audioAssetPath = "music_bgm/devotional_ambient_flute.wav",
+            audioAssetPath = "music_bgm/devotional_ambient_flute.m4a",
             lutFilter = "cinematic_teal_and_orange.cube",
             slots = listOf(
                 StatusSlot(1, 3000L, "crossfade"),
@@ -654,7 +654,7 @@ object StatusTemplateRepository {
             description = "Bubbly upbeat romantic reels cuts with playful emoji bounce animations.",
             gradientStartHex = "#FF9A8B",
             gradientEndHex = "#FF6A88",
-            audioAssetPath = "music_bgm/romantic_acoustic_love.wav",
+            audioAssetPath = "music_bgm/romantic_acoustic_love.m4a",
             lutFilter = "vibrant_pop_reels.cube",
             slots = listOf(
                 StatusSlot(1, 2750L, "zoom_in"),
@@ -678,7 +678,7 @@ object StatusTemplateRepository {
             description = "Deep emotional piano with rain droplets and monochrome contrast.",
             gradientStartHex = "#2C3E50",
             gradientEndHex = "#000000",
-            audioAssetPath = "music_bgm/sad_piano_emotional.wav",
+            audioAssetPath = "music_bgm/sad_piano_emotional.m4a",
             lutFilter = "moody_dark_film.cube",
             slots = listOf(
                 StatusSlot(1, 4333L, "fade"),
@@ -701,7 +701,7 @@ object StatusTemplateRepository {
             description = "Melancholic midnight rain window aesthetic with gentle lofi beats.",
             gradientStartHex = "#1F1C2C",
             gradientEndHex = "#928DAB",
-            audioAssetPath = "music_bgm/sad_piano_emotional.wav",
+            audioAssetPath = "music_bgm/sad_piano_emotional.m4a",
             lutFilter = "moody_dark_film.cube",
             slots = listOf(
                 StatusSlot(1, 3500L, "crossfade"),
@@ -725,7 +725,7 @@ object StatusTemplateRepository {
             description = "Slow cinematic monochrome pan through an empty road of memories.",
             gradientStartHex = "#232526",
             gradientEndHex = "#414345",
-            audioAssetPath = "music_bgm/sad_piano_emotional.wav",
+            audioAssetPath = "music_bgm/sad_piano_emotional.m4a",
             lutFilter = "retro_monochrome_bw.cube",
             slots = listOf(
                 StatusSlot(1, 4000L, "fade"),
@@ -748,7 +748,7 @@ object StatusTemplateRepository {
             description = "Heart-wrenching piano minor chords focusing on the sorrow behind a smile.",
             gradientStartHex = "#0F2027",
             gradientEndHex = "#203A43",
-            audioAssetPath = "music_bgm/sad_piano_emotional.wav",
+            audioAssetPath = "music_bgm/sad_piano_emotional.m4a",
             lutFilter = "moody_dark_film.cube",
             slots = listOf(
                 StatusSlot(1, 3500L, "crossfade"),
@@ -772,7 +772,7 @@ object StatusTemplateRepository {
             description = "Glass fracture glitch cuts reflecting shattered dreams and unkept promises.",
             gradientStartHex = "#3A1C71",
             gradientEndHex = "#D76D77",
-            audioAssetPath = "music_bgm/sad_piano_emotional.wav",
+            audioAssetPath = "music_bgm/sad_piano_emotional.m4a",
             lutFilter = "moody_dark_film.cube",
             slots = listOf(
                 StatusSlot(1, 3666L, "glitch"),
@@ -795,7 +795,7 @@ object StatusTemplateRepository {
             description = "Poetic film slide reel tracing an unfinished chapter of love.",
             gradientStartHex = "#141E30",
             gradientEndHex = "#243B55",
-            audioAssetPath = "music_bgm/sad_piano_emotional.wav",
+            audioAssetPath = "music_bgm/sad_piano_emotional.m4a",
             lutFilter = "moody_dark_film.cube",
             slots = listOf(
                 StatusSlot(1, 3000L, "fade"),
@@ -820,7 +820,7 @@ object StatusTemplateRepository {
             description = "Dark ambient lofi chords expressing the quietness of a broken soul.",
             gradientStartHex = "#000428",
             gradientEndHex = "#004E92",
-            audioAssetPath = "music_bgm/sad_piano_emotional.wav",
+            audioAssetPath = "music_bgm/sad_piano_emotional.m4a",
             lutFilter = "retro_monochrome_bw.cube",
             slots = listOf(
                 StatusSlot(1, 4000L, "crossfade"),
@@ -843,7 +843,7 @@ object StatusTemplateRepository {
             description = "Wispy smoke dissolve transitions drifting through past memories.",
             gradientStartHex = "#434343",
             gradientEndHex = "#000000",
-            audioAssetPath = "music_bgm/sad_piano_emotional.wav",
+            audioAssetPath = "music_bgm/sad_piano_emotional.m4a",
             lutFilter = "moody_dark_film.cube",
             slots = listOf(
                 StatusSlot(1, 3250L, "fade"),
@@ -867,7 +867,7 @@ object StatusTemplateRepository {
             description = "Heavy 808 sub bass drop with golden flare borders and slow-mo walk cuts.",
             gradientStartHex = "#F7971E",
             gradientEndHex = "#FFD200",
-            audioAssetPath = "music_bgm/attitude_bass_drop.wav",
+            audioAssetPath = "music_bgm/attitude_bass_drop.m4a",
             lutFilter = "cinematic_teal_and_orange.cube",
             slots = listOf(
                 StatusSlot(1, 3000L, "whip_right"),
@@ -891,7 +891,7 @@ object StatusTemplateRepository {
             description = "High-impact aggressive beat drops with flashing red alert neon.",
             gradientStartHex = "#ED213A",
             gradientEndHex = "#93291E",
-            audioAssetPath = "music_bgm/attitude_bass_drop.wav",
+            audioAssetPath = "music_bgm/attitude_bass_drop.m4a",
             lutFilter = "vibrant_pop_reels.cube",
             slots = listOf(
                 StatusSlot(1, 3333L, "flash"),
@@ -914,7 +914,7 @@ object StatusTemplateRepository {
             description = "Dark moody cinematic noir with heavy trap beats and golden royalty accents.",
             gradientStartHex = "#000000",
             gradientEndHex = "#434343",
-            audioAssetPath = "music_bgm/attitude_bass_drop.wav",
+            audioAssetPath = "music_bgm/attitude_bass_drop.m4a",
             lutFilter = "moody_dark_film.cube",
             slots = listOf(
                 StatusSlot(1, 3500L, "fade"),
@@ -938,7 +938,7 @@ object StatusTemplateRepository {
             description = "Rustic Punjabi / Haryanvi swag with bullet thumping rhythm and dust swirls.",
             gradientStartHex = "#FF8008",
             gradientEndHex = "#FFC837",
-            audioAssetPath = "music_bgm/energetic_reels_trap_beat.wav",
+            audioAssetPath = "music_bgm/energetic_reels_trap_beat.m4a",
             lutFilter = "cinematic_teal_and_orange.cube",
             slots = listOf(
                 StatusSlot(1, 2750L, "slide"),
@@ -962,7 +962,7 @@ object StatusTemplateRepository {
             description = "Intense close-up zooms on the eyes with electric lightning cuts.",
             gradientStartHex = "#4B1248",
             gradientEndHex = "#F0C27B",
-            audioAssetPath = "music_bgm/attitude_bass_drop.wav",
+            audioAssetPath = "music_bgm/attitude_bass_drop.m4a",
             lutFilter = "cyberpunk_neon.cube",
             slots = listOf(
                 StatusSlot(1, 3000L, "zoom_in"),
@@ -986,7 +986,7 @@ object StatusTemplateRepository {
             description = "Golden luxury aesthetic with glitter sparkle transitions and rich aura.",
             gradientStartHex = "#FFE000",
             gradientEndHex = "#799F0C",
-            audioAssetPath = "music_bgm/attitude_bass_drop.wav",
+            audioAssetPath = "music_bgm/attitude_bass_drop.m4a",
             lutFilter = "vibrant_pop_reels.cube",
             slots = listOf(
                 StatusSlot(1, 3250L, "crossfade"),
@@ -1010,7 +1010,7 @@ object StatusTemplateRepository {
             description = "Soulful Urdu poetry script floating gently over cinematic monochrome frames.",
             gradientStartHex = "#3E5151",
             gradientEndHex = "#DECBA4",
-            audioAssetPath = "music_bgm/sad_piano_emotional.wav",
+            audioAssetPath = "music_bgm/sad_piano_emotional.m4a",
             lutFilter = "retro_monochrome_bw.cube",
             slots = listOf(
                 StatusSlot(1, 3750L, "fade"),
@@ -1034,7 +1034,7 @@ object StatusTemplateRepository {
             description = "Vibrant neon text glowing word-by-word with cyberpunk colors.",
             gradientStartHex = "#8A2387",
             gradientEndHex = "#E94057",
-            audioAssetPath = "music_bgm/energetic_reels_trap_beat.wav",
+            audioAssetPath = "music_bgm/energetic_reels_trap_beat.m4a",
             lutFilter = "cyberpunk_neon.cube",
             slots = listOf(
                 StatusSlot(1, 3250L, "glitch"),
@@ -1058,7 +1058,7 @@ object StatusTemplateRepository {
             description = "Classical Indian literary kavita with bansuri flute echoes and parchment style.",
             gradientStartHex = "#BA8B02",
             gradientEndHex = "#181818",
-            audioAssetPath = "music_bgm/devotional_ambient_flute.wav",
+            audioAssetPath = "music_bgm/devotional_ambient_flute.m4a",
             lutFilter = "vintage_warm_70s.cube",
             slots = listOf(
                 StatusSlot(1, 3500L, "crossfade"),
@@ -1082,7 +1082,7 @@ object StatusTemplateRepository {
             description = "Handmade paper ripped borders with retro polaroid photo slides.",
             gradientStartHex = "#E6DADA",
             gradientEndHex = "#274046",
-            audioAssetPath = "music_bgm/lofi_chill_vlog_beat.wav",
+            audioAssetPath = "music_bgm/lofi_chill_vlog_beat.m4a",
             lutFilter = "vintage_warm_70s.cube",
             slots = listOf(
                 StatusSlot(1, 3000L, "slide"),
@@ -1106,7 +1106,7 @@ object StatusTemplateRepository {
             description = "Embossed metallic gold cursive font radiating soft warm sparkles.",
             gradientStartHex = "#D4AF37",
             gradientEndHex = "#2F2F2F",
-            audioAssetPath = "music_bgm/romantic_acoustic_love.wav",
+            audioAssetPath = "music_bgm/romantic_acoustic_love.m4a",
             lutFilter = "cinematic_teal_and_orange.cube",
             slots = listOf(
                 StatusSlot(1, 3500L, "crossfade"),
@@ -1130,7 +1130,7 @@ object StatusTemplateRepository {
             description = "Classic Courier typewriter typography with ink blotches and nostalgic film.",
             gradientStartHex = "#8E9EAB",
             gradientEndHex = "#EEF2F3",
-            audioAssetPath = "music_bgm/lofi_chill_vlog_beat.wav",
+            audioAssetPath = "music_bgm/lofi_chill_vlog_beat.m4a",
             lutFilter = "retro_monochrome_bw.cube",
             slots = listOf(
                 StatusSlot(1, 3666L, "fade"),
@@ -1153,7 +1153,7 @@ object StatusTemplateRepository {
             description = "Bursting confetti fireworks, balloons, and sparkling golden birthday cheers.",
             gradientStartHex = "#FF6B6B",
             gradientEndHex = "#FFA07A",
-            audioAssetPath = "music_bgm/energetic_reels_trap_beat.wav",
+            audioAssetPath = "music_bgm/energetic_reels_trap_beat.m4a",
             lutFilter = "vibrant_pop_reels.cube",
             slots = listOf(
                 StatusSlot(1, 2750L, "flash"),
@@ -1177,7 +1177,7 @@ object StatusTemplateRepository {
             description = "Champagne toasts, gold glitter streamers, and royal birthday banner aesthetic.",
             gradientStartHex = "#FFE259",
             gradientEndHex = "#FFA751",
-            audioAssetPath = "music_bgm/attitude_bass_drop.wav",
+            audioAssetPath = "music_bgm/attitude_bass_drop.m4a",
             lutFilter = "vibrant_pop_reels.cube",
             slots = listOf(
                 StatusSlot(1, 3250L, "crossfade"),
@@ -1201,7 +1201,7 @@ object StatusTemplateRepository {
             description = "Candle blow-out slow-mo cut into energetic colorful disco party lights.",
             gradientStartHex = "#B92B27",
             gradientEndHex = "#1565C0",
-            audioAssetPath = "music_bgm/energetic_reels_trap_beat.wav",
+            audioAssetPath = "music_bgm/energetic_reels_trap_beat.m4a",
             lutFilter = "vibrant_pop_reels.cube",
             slots = listOf(
                 StatusSlot(1, 3333L, "flash"),
@@ -1224,7 +1224,7 @@ object StatusTemplateRepository {
             description = "Cute pastel balloon floating intro with sweet cheerful birthday wishes.",
             gradientStartHex = "#FF9A9E",
             gradientEndHex = "#FECFEF",
-            audioAssetPath = "music_bgm/lofi_chill_vlog_beat.wav",
+            audioAssetPath = "music_bgm/lofi_chill_vlog_beat.m4a",
             lutFilter = "vibrant_pop_reels.cube",
             slots = listOf(
                 StatusSlot(1, 3000L, "slide"),
@@ -1248,7 +1248,7 @@ object StatusTemplateRepository {
             description = "Heartwarming brotherhood celebration with joyful memories and group photos.",
             gradientStartHex = "#00C9FF",
             gradientEndHex = "#92FE9D",
-            audioAssetPath = "music_bgm/lofi_chill_vlog_beat.wav",
+            audioAssetPath = "music_bgm/lofi_chill_vlog_beat.m4a",
             lutFilter = "vibrant_pop_reels.cube",
             slots = listOf(
                 StatusSlot(1, 3250L, "slide"),
@@ -1272,7 +1272,7 @@ object StatusTemplateRepository {
             description = "Upbeat comedy reel highlighting the craziest moments with best friends.",
             gradientStartHex = "#F857A6",
             gradientEndHex = "#FF5858",
-            audioAssetPath = "music_bgm/energetic_reels_trap_beat.wav",
+            audioAssetPath = "music_bgm/energetic_reels_trap_beat.m4a",
             lutFilter = "vibrant_pop_reels.cube",
             slots = listOf(
                 StatusSlot(1, 2750L, "flash"),
@@ -1296,7 +1296,7 @@ object StatusTemplateRepository {
             description = "Emotional campus farewell montage with warm nostalgic film filters.",
             gradientStartHex = "#4CA1AF",
             gradientEndHex = "#C4E0E5",
-            audioAssetPath = "music_bgm/lofi_chill_vlog_beat.wav",
+            audioAssetPath = "music_bgm/lofi_chill_vlog_beat.m4a",
             lutFilter = "vintage_warm_70s.cube",
             slots = listOf(
                 StatusSlot(1, 2800L, "crossfade"),
@@ -1321,7 +1321,7 @@ object StatusTemplateRepository {
             description = "Powerful Shiva trident damru vibrations with ethereal mountain mists.",
             gradientStartHex = "#00416A",
             gradientEndHex = "#E4E5E6",
-            audioAssetPath = "music_bgm/devotional_ambient_flute.wav",
+            audioAssetPath = "music_bgm/devotional_ambient_flute.m4a",
             lutFilter = "moody_dark_film.cube",
             slots = listOf(
                 StatusSlot(1, 3750L, "fade"),
@@ -1345,7 +1345,7 @@ object StatusTemplateRepository {
             description = "Saffron divine glow with temple bell chimes and magnificent golden radiance.",
             gradientStartHex = "#FF8008",
             gradientEndHex = "#FFC837",
-            audioAssetPath = "music_bgm/devotional_ambient_flute.wav",
+            audioAssetPath = "music_bgm/devotional_ambient_flute.m4a",
             lutFilter = "cinematic_teal_and_orange.cube",
             slots = listOf(
                 StatusSlot(1, 3500L, "crossfade"),
@@ -1369,7 +1369,7 @@ object StatusTemplateRepository {
             description = "Melodious Vrindavan bansuri with peacock feather colors and blissful peace.",
             gradientStartHex = "#134E5E",
             gradientEndHex = "#71B280",
-            audioAssetPath = "music_bgm/devotional_ambient_flute.wav",
+            audioAssetPath = "music_bgm/devotional_ambient_flute.m4a",
             lutFilter = "vibrant_pop_reels.cube",
             slots = listOf(
                 StatusSlot(1, 3750L, "crossfade"),
@@ -1468,7 +1468,7 @@ object StatusTemplateRepository {
                         description = obj.optString("description", "Community template with custom transitions and effects."),
                         gradientStartHex = obj.optString("gradientStartHex", "#FF416C"),
                         gradientEndHex = obj.optString("gradientEndHex", "#8A2387"),
-                        audioAssetPath = obj.optString("audioAssetPath", "music_bgm/attitude_bass_drop.wav"),
+                        audioAssetPath = obj.optString("audioAssetPath", "music_bgm/attitude_bass_drop.m4a"),
                         lutFilter = obj.optString("lutFilter", ""),
                         slots = slots.ifEmpty { listOf(StatusSlot(1, 10000L, "zoom_in")) },
                         textOverlays = textOverlays,
@@ -1560,42 +1560,42 @@ object StatusSoundtrackRepository {
             title = "Energetic Trap Beat",
             category = "Trending Reels",
             emoji = "⚡",
-            assetPath = "music_bgm/energetic_reels_trap_beat.wav"
+            assetPath = "music_bgm/energetic_reels_trap_beat.m4a"
         ),
         StatusSoundtrack(
             id = "snd_attitude",
             title = "Attitude Bass Drop",
             category = "Swag & Bass",
             emoji = "😎",
-            assetPath = "music_bgm/attitude_bass_drop.wav"
+            assetPath = "music_bgm/attitude_bass_drop.m4a"
         ),
         StatusSoundtrack(
             id = "snd_romantic",
             title = "Romantic Acoustic Love",
             category = "Love & Couple",
             emoji = "💖",
-            assetPath = "music_bgm/romantic_acoustic_love.wav"
+            assetPath = "music_bgm/romantic_acoustic_love.m4a"
         ),
         StatusSoundtrack(
             id = "snd_lofi",
             title = "Lo-Fi Chill Vlog Beat",
             category = "Chill Aesthetic",
             emoji = "☕",
-            assetPath = "music_bgm/lofi_chill_vlog_beat.wav"
+            assetPath = "music_bgm/lofi_chill_vlog_beat.m4a"
         ),
         StatusSoundtrack(
             id = "snd_sad",
             title = "Sad Piano Emotional",
             category = "Emotional Memories",
             emoji = "🥺",
-            assetPath = "music_bgm/sad_piano_emotional.wav"
+            assetPath = "music_bgm/sad_piano_emotional.m4a"
         ),
         StatusSoundtrack(
             id = "snd_devotional",
             title = "Devotional Ambient Flute",
             category = "Spiritual & Bhakti",
             emoji = "🪔",
-            assetPath = "music_bgm/devotional_ambient_flute.wav"
+            assetPath = "music_bgm/devotional_ambient_flute.m4a"
         )
     )
 

@@ -297,7 +297,7 @@ object SmartConversationalEngine {
             return "Video pause kar di hai bhai! ⏸️"
         }
         return "Bhai aap video me kya edit karna chahte ho? Aap seedhe bol ya type kar sakte ho:\n\n" +
-            "• 'Status banao' (1-photo se Mast video maker jaisa jordaar video)\n" +
+            "• 'Status banao' (1-photo se Storyline Status Pro jordaar video)\n" +
             "• 'Play' ya 'Pause' (video chalane/rokne ke liye)\n" +
             "• 'Silence hatao' (dead pauses trim karne ke liye)\n" +
             "• 'Cut karo' (current frame par split karne ke liye)\n" +
@@ -449,7 +449,7 @@ object SmartConversationalEngine {
         return "👑 **Main Storyline Video Editor Ka Master AI Copilot Hoon!** 🚀\n\n" +
             "Aapki ek aawaaz ya chat message par main poore app ke saare tools control kar sakta hoon:\n\n" +
             "• 📸 **Fun Camera:** 'Camera kholo' bolo -> Snapchat lenses & selfie glow camera launch hoga!\n" +
-            "• 🌟 **Status Maker:** 'Status maker kholo' -> 1-Photo se Mast video maker status banega!\n" +
+            "• 🌟 **Status Maker:** 'Status maker kholo' -> 1-Photo se Storyline Status Pro banega!\n" +
             "• 🖼️ **Photo Editor:** 'Photo editor kholo' -> Studio thumbnails & magic cutout designer!\n" +
             "• 🎵 **1-Tap Beat Cut:** 'Beat cut karo' -> Gaane ke har drop par video auto-split & flash!\n" +
             "• 📜 **Shayari Studio:** 'Shayari likho' -> Romantic, Attitude, Sad shayari with 1-tap text overlay!\n" +

@@ -330,8 +330,16 @@ class CanvasVideoEncoder(
 
         if (audioFile != null && audioFile.exists() && audioFile.length() > 0) {
             val muxOk = muxVideoAndAudio(tempVideoOnlyFile, audioFile, outputFile, maxDurationUs)
-            try { tempVideoOnlyFile.delete() } catch (_: Exception) {}
-            return muxOk && outputFile.exists() && outputFile.length() > 0
+            if (muxOk && outputFile.exists() && outputFile.length() > 0) {
+                try { tempVideoOnlyFile.delete() } catch (_: Exception) {}
+                return true
+            }
+            Log.w(TAG, "Audio muxing did not produce valid output; falling back to video-only export")
+            if (tempVideoOnlyFile.exists() && tempVideoOnlyFile.length() > 0) {
+                if (outputFile.exists()) outputFile.delete()
+                return tempVideoOnlyFile.renameTo(outputFile)
+            }
+            return false
         } else {
             // No audio, simply rename video-only to destination
             if (outputFile.exists()) outputFile.delete()
@@ -379,7 +387,12 @@ class CanvasVideoEncoder(
                 if (mime.startsWith("audio/")) {
                     audioExtractor.selectTrack(i)
                     audioExtractorTrack = i
-                    audioTrackIdx = finalMuxer.addTrack(format)
+                    try {
+                        audioTrackIdx = finalMuxer.addTrack(format)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to add audio track ($mime) to MediaMuxer: ${e.message}")
+                        audioTrackIdx = -1
+                    }
                     break
                 }
             }

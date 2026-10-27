@@ -7470,7 +7470,7 @@ class VideoEditorActivity : ComponentActivity() {
                 description = "Custom creator template with dynamic transitions, beat ramps, and kinetic lyrics.",
                 gradientStartHex = "#FF0844",
                 gradientEndHex = "#FFB199",
-                audioAssetPath = "music_bgm/attitude_bass_drop.wav",
+                audioAssetPath = "music_bgm/attitude_bass_drop.m4a",
                 lutFilter = "",
                 slots = slots,
                 textOverlays = textOverlays,
@@ -8475,15 +8475,15 @@ class VideoEditorActivity : ComponentActivity() {
 
     fun addBundledBgm(trackName: String): Boolean {
         val assetFile = when (trackName.lowercase(Locale.US)) {
-            "trap" -> "music_bgm/energetic_reels_trap_beat.wav"
-            "attitude" -> "music_bgm/attitude_bass_drop.wav"
-            "sad" -> "music_bgm/sad_piano_emotional.wav"
-            "romantic" -> "music_bgm/romantic_acoustic_love.wav"
-            "ambient" -> "music_bgm/devotional_ambient_flute.wav"
-            else -> "music_bgm/lofi_chill_vlog_beat.wav"
+            "trap" -> "music_bgm/energetic_reels_trap_beat.m4a"
+            "attitude" -> "music_bgm/attitude_bass_drop.m4a"
+            "sad" -> "music_bgm/sad_piano_emotional.m4a"
+            "romantic" -> "music_bgm/romantic_acoustic_love.m4a"
+            "ambient" -> "music_bgm/devotional_ambient_flute.m4a"
+            else -> "music_bgm/lofi_chill_vlog_beat.m4a"
         }
         return try {
-            val tempFile = File(cacheDir, "bgm_${System.currentTimeMillis()}.wav")
+            val tempFile = File(cacheDir, "bgm_${System.currentTimeMillis()}.m4a")
             assets.open(assetFile).use { input ->
                 java.io.FileOutputStream(tempFile).use { output ->
                     input.copyTo(output)

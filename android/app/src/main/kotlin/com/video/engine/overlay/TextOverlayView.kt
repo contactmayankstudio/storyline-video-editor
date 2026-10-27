@@ -148,6 +148,8 @@ class TextOverlayView @JvmOverloads constructor(
     init {
         clipChildren = false
         clipToPadding = false
+        isClickable = true
+        isFocusable = true
 
         // Padding around view so corner buttons sit right on the bounding box edges
         setPadding(dp(16), dp(16), dp(16), dp(16))
@@ -365,6 +367,11 @@ class TextOverlayView @JvmOverloads constructor(
         brScaleRotateButton.scaleY = inverseScale
     }
 
+    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        // Intercept all touches on TextOverlayView so child views (like textView) don't swallow them
+        return true
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         scaleDetector.onTouchEvent(event)
 
@@ -491,7 +498,7 @@ class TextOverlayView @JvmOverloads constructor(
 
     private fun isNearHandle(view: View, touchX: Float, touchY: Float): Boolean {
         if (view.visibility != View.VISIBLE) return false
-        val slopPx = dp(36)
+        val slopPx = dp(40)
         val handleCenterX = view.left + (view.width * 0.5f)
         val handleCenterY = view.top + (view.height * 0.5f)
         return hypot((touchX - handleCenterX).toDouble(), (touchY - handleCenterY).toDouble()) <= slopPx
@@ -520,15 +527,17 @@ class TextOverlayView @JvmOverloads constructor(
         val parentH = parentView.height
         if (parentW <= 0 || parentH <= 0 || width <= 0 || height <= 0) return
 
-        val scaledWidth = (width * abs(scaleX)).coerceAtLeast(1f)
-        val scaledHeight = (height * abs(scaleY)).coerceAtLeast(1f)
-        if (scaledWidth >= parentW || scaledHeight >= parentH) return
-        val minCenterX = scaledWidth * 0.5f
-        val minCenterY = scaledHeight * 0.5f
-        val maxCenterX = parentW.toFloat() - scaledWidth * 0.5f
-        val maxCenterY = parentH.toFloat() - scaledHeight * 0.5f
-        val clampedCenterX = (x + width * 0.5f).coerceIn(minCenterX, maxCenterX)
-        val clampedCenterY = (y + height * 0.5f).coerceIn(minCenterY, maxCenterY)
+        val marginPx = dp(24).toFloat()
+        val minCenterX = marginPx
+        val maxCenterX = (parentW.toFloat() - marginPx).coerceAtLeast(minCenterX)
+        val minCenterY = marginPx
+        val maxCenterY = (parentH.toFloat() - marginPx).coerceAtLeast(minCenterY)
+
+        val currentCenterX = x + width * 0.5f
+        val currentCenterY = y + height * 0.5f
+        val clampedCenterX = currentCenterX.coerceIn(minCenterX, maxCenterX)
+        val clampedCenterY = currentCenterY.coerceIn(minCenterY, maxCenterY)
+
         val clampedLeft = clampedCenterX - width * 0.5f
         val clampedTop = clampedCenterY - height * 0.5f
         translationX = clampedLeft - left.toFloat()

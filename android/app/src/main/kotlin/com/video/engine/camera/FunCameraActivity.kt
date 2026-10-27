@@ -1744,7 +1744,7 @@ class FunCameraActivity : ComponentActivity() {
 
     private fun playShutterSound() {
         try {
-            assets.openFd("sound_effects/camera_shutter.wav").use { afd ->
+            assets.openFd("sound_effects/camera_shutter.m4a").use { afd ->
                 val player = MediaPlayer()
                 player.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
                 player.prepare()
@@ -2021,12 +2021,12 @@ class FunCameraActivity : ComponentActivity() {
     private fun showMusicSelectionDialog() {
         val tracks = listOf(
             Triple("None / Mute BGM 🔇", null, false),
-            Triple("Attitude Bass Drop 💥", "music_bgm/attitude_bass_drop.wav", true),
-            Triple("Energetic Trap Beat ⚡", "music_bgm/energetic_reels_trap_beat.wav", true),
-            Triple("Romantic Acoustic Love 💖", "music_bgm/romantic_acoustic_love.wav", true),
-            Triple("Lo-Fi Chill Beat ☕", "music_bgm/lofi_chill_vlog_beat.wav", true),
-            Triple("Devotional Ambient Flute 🕉️", "music_bgm/devotional_ambient_flute.wav", true),
-            Triple("Emotional Sad Piano 🥺", "music_bgm/sad_piano_emotional.wav", true),
+            Triple("Attitude Bass Drop 💥", "music_bgm/attitude_bass_drop.m4a", true),
+            Triple("Energetic Trap Beat ⚡", "music_bgm/energetic_reels_trap_beat.m4a", true),
+            Triple("Romantic Acoustic Love 💖", "music_bgm/romantic_acoustic_love.m4a", true),
+            Triple("Lo-Fi Chill Beat ☕", "music_bgm/lofi_chill_vlog_beat.m4a", true),
+            Triple("Devotional Ambient Flute 🕉️", "music_bgm/devotional_ambient_flute.m4a", true),
+            Triple("Emotional Sad Piano 🥺", "music_bgm/sad_piano_emotional.m4a", true),
             Triple("Choose from Phone Storage... 📁", "CHOOSE_STORAGE", false)
         )
 
@@ -2171,7 +2171,7 @@ class FunCameraActivity : ComponentActivity() {
 
     private fun playCountdownTickSound() {
         try {
-            assets.openFd("sound_effects/kenney_click1.wav").use { afd ->
+            assets.openFd("sound_effects/kenney_click1.m4a").use { afd ->
                 val player = MediaPlayer()
                 player.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
                 player.prepare()
