@@ -413,7 +413,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="1-Photo Instant Status Maker"
+                    android:text="1-Click Photo &amp; Video Status"
                     android:textColor="#FFFFFF"
                     android:textSize="13.5sp"
                     android:textStyle="bold" />
@@ -422,7 +422,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="Pick 1 photo &amp; see instant animated preview 🔥"
+                    android:text="Pick photo or video &amp; see instant animated status 🔥"
                     android:textColor="#8A99AD"
                     android:textSize="11sp" />
             </LinearLayout>
@@ -435,7 +435,7 @@
                 android:paddingTop="7dp"
                 android:paddingEnd="12dp"
                 android:paddingBottom="7dp"
-                android:text="Pick Photo 📸"
+                android:text="Pick Media 📸🎬"
                 android:textColor="#FFFFFF"
                 android:textSize="11.5sp"
                 android:textStyle="bold" />

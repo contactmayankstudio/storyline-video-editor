@@ -91,11 +91,12 @@ class OverlayController(
         scale: Float,
     ): Float {
         val safeContainer = containerSize.coerceAtLeast(1)
-        val safeMeasured = measuredSize.coerceAtLeast(1)
-        val renderedSize = (safeMeasured * scale.coerceAtLeast(0.1f)).coerceAtLeast(1f)
-        val minCenter = renderedSize * 0.5f
-        val maxCenter = (safeContainer.toFloat() - renderedSize * 0.5f).coerceAtLeast(minCenter)
-        return (normalizedCenter.coerceIn(0f, 1f) * safeContainer).coerceIn(minCenter, maxCenter)
+        // Allow the center of the text to be moved anywhere across the preview canvas
+        val marginPx = 20f
+        val minCenter = marginPx
+        val maxCenter = (safeContainer.toFloat() - marginPx).coerceAtLeast(minCenter)
+        val centerPx = normalizedCenter * safeContainer
+        return centerPx.coerceIn(minCenter, maxCenter)
     }
 
     fun showAddTextDialog() {
@@ -231,8 +232,12 @@ class OverlayController(
         overlayView.setText(overlay.text)
         overlayView.applyStyle(overlay)
         overlayView.tag = "text-${overlay.id}"
-        val left = (overlay.x * width - 100f).toInt().coerceIn(0, (width - 200).coerceAtLeast(0))
-        val top = (overlay.y * height - 50f).toInt().coerceIn(0, (height - 100).coerceAtLeast(0))
+        overlayView.scaleX = overlay.scale
+        overlayView.scaleY = overlay.scale
+        overlayView.rotation = overlay.rotation
+        overlayView.syncControlChromeScale()
+        val left = (overlay.x * width - 100f).toInt()
+        val top = (overlay.y * height - 50f).toInt()
 
         val lp = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -250,10 +255,8 @@ class OverlayController(
             val measuredHeight = overlayView.height.takeIf { it > 0 } ?: 100
             val clampedCenterX = clampOverlayCenterPx(overlay.x, width, measuredWidth, overlay.scale)
             val clampedCenterY = clampOverlayCenterPx(overlay.y, height, measuredHeight, overlay.scale)
-            val centeredLeft =
-                (clampedCenterX - measuredWidth * 0.5f).toInt().coerceIn(0, (width - measuredWidth).coerceAtLeast(0))
-            val centeredTop =
-                (clampedCenterY - measuredHeight * 0.5f).toInt().coerceIn(0, (height - measuredHeight).coerceAtLeast(0))
+            val centeredLeft = (clampedCenterX - measuredWidth * 0.5f).toInt()
+            val centeredTop = (clampedCenterY - measuredHeight * 0.5f).toInt()
             val params = (overlayView.layoutParams as? FrameLayout.LayoutParams) ?: return@post
             val normalizedCenterX = (clampedCenterX / width.toFloat()).coerceIn(0f, 1f)
             val normalizedCenterY = (clampedCenterY / height.toFloat()).coerceIn(0f, 1f)

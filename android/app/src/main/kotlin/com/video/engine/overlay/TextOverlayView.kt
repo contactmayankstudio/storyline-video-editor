@@ -38,9 +38,15 @@ class TextOverlayView @JvmOverloads constructor(
     private enum class TouchMode {
         NONE,
         BODY_DRAG,
-        STRETCH_WIDTH,
         SCALE_ROTATE,
         PINCH_MULTI
+    }
+
+    private enum class Corner {
+        TOP_LEFT,
+        TOP_RIGHT,
+        BOTTOM_LEFT,
+        BOTTOM_RIGHT
     }
 
     private val textView: TextView = TextView(context).apply {
@@ -66,24 +72,13 @@ class TextOverlayView @JvmOverloads constructor(
 
     // 4 Corner Control Handles
     // Top-Left: Delete
-    private val tlDeleteButton = createHandleButton("✕", Color.parseColor("#D90429"), Color.WHITE).apply {
-        setOnClickListener { onDeleteRequested?.invoke() }
-    }
+    private val tlDeleteButton = createHandleButton("✕", Color.parseColor("#D90429"), Color.WHITE)
 
     // Top-Right: Width / Stretch (Choda)
     private val trStretchButton = createHandleButton("↔", Color.parseColor("#1B2838"), Color.parseColor("#388BFD"))
 
     // Bottom-Left: Reset / Snap
-    private val blResetButton = createHandleButton("↺", Color.parseColor("#1B2838"), Color.parseColor("#388BFD")).apply {
-        setOnClickListener {
-            rotation = 0f
-            scaleX = 1f
-            scaleY = 1f
-            syncControlChromeScale()
-            notifyTransformChanged(immediate = true)
-            dispatchTransformCommitted()
-        }
-    }
+    private val blResetButton = createHandleButton("↺", Color.parseColor("#1B2838"), Color.parseColor("#388BFD"))
 
     // Bottom-Right: Scale / Zoom (Bada) & Rotate
     private val brScaleRotateButton = createHandleButton("⤢", Color.parseColor("#388BFD"), Color.WHITE)
@@ -108,6 +103,8 @@ class TextOverlayView @JvmOverloads constructor(
 
     // Touch tracking state
     private var activeTouchMode = TouchMode.NONE
+    private var activeCorner: Corner? = null
+    private var hasMovedBeyondSlop = false
     private var lastRawX = 0f
     private var lastRawY = 0f
     private var startRawX = 0f
@@ -381,6 +378,7 @@ class TextOverlayView @JvmOverloads constructor(
                 lastRawY = event.rawY
                 startRawX = event.rawX
                 startRawY = event.rawY
+                hasMovedBeyondSlop = false
 
                 bringToFront()
                 setLayerType(View.LAYER_TYPE_HARDWARE, null)
@@ -388,38 +386,29 @@ class TextOverlayView @JvmOverloads constructor(
                 showControls(true)
                 onSelected?.invoke()
 
-                // Check hit against the 4 corner handles
-                when {
-                    isNearHandle(tlDeleteButton, event.x, event.y) -> {
-                        activeTouchMode = TouchMode.NONE
-                        onDeleteRequested?.invoke()
-                        return true
+                // Check hit against the 4 corner handles using physical screen coordinates
+                val hitTL = isNearHandle(tlDeleteButton, event.rawX, event.rawY)
+                val hitTR = isNearHandle(trStretchButton, event.rawX, event.rawY)
+                val hitBL = isNearHandle(blResetButton, event.rawX, event.rawY)
+                val hitBR = isNearHandle(brScaleRotateButton, event.rawX, event.rawY)
+
+                if (hitTL || hitTR || hitBL || hitBR) {
+                    activeTouchMode = TouchMode.SCALE_ROTATE
+                    activeCorner = when {
+                        hitTL -> Corner.TOP_LEFT
+                        hitTR -> Corner.TOP_RIGHT
+                        hitBL -> Corner.BOTTOM_LEFT
+                        else -> Corner.BOTTOM_RIGHT
                     }
-                    isNearHandle(blResetButton, event.x, event.y) -> {
-                        activeTouchMode = TouchMode.NONE
-                        rotation = 0f
-                        scaleX = 1f
-                        scaleY = 1f
-                        syncControlChromeScale()
-                        notifyTransformChanged(immediate = true)
-                        dispatchTransformCommitted()
-                        return true
-                    }
-                    isNearHandle(trStretchButton, event.x, event.y) -> {
-                        activeTouchMode = TouchMode.STRETCH_WIDTH
-                        startMaxWidth = if (textView.maxWidth in 1..99999) textView.maxWidth else textView.width
-                    }
-                    isNearHandle(brScaleRotateButton, event.x, event.y) -> {
-                        activeTouchMode = TouchMode.SCALE_ROTATE
-                        computeCenterScreen()
-                        startDist = hypot((event.rawX - centerScreenX).toDouble(), (event.rawY - centerScreenY).toDouble()).toFloat().coerceAtLeast(10f)
-                        startScale = scaleX
-                        startAngle = atan2((event.rawY - centerScreenY).toDouble(), (event.rawX - centerScreenX).toDouble())
-                        startRotation = rotation
-                    }
-                    else -> {
-                        activeTouchMode = TouchMode.BODY_DRAG
-                    }
+                    computeCenterScreen()
+                    startDist = hypot((event.rawX - centerScreenX).toDouble(), (event.rawY - centerScreenY).toDouble()).toFloat().coerceAtLeast(10f)
+                    startScale = scaleX
+                    startAngle = atan2((event.rawY - centerScreenY).toDouble(), (event.rawX - centerScreenX).toDouble())
+                    startRotation = rotation
+                    startMaxWidth = if (textView.maxWidth in 1..99999) textView.maxWidth else textView.width
+                } else {
+                    activeTouchMode = TouchMode.BODY_DRAG
+                    activeCorner = null
                 }
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
@@ -460,32 +449,76 @@ class TextOverlayView @JvmOverloads constructor(
                         }
                     }
                     TouchMode.SCALE_ROTATE -> {
-                        val currDist = hypot((event.rawX - centerScreenX).toDouble(), (event.rawY - centerScreenY).toDouble()).toFloat()
-                        val factor = (currDist / startDist).coerceIn(0.15f, 8.0f)
-                        val newScale = (startScale * factor).coerceIn(0.15f, 8.0f)
-                        scaleX = newScale
-                        scaleY = newScale
+                        val dragDist = hypot((event.rawX - startRawX).toDouble(), (event.rawY - startRawY).toDouble()).toFloat()
+                        if (dragDist > dp(6f)) {
+                            hasMovedBeyondSlop = true
+                        }
+                        if (hasMovedBeyondSlop) {
+                            val currDist = hypot((event.rawX - centerScreenX).toDouble(), (event.rawY - centerScreenY).toDouble()).toFloat()
+                            val factor = (currDist / startDist).coerceIn(0.15f, 8.0f)
+                            val newScale = (startScale * factor).coerceIn(0.2f, 8.0f)
+                            scaleX = newScale
+                            scaleY = newScale
 
-                        val currAngle = atan2((event.rawY - centerScreenY).toDouble(), (event.rawX - centerScreenX).toDouble())
-                        val deltaDeg = Math.toDegrees(currAngle - startAngle).toFloat()
-                        rotation = startRotation + deltaDeg
+                            val currAngle = atan2((event.rawY - centerScreenY).toDouble(), (event.rawX - centerScreenX).toDouble())
+                            val deltaDeg = Math.toDegrees(currAngle - startAngle).toFloat()
+                            rotation = startRotation + deltaDeg
 
-                        syncControlChromeScale()
-                        clampToParentBounds()
-                        notifyTransformChanged()
-                    }
-                    TouchMode.STRETCH_WIDTH -> {
-                        val dx = (event.rawX - startRawX) / abs(scaleX).coerceAtLeast(0.1f)
-                        val newW = (startMaxWidth + (dx * 2).toInt()).coerceIn(dp(60), dp(1200))
-                        textView.maxWidth = newW
-                        textView.requestLayout()
-                        notifyTransformChanged()
+                            syncControlChromeScale()
+                            clampToParentBounds()
+                            notifyTransformChanged()
+                        }
                     }
                     TouchMode.NONE -> Unit
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (activeTouchMode == TouchMode.SCALE_ROTATE && !hasMovedBeyondSlop) {
+                    // Quick tap on corner handles without dragging
+                    when (activeCorner) {
+                        Corner.TOP_LEFT -> {
+                            activeTouchMode = TouchMode.NONE
+                            onDeleteRequested?.invoke()
+                            return true
+                        }
+                        Corner.BOTTOM_LEFT -> {
+                            rotation = 0f
+                            scaleX = 1f
+                            scaleY = 1f
+                            syncControlChromeScale()
+                            notifyTransformChanged(immediate = true)
+                            dispatchTransformCommitted()
+                        }
+                        Corner.TOP_RIGHT -> {
+                            val parentW = (parent as? View)?.width ?: 1000
+                            if (textView.maxWidth < parentW * 0.85f) {
+                                textView.maxWidth = (parentW * 0.92f).toInt()
+                            } else {
+                                textView.maxWidth = (parentW * 0.55f).toInt()
+                            }
+                            textView.requestLayout()
+                            notifyTransformChanged(immediate = true)
+                            dispatchTransformCommitted()
+                        }
+                        Corner.BOTTOM_RIGHT -> {
+                            val normalizedRot = ((rotation % 360f) + 360f) % 360f
+                            val snapped = when {
+                                normalizedRot < 15f || normalizedRot > 345f -> 0f
+                                abs(normalizedRot - 90f) < 15f -> 90f
+                                abs(normalizedRot - 180f) < 15f -> 180f
+                                abs(normalizedRot - 270f) < 15f -> 270f
+                                else -> rotation
+                            }
+                            rotation = snapped
+                            notifyTransformChanged(immediate = true)
+                            dispatchTransformCommitted()
+                        }
+                        null -> Unit
+                    }
+                }
+
                 activeTouchMode = TouchMode.NONE
+                activeCorner = null
                 postDelayed({ setLayerType(View.LAYER_TYPE_NONE, null) }, 120L)
                 parent?.requestDisallowInterceptTouchEvent(false)
                 clampToParentBounds()
@@ -496,12 +529,14 @@ class TextOverlayView @JvmOverloads constructor(
         return true
     }
 
-    private fun isNearHandle(view: View, touchX: Float, touchY: Float): Boolean {
+    private fun isNearHandle(view: View, rawX: Float, rawY: Float): Boolean {
         if (view.visibility != View.VISIBLE) return false
-        val slopPx = dp(40)
-        val handleCenterX = view.left + (view.width * 0.5f)
-        val handleCenterY = view.top + (view.height * 0.5f)
-        return hypot((touchX - handleCenterX).toDouble(), (touchY - handleCenterY).toDouble()) <= slopPx
+        val loc = IntArray(2)
+        view.getLocationOnScreen(loc)
+        val handleCenterX = loc[0] + (view.width * 0.5f)
+        val handleCenterY = loc[1] + (view.height * 0.5f)
+        val slopPx = dp(38f)
+        return hypot((rawX - handleCenterX).toDouble(), (rawY - handleCenterY).toDouble()) <= slopPx
     }
 
     private fun computeCenterScreen() {
@@ -527,7 +562,7 @@ class TextOverlayView @JvmOverloads constructor(
         val parentH = parentView.height
         if (parentW <= 0 || parentH <= 0 || width <= 0 || height <= 0) return
 
-        val marginPx = dp(24).toFloat()
+        val marginPx = dp(16).toFloat()
         val minCenterX = marginPx
         val maxCenterX = (parentW.toFloat() - marginPx).coerceAtLeast(minCenterX)
         val minCenterY = marginPx
@@ -563,17 +598,14 @@ class TextOverlayView @JvmOverloads constructor(
         val parentH = (parent as? View)?.height ?: return
         if (parentW == 0 || parentH == 0) return
 
-        val scaledWidth = (width * abs(scaleX)).coerceAtLeast(1f)
-        val scaledHeight = (height * abs(scaleY)).coerceAtLeast(1f)
-        val minCenterX = scaledWidth * 0.5f
-        val minCenterY = scaledHeight * 0.5f
-        val maxCenterX = (parentW.toFloat() - scaledWidth * 0.5f).coerceAtLeast(minCenterX)
-        val maxCenterY = (parentH.toFloat() - scaledHeight * 0.5f).coerceAtLeast(minCenterY)
-        val centerXPx = (x + width * 0.5f).coerceIn(minCenterX, maxCenterX)
-        val centerYPx = (y + height * 0.5f).coerceIn(minCenterY, maxCenterY)
-        val centerX = centerXPx / parentW.toFloat()
-        val centerY = centerYPx / parentH.toFloat()
-        onTransformChanged?.invoke(centerX.coerceIn(0f, 1f), centerY.coerceIn(0f, 1f), scaleX, rotation)
+        val currentCenterX = x + width * 0.5f
+        val currentCenterY = y + height * 0.5f
+        val marginPx = dp(16).toFloat()
+        val clampedCenterX = currentCenterX.coerceIn(marginPx, (parentW.toFloat() - marginPx).coerceAtLeast(marginPx))
+        val clampedCenterY = currentCenterY.coerceIn(marginPx, (parentH.toFloat() - marginPx).coerceAtLeast(marginPx))
+        val centerX = (clampedCenterX / parentW.toFloat()).coerceIn(0f, 1f)
+        val centerY = (clampedCenterY / parentH.toFloat()).coerceIn(0f, 1f)
+        onTransformChanged?.invoke(centerX, centerY, scaleX, rotation)
     }
 
     private fun dispatchTransformCommitted() {
@@ -581,17 +613,14 @@ class TextOverlayView @JvmOverloads constructor(
         val parentH = (parent as? View)?.height ?: return
         if (parentW == 0 || parentH == 0) return
 
-        val scaledWidth = (width * abs(scaleX)).coerceAtLeast(1f)
-        val scaledHeight = (height * abs(scaleY)).coerceAtLeast(1f)
-        val minCenterX = scaledWidth * 0.5f
-        val minCenterY = scaledHeight * 0.5f
-        val maxCenterX = (parentW.toFloat() - scaledWidth * 0.5f).coerceAtLeast(minCenterX)
-        val maxCenterY = (parentH.toFloat() - scaledHeight * 0.5f).coerceAtLeast(minCenterY)
-        val centerXPx = (x + width * 0.5f).coerceIn(minCenterX, maxCenterX)
-        val centerYPx = (y + height * 0.5f).coerceIn(minCenterY, maxCenterY)
-        val centerX = centerXPx / parentW.toFloat()
-        val centerY = centerYPx / parentH.toFloat()
-        onTransformCommitted?.invoke(centerX.coerceIn(0f, 1f), centerY.coerceIn(0f, 1f), scaleX, rotation)
+        val currentCenterX = x + width * 0.5f
+        val currentCenterY = y + height * 0.5f
+        val marginPx = dp(16).toFloat()
+        val clampedCenterX = currentCenterX.coerceIn(marginPx, (parentW.toFloat() - marginPx).coerceAtLeast(marginPx))
+        val clampedCenterY = currentCenterY.coerceIn(marginPx, (parentH.toFloat() - marginPx).coerceAtLeast(marginPx))
+        val centerX = (clampedCenterX / parentW.toFloat()).coerceIn(0f, 1f)
+        val centerY = (clampedCenterY / parentH.toFloat()).coerceIn(0f, 1f)
+        onTransformCommitted?.invoke(centerX, centerY, scaleX, rotation)
     }
 
     private fun resolveTypeface(fontName: String?, bold: Boolean, italic: Boolean): Typeface {

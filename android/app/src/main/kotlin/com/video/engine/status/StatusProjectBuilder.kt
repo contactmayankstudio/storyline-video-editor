@@ -107,6 +107,7 @@ object StatusProjectBuilder {
 
                 template.slots.forEachIndexed { index, slot ->
                     val photoPath = normalizedPhotoPaths[index % normalizedPhotoPaths.size]
+                    val isVideo = StatusMediaHelper.isVideoFile(photoPath)
                     val motion = getMotionParamsForStyle(index, isSinglePhoto, motionStyle)
                     val contrast = if (isSinglePhoto && index % 2 == 1) baseContrast * 1.05 else baseContrast
                     val saturation = if (isSinglePhoto && index % 2 == 1) baseSaturation * 1.06 else baseSaturation
@@ -116,8 +117,14 @@ object StatusProjectBuilder {
                         put("mediaPath", photoPath)
                         put("startTimeMs", currentTimelineTimeMs)
                         put("durationMs", slot.durationMs)
-                        put("sourceInMs", 0L)
-                        put("sourceOutMs", slot.durationMs)
+                        if (isVideo) {
+                            val sourceIn = if (isSinglePhoto) currentTimelineTimeMs else 0L
+                            put("sourceInMs", sourceIn)
+                            put("sourceOutMs", sourceIn + slot.durationMs)
+                        } else {
+                            put("sourceInMs", 0L)
+                            put("sourceOutMs", slot.durationMs)
+                        }
                         put("trackType", "VIDEO")
                         put("trackLane", 0)
                         put("zOrder", 0)

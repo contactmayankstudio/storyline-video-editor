@@ -489,15 +489,25 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         setMeasuredDimension(desiredWidth, desiredHeight)
     }
 
+    var customVideoPath: String? = null
+
     fun setCustomPhoto(filePath: String?) {
         if (filePath.isNullOrBlank() || !java.io.File(filePath).exists()) {
             customPhotoBitmap?.recycle()
             customPhotoBitmap = null
+            customVideoPath = null
             sampleSlides.clear()
             prepareSampleSlides()
             postInvalidateOnAnimation()
             return
         }
+        val file = File(filePath)
+        if (StatusMediaHelper.isVideoFile(filePath)) {
+            customVideoPath = filePath
+            loadVideoSampleSlides(file)
+            return
+        }
+        customVideoPath = null
         try {
             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(filePath, options)
@@ -514,6 +524,38 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
                 postInvalidateOnAnimation()
             }
         } catch (_: Exception) {}
+    }
+
+    private fun loadVideoSampleSlides(videoFile: File) {
+        val retriever = android.media.MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(videoFile.absolutePath)
+            val durationStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+            val durationMs = durationStr?.toLongOrNull() ?: 15000L
+            val durationUs = durationMs * 1000L
+
+            sampleSlides.forEach { if (!it.isRecycled) it.recycle() }
+            sampleSlides.clear()
+
+            // Extract 4 keyframe samples across the video duration
+            val frameCount = 4
+            for (i in 0 until frameCount) {
+                val timeUs = (durationUs * i) / frameCount
+                val rawBmp = retriever.getFrameAtTime(timeUs, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    ?: retriever.frameAtTime
+                if (rawBmp != null) {
+                    val cropped = StatusMediaHelper.smartCropToPortrait916(rawBmp)
+                    sampleSlides.add(cropped)
+                }
+            }
+
+            customPhotoBitmap = sampleSlides.firstOrNull()
+            postInvalidateOnAnimation()
+        } catch (e: Exception) {
+            Log.e("StatusLivePreview", "Error loading video sample slides: ${e.message}")
+        } finally {
+            runCatching { retriever.release() }
+        }
     }
 
     private fun ensureSampleSlides() {
@@ -941,12 +983,38 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
         val frameBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val frameCanvas = Canvas(frameBitmap)
 
+        val videoRetriever = if (!customVideoPath.isNullOrBlank() && File(customVideoPath!!).exists()) {
+            runCatching {
+                android.media.MediaMetadataRetriever().apply { setDataSource(customVideoPath) }
+            }.getOrNull()
+        } else null
+
         return try {
             for (frame in 0 until totalFrames) {
                 val timeMs = (frame * 1000L) / fps
                 val ptsNano = (frame * 1_000_000_000L) / fps
 
-                renderFrameAt(frameCanvas, width.toFloat(), height.toFloat(), timeMs, isExport = true)
+                if (videoRetriever != null) {
+                    val rawFrame = videoRetriever.getFrameAtTime(timeMs * 1000L, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    if (rawFrame != null) {
+                        val fittedFrame = StatusMediaHelper.smartCropToPortrait916(rawFrame)
+                        val prevBmp = customPhotoBitmap
+                        customPhotoBitmap = fittedFrame
+                        renderFrameAt(frameCanvas, width.toFloat(), height.toFloat(), timeMs, isExport = true)
+                        if (fittedFrame != rawFrame && !fittedFrame.isRecycled) {
+                            fittedFrame.recycle()
+                        }
+                        if (rawFrame != prevBmp && !rawFrame.isRecycled) {
+                            rawFrame.recycle()
+                        }
+                        customPhotoBitmap = prevBmp
+                    } else {
+                        renderFrameAt(frameCanvas, width.toFloat(), height.toFloat(), timeMs, isExport = true)
+                    }
+                } else {
+                    renderFrameAt(frameCanvas, width.toFloat(), height.toFloat(), timeMs, isExport = true)
+                }
+
                 encoder.encodeFrame(frameBitmap, ptsNano)
 
                 val progress = (frame * 85 / totalFrames)
@@ -968,6 +1036,7 @@ class StatusTemplateLivePreviewView @JvmOverloads constructor(
             Log.e("StatusLivePreview", "exportToVideo error", e)
             false
         } finally {
+            runCatching { videoRetriever?.release() }
             frameBitmap.recycle()
         }
     }

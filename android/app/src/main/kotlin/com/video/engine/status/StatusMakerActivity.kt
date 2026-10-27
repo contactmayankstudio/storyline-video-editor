@@ -96,13 +96,13 @@ class StatusMakerActivity : ComponentActivity() {
         }.start()
     }
 
-    // Multiple photo picker
+    // Multiple media picker (Photo or Video)
     private val pickPhotosLauncher = registerForActivityResult(
         ActivityResultContracts.GetMultipleContents()
     ) { uris: List<Uri> ->
         val template = pendingTemplate ?: StatusTemplateRepository.allTemplates.first()
         if (uris.isEmpty()) {
-            Toast.makeText(this, "Select a photo to preview status video", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Select a photo or video to preview status", Toast.LENGTH_SHORT).show()
             return@registerForActivityResult
         }
 
@@ -113,7 +113,7 @@ class StatusMakerActivity : ComponentActivity() {
             }
             if (localPaths.isEmpty()) {
                 runOnUiThread {
-                    Toast.makeText(this, "Could not read selected photos", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Could not read selected media", Toast.LENGTH_SHORT).show()
                 }
                 return@Thread
             }
@@ -134,7 +134,7 @@ class StatusMakerActivity : ComponentActivity() {
             } catch (_: Exception) {}
 
             runOnUiThread {
-                // PHOTO DALTE HI LIVE PREVIEW START HO JAYEGA!
+                // PHOTO YA VIDEO DALTE HI LIVE PREVIEW START HO JAYEGA!
                 showTemplateLivePreviewDialog(
                     initialTemplate = template,
                     customPhotoPath = lastCustomPhotoPath,
@@ -145,7 +145,7 @@ class StatusMakerActivity : ComponentActivity() {
         }.start()
     }
 
-    // Single photo picker to test/change in live preview dialog
+    // Single media picker to test/change in live preview dialog
     private val pickSinglePhotoForPreviewLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -156,11 +156,12 @@ class StatusMakerActivity : ComponentActivity() {
                 ?: return@Thread
             lastCustomPhotoPath = localPath
             lastPhotoPaths = listOf(localPath)
+            val isVideo = StatusMediaHelper.isVideoFile(localPath)
             runOnUiThread {
                 activePreviewDialog?.findViewById<StatusTemplateLivePreviewView>(R.id.statusLivePreviewView)?.setCustomPhoto(localPath)
-                activePreviewDialog?.findViewById<TextView>(R.id.statusPreviewTestPhotoText)?.text = "Swap Photo 📸"
+                activePreviewDialog?.findViewById<TextView>(R.id.statusPreviewTestPhotoText)?.text = if (isVideo) "Swap Video 🎬" else "Swap Photo 📸"
                 activePreviewDialog?.findViewById<TextView>(R.id.statusPreviewCtaText)?.text = "⚡ 1-CLICK EXPORT TO GALLERY"
-                activePreviewDialog?.findViewById<TextView>(R.id.statusPreviewPhotosChip)?.text = "📸 Photo Loaded"
+                activePreviewDialog?.findViewById<TextView>(R.id.statusPreviewPhotosChip)?.text = if (isVideo) "🎬 Video Loaded" else "📸 Photo Loaded"
             }
         }.start()
     }
@@ -238,11 +239,11 @@ class StatusMakerActivity : ComponentActivity() {
             intArrayOf(Color.parseColor("#F7971E"), Color.parseColor("#FFD200"))
         ).apply { cornerRadius = 16f * density }
 
-        // Prominent 1-Photo Instant Hero Card: click -> pick photo -> immediate live preview!
+        // Prominent 1-Click Instant Hero Card: click -> pick photo or video -> immediate live preview!
         findViewById<View>(R.id.statusInstantHeroCard)?.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             pendingTemplate = StatusTemplateRepository.allTemplates.first()
-            pickPhotosLauncher.launch("image/*")
+            pickPhotosLauncher.launch("*/*")
         }
 
         categoryContainer = findViewById(R.id.statusCategoryChipsContainer)
@@ -354,7 +355,7 @@ class StatusMakerActivity : ComponentActivity() {
             onUseTemplate = { template ->
                 stopPreviewAudio()
                 pendingTemplate = template
-                pickPhotosLauncher.launch("image/*")
+                pickPhotosLauncher.launch("*/*")
             },
             onToggleSound = { template, onStateChange ->
                 toggleSoundtrackPreview(template, onStateChange)
@@ -512,11 +513,19 @@ class StatusMakerActivity : ComponentActivity() {
             titleTv?.text = if (activePhotoPath != null) "Preview: ${tmpl.title}" else tmpl.title
             categoryBadge?.text = "${tmpl.emoji} ${tmpl.category.uppercase()}"
             durationChip?.text = "⏱️ ${tmpl.durationMs / 1000}s"
-            photosChip?.text = if (activePhotoPath != null) "📸 Photo Loaded" else "⚡ 1-Photo Ready"
+            val isVideo = activePhotoPath != null && StatusMediaHelper.isVideoFile(activePhotoPath)
+            photosChip?.text = if (activePhotoPath != null) {
+                if (isVideo) "🎬 Video Loaded" else "📸 Photo Loaded"
+            } else "⚡ 1-Click Status"
             bpmChip?.text = "🎵 ${tmpl.bpm} BPM"
-            descTv?.text = if (activePhotoPath != null) "⚡ Live animated preview of your photo with ${tmpl.title}! Tap Export to save." else tmpl.description
-            ctaText?.text = if (activePhotoPath != null) "⚡ 1-CLICK EXPORT TO GALLERY" else "⚡ CREATE 1-PHOTO / REELS STATUS"
-            testPhotoText?.text = if (activePhotoPath != null) "Swap Photo 📸" else "Pick Photo 📸"
+            descTv?.text = if (activePhotoPath != null) {
+                if (isVideo) "⚡ Live animated preview of your video with ${tmpl.title}! Tap Export to save."
+                else "⚡ Live animated preview of your photo with ${tmpl.title}! Tap Export to save."
+            } else tmpl.description
+            ctaText?.text = if (activePhotoPath != null) "⚡ 1-CLICK EXPORT TO GALLERY" else "⚡ CREATE STATUS VIDEO"
+            testPhotoText?.text = if (activePhotoPath != null) {
+                if (isVideo) "Swap Video 🎬" else "Swap Photo 📸"
+            } else "Pick Media 📸🎬"
             val display = activeCustomTexts.userName ?: activeCustomTexts.quoteText ?: activeCustomText
             if (!display.isNullOrBlank()) {
                 editTextTitle?.text = "✏️ ${display.take(12)}"
@@ -675,7 +684,7 @@ class StatusMakerActivity : ComponentActivity() {
 
         testPhotoBtn?.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-            pickSinglePhotoForPreviewLauncher.launch("image/*")
+            pickSinglePhotoForPreviewLauncher.launch("*/*")
         }
 
         val dialog = AlertDialog.Builder(this)
@@ -734,7 +743,7 @@ class StatusMakerActivity : ComponentActivity() {
             } else {
                 dialog.dismiss()
                 pendingTemplate = currentActiveTemplate
-                pickPhotosLauncher.launch("image/*")
+                pickPhotosLauncher.launch("*/*")
             }
         }
 
@@ -743,7 +752,7 @@ class StatusMakerActivity : ComponentActivity() {
             if (activePhotoPath == null) {
                 dialog.dismiss()
                 pendingTemplate = currentActiveTemplate
-                pickPhotosLauncher.launch("image/*")
+                pickPhotosLauncher.launch("*/*")
             }
         }
 

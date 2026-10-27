@@ -22,13 +22,55 @@ object StatusMediaHelper {
     private const val TAG = "StatusMediaHelper"
     private const val MAX_STATUS_IMAGE_LONG_EDGE_PX = 1920
 
+    fun isVideoFile(path: String?): Boolean {
+        if (path.isNullOrBlank()) return false
+        val ext = File(path).extension.lowercase()
+        return ext in setOf("mp4", "mkv", "mov", "webm", "3gp", "avi", "ts", "m4v")
+    }
+
+    fun isVideoUri(context: Context, uri: Uri): Boolean {
+        val type = context.contentResolver.getType(uri)
+        if (type != null && type.startsWith("video/")) return true
+        val name = queryDisplayName(context, uri).orEmpty().lowercase()
+        return name.endsWith(".mp4") || name.endsWith(".mkv") || name.endsWith(".mov") ||
+               name.endsWith(".3gp") || name.endsWith(".webm") || name.endsWith(".avi")
+    }
+
+    fun extractPosterFrameForVideo(context: Context, videoFile: File): String? {
+        val retriever = android.media.MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(videoFile.absolutePath)
+            val rawBmp = retriever.getFrameAtTime(0L, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?: retriever.frameAtTime
+            if (rawBmp != null) {
+                val photoDir = File(context.filesDir, "status_photos").apply { mkdirs() }
+                val posterFile = File(photoDir, "${videoFile.nameWithoutExtension}_poster.png")
+                val smartBmp = smartFitToPortrait916(rawBmp)
+                FileOutputStream(posterFile).use { out ->
+                    smartBmp.compress(Bitmap.CompressFormat.PNG, 95, out)
+                    out.flush()
+                }
+                if (smartBmp != rawBmp && !smartBmp.isRecycled) {
+                    smartBmp.recycle()
+                }
+                posterFile.absolutePath
+            } else null
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not extract poster for ${videoFile.name}: ${e.message}")
+            null
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
+
     /**
-     * Resolves and normalizes an image Uri into an optimized local PNG file for the C++ video engine.
-     * Automatically fixes EXIF rotation, scales down high-res camera photos, and converts to 
-     * fast-decoding PNG format.
+     * Resolves and normalizes an image or video Uri into an optimized local file for the video engine.
+     * For photos: automatically fixes EXIF rotation, scales down, and converts to fast-decoding PNG.
+     * For videos: copies to local status_videos directory and generates poster frame for instant preview.
      */
     fun normalizeImageUriForStatus(context: Context, uri: Uri): String? {
-        val displayName = queryDisplayName(context, uri) ?: "photo_${System.currentTimeMillis()}.jpg"
+        val isVideo = isVideoUri(context, uri)
+        val displayName = queryDisplayName(context, uri) ?: if (isVideo) "video_${System.currentTimeMillis()}.mp4" else "photo_${System.currentTimeMillis()}.jpg"
         val tempRawFile = File(context.cacheDir, "temp_status_raw_${System.currentTimeMillis()}_$displayName")
 
         return try {
@@ -40,10 +82,19 @@ object StatusMediaHelper {
             if (!tempRawFile.exists() || tempRawFile.length() <= 0L) {
                 return null
             }
-            val normalizedPath = normalizeImageFileForStatus(context, tempRawFile)
-            normalizedPath ?: tempRawFile.absolutePath
+            if (isVideo || isVideoFile(tempRawFile.absolutePath)) {
+                val videoDir = File(context.filesDir, "status_videos").apply { mkdirs() }
+                val safeName = "video_${System.currentTimeMillis()}_${displayName.replace(Regex("[^a-zA-Z0-9._]"), "_")}"
+                val targetVideo = File(videoDir, safeName)
+                tempRawFile.copyTo(targetVideo, overwrite = true)
+                extractPosterFrameForVideo(context, targetVideo)
+                targetVideo.absolutePath
+            } else {
+                val normalizedPath = normalizeImageFileForStatus(context, tempRawFile)
+                normalizedPath ?: tempRawFile.absolutePath
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Error resolving image uri: $uri", e)
+            Log.e(TAG, "Error resolving media uri: $uri", e)
             null
         } finally {
             if (tempRawFile.exists()) {
@@ -53,12 +104,17 @@ object StatusMediaHelper {
     }
 
     /**
-     * Normalizes a local image file: rotates according to EXIF and resizes so long edge <= 1920px.
-     * Caches the output in filesDir/status_photos/ to ensure stability during preview and export.
+     * Normalizes a local media file:
+     * - If video, ensures poster exists and returns path
+     * - If photo, rotates according to EXIF and fits to 9:16 canvas
      */
     fun normalizeImageFileForStatus(context: Context, source: File): String? {
         if (!source.exists() || !source.isFile || source.length() <= 0L) {
             return null
+        }
+        if (isVideoFile(source.absolutePath)) {
+            extractPosterFrameForVideo(context, source)
+            return source.absolutePath
         }
 
         val outputDir = File(context.filesDir, "status_photos").apply { mkdirs() }
