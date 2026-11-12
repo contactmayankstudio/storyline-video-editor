@@ -468,8 +468,8 @@ class PlaybackController(
                 ?.takeIf { it.visibility == View.VISIBLE }
                 ?.text = formatTimelineClock(timeMs, totalDurationMsProvider())
         }
-        val lowTierTimelineLightMode = DeviceDetector.getDeviceTier() == DeviceDetector.DeviceTier.LOW
-        if (!lowTierTimelineLightMode) {
+        val throttleTimelineUi = DeviceDetector.getDeviceTier() != DeviceDetector.DeviceTier.HIGH
+        if (!throttleTimelineUi) {
             onPlaybackTimeChanged?.invoke(timeMs)
         }
         val heavyUiDue =
@@ -481,7 +481,7 @@ class PlaybackController(
             multiTrackTimelineViewProvider()
                 ?.takeIf { it.isShown }
                 ?.setCurrentTimeMs(timeMs, animate = false)
-            if (lowTierTimelineLightMode) {
+            if (throttleTimelineUi) {
                 onPlaybackTimeChanged?.invoke(timeMs)
             }
             lastHeavyUiApplyRealtimeMs = nowMs

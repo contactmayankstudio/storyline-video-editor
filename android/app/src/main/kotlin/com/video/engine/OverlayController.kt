@@ -55,6 +55,7 @@ class OverlayController(
     private fun safeTimelineInt(ms: Long): Int = ms.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
 
     private fun updateNativeTextTransform(overlay: TextOverlay, force: Boolean) {
+        if (isPlayingProvider()) return
         val nowMs = SystemClock.uptimeMillis()
         val lastMs = textNativeTransformUpdateMsById[overlay.id] ?: 0L
         if (!force && nowMs - lastMs < TEXT_NATIVE_UPDATE_INTERVAL_MS) return
@@ -443,16 +444,17 @@ class OverlayController(
         }
         val nativeOpacity = if (activeAtCurrentTime) overlay.opacity else 0f
         val previewView = previewViewProvider()
-        if (textNativeOpacityById[overlay.id] != nativeOpacity) {
+        val playing = isPlayingProvider()
+        if (!playing && textNativeOpacityById[overlay.id] != nativeOpacity) {
             textNativeOpacityById[overlay.id] = nativeOpacity
             previewView?.updateTextOverlayOpacity(overlay.id, nativeOpacity, 0, 0)
         }
-        if (textNativeZOrderById[overlay.id] != zOrder) {
+        if (!playing && textNativeZOrderById[overlay.id] != zOrder) {
             textNativeZOrderById[overlay.id] = zOrder
             previewView?.setTextZOrder(overlay.id, zOrder)
             stackDirty = true
         }
-        if (stackDirty) {
+        if (!playing && stackDirty) {
             onRefreshOverlayStack()
         }
     }

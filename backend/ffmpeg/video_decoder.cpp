@@ -4,6 +4,7 @@
 #include <cstring>
 #include <stdexcept>
 #include <cstdarg>
+#include <thread>
 
 // FFmpeg headers (only when available for this ABI)
 #if defined(VIDEO_ENGINE_FFMPEG_DEMUX_AVAILABLE)
@@ -124,9 +125,11 @@ bool VideoDecoder::open(const std::string& path) {
         return false;
     }
 
-    // Use 2 threads for preview decode — enough for smooth playback, avoids CPU contention
-    m_codecContext->thread_count = 2;
-    m_codecContext->thread_type = FF_THREAD_FRAME;
+    // Multi-core preview decode tailored for mobile hardware (Octa-core / Quad-core)
+    const unsigned int hwCores = std::thread::hardware_concurrency();
+    m_codecContext->thread_count = (hwCores >= 8) ? 4 : ((hwCores >= 4) ? 3 : 2);
+    m_codecContext->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
+    m_codecContext->flags2 |= AV_CODEC_FLAG2_FAST;
 
     // Open codec
     if (avcodec_open2(m_codecContext, codec, nullptr) < 0) {
@@ -173,6 +176,10 @@ bool VideoDecoder::open(const std::string& path) {
 }
 
 bool VideoDecoder::decodeNextFrame(DecodedFrame& out) {
+    return decodeNextFrameUpTo(out, -1, 0);
+}
+
+bool VideoDecoder::decodeNextFrameUpTo(DecodedFrame& out, int64_t targetPtsMs, int64_t toleranceMs) {
     if (!m_isOpen) {
         setError("Decoder not open");
         return false;
@@ -186,6 +193,8 @@ bool VideoDecoder::decodeNextFrame(DecodedFrame& out) {
     bool demuxEof = false;
     bool flushSent = false;
     AVStream* videoStream = m_formatContext->streams[m_videoStreamIndex];
+    int drainedFrames = 0;
+    const int maxDrainedFrames = 24;
 
     while (true) {
         const int receiveResult = avcodec_receive_frame(m_codecContext, m_decodedFrame);
@@ -193,6 +202,12 @@ bool VideoDecoder::decodeNextFrame(DecodedFrame& out) {
             const int64_t framePtsMs = resolveFramePtsMs(m_decodedFrame, videoStream);
             if (m_pendingSeekTargetMs >= 0 && framePtsMs < (m_pendingSeekTargetMs - 1)) {
                 // Keep draining decoded pre-roll frames before feeding more packets.
+                continue;
+            }
+
+            // Skip CPU-intensive RGB scaling for pre-roll/catch-up frames that won't be displayed
+            if (targetPtsMs >= 0 && (framePtsMs + toleranceMs) < targetPtsMs && drainedFrames < maxDrainedFrames) {
+                ++drainedFrames;
                 continue;
             }
 
@@ -331,7 +346,7 @@ bool VideoDecoder::initializeSwsContext(int srcWidth, int srcHeight, int srcPixe
         dstWidth,
         dstHeight,
         AV_PIX_FMT_RGBA,
-        SWS_BILINEAR,
+        SWS_FAST_BILINEAR,
         nullptr,
         nullptr,
         nullptr
@@ -736,6 +751,14 @@ bool VideoDecoder::open(const std::string& path) {
 
 bool VideoDecoder::decodeNextFrame(DecodedFrame& out) {
     (void)out;
+    setError("FFmpeg not available for this ABI");
+    return false;
+}
+
+bool VideoDecoder::decodeNextFrameUpTo(DecodedFrame& out, int64_t targetPtsMs, int64_t toleranceMs) {
+    (void)out;
+    (void)targetPtsMs;
+    (void)toleranceMs;
     setError("FFmpeg not available for this ABI");
     return false;
 }

@@ -439,6 +439,8 @@ class TimelineCanvasView @JvmOverloads constructor(
     fun setPlaybackActive(active: Boolean) {
         if (playbackActive == active) return
         playbackActive = active
+        TimelineThumbnailCache.setPlaybackActive(active)
+        AudioWaveformCache.setPlaybackActive(active)
         if (active) {
             scroller.abortAnimation()
             assetRequestHandler.removeCallbacks(assetRequestRunnable)
@@ -1038,6 +1040,7 @@ class TimelineCanvasView @JvmOverloads constructor(
         windowEndPx: Float,
         priority: Boolean = false,
     ) {
+        if (playbackActive) return
         if (clip.trackType != TrackType.VIDEO && !clip.trackType.isOverlayLike()) return
         if (clip.sourcePath.isBlank()) return
         val clipLeftPx = clipContentStartPx(clip)

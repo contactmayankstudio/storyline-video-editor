@@ -145,13 +145,13 @@ PreviewController::PreviewController()
     , m_reachedEos(false)
     , m_maxQueuedFrames(5)
     , m_ghostPreviewEnabled(true)
-    , m_ghostPreviewLongEdgePx(1080)
+    , m_ghostPreviewLongEdgePx(1280)
     , m_adaptiveFrameDropEnabled(true)
     , m_targetPreviewFps(30)
     , m_minPreviewFps(15)
     , m_frameDropOverloadScore(0)
     , m_budgetPreviewFps(30)
-    , m_budgetPreviewLongEdgePx(1080)
+    , m_budgetPreviewLongEdgePx(1280)
     , m_budgetBypassOverlayComposition(false)
     , m_budgetPredictivePrefetchAllowed(true)
     , m_audioMasterClockWallClock(std::chrono::steady_clock::now())
@@ -494,6 +494,7 @@ bool PreviewController::playFrom(int64_t timeMs) {
     }
     clearError();
     m_isPlaying.store(true);
+    applyPreviewScaleLimitLocked();
     m_currentTimeMs.store(renderedTimelineMs);
     m_playbackAnchorTimeMs = renderedTimelineMs;
     m_playbackAnchorWallClock = std::chrono::steady_clock::now();
@@ -1610,6 +1611,7 @@ bool PreviewController::renderTimelineFrameLocked(
                 }
                 return redrawTextureLocked(0, 0, m_surfaceWidth, m_surfaceHeight, false);
             }
+            renderedFromPredictiveCache = true;
         }
         // Bypass m_framePrefetcher during playback: it returns stale/unscaled frames that cause
         // horizontal stripe artifacts. The sequential decode pipeline below handles smooth playback.
@@ -1655,33 +1657,22 @@ bool PreviewController::renderTimelineFrameLocked(
             linearForwardMapping &&
             (m_lastRenderedClipId == activeClipId || sameSourceMedia) &&
             m_lastRenderedSourceMs >= 0 &&
-            forwardDeltaMs >= 0 &&
+            forwardDeltaMs >= -activeApproximateFrameMs &&
             forwardDeltaMs <= sequentialDecodeWindowMs;
 
         if (allowSequentialDecode) {
             DecodedFrame decodedFrame;
             bool renderedSequential = false;
-            const int maxSequentialAttempts = playingNow ? 12 : 6;
-            for (int attempt = 0; attempt < maxSequentialAttempts; ++attempt) {
-                if (!m_decoder || !m_decoder->decodeNextFrame(decodedFrame)) {
-                    break;
-                }
+            if (m_decoder && m_decoder->decodeNextFrameUpTo(decodedFrame, sourceSeekMs, sequentialFrameToleranceMs)) {
                 const int64_t frameSourceMs = decodedFrame.ptsMs > 0
                     ? clampTimeMs(decodedFrame.ptsMs)
-                    : clampTimeMs(
-                          m_lastRenderedSourceMs +
-                          static_cast<int64_t>(std::llround(m_frameIntervalMs)));
+                    : sourceSeekMs;
                 renderedSourceMs = frameSourceMs;
-                if (frameSourceMs + sequentialFrameToleranceMs >= sourceSeekMs ||
-                    attempt == maxSequentialAttempts - 1) {
-                    if (!renderDecodedFrame(
-                            decodedFrame,
-                            clampedTimelineMs,
-                            /*presentFrame=*/!shouldCompositeAdditionalLayers)) {
-                        return false;
-                    }
+                if (renderDecodedFrame(
+                        decodedFrame,
+                        clampedTimelineMs,
+                        /*presentFrame=*/!shouldCompositeAdditionalLayers)) {
                     renderedSequential = true;
-                    break;
                 }
             }
             if (renderedSequential) {
@@ -1720,12 +1711,23 @@ bool PreviewController::renderTimelineFrameLocked(
             }
         }
 
+        if (!renderedFromPredictiveCache && playingNow && m_texture && m_texture->isValid() && std::llabs(forwardDeltaMs) <= (activeApproximateFrameMs * 2)) {
+            renderedSourceMs = m_lastRenderedSourceMs >= 0 ? m_lastRenderedSourceMs : sourceSeekMs;
+            if (!shouldCompositeAdditionalLayers) {
+                if (renderedTimelineMs) {
+                    *renderedTimelineMs = requestedTimelineMs;
+                }
+                return redrawTextureLocked(0, 0, m_surfaceWidth, m_surfaceHeight, false);
+            }
+            renderedFromPredictiveCache = true;
+        }
+
         if (!renderedFromPredictiveCache) {
             if (!m_decoder) {
                 setError("Decoder unavailable");
                 return false;
             }
-            const bool seekOk = keyframeOnlyScrub
+            const bool seekOk = (keyframeOnlyScrub || playingNow)
                 ? m_decoder->seekToKeyframeForPreview(sourceSeekMs)
                 : m_decoder->seekForPreview(sourceSeekMs);
             if (!seekOk) {
@@ -1882,7 +1884,7 @@ bool PreviewController::renderTimelineFrameLocked(
             } else {
                 auto& state = m_clipDecoders[clipId];
                 const int64_t playbackCompositeReuseWindowMs = m_isPlaying.load()
-                    ? playbackCompositeReuseWindowMsLocked(state.approximateFrameMs)
+                    ? std::max<int64_t>(1, state.approximateFrameMs / 2)
                     : 0;
                 const bool canReuseClipTexture =
                     state.texture &&
@@ -2122,14 +2124,8 @@ bool PreviewController::decodeClipFrameLocked(
             state.hasLastDecodedFrame = false;
             return false;
         }
-        int scaleLimit = resolveSuperResolutionPreviewScaleLimitLocked(
-            m_ghostPreviewEnabled ? m_ghostPreviewLongEdgePx : 0,
-            state.decoder->getWidth(),
-            state.decoder->getHeight());
-        if (scaleLimit <= 0) {
-            scaleLimit = 960;
-        }
-        state.decoder->setPreviewScaleLimit(scaleLimit);
+        const int overlayScaleLimit = std::min(640, resolvePreviewScaleLimitLocked());
+        state.decoder->setPreviewScaleLimit(overlayScaleLimit);
         state.openPath = decoderPath;
         state.mediaDurationMs = static_cast<int64_t>(state.decoder->getDuration() * 1000.0);
         state.texture.reset();
@@ -2208,48 +2204,39 @@ bool PreviewController::decodeClipFrameLocked(
             return true;
         }
 
-        if (playingNow &&
-            deltaMs > 0 &&
-            deltaMs <= playbackCompositeReuseWindowMsLocked(state.approximateFrameMs)) {
-            *decodedFrameOut = state.lastDecodedFrame;
-            *renderedSourceMsOut = previousMs;
-            state.lastRenderedSourceMs = previousMs;
-            return true;
-        }
-
         if (!keyframeOnlyScrub &&
             linearForwardMapping &&
-            deltaMs > 0 &&
+            deltaMs >= -state.approximateFrameMs &&
             deltaMs <= sequentialDecodeWindowMs) {
             Backend::DecodedFrame candidate;
-            const int maxSequentialAttempts = playingNow ? 8 : 24;
-            int attempts = 0;
-            while (attempts < maxSequentialAttempts && state.decoder->decodeNextFrame(candidate)) {
-                ++attempts;
+            if (state.decoder->decodeNextFrameUpTo(candidate, clampedSourceMs, frameToleranceMs)) {
                 const int64_t candidatePtsMs = clampDecodableTimeMs(
-                    candidate.ptsMs > 0 ? candidate.ptsMs : previousMs + state.approximateFrameMs,
+                    candidate.ptsMs > 0 ? candidate.ptsMs : clampedSourceMs,
                     state.mediaDurationMs);
                 candidate.ptsMs = candidatePtsMs;
                 state.lastDecodedFrame = candidate;
                 state.hasLastDecodedFrame = true;
                 state.lastRenderedSourceMs = candidatePtsMs;
-                if (candidatePtsMs + frameToleranceMs >= clampedSourceMs) {
-                    *decodedFrameOut = candidate;
-                    *renderedSourceMsOut = candidatePtsMs;
-                    return true;
-                }
+                *decodedFrameOut = candidate;
+                *renderedSourceMsOut = candidatePtsMs;
+                return true;
+            } else if (state.hasLastDecodedFrame) {
+                *decodedFrameOut = state.lastDecodedFrame;
+                *renderedSourceMsOut = state.lastRenderedSourceMs;
+                return true;
             }
+        }
+    }
 
+    const bool seekOk = (keyframeOnlyScrub || playingNow)
+        ? state.decoder->seekToKeyframeForPreview(clampedSourceMs)
+        : state.decoder->seekForPreview(clampedSourceMs);
+    if (!seekOk) {
+        if (playingNow && state.hasLastDecodedFrame) {
             *decodedFrameOut = state.lastDecodedFrame;
             *renderedSourceMsOut = state.lastRenderedSourceMs;
             return true;
         }
-    }
-
-    const bool seekOk = keyframeOnlyScrub
-        ? state.decoder->seekToKeyframeForPreview(clampedSourceMs)
-        : state.decoder->seekForPreview(clampedSourceMs);
-    if (!seekOk) {
         return false;
     }
 
@@ -2259,6 +2246,10 @@ bool PreviewController::decodeClipFrameLocked(
             state.decoder->seekForPreview(clampedSourceMs) &&
             state.decoder->decodeNextFrame(decodedFrame)) {
             // Recovered after a coarse keyframe-only scrub miss.
+        } else if (playingNow && state.hasLastDecodedFrame) {
+            *decodedFrameOut = state.lastDecodedFrame;
+            *renderedSourceMsOut = state.lastRenderedSourceMs;
+            return true;
         } else {
             return false;
         }
@@ -2638,17 +2629,43 @@ int64_t PreviewController::playbackCompositeReuseWindowMsLocked(int64_t approxim
 }
 
 int PreviewController::resolvePreviewScaleLimitLocked() const {
-    if (!m_ghostPreviewEnabled) {
-        return 0;
+    // 720p HD target: 1280px long-edge (1280x720 for 16:9 landscape, 720x1280 for 9:16 vertical reels)
+    const int target720pHdLongEdgePx = 1280;
+    int resolvedLimitPx = (m_ghostPreviewEnabled && m_ghostPreviewLongEdgePx > 0)
+        ? std::min(target720pHdLongEdgePx, m_ghostPreviewLongEdgePx)
+        : target720pHdLongEdgePx;
+
+    if (m_budgetPreviewLongEdgePx > 0) {
+        resolvedLimitPx = std::min(resolvedLimitPx, m_budgetPreviewLongEdgePx);
     }
-    int resolvedLimitPx = std::max(0, m_budgetPreviewLongEdgePx);
     if (m_dynamicPreviewScaleLimitPx > 0) {
-        resolvedLimitPx = resolvedLimitPx > 0
-            ? std::min(m_dynamicPreviewScaleLimitPx, resolvedLimitPx)
-            : m_dynamicPreviewScaleLimitPx;
+        resolvedLimitPx = std::min(m_dynamicPreviewScaleLimitPx, resolvedLimitPx);
     }
     if (m_thermalManager) {
         resolvedLimitPx = m_thermalManager->recommendedPreviewLongEdgePx(resolvedLimitPx);
+    }
+
+    // When playing a 4K / massive source, throttle decode resolution to 960px long edge during playback
+    // so real-time playback stays smooth at 30fps on mobile CPUs. Paused frame will still be crisp 720p HD.
+    if (m_isPlaying.load()) {
+        const int maxSourceDim = std::max(m_videoWidth, m_videoHeight);
+        if (maxSourceDim >= 2560) {
+            resolvedLimitPx = std::min(resolvedLimitPx, 960);
+        }
+    }
+
+    // Compositing several sources costs substantially more than a single decode.
+    // Keep the editor fluid by scaling each source down proportionally when several clips overlap.
+    if (m_timeline && resolvedLimitPx > 0) {
+        const size_t activeClipCount =
+            m_timeline->getActiveClipsAtTime(m_currentTimeMs.load()).size();
+        if (activeClipCount >= 4) {
+            resolvedLimitPx = std::min(resolvedLimitPx, 540);
+        } else if (activeClipCount >= 3) {
+            resolvedLimitPx = std::min(resolvedLimitPx, 720);
+        } else if (activeClipCount >= 2) {
+            resolvedLimitPx = std::min(resolvedLimitPx, 960);
+        }
     }
     return resolvedLimitPx;
 }
@@ -2677,13 +2694,10 @@ void PreviewController::applyPreviewScaleLimitLocked() {
                 m_videoWidth,
                 m_videoHeight));
     }
+    const int overlayLimit = std::min(baseScaleLimitPx, 640);
     for (auto& entry : m_clipDecoders) {
         if (entry.second.decoder) {
-            entry.second.decoder->setPreviewScaleLimit(
-                resolveSuperResolutionPreviewScaleLimitLocked(
-                    baseScaleLimitPx,
-                    entry.second.decoder->getWidth(),
-                    entry.second.decoder->getHeight()));
+            entry.second.decoder->setPreviewScaleLimit(overlayLimit);
         }
     }
     m_prefetchScaleLimitPx =

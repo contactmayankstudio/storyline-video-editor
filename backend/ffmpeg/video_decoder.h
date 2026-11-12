@@ -129,6 +129,17 @@ public:
     bool decodeNextFrame(DecodedFrame& out);
 
     /**
+     * Decode frames advancing towards targetPtsMs, skipping expensive RGB conversion
+     * for intermediate pre-roll frames earlier than targetPtsMs - toleranceMs.
+     * 
+     * @param out Reference to DecodedFrame struct to fill with final decoded RGB data
+     * @param targetPtsMs Target presentation timestamp in milliseconds, or -1 to decode next frame
+     * @param toleranceMs Frame tolerance in milliseconds
+     * @return true if target frame was decoded, false if EOF or error
+     */
+    bool decodeNextFrameUpTo(DecodedFrame& out, int64_t targetPtsMs, int64_t toleranceMs = 0);
+
+    /**
      * Decode a frame at a specific timeline time (raw YUV420P, kept on CPU for GPU upload).
      * 
      * CRITICAL FOR GPU PIPELINE:

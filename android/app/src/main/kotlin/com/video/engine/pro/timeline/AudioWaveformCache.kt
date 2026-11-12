@@ -27,8 +27,13 @@ object AudioWaveformCache {
     private val inFlight = mutableSetOf<String>()
     private var appContext: Context? = null
     @Volatile private var suspendedUntilElapsedMs: Long = 0L
+    @Volatile private var playbackActive: Boolean = false
 
     fun init(context: Context) { appContext = context.applicationContext }
+
+    fun setPlaybackActive(active: Boolean) {
+        playbackActive = active
+    }
 
     fun suspendRequests(windowMs: Long) {
         val until = SystemClock.elapsedRealtime() + windowMs.coerceAtLeast(250L)
@@ -49,10 +54,11 @@ object AudioWaveformCache {
     fun request(clip: ClipSegment, barCount: Int, callback: (String, FloatArray) -> Unit) {
         val key = "${clip.sourcePath}#${clip.sourceInMs}#${clip.sourceOutMs}#$barCount"
         synchronized(lock) { cache[key]?.let { mainHandler.post { callback(key, it) }; return } }
+        if (playbackActive) return
         if (SystemClock.elapsedRealtime() < suspendedUntilElapsedMs) return
         synchronized(lock) { if (!inFlight.add(key)) return }
         executor.execute {
-            if (SystemClock.elapsedRealtime() < suspendedUntilElapsedMs) {
+            if (playbackActive || SystemClock.elapsedRealtime() < suspendedUntilElapsedMs) {
                 synchronized(lock) { inFlight.remove(key) }
                 return@execute
             }

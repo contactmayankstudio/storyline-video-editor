@@ -53,10 +53,10 @@ android {
 
     defaultConfig {
         applicationId = "com.storyline.videoeditor"
-        minSdk = 21
+        minSdk = 24
         targetSdk = 36
-        versionCode = 20
-        versionName = "1.0.2"
+        versionCode = 21
+        versionName = "1.0.3"
         resValue "string", "aws_control_plane_url", stringResourceValue("")
         resValue "string", "aws_control_plane_device_key", stringResourceValue("")
         resValue "string", "release_portal_url", stringResourceValue("")
@@ -80,7 +80,7 @@ android {
 
     packagingOptions {
         jniLibs {
-            useLegacyPackaging = false
+            useLegacyPackaging = true
             excludes += [
                 '**/libc++_shared.so'
             ]
@@ -109,6 +109,9 @@ android {
             shrinkResources = true
             debuggable = false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            firebaseCrashlytics {
+                mappingFileUploadEnabled false
+            }
         }
         debug {
             debuggable = true
@@ -119,8 +122,8 @@ android {
     productFlavors {
         play {
             dimension "store"
-            versionCode 20
-            versionName "1.0.2"
+            versionCode 21
+            versionName "1.0.3"
         }
     }
 

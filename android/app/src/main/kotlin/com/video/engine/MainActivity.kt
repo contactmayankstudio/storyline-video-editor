@@ -4227,9 +4227,17 @@ class VideoEditorActivity : ComponentActivity() {
         playbackIdleUiRestoreRunnable?.let { mainHandler.removeCallbacks(it) }
         playbackIdleUiRestoreRunnable = null
         isPlaying = playing
-        TimelineThumbnailCache.suspendRequests(if (playing) 3_000L else 1_400L)
-        AudioWaveformCache.suspendRequests(if (playing) 3_000L else 1_400L)
-        timelineCanvasView()?.suspendAssetRequests(if (playing) 3_000L else 1_400L)
+        TimelineThumbnailCache.setPlaybackActive(playing)
+        AudioWaveformCache.setPlaybackActive(playing)
+        if (playing) {
+            TimelineThumbnailCache.suspendRequests(60_000L)
+            AudioWaveformCache.suspendRequests(60_000L)
+            timelineCanvasView()?.suspendAssetRequests(60_000L)
+        } else {
+            TimelineThumbnailCache.resumeRequests()
+            AudioWaveformCache.resumeRequests()
+            timelineCanvasView()?.resumeAssetRequests()
+        }
         findViewById<ImageView?>(R.id.previewPlayPauseButton)?.setImageResource(
             if (playing) R.drawable.ic_pause_toolbar else R.drawable.ic_play_toolbar,
         )
@@ -9942,18 +9950,20 @@ class VideoEditorActivity : ComponentActivity() {
             view.scaleY = renderScale
             view.rotation = renderRotation
             view.alpha = if (overlay.visible) renderOpacity.coerceIn(0.12f, 1f) else 0.35f
-            previewView?.updateTextOverlay(
-                overlay.id,
-                normalizedX,
-                normalizedY,
-                renderScale,
-                renderRotation,
-                overlay.color,
-                overlay.fontSize,
-                overlay.startTimeMs,
-                overlay.endTimeMs,
-            )
-            previewView?.updateTextOverlayOpacity(overlay.id, if (overlay.visible) renderOpacity.coerceIn(0f, 1f) else 0f, 0, 0)
+            if (!isPlaying) {
+                previewView?.updateTextOverlay(
+                    overlay.id,
+                    normalizedX,
+                    normalizedY,
+                    renderScale,
+                    renderRotation,
+                    overlay.color,
+                    overlay.fontSize,
+                    overlay.startTimeMs,
+                    overlay.endTimeMs,
+                )
+                previewView?.updateTextOverlayOpacity(overlay.id, if (overlay.visible) renderOpacity.coerceIn(0f, 1f) else 0f, 0, 0)
+            }
         }
     }
 

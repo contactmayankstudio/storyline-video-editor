@@ -13,6 +13,8 @@ import android.os.SystemClock
 import android.util.LruCache
 import com.video.engine.pro.model.ClipSegment
 import java.io.File
+import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.util.concurrent.Executors
 import kotlin.math.ceil
 import kotlin.math.max
@@ -44,7 +46,7 @@ object TimelineThumbnailCache {
         setOf("jpg", "jpeg", "jpe", "jfif", "png", "webp", "bmp", "gif", "tif", "tiff", "heic", "heif", "avif")
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val executor = Executors.newFixedThreadPool(2) { runnable ->
+    private val executor = Executors.newFixedThreadPool(3) { runnable ->
         Thread(runnable, "TimelineThumbnailCache").apply {
             priority = Thread.NORM_PRIORITY - 1
         }
@@ -53,6 +55,12 @@ object TimelineThumbnailCache {
     private val inFlight = mutableMapOf<String, MutableList<(String, List<Bitmap>) -> Unit>>()
     private val lastVideoStripBuildElapsedMsBySource = mutableMapOf<String, Long>()
     @Volatile private var suspendedUntilElapsedMs: Long = 0L
+    @Volatile private var playbackActive: Boolean = false
+
+    fun setPlaybackActive(active: Boolean) {
+        playbackActive = active
+    }
+
     private val cache = object : LruCache<String, List<Bitmap>>(MAX_CACHE_BYTES) {
         override fun sizeOf(key: String, value: List<Bitmap>): Int {
             return value.sumOf { bitmap -> bitmap.allocationByteCount }
@@ -110,6 +118,9 @@ object TimelineThumbnailCache {
                 postCallback { callback(requestKey, cached) }
                 return
             }
+            if (playbackActive) {
+                return
+            }
             val pendingCallbacks = inFlight[requestKey]
             if (pendingCallbacks != null) {
                 pendingCallbacks += callback
@@ -118,7 +129,7 @@ object TimelineThumbnailCache {
             inFlight[requestKey] = mutableListOf(callback)
         }
 
-        if (!priority && SystemClock.elapsedRealtime() < suspendedUntilElapsedMs) {
+        if (playbackActive || (!priority && SystemClock.elapsedRealtime() < suspendedUntilElapsedMs)) {
             synchronized(lock) {
                 inFlight.remove(requestKey)
             }
@@ -126,6 +137,28 @@ object TimelineThumbnailCache {
         }
 
         executor.execute {
+            if (playbackActive) {
+                synchronized(lock) {
+                    inFlight.remove(requestKey)
+                }
+                return@execute
+            }
+
+            // Check disk cache first to bypass expensive MediaMetadataRetriever entirely
+            val diskStrip = loadFromDisk(requestKey)
+            if (diskStrip != null && diskStrip.isNotEmpty()) {
+                val callbacks = synchronized(lock) {
+                    cache.put(requestKey, diskStrip)
+                    inFlight.remove(requestKey).orEmpty()
+                }
+                if (callbacks.isNotEmpty()) {
+                    postCallback {
+                        callbacks.forEach { it(requestKey, diskStrip) }
+                    }
+                }
+                return@execute
+            }
+
             val sourcePath = clip.sourcePath.takeIf { it.isNotBlank() }
             if (!priority && (SystemClock.elapsedRealtime() < suspendedUntilElapsedMs ||
                 (!sourcePath.isNullOrBlank() && !isStillImagePath(sourcePath) && shouldThrottleVideoStripBuild(requestKey)))
@@ -142,12 +175,74 @@ object TimelineThumbnailCache {
                 }
                 inFlight.remove(requestKey).orEmpty()
             }
+            if (strip.isNotEmpty()) {
+                saveToDisk(requestKey, strip)
+            }
             if (callbacks.isEmpty()) {
                 return@execute
             }
             postCallback {
                 callbacks.forEach { it(requestKey, strip) }
             }
+        }
+    }
+
+    private fun getDiskCacheDir(): File? {
+        val ctx = appContext ?: return null
+        val dir = File(ctx.cacheDir, "timeline_thumbnails")
+        if (!dir.exists()) {
+            dir.mkdirs()
+        }
+        return dir
+    }
+
+    private fun md5(input: String): String {
+        return try {
+            val md = MessageDigest.getInstance("MD5")
+            md.digest(input.toByteArray()).joinToString("") { "%02x".format(it) }
+        } catch (_: Throwable) {
+            input.hashCode().toString()
+        }
+    }
+
+    private fun loadFromDisk(requestKey: String): List<Bitmap>? {
+        val dir = getDiskCacheDir() ?: return null
+        val hash = md5(requestKey)
+        val countFile = File(dir, "${hash}_count")
+        if (!countFile.exists()) return null
+        val count = try { countFile.readText().trim().toInt() } catch (_: Throwable) { 0 }
+        if (count <= 0) return null
+        val list = ArrayList<Bitmap>(count)
+        val opt = BitmapFactory.Options().apply {
+            if (DeviceDetector.shouldUseRgb565Thumbnails()) {
+                inPreferredConfig = Bitmap.Config.RGB_565
+            }
+        }
+        for (i in 0 until count) {
+            val frameFile = File(dir, "${hash}_$i.jpg")
+            if (!frameFile.exists()) return null
+            val bmp = BitmapFactory.decodeFile(frameFile.absolutePath, opt) ?: return null
+            list.add(bmp)
+        }
+        return list
+    }
+
+    private fun saveToDisk(requestKey: String, bitmaps: List<Bitmap>) {
+        if (bitmaps.isEmpty()) return
+        val dir = getDiskCacheDir() ?: return
+        val hash = md5(requestKey)
+        try {
+            bitmaps.forEachIndexed { i, bmp ->
+                val frameFile = File(dir, "${hash}_$i.jpg")
+                if (!frameFile.exists()) {
+                    FileOutputStream(frameFile).use { out ->
+                        bmp.compress(Bitmap.CompressFormat.JPEG, 75, out)
+                    }
+                }
+            }
+            File(dir, "${hash}_count").writeText(bitmaps.size.toString())
+        } catch (_: Throwable) {
+            // Non-critical background cache write
         }
     }
 
@@ -211,8 +306,7 @@ object TimelineThumbnailCache {
                     safeViewportWidthPx / TARGET_TILE_WIDTH_PX,
                 ),
             )
-            val durationDrivenFrames = max(1, min(maxFrames(), ceil(clipSpanMs / 3000.0).toInt()))
-            val frameCount = max(requestedFrames, durationDrivenFrames).coerceIn(1, maxFrames())
+            val frameCount = requestedFrames.coerceIn(1, if (clipSpanMs > 60_000L) 8 else maxFrames())
             val frameTimes = buildFrameTimes(
                 startMs = clip.sourceInMs.coerceAtLeast(0L),
                 endMs = clip.sourceOutMs.coerceAtLeast(clip.sourceInMs + 1L),
@@ -226,18 +320,18 @@ object TimelineThumbnailCache {
                 val rawBitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                     retriever.getScaledFrameAtTime(
                         timeMs * 1000L,
-                        MediaMetadataRetriever.OPTION_CLOSEST,
+                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
                         tileWidthPx,
                         tileHeightPx,
                     ) ?: retriever.getScaledFrameAtTime(
                         timeMs * 1000L,
-                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                        MediaMetadataRetriever.OPTION_CLOSEST,
                         tileWidthPx,
                         tileHeightPx,
                     )
                 } else {
-                    retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
-                        ?: retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                        ?: retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
                 }
                     ?: return@mapNotNull null
                 val sized = if (rawBitmap.width == tileWidthPx && rawBitmap.height == tileHeightPx) {

@@ -18,7 +18,9 @@ import android.os.SystemClock
 import android.util.Log
 import com.video.engine.audio.AudioGainKeyframe
 import java.io.File
+import java.io.FileInputStream
 import java.nio.ByteBuffer
+import android.media.MediaMetadataRetriever
 import kotlin.math.abs
 
 class PreviewAudioPlayer(
@@ -59,12 +61,12 @@ class PreviewAudioPlayer(
         private const val NO_SOURCE_IDLE_REQUEST_QUIET_WINDOW_MS = 1_200L
         private const val NO_SOURCE_PLAYER_KEEPALIVE_MS = 8_000L
         private const val PLAYBACK_SOURCE_GAP_KEEPALIVE_MS = 260L
-        private const val HIGH_TIER_VIDEO_CLOCK_RESYNC_THRESHOLD_MS = 120L
-        private const val MID_TIER_VIDEO_CLOCK_RESYNC_THRESHOLD_MS = 240L
-        private const val LOW_TIER_VIDEO_CLOCK_RESYNC_THRESHOLD_MS = 360L
-        private const val HIGH_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS = 320L
-        private const val MID_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS = 650L
-        private const val LOW_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS = 1_400L
+        private const val HIGH_TIER_VIDEO_CLOCK_RESYNC_THRESHOLD_MS = 360L
+        private const val MID_TIER_VIDEO_CLOCK_RESYNC_THRESHOLD_MS = 650L
+        private const val LOW_TIER_VIDEO_CLOCK_RESYNC_THRESHOLD_MS = 1_000L
+        private const val HIGH_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS = 600L
+        private const val MID_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS = 1_200L
+        private const val LOW_TIER_VIDEO_CLOCK_RESYNC_MIN_INTERVAL_MS = 2_000L
         private const val AUDIO_EXTRACT_BUFFER_BYTES = 256 * 1024
         private val PREWARM_VIDEO_EXTENSIONS = setOf("3gp", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "ts", "webm")
     }
@@ -434,12 +436,22 @@ class PreviewAudioPlayer(
         val playerPositionMatchesTarget =
             currentMediaPositionMs != Int.MIN_VALUE &&
                 abs(currentMediaPositionMs - targetMs) <= SEEK_TOLERANCE_MS
+        val isActuallyPlaying = runCatching { mediaPlayer?.isPlaying == true }.getOrDefault(false)
+        if (autoPlay && isActuallyPlaying && lastAppliedSelectionKey == selection.key) {
+            val driftMs = if (currentMediaPositionMs != Int.MIN_VALUE) abs(currentMediaPositionMs - targetMs) else 0
+            if (driftMs <= 500) {
+                setAudioMasterClockEnabled(true)
+                startTicker()
+                lastAppliedMediaSeekMs = targetMs
+                lastAppliedAutoPlay = true
+                return
+            }
+        }
         val shouldSkipSeek = targetMs <= SEEK_TOLERANCE_MS && playerPositionMatchesTarget
         val duplicateSeek =
             lastAppliedSelectionKey == selection.key &&
                 abs(lastAppliedMediaSeekMs - targetMs) <= SEEK_TOLERANCE_MS &&
                 playerPositionMatchesTarget
-        val isActuallyPlaying = runCatching { mediaPlayer?.isPlaying == true }.getOrDefault(false)
         val clipEndTargetMs = timelineToMediaMs(selection, selection.timelineEndMs)
             .coerceIn(0L, Int.MAX_VALUE.toLong())
             .toInt()
@@ -815,13 +827,37 @@ class PreviewAudioPlayer(
         audioHandler.postDelayed(releaseIdleCachedPlayer, NO_SOURCE_PLAYER_KEEPALIVE_MS)
     }
 
+    private fun isValidAudioFile(path: String): Boolean {
+        if (path.isBlank()) return false
+        if (path.startsWith("content://")) return true
+        val file = File(MediaPathResolver.normalizeForFileAccess(path))
+        if (!file.exists() || file.length() <= 0L) return false
+        val retriever = MediaMetadataRetriever()
+        return try {
+            FileInputStream(file).use { fis ->
+                retriever.setDataSource(fis.fd)
+            }
+            val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            val duration = durationStr?.toLongOrNull() ?: 0L
+            duration > 0L
+        } catch (_: Exception) {
+            false
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
+
     private fun isPlayableMediaPath(path: String): Boolean {
         if (path.isBlank()) return false
         val cacheKey = sourceCacheKey(path)
         if (cacheKey in silentSourcePaths) return false
         val preferredPath = preferredAudioSourcePathByMediaPath[cacheKey]
         if (preferredPath != null) {
-            return isExistingMediaPath(preferredPath)
+            if (isExistingMediaPath(preferredPath) && isValidAudioFile(preferredPath)) {
+                return true
+            } else {
+                preferredAudioSourcePathByMediaPath.remove(cacheKey)
+            }
         }
         if (cacheKey in unsupportedSourcePaths) return false
         return isExistingMediaPath(path)
@@ -864,11 +900,9 @@ class PreviewAudioPlayer(
     }
 
     private fun shouldPreferExtractedAudioFallback(sourcePath: String): Boolean {
-        if (sourcePath.isBlank()) return false
-        if (isAutomationSeedVideoPath(sourcePath)) return false
-        if (sourcePath.startsWith("content://")) return true
-        val extension = sourcePath.substringAfterLast('.', "").lowercase()
-        return extension in PREWARM_VIDEO_EXTENSIONS
+        // Direct playback of the source via FileDescriptor avoids long synchronous extraction loops.
+        // Extraction is only used as a fallback if MediaPlayer cannot play the source directly.
+        return false
     }
 
     private fun resolvePreferredPlayerPath(sourcePath: String): String {
@@ -880,13 +914,13 @@ class PreviewAudioPlayer(
             return sourcePath
         }
         preferredAudioSourcePathByMediaPath[cacheKey]
-            ?.takeIf { isExistingMediaPath(it) }
+            ?.takeIf { isExistingMediaPath(it) && isValidAudioFile(it) }
             ?.let { return it }
         if (!shouldPreferExtractedAudioFallback(sourcePath)) {
             return sourcePath
         }
         val fallbackPath = resolveExtractedAudioFallbackPath(sourcePath, rememberUnsupported = false)
-        if (!fallbackPath.isNullOrBlank() && isExistingMediaPath(fallbackPath)) {
+        if (!fallbackPath.isNullOrBlank() && isExistingMediaPath(fallbackPath) && isValidAudioFile(fallbackPath)) {
             preferredAudioSourcePathByMediaPath[cacheKey] = fallbackPath
             return fallbackPath
         }
@@ -895,9 +929,25 @@ class PreviewAudioPlayer(
 
     private fun setPlayerDataSource(player: MediaPlayer, sourcePath: String) {
         if (sourcePath.startsWith("content://")) {
-            player.setDataSource(appContext, Uri.parse(sourcePath))
+            val uri = Uri.parse(sourcePath)
+            val pfd = runCatching { appContext.contentResolver.openFileDescriptor(uri, "r") }.getOrNull()
+            if (pfd != null) {
+                pfd.use {
+                    player.setDataSource(it.fileDescriptor)
+                }
+            } else {
+                player.setDataSource(appContext, uri)
+            }
         } else {
-            player.setDataSource(sourcePath)
+            val normalizedPath = MediaPathResolver.normalizeForFileAccess(sourcePath)
+            val file = File(normalizedPath)
+            if (file.exists() && file.isFile) {
+                FileInputStream(file).use { fis ->
+                    player.setDataSource(fis.fd)
+                }
+            } else {
+                player.setDataSource(sourcePath)
+            }
         }
     }
 
@@ -944,14 +994,23 @@ class PreviewAudioPlayer(
         }
         val cacheKey = sourceCacheKey(sourcePath)
         preferredAudioSourcePathByMediaPath[cacheKey]
-            ?.takeIf { isExistingMediaPath(it) }
+            ?.takeIf { isExistingMediaPath(it) && isValidAudioFile(it) }
             ?.let { return it }
         if (!isExistingMediaPath(sourcePath)) {
             return null
         }
         val outputFile = File(previewAudioExtractDir, buildAudioFallbackFileName(sourcePath))
-        if (outputFile.exists() && outputFile.length() > 0L) {
-            return outputFile.absolutePath
+        if (outputFile.exists()) {
+            if (isValidAudioFile(outputFile.absolutePath)) {
+                return outputFile.absolutePath
+            } else {
+                outputFile.delete()
+            }
+        }
+
+        val tempFile = File(previewAudioExtractDir, "${outputFile.name}.tmp")
+        if (tempFile.exists()) {
+            tempFile.delete()
         }
 
         val extractor = MediaExtractor()
@@ -959,9 +1018,22 @@ class PreviewAudioPlayer(
         var muxerStarted = false
         return try {
             if (sourcePath.startsWith("content://")) {
-                extractor.setDataSource(appContext, Uri.parse(sourcePath), null)
+                val uri = Uri.parse(sourcePath)
+                val pfd = runCatching { appContext.contentResolver.openFileDescriptor(uri, "r") }.getOrNull()
+                if (pfd != null) {
+                    pfd.use { extractor.setDataSource(it.fileDescriptor) }
+                } else {
+                    extractor.setDataSource(appContext, uri, null)
+                }
             } else {
-                extractor.setDataSource(sourcePath)
+                val file = File(MediaPathResolver.normalizeForFileAccess(sourcePath))
+                if (file.exists() && file.isFile) {
+                    FileInputStream(file).use { fis ->
+                        extractor.setDataSource(fis.fd)
+                    }
+                } else {
+                    extractor.setDataSource(sourcePath)
+                }
             }
             var audioTrackIndex = -1
             var audioFormat: MediaFormat? = null
@@ -983,10 +1055,7 @@ class PreviewAudioPlayer(
             }
 
             extractor.selectTrack(audioTrackIndex)
-            if (outputFile.exists()) {
-                outputFile.delete()
-            }
-            muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            muxer = MediaMuxer(tempFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             val muxerTrackIndex = muxer.addTrack(audioFormat)
             muxer.start()
             muxerStarted = true
@@ -1022,19 +1091,27 @@ class PreviewAudioPlayer(
             muxer.release()
             muxer = null
 
-            if (outputFile.length() <= 0L) {
-                outputFile.delete()
+            if (tempFile.length() > 0L && isValidAudioFile(tempFile.absolutePath)) {
+                if (outputFile.exists()) {
+                    outputFile.delete()
+                }
+                if (tempFile.renameTo(outputFile)) {
+                    silentSourcePaths.remove(cacheKey)
+                    outputFile.absolutePath
+                } else {
+                    tempFile.delete()
+                    null
+                }
+            } else {
+                tempFile.delete()
                 if (rememberUnsupported) {
                     unsupportedSourcePaths.add(cacheKey)
                 }
                 null
-            } else {
-                silentSourcePaths.remove(cacheKey)
-                outputFile.absolutePath
             }
         } catch (error: Exception) {
             Log.w(TAG, "Failed to build preview audio fallback for $sourcePath: ${error.message}")
-            outputFile.delete()
+            tempFile.delete()
             null
         } finally {
             if (muxerStarted) {
@@ -1049,7 +1126,7 @@ class PreviewAudioPlayer(
         val signature = if (sourcePath.startsWith("content://")) {
             sourcePath.hashCode().toUInt().toString(16)
         } else {
-            val file = File(sourcePath)
+            val file = File(MediaPathResolver.normalizeForFileAccess(sourcePath))
             "${sourcePath.hashCode().toUInt().toString(16)}_${file.length()}_${file.lastModified()}"
         }
         return "preview_$signature.m4a"
