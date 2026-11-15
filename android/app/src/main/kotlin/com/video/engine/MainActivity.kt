@@ -2803,6 +2803,11 @@ class VideoEditorActivity : ComponentActivity() {
                 TimelineThumbnailCache.suspendRequests(60_000L)
                 AudioWaveformCache.suspendRequests(60_000L)
                 activeCanvasTimelineView()?.suspendAssetRequests(60_000L)
+                previewCropOverlayView?.visibility = View.GONE
+                previewCropFrameGuideView?.visibility = View.GONE
+                previewProGuidesOverlayView?.visibility = View.GONE
+                previewThirdsGuideView?.visibility = View.GONE
+                previewSafeAreaGuideView?.visibility = View.GONE
                 if (::playbackExportIssueDetector.isInitialized) {
                     playbackExportIssueDetector.onPlaybackStarted(timeMs)
                 }
@@ -2822,6 +2827,8 @@ class VideoEditorActivity : ComponentActivity() {
                 TimelineThumbnailCache.resumeRequests()
                 AudioWaveformCache.resumeRequests()
                 activeCanvasTimelineView()?.resumeAssetRequests()
+                syncPreviewCropModeUi()
+                syncPreviewProOverlayUi()
                 if (::playbackExportIssueDetector.isInitialized) {
                     playbackExportIssueDetector.onPlaybackPaused()
                 }
@@ -3084,6 +3091,7 @@ class VideoEditorActivity : ComponentActivity() {
                     else -> clipStartMs
                 }
                 currentTimeMs = revealTimeMs
+                updateTimelineTimeText(revealTimeMs)
                 forceImportedPreviewLayoutAndRender(revealTimeMs)
                 scheduleImportedClipSmartCrop(clipId, importPath, trackType, revealTimeMs)
                 schedulePostImportClipHydration(clipId, revealTimeMs)
@@ -3992,13 +4000,13 @@ class VideoEditorActivity : ComponentActivity() {
             previewGridVisible = false
         }
         val showGuides =
-            hasContent && !textLikeSelected && previewPanZoomControlsVisible && (previewGridVisible || previewSafeAreaVisible)
+            hasContent && !textLikeSelected && previewPanZoomControlsVisible && (previewGridVisible || previewSafeAreaVisible) && !isPlaying
         previewHudView?.visibility = View.GONE
         previewProGuidesOverlayView?.visibility = if (showGuides) View.VISIBLE else View.GONE
         previewThirdsGuideView?.visibility = if (showGuides && previewGridVisible) View.VISIBLE else View.GONE
         previewSafeAreaGuideView?.visibility = if (showGuides && previewSafeAreaVisible) View.VISIBLE else View.GONE
         previewFrameInfoChip?.visibility = View.GONE
-        if (textLikeSelected) {
+        if (textLikeSelected || isPlaying) {
             previewCropOverlayView?.visibility = View.GONE
         }
 
@@ -5086,7 +5094,7 @@ class VideoEditorActivity : ComponentActivity() {
     }
 
     private fun syncPreviewCropModeUi() {
-        val showCropUi = shouldShowDirectPreviewEdit()
+        val showCropUi = shouldShowDirectPreviewEdit() && !isPlaying
         previewCropModeActive = showCropUi
         if (!showCropUi) {
             previewCropModeClipKey = null
@@ -5098,9 +5106,9 @@ class VideoEditorActivity : ComponentActivity() {
                 previewTrimSession = null
             }
         }
-        val showPanZoomControls = showCropUi && previewPanZoomControlsVisible
+        val showPanZoomControls = showCropUi && previewPanZoomControlsVisible && !isPlaying
         val showDirectResizeHandles = showCropUi && canDirectPreviewTransformSelectedClip() && !isPlaying
-        previewCropOverlayView?.visibility = if (showCropUi) View.VISIBLE else View.GONE
+        previewCropOverlayView?.visibility = if (showCropUi && !isPlaying) View.VISIBLE else View.GONE
         previewCropFrameGuideView?.visibility = if (showDirectResizeHandles) View.VISIBLE else View.GONE
         previewCropFrameGuideView?.alpha = if (showDirectResizeHandles) 1f else 0f
         findViewById<View?>(R.id.previewCropTopRail)?.visibility = if (showPanZoomControls) View.VISIBLE else View.GONE
@@ -5116,7 +5124,7 @@ class VideoEditorActivity : ComponentActivity() {
             visibility = View.VISIBLE
             bringToFront()
         }
-        if (showCropUi) {
+        if (showCropUi && !isPlaying) {
             refreshPreviewCropStatus()
             if (showDirectResizeHandles) {
                 layoutSelectedPreviewObjectFrame()
@@ -12437,6 +12445,7 @@ class VideoEditorActivity : ComponentActivity() {
             updateBottomToolbarMode()
             updatePreviewEmptyState()
         }
+        updateTimelineTimeText(currentTimeMs)
     }
 
     private fun syncPreviewAudioClipsToNative(): Boolean {
@@ -12760,6 +12769,7 @@ class VideoEditorActivity : ComponentActivity() {
         recordUndoDomain(UndoDomain.TIMELINE)
         runOnUiThread {
             refreshMainTimelineTracks()
+            updateTimelineTimeText(stabilizedPreviewTimeMs)
             stabilizeAfterSplit(stabilizedPreviewTimeMs, selectionKeyForNativeClipId(rightClipId ?: clipId))
             if (rightClipId != null) {
                 timelineCanvasView()?.notifyClipSplit(clipId.toString(), rightClipId.toString())

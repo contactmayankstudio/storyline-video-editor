@@ -832,7 +832,8 @@ class ImportController(
             status.ready -> {
                 Log.d(TAG, "Proxy ready clip=$clipId proxy=${status.proxyPath}")
                 val timelineClips = timelineManagerProvider()?.getClips().orEmpty()
-                if (timelineClips.size == 1 && timelineClips.firstOrNull()?.id == clipId) {
+                val clipExists = timelineClips.isEmpty() || timelineClips.any { it.id == clipId }
+                if (clipExists) {
                     val shouldDefer = shouldDeferBackgroundWorkProvider()
                     if (isPlayingProvider() || shouldDefer) {
                         Log.d(TAG, "Proxy activation deferred while busy clip=$clipId playing=${isPlayingProvider()} busy=$shouldDefer")
