@@ -61,7 +61,7 @@
 | M2 | Fun Camera Smart Face Action Triggers & Particles | `FaceLandmarkTracker.kt`, `SmoothedFaceData`, Zero-allocation particle engine, mouth open bursts, smile Kawaii triggers, wink star flash | none | DONE |
 | M3 | Fun Camera Snapchat-Style Shutter & Gestures | `CameraShutterButton.kt`, `FunCameraActivity.kt` viewfinder gestures (swipe, double-tap, tap-to-focus, drag-to-zoom), layout updates | none | DONE |
 | M4 | Fun Camera Beauty Glow, Cinematic FX & Photo Baking | `CameraFilterOverlayView.kt` filter implementations (Beauty, VHS, Cyberpunk, Night flash), `drawCaptureLayers`, `FunCameraActivity.capturePhoto` baking | M2, M3 | DONE |
-| M5 | Comprehensive Code Verification & Forensic Audit | Unit tests for data models & math, static analysis, syntax verification, reviewer approval, challenger verification, forensic integrity audit | M1, M2, M3, M4 | IN_PROGRESS |
+| M5 | Comprehensive Code Verification & Forensic Audit | Unit tests for data models & math, static analysis, syntax verification, reviewer approval, challenger verification, forensic integrity audit | M1, M2, M3, M4 | DONE |
 
 ## Interface Contracts
 

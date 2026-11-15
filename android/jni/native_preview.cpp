@@ -4329,7 +4329,7 @@ transcode_clip_done:
 
                     if (!atEndOfTimeline && preview->isPlaying()) {
                         // Transient drop during active playback: keep playing with steady cadence.
-                        sleepMs = std::max<int64_t>(16, preview->preferredRenderSleepMs());
+                        sleepMs = adjustedPlaybackSleepMs(preview, renderCostMs);
                     } else {
                         // Real render failure or end-of-timeline: attempt recovery or stop.
                         const char* lastError = preview->getLastError();
@@ -4364,7 +4364,7 @@ transcode_clip_done:
                 }
 
                 if (g_isRenderingActive.load(std::memory_order_acquire)) {
-                    sleepMs = std::max<int64_t>(16, preview->preferredRenderSleepMs());
+                    sleepMs = adjustedPlaybackSleepMs(preview, renderCostMs);
                 } else {
                     sleepMs = 4;
                 }
