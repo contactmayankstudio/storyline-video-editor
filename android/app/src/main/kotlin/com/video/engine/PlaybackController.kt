@@ -472,7 +472,7 @@ class PlaybackController(
             ?.setCurrentTimeMs(timeMs, animate = false)
         onPlaybackTimeChanged?.invoke(timeMs)
 
-        if (heavyUiDue) {
+        if (clockDue) {
             lastHeavyUiApplyRealtimeMs = nowMs
         }
         lastLoggedPlaybackTimeMs = timeMs
