@@ -1,0 +1,86 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Make Gradle wrapper executable
+        working-directory: android
+        run: chmod +x gradlew
+
+      - name: Restore google-services.json
+        working-directory: android
+        run: |
+          if [ ! -f "app/google-services.json" ]; then
+            echo '{"project_info":{"project_number":"394439942843","project_id":"storyline-video-editor","storage_bucket":"storyline-video-editor.firebasestorage.app"},"client":[{"client_info":{"mobilesdk_app_id":"1:394439942843:android:bf3aa9f3e5dc1184f83f9e","android_client_info":{"package_name":"com.storyline.videoeditor"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyBue3Tfx9rE970EnVIjTbQVok6i6GnCjZ0"}],"services":{"appinvite_service":{"other_platform_oauth_client":[]}}}],"configuration_version":"1"}' > app/google-services.json
+          fi
+
+      - name: Build Play Release & Debug APK
+        working-directory: android
+        env:
+          ANDROID_DEBUG_KEYSTORE_PATH: ${{ github.workspace }}/android/debug.keystore.stable
+          ANDROID_DEBUG_KEYSTORE_PASSWORD: android
+          ANDROID_DEBUG_KEY_ALIAS: androiddebugkey
+          ANDROID_DEBUG_KEY_PASSWORD: android
+        run: |
+          ./gradlew assemblePlayRelease assemblePlayDebug --stacktrace --no-daemon
+
+      - name: Collect Output APKs
+        run: |
+          mkdir -p release-apks
+          find android/app/build/outputs/apk -name "*.apk" -exec cp {} release-apks/ \;
+          ls -la release-apks/
+          cp $(find android/app/build/outputs/apk/play/release -name "*.apk" | head -n 1) release-apks/Storyline-Release.apk 2>/dev/null || true
+          cp $(find android/app/build/outputs/apk/play/debug -name "*.apk" | head -n 1) release-apks/Storyline-Debug.apk 2>/dev/null || true
+
+      - name: Upload APK Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: storyline-apks
+          path: release-apks/*.apk
+
+      - name: Publish Direct APK to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Storyline Latest Android Build"
+          body: |
+            ### 📱 Storyline Latest Android Build
+            - **Build Run:** #${{ github.run_number }}
+            - **Branch:** `${{ github.ref_name }}`
+            - **Commit:** `${{ github.sha }}`
+
+            #### 📥 Direct 1-Click Install Links:
+            - **[Download Storyline-Release.apk](https://github.com/${{ github.repository }}/releases/download/latest/Storyline-Release.apk)** (Production / Release Build)
+            - **[Download Storyline-Debug.apk](https://github.com/${{ github.repository }}/releases/download/latest/Storyline-Debug.apk)** (Debug Build)
+          draft: false
+          prerelease: false
+          files: |
+            release-apks/Storyline-Release.apk
+            release-apks/Storyline-Debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
