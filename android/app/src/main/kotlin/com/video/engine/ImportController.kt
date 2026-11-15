@@ -725,12 +725,7 @@ class ImportController(
     }
 
     private fun resolveRequestedStartTimeMs(trackType: TrackType, requestedStartTimeMs: Long): Long {
-        val safeRequested = requestedStartTimeMs.coerceAtLeast(0L)
-        return if (trackType == TrackType.VIDEO && sharedVideoAppendCursorMs > safeRequested) {
-            sharedVideoAppendCursorMs
-        } else {
-            safeRequested
-        }
+        return requestedStartTimeMs.coerceAtLeast(0L)
     }
 
     private fun maybeStartGhostProxyBuild(clipId: Int, importPath: String, trackType: TrackType) {

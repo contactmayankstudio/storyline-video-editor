@@ -1623,6 +1623,50 @@ public:
             if (m_trackRole != VideoEngine::Clip::TrackRole::MainVideo) {
                 startTimeMs = context.currentTimeMs ? std::max<int64_t>(0, context.currentTimeMs->load()) : 0;
             }
+        } else if (m_trackRole == VideoEngine::Clip::TrackRole::MainVideo) {
+            const int64_t primaryDuration = primaryTrackDuration(timeline.get());
+            if (startTimeMs < primaryDuration) {
+                // Playhead is inside existing content: ripple-insert at startTimeMs
+                std::shared_ptr<VideoEngine::Clip> clipToSplit = nullptr;
+                for (const auto& c : timeline->clips()) {
+                    if (!c || c->getTrackRole() != VideoEngine::Clip::TrackRole::MainVideo) continue;
+                    if (startTimeMs > c->getStartTime() && startTimeMs < (c->getStartTime() + c->getDuration())) {
+                        clipToSplit = c;
+                        break;
+                    }
+                }
+                if (clipToSplit) {
+                    const int64_t clipStart = clipToSplit->getStartTime();
+                    const int64_t clipDuration = clipToSplit->getDuration();
+                    const int64_t clipEnd = clipStart + clipDuration;
+                    VideoEngine::Clip::TimeMs sIn = 0, sOut = 0;
+                    clipToSplit->getTrimPoints(sIn, sOut);
+                    if (sOut <= sIn) sOut = sIn + clipDuration;
+
+                    const int64_t leftDuration = startTimeMs - clipStart;
+                    const int64_t rightDuration = clipEnd - startTimeMs;
+                    const int64_t splitSourceMs = sIn + leftDuration;
+
+                    clipToSplit->setTimelinePosition(clipStart, leftDuration);
+                    clipToSplit->setTrimPoints(sIn, splitSourceMs);
+                    clampClipAudioGainKeyframes(clipToSplit.get());
+
+                    auto rightClip = cloneClipRange(
+                        *clipToSplit,
+                        startTimeMs + durationMs,
+                        rightDuration,
+                        splitSourceMs,
+                        sOut);
+                    timeline->addClip(rightClip);
+                }
+                for (const auto& c : timeline->clips()) {
+                    if (!c || c->getTrackRole() != VideoEngine::Clip::TrackRole::MainVideo) continue;
+                    if (c == clipToSplit) continue;
+                    if (c->getStartTime() >= startTimeMs) {
+                        c->setTimelinePosition(c->getStartTime() + durationMs, c->getDuration());
+                    }
+                }
+            }
         }
         auto clip = std::make_shared<VideoEngine::Clip>(m_path, startTimeMs, durationMs);
         clip->setEnabled(true);
@@ -1637,13 +1681,12 @@ public:
             (m_trackRole == VideoEngine::Clip::TrackRole::MainVideo ||
                 m_trackRole == VideoEngine::Clip::TrackRole::Overlay);
 #endif
-        if (m_trackRole == VideoEngine::Clip::TrackRole::MainVideo && !explicitStartRequested) {
+        if (m_trackRole == VideoEngine::Clip::TrackRole::MainVideo) {
             normalizePrimaryTrack(timeline.get());
-            // Always render first frame after adding a video clip (fixes black preview)
-            if (g_nativeWindow && (*context.preview)->isReady()) {
-                const int64_t seekMs = context.currentTimeMs ? context.currentTimeMs->load() : 0;
-                g_pendingScrubMs.store(static_cast<long long>(seekMs), std::memory_order_release);
-            }
+        }
+        // Always render first frame after adding a video clip (fixes black preview and shows inserted frame)
+        if (g_nativeWindow && (*context.preview)->isReady()) {
+            g_pendingScrubMs.store(static_cast<long long>(startTimeMs), std::memory_order_release);
         }
         scheduleClipWarmupAsync(clip->getId(), m_path, m_trackRole);
         return CommandResult::ok(
